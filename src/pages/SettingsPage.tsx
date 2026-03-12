@@ -91,7 +91,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               ? 'Meny'
               : language === 'es-PE'
                 ? 'Menú'
-                : 'Menue',
+                : 'Menü',
     closeLabel:
       language === 'en'
         ? 'Close settings'
