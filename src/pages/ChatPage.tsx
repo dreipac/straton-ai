@@ -199,6 +199,7 @@ export function ChatPage() {
   const greetingName = profile?.first_name || displayName.split(' ')[0] || 'da'
 
   const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const logoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
 
   if (!user) {
     return (
@@ -208,7 +209,7 @@ export function ChatPage() {
             {!isSidebarCollapsed ? (
               <div className="chat-sidebar-header-row">
                 <div className="chat-brand">
-                  <img className="ui-icon chat-brand-logo" src="/assets/logo/Straton.png" alt="" aria-hidden="true" />
+                  <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                   <h2>Straton</h2>
                 </div>
                 <button
@@ -233,7 +234,7 @@ export function ChatPage() {
                 aria-label="Sidebar ausfahren"
                 onClick={() => setIsSidebarCollapsed(false)}
               >
-                <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src="/assets/logo/Straton.png" alt="" aria-hidden="true" />
+                <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
               </button>
             ) : null}
             <button type="button" onClick={() => navigate('/login')} aria-label={isSidebarCollapsed ? 'Anmelden' : undefined}>
@@ -297,7 +298,7 @@ export function ChatPage() {
           {!isSidebarCollapsed ? (
             <div className="chat-sidebar-header-row">
               <div className="chat-brand">
-                <img className="ui-icon chat-brand-logo" src="/assets/logo/Straton.png" alt="" aria-hidden="true" />
+                <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                 <h2>Straton</h2>
               </div>
               <button
@@ -327,7 +328,7 @@ export function ChatPage() {
                 setIsProfileMenuOpen(false)
               }}
             >
-              <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src="/assets/logo/Straton.png" alt="" aria-hidden="true" />
+              <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
             </button>
           ) : null}
           <button
