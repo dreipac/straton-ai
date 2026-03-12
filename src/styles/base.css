@@ -1,0 +1,122 @@
+@font-face {
+  font-family: 'SegUIVar';
+  src: url('../assets/fonts/SegUIVar.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  font-family: SegUIVar, Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-optical-sizing: auto;
+  font-variation-settings: 'opsz' 32;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #0f172a;
+  background-color: #f3f5f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #14b8a6 52%, #0ea5e9 100%);
+  --accent-gradient-line: linear-gradient(
+    90deg,
+    rgba(37, 99, 235, 0),
+    #2563eb 18%,
+    #14b8a6 58%,
+    rgba(14, 165, 233, 0)
+  );
+  --interactive-hover-bg: #f8fafc;
+  --interactive-hover-border: #d5deea;
+  --interactive-hover-text: #0f172a;
+  --interactive-hover-bg-dark: #252b35;
+  --interactive-hover-border-dark: #3a424f;
+  --interactive-hover-text-dark: #f9fafb;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: #334155;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #0f172a;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+input,
+button {
+  font: inherit;
+  border-radius: 12px;
+  border: 1px solid #d7deea;
+  padding: 0.65rem 0.8rem;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+input {
+  width: 100%;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover:enabled {
+  border-color: #c3cedd;
+  background: #f8fafc;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error-text {
+  color: #fda4af;
+  margin: 0;
+}
+
+:root[data-theme='dark'] {
+  color: #e5e7eb;
+  background-color: #111317;
+}
+
+:root[data-theme='dark'] body {
+  background: #111317;
+}
+
+:root[data-theme='dark'] a {
+  color: #cbd5e1;
+}
+
+:root[data-theme='dark'] a:hover {
+  color: #f8fafc;
+}
+
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] button {
+  border-color: #313742;
+  background: #1b1f26;
+  color: #f9fafb;
+}
+
+:root[data-theme='dark'] button:hover:enabled {
+  border-color: #444b58;
+  background: #242934;
+}
