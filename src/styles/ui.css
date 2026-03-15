@@ -15,6 +15,12 @@
   display: inline-block;
 }
 
+/* Recolor monochrome SVG icons to match active theme. */
+.ui-icon:not(.chat-brand-logo):not(.chat-brand-logo-collapsed) {
+  filter: var(--icon-filter);
+  transition: filter 160ms ease;
+}
+
 .ui-icon-xs {
   --ui-icon-size: 12px;
 }

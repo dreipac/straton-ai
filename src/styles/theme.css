@@ -1,0 +1,158 @@
+:root,
+:root[data-theme='light'] {
+  --color-bg-app: #f3f5f9;
+  --color-text-app: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #6b7280;
+  --color-border: #e2e8f0;
+  --color-border-strong: #d7deea;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f8fafc;
+  --color-surface-elevated: #f7f9fc;
+  --color-shadow-strong: rgba(15, 23, 42, 0.22);
+  --color-shadow-soft: rgba(15, 23, 42, 0.06);
+  --color-overlay: rgba(15, 23, 42, 0.28);
+  --color-link: #334155;
+  --color-link-hover: #0f172a;
+  --color-error: #fda4af;
+  --interactive-hover-bg: #f8fafc;
+  --interactive-hover-border: #d5deea;
+  --interactive-hover-text: #0f172a;
+  --interactive-hover-bg-dark: #f1f5f9;
+  --interactive-hover-border-dark: #d5deea;
+  --interactive-hover-text-dark: #0f172a;
+
+  --color-success-bg: #ecfdf3;
+  --color-success-text: #166534;
+  --color-success-border: #bbf7d0;
+  --color-success-spinner: #16a34a;
+  --color-success-spinner-soft: #86efac;
+
+  --color-close-hover-bg: #fecaca;
+  --color-close-hover-icon: #dc2626;
+  --color-danger-text: #dc2626;
+  --color-danger-bg-soft: #fee2e2;
+  --color-danger-border: #fca5a5;
+  --color-danger-icon-filter: brightness(0) saturate(100%) invert(20%) sepia(74%) saturate(2868%)
+    hue-rotate(349deg) brightness(91%) contrast(91%);
+  --icon-filter: brightness(0) saturate(100%) invert(14%) sepia(14%) saturate(1300%) hue-rotate(179deg)
+    brightness(95%) contrast(92%);
+  --icon-filter-muted: brightness(0) saturate(100%) invert(35%) sepia(12%) saturate(760%) hue-rotate(179deg)
+    brightness(93%) contrast(88%);
+
+  --settings-modal-bg: var(--color-surface);
+  --settings-sidebar-bg: var(--color-surface-soft);
+  --settings-body-bg: var(--color-surface);
+  --settings-card-bg: var(--color-surface-soft);
+  --app-background: #f3f5f9;
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --chat-user-bubble-bg: #eef2f7;
+  --chat-user-bubble-border: #d9e1ec;
+  --chat-user-bubble-text: #0f172a;
+  --chat-user-bubble-bg-dark: #2a303a;
+  --chat-user-bubble-border-dark: #4a5261;
+  --chat-user-bubble-text-dark: #f8fafc;
+  --scrollbar-track: rgba(148, 163, 184, 0.14);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.52);
+  --scrollbar-thumb-hover: rgba(71, 85, 105, 0.72);
+}
+
+:root[data-theme='dark'] {
+  --color-bg-app: #0b0f14;
+  --color-text-app: #eef2f9;
+  --color-text-secondary: #c5cfde;
+  --color-text-muted: #95a3b8;
+  --color-border: #2a3442;
+  --color-border-strong: #344154;
+  --color-surface: #131a23;
+  --color-surface-soft: #18202b;
+  --color-surface-elevated: #202a36;
+  --color-shadow-strong: rgba(0, 0, 0, 0.45);
+  --color-shadow-soft: rgba(0, 0, 0, 0.35);
+  --color-overlay: rgba(5, 8, 12, 0.55);
+  --color-link: #d1d9e6;
+  --color-link-hover: #f8fbff;
+  --color-error: #fda4af;
+  --interactive-hover-bg: #263141;
+  --interactive-hover-border: #3b4a60;
+  --interactive-hover-text: #f5f8ff;
+  --interactive-hover-bg-dark: #2b3748;
+  --interactive-hover-border-dark: #44556d;
+  --interactive-hover-text-dark: #f5f8ff;
+
+  --color-success-bg: #173b2b;
+  --color-success-text: #bbf7d0;
+  --color-success-border: #2f6a4b;
+  --color-success-spinner: #86efac;
+  --color-success-spinner-soft: #4ade80;
+
+  --color-close-hover-bg: #4a1d1d;
+  --color-close-hover-icon: #fca5a5;
+  --color-danger-text: #f87171;
+  --color-danger-bg-soft: #3f2323;
+  --color-danger-border: #7f3b3b;
+  --color-danger-icon-filter: brightness(0) saturate(100%) invert(69%) sepia(42%) saturate(1017%)
+    hue-rotate(312deg) brightness(101%) contrast(95%);
+  --icon-filter: brightness(0) saturate(100%) invert(93%) sepia(12%) saturate(341%) hue-rotate(183deg)
+    brightness(103%) contrast(96%);
+  --icon-filter-muted: brightness(0) saturate(100%) invert(78%) sepia(10%) saturate(474%) hue-rotate(180deg)
+    brightness(92%) contrast(88%);
+
+  --settings-modal-bg: var(--color-surface);
+  --settings-sidebar-bg: #101720;
+  --settings-body-bg: var(--color-surface);
+  --settings-card-bg: var(--color-surface-soft);
+  --app-background: #0b0f14;
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --chat-user-bubble-bg: #eef2f7;
+  --chat-user-bubble-border: #d9e1ec;
+  --chat-user-bubble-text: #0f172a;
+  --chat-user-bubble-bg-dark: #2a303a;
+  --chat-user-bubble-border-dark: #4a5261;
+  --chat-user-bubble-text-dark: #f8fafc;
+  --scrollbar-track: rgba(71, 85, 105, 0.24);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.42);
+  --scrollbar-thumb-hover: rgba(203, 213, 225, 0.56);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] {
+  --color-bg-app: #1a1020;
+  --color-text-app: #f8effa;
+  --color-text-secondary: #e9d4ea;
+  --color-text-muted: #c7a6cb;
+  --color-border: rgba(244, 114, 182, 0.34);
+  --color-border-strong: rgba(249, 168, 212, 0.45);
+  --color-surface: rgba(42, 22, 52, 0.58);
+  --color-surface-soft: rgba(55, 28, 67, 0.5);
+  --color-surface-elevated: rgba(70, 35, 86, 0.58);
+  --color-shadow-strong: rgba(30, 10, 36, 0.6);
+  --color-shadow-soft: rgba(30, 10, 36, 0.45);
+  --color-overlay: rgba(17, 9, 21, 0.62);
+  --color-link: #f3d7f6;
+  --color-link-hover: #fde9ff;
+  --interactive-hover-bg: #44295a;
+  --interactive-hover-border: #7a4a95;
+  --interactive-hover-text: #fdefff;
+  --interactive-hover-bg-dark: #4f2f67;
+  --interactive-hover-border-dark: #8d58a8;
+  --interactive-hover-text-dark: #fff1ff;
+  --settings-modal-bg: rgba(35, 18, 43, 0.68);
+  --settings-sidebar-bg: rgba(28, 14, 36, 0.74);
+  --settings-body-bg: rgba(37, 18, 45, 0.46);
+  --settings-card-bg: rgba(55, 28, 67, 0.55);
+  --app-background:
+    radial-gradient(1200px 700px at 10% 6%, rgba(236, 72, 153, 0.42), transparent 58%),
+    radial-gradient(1000px 680px at 92% 10%, rgba(168, 85, 247, 0.36), transparent 56%),
+    radial-gradient(1200px 740px at 52% 100%, rgba(244, 114, 182, 0.3), transparent 62%),
+    linear-gradient(160deg, #150a1c 0%, #23102d 45%, #140a1b 100%);
+  --glass-blur: 18px;
+  --glass-saturation: 145%;
+  --chat-user-bubble-bg-dark: rgba(244, 114, 182, 0.25);
+  --chat-user-bubble-border-dark: rgba(244, 114, 182, 0.45);
+  --chat-user-bubble-text-dark: #fff1fb;
+  --scrollbar-track: rgba(244, 114, 182, 0.16);
+  --scrollbar-thumb: rgba(236, 72, 153, 0.44);
+  --scrollbar-thumb-hover: rgba(244, 114, 182, 0.62);
+}

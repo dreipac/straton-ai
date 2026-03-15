@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import sendIcon from '../../../assets/icons/send.svg'
 import type { ChatMessage } from '../types'
 
@@ -21,8 +21,12 @@ export function ChatWindow({
   const isEmptyState = messages.length === 0
   const [isInputFocused, setIsInputFocused] = useState(false)
   const [caretLeft, setCaretLeft] = useState(0)
+  const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const inputRef = useRef<HTMLInputElement | null>(null)
   const measurerRef = useRef<HTMLSpanElement | null>(null)
+  const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
+  const animationTimersRef = useRef<number[]>([])
+  const wasSendingRef = useRef(isSending)
 
   const updateSmoothCaret = useCallback(() => {
     const inputElement = inputRef.current
@@ -47,6 +51,67 @@ export function ChatWindow({
   useLayoutEffect(() => {
     updateSmoothCaret()
   }, [draft, updateSmoothCaret])
+
+  useEffect(() => {
+    return () => {
+      animationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+      animationTimersRef.current = []
+    }
+  }, [])
+
+  useEffect(() => {
+    const latestMessage = messages[messages.length - 1]
+    const shouldAnimateLatestAssistant =
+      wasSendingRef.current &&
+      !isSending &&
+      latestMessage?.role === 'assistant' &&
+      !animatedAssistantIdsRef.current.has(latestMessage.id)
+
+    for (const message of messages) {
+      if (message.role !== 'assistant') {
+        continue
+      }
+
+      const alreadyHandled = animatedAssistantIdsRef.current.has(message.id)
+      if (alreadyHandled) {
+        continue
+      }
+
+      if (shouldAnimateLatestAssistant && latestMessage?.id === message.id) {
+        const fullContent = message.content
+        const stepSize = Math.max(1, Math.ceil(fullContent.length / 90))
+        let cursor = 0
+
+        const run = () => {
+          cursor = Math.min(cursor + stepSize, fullContent.length)
+          setAnimatedAssistantContent((prev) => ({
+            ...prev,
+            [message.id]: fullContent.slice(0, cursor),
+          }))
+
+          if (cursor < fullContent.length) {
+            const timerId = window.setTimeout(run, 18)
+            animationTimersRef.current.push(timerId)
+            return
+          }
+
+          animatedAssistantIdsRef.current.add(message.id)
+        }
+
+        const startTimerId = window.setTimeout(run, 0)
+        animationTimersRef.current.push(startTimerId)
+        continue
+      }
+
+      const immediateTimerId = window.setTimeout(() => {
+        setAnimatedAssistantContent((prev) => ({ ...prev, [message.id]: message.content }))
+      }, 0)
+      animationTimersRef.current.push(immediateTimerId)
+      animatedAssistantIdsRef.current.add(message.id)
+    }
+
+    wasSendingRef.current = isSending
+  }, [isSending, messages])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -103,19 +168,18 @@ export function ChatWindow({
 
   return (
     <section className="chat-panel">
-      <header className="chat-header">
-        <h1>Straton AI Chat</h1>
-        <p>Mock-Provider aktiv. API-Provider kann spaeter ausgetauscht werden.</p>
-      </header>
-
       <div className="chat-messages">
         {messages.map((message) => (
           <article
             key={message.id}
             className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}
           >
-            <strong>{message.role === 'user' ? 'Du' : 'Assistant'}</strong>
-            <p>{message.content}</p>
+            {message.role === 'assistant' ? <strong>Straton AI</strong> : null}
+            <p>
+              {message.role === 'assistant'
+                ? (animatedAssistantContent[message.id] ?? message.content)
+                : message.content}
+            </p>
           </article>
         ))}
       </div>

@@ -6,7 +6,6 @@ import newMessageIcon from '../assets/icons/newMessage.svg'
 import personalizeIcon from '../assets/icons/personalize.svg'
 import statusIcon from '../assets/icons/status.svg'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
-import { env } from '../config/env'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
 import { AiSettingsSection } from '../features/settings/components/AiSettingsSection'
 import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
@@ -26,6 +25,11 @@ import {
   DEFAULT_HOVER_PALETTE_ID,
   HOVER_STORAGE_KEY,
 } from '../features/settings/constants/hoverPalettes'
+import {
+  applyMessageBoxPalette,
+  DEFAULT_MESSAGE_BOX_PALETTE_ID,
+  MESSAGE_BOX_STORAGE_KEY,
+} from '../features/settings/constants/messageBoxPalettes'
 
 type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'account'
 
@@ -44,9 +48,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const { user, profile, isLoading, error, isConfigured, updateAutoRemoveEmptyChats, updateProfileNames, updateLanguage } =
     useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
     const persistedTheme = window.localStorage.getItem('straton-theme')
-    return persistedTheme === 'dark' || persistedTheme === 'light' ? persistedTheme : 'dark'
+    return persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'
+      ? persistedTheme
+      : 'dark'
   })
   const [sidebarScale, setSidebarScale] = useState<'100' | '75'>(() => {
     const persistedScale = window.localStorage.getItem('straton-sidebar-scale')
@@ -69,6 +75,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [hoverPaletteId, setHoverPaletteId] = useState(() => {
     const persistedHoverPalette = window.localStorage.getItem(HOVER_STORAGE_KEY)
     return applyHoverPalette(persistedHoverPalette ?? DEFAULT_HOVER_PALETTE_ID)
+  })
+  const [messageBoxPaletteId, setMessageBoxPaletteId] = useState(() => {
+    const persistedMessageBoxPalette = window.localStorage.getItem(MESSAGE_BOX_STORAGE_KEY)
+    return applyMessageBoxPalette(persistedMessageBoxPalette ?? DEFAULT_MESSAGE_BOX_PALETTE_ID)
   })
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
@@ -267,7 +277,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   ]
 
   useEffect(() => {
-    document.documentElement.dataset.theme = themeMode
+    const baseTheme = themeMode === 'light' ? 'light' : 'dark'
+    document.documentElement.dataset.theme = baseTheme
+    document.documentElement.dataset.themeVariant = themeMode === 'pink-glass' ? 'pink-glass' : ''
     window.localStorage.setItem('straton-theme', themeMode)
   }, [themeMode])
 
@@ -298,6 +310,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
     window.localStorage.setItem(HOVER_STORAGE_KEY, appliedHoverPaletteId)
   }, [hoverPaletteId])
+
+  useEffect(() => {
+    const appliedMessageBoxPaletteId = applyMessageBoxPalette(messageBoxPaletteId)
+    if (appliedMessageBoxPaletteId !== messageBoxPaletteId) {
+      setMessageBoxPaletteId(appliedMessageBoxPaletteId)
+      return
+    }
+    window.localStorage.setItem(MESSAGE_BOX_STORAGE_KEY, appliedMessageBoxPaletteId)
+  }, [messageBoxPaletteId])
 
   const activeSectionConfig = sections.find((section) => section.id === activeSection) ?? sections[0]
   const autoRemoveEmptyChats = profile?.auto_remove_empty_chats ?? true
@@ -464,7 +485,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
           ) : null}
           {activeSection === 'ai' ? (
-            <AiSettingsSection aiProvider={env.aiProvider} />
+            <AiSettingsSection />
           ) : null}
           {activeSection === 'personalize' ? (
             <PersonalizeSettingsSection
@@ -472,10 +493,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               sidebarScale={sidebarScale}
               accentPaletteId={accentPaletteId}
               hoverPaletteId={hoverPaletteId}
-              onToggleTheme={() => setThemeMode((prev) => (prev === 'light' ? 'dark' : 'light'))}
+              messageBoxPaletteId={messageBoxPaletteId}
+              onChangeThemeMode={setThemeMode}
               onChangeSidebarScale={setSidebarScale}
               onChangeAccentPalette={setAccentPaletteId}
               onChangeHoverPalette={setHoverPaletteId}
+              onChangeMessageBoxPalette={setMessageBoxPaletteId}
             />
           ) : null}
           {activeSection === 'chat' ? (

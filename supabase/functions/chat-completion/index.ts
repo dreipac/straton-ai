@@ -48,35 +48,48 @@ async function getProviderApiKey(
 }
 
 async function callOpenAi(messages: InputMessage[], apiKey: string): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      })),
-      temperature: 0.7,
-    }),
-  })
+  const modelsToTry = ['gpt-5-mini', 'gpt-4o-mini']
 
-  if (!response.ok) {
-    throw new Error(`OpenAI Anfrage fehlgeschlagen (${response.status}).`)
+  for (const model of modelsToTry) {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        temperature: 0.7,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      const modelUnavailable =
+        response.status === 400 &&
+        (errorText.includes('model') || errorText.includes('does not exist') || errorText.includes('not found'))
+
+      if (modelUnavailable && model !== modelsToTry[modelsToTry.length - 1]) {
+        continue
+      }
+
+      throw new Error(`OpenAI Anfrage fehlgeschlagen (${response.status}).`)
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    const content = data.choices?.[0]?.message?.content?.trim()
+    if (content) {
+      return content
+    }
   }
 
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-  const content = data.choices?.[0]?.message?.content?.trim()
-  if (!content) {
-    throw new Error('OpenAI hat keine Antwort geliefert.')
-  }
-
-  return content
+  throw new Error('OpenAI hat keine Antwort geliefert.')
 }
 
 async function callAnthropic(messages: InputMessage[], apiKey: string): Promise<string> {
@@ -159,6 +172,7 @@ serve(async (req) => {
       messages?: unknown
     }
     const provider = normalizeProvider(body.provider)
+
     const inputMessages = Array.isArray(body.messages) ? body.messages : []
 
     const messages: InputMessage[] = inputMessages

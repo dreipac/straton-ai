@@ -52,6 +52,7 @@ export function ChatPage() {
   const [renameDraft, setRenameDraft] = useState('')
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
@@ -107,7 +108,21 @@ export function ChatPage() {
     }
   }, [])
 
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsMobileSidebarOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [])
+
   function openSettingsModal() {
+    setIsMobileSidebarOpen(false)
     if (settingsCloseTimerRef.current) {
       window.clearTimeout(settingsCloseTimerRef.current)
       settingsCloseTimerRef.current = null
@@ -128,6 +143,7 @@ export function ChatPage() {
   }
 
   function openAdminModal() {
+    setIsMobileSidebarOpen(false)
     if (adminCloseTimerRef.current) {
       window.clearTimeout(adminCloseTimerRef.current)
       adminCloseTimerRef.current = null
@@ -148,6 +164,7 @@ export function ChatPage() {
   }
 
   function openRenameModal(thread: ChatThread) {
+    setIsMobileSidebarOpen(false)
     if (renameCloseTimerRef.current) {
       window.clearTimeout(renameCloseTimerRef.current)
       renameCloseTimerRef.current = null
@@ -203,7 +220,11 @@ export function ChatPage() {
 
   if (!user) {
     return (
-      <main className={`chat-app-shell chat-app-shell-guest ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+      <main
+        className={`chat-app-shell chat-app-shell-guest ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
+          isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
+        }`}
+      >
         <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
           <div className="chat-sidebar-top">
             {!isSidebarCollapsed ? (
@@ -287,12 +308,32 @@ export function ChatPage() {
             />
           </div>
         </section>
+        <button
+          type="button"
+          className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
+          aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
+          onClick={() => {
+            setIsSidebarCollapsed(false)
+            setIsMobileSidebarOpen((prev) => !prev)
+          }}
+        >
+          <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+        </button>
+        <div
+          className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
+          onClick={() => setIsMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
       </main>
     )
   }
 
   return (
-    <main className={`chat-app-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+    <main
+      className={`chat-app-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
+        isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
+      }`}
+    >
       <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
         <div className="chat-sidebar-top">
           {!isSidebarCollapsed ? (
@@ -376,54 +417,11 @@ export function ChatPage() {
                     selectChat(thread.id)
                     setOpenMenuThreadId(null)
                     setContextMenuPosition(null)
+                    setIsMobileSidebarOpen(false)
                   }}
                   onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
                 >
                   <span className="chat-thread-title">{thread.title}</span>
-
-                  <div
-                    ref={openMenuThreadId === thread.id ? menuWrapperRef : null}
-                    className={`chat-thread-menu-anchor ${openMenuThreadId === thread.id ? 'is-open' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="thread-menu-trigger"
-                      aria-label="Chat Aktionen"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setContextMenuPosition(null)
-                        setOpenMenuThreadId((prev) => (prev === thread.id ? null : thread.id))
-                      }}
-                    >
-                      <span className="ui-icon thread-menu-icon" aria-hidden="true" />
-                    </button>
-
-                    {openMenuThreadId === thread.id && !contextMenuPosition ? (
-                      <ContextMenu>
-                        <MenuItem
-                          iconSrc={editIcon}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            openRenameModal(thread)
-                          }}
-                        >
-                          Bearbeiten
-                        </MenuItem>
-                        <MenuItem
-                          iconSrc={deleteIcon}
-                          danger
-                          onClick={async (event) => {
-                            event.stopPropagation()
-                            await deleteChat(thread.id)
-                            setOpenMenuThreadId(null)
-                            setContextMenuPosition(null)
-                          }}
-                        >
-                          Löschen
-                        </MenuItem>
-                      </ContextMenu>
-                    ) : null}
-                  </div>
                 </div>
               </div>
             ))}
@@ -492,6 +490,22 @@ export function ChatPage() {
           onSendMessage={submitMessage}
         />
       </section>
+      <button
+        type="button"
+        className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
+        aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
+        onClick={() => {
+          setIsSidebarCollapsed(false)
+          setIsMobileSidebarOpen((prev) => !prev)
+        }}
+      >
+        <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+      </button>
+      <div
+        className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
+        onClick={() => setIsMobileSidebarOpen(false)}
+        aria-hidden="true"
+      />
 
       {isSettingsMounted ? (
         <ModalShell isOpen={isSettingsVisible}>

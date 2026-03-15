@@ -11,6 +11,12 @@ import {
   DEFAULT_HOVER_PALETTE_ID,
   HOVER_STORAGE_KEY,
 } from './features/settings/constants/hoverPalettes'
+import {
+  applyMessageBoxPalette,
+  DEFAULT_MESSAGE_BOX_PALETTE_ID,
+  MESSAGE_BOX_STORAGE_KEY,
+} from './features/settings/constants/messageBoxPalettes'
+import './styles/theme.css'
 import './styles/base.css'
 import './styles/ui.css'
 import './styles/menus.css'
@@ -20,9 +26,12 @@ import './styles/settings.css'
 import './styles/auth.css'
 
 const persistedTheme = window.localStorage.getItem('straton-theme')
-const initialTheme =
-  persistedTheme === 'light' || persistedTheme === 'dark' ? persistedTheme : 'dark'
-document.documentElement.dataset.theme = initialTheme
+const initialThemeMode =
+  persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'
+    ? persistedTheme
+    : 'dark'
+document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' : 'dark'
+document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
 
 const persistedSidebarScale = window.localStorage.getItem('straton-sidebar-scale')
 const initialSidebarScale = persistedSidebarScale === '75' ? '75' : '100'
@@ -35,6 +44,10 @@ window.localStorage.setItem(ACCENT_STORAGE_KEY, initialAccentPaletteId)
 const persistedHoverPaletteId = window.localStorage.getItem(HOVER_STORAGE_KEY)
 const initialHoverPaletteId = applyHoverPalette(persistedHoverPaletteId ?? DEFAULT_HOVER_PALETTE_ID)
 window.localStorage.setItem(HOVER_STORAGE_KEY, initialHoverPaletteId)
+
+const persistedMessageBoxPaletteId = window.localStorage.getItem(MESSAGE_BOX_STORAGE_KEY)
+const initialMessageBoxPaletteId = applyMessageBoxPalette(persistedMessageBoxPaletteId ?? DEFAULT_MESSAGE_BOX_PALETTE_ID)
+window.localStorage.setItem(MESSAGE_BOX_STORAGE_KEY, initialMessageBoxPaletteId)
 
 const persistedLanguage = window.localStorage.getItem('straton-language')
 document.documentElement.lang =
