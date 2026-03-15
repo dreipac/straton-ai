@@ -626,12 +626,14 @@
     border-color: transparent;
   }
 
-  .mobile-sidebar-pill:hover:enabled {
+  .mobile-sidebar-pill:hover:enabled,
+  .mobile-sidebar-pill:active:enabled {
     background: var(--color-surface-elevated);
     border-color: var(--color-border);
   }
 
-  .mobile-sidebar-pill.is-open:hover:enabled {
+  .mobile-sidebar-pill.is-open:hover:enabled,
+  .mobile-sidebar-pill.is-open:active:enabled {
     background: var(--interactive-hover-bg);
     border-color: transparent;
   }
