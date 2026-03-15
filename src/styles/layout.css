@@ -512,6 +512,7 @@
 
 @media (max-width: 860px) {
   .chat-app-shell {
+    --mobile-sidebar-width: min(86vw, 340px);
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     min-height: 100vh;
@@ -522,7 +523,7 @@
   .chat-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: min(86vw, 340px);
+    width: var(--mobile-sidebar-width);
     height: 100vh;
     height: 100dvh;
     max-height: none;
@@ -537,9 +538,9 @@
     visibility: hidden;
     pointer-events: none;
     transition:
-      transform 220ms ease,
-      opacity 220ms ease,
-      visibility 0ms linear 220ms;
+      transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 320ms ease,
+      visibility 0ms linear 360ms;
     z-index: 70;
   }
 
@@ -550,7 +551,7 @@
     pointer-events: auto;
     box-shadow: 16px 0 44px rgba(15, 23, 42, 0.24);
     transition:
-      transform 220ms ease,
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
       opacity 220ms ease,
       visibility 0ms linear 0ms;
   }
@@ -615,6 +616,10 @@
     z-index: 80;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    transition:
+      left 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 200ms ease,
+      box-shadow 220ms ease;
   }
 
   .mobile-sidebar-pill-icon {
@@ -624,6 +629,7 @@
   .mobile-sidebar-pill.is-open {
     background: var(--color-surface-elevated);
     border-color: var(--color-border);
+    left: calc(var(--mobile-sidebar-width) + 0.55rem);
   }
 
   .mobile-sidebar-pill:hover:enabled,
@@ -645,7 +651,7 @@
     background: rgba(2, 6, 23, 0.35);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 180ms ease;
+    transition: opacity 300ms ease;
     z-index: 65;
   }
 

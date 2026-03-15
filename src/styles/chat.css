@@ -279,6 +279,30 @@
     padding: 0 0.65rem calc(0.6rem + env(safe-area-inset-bottom));
   }
 
+  .chat-panel.is-empty {
+    place-items: stretch;
+    align-content: stretch;
+  }
+
+  .chat-panel.is-empty .chat-empty-compose {
+    min-height: 100%;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    align-content: stretch;
+  }
+
+  .chat-panel.is-empty .chat-empty-title {
+    align-self: end;
+    margin-bottom: 0.25rem;
+  }
+
+  .chat-panel.is-empty .chat-input-row.is-centered {
+    margin-top: 0;
+    position: sticky;
+    bottom: max(0.1rem, env(safe-area-inset-bottom));
+    z-index: 6;
+  }
+
   .chat-panel:not(.is-empty) .chat-input-row {
     position: sticky;
     bottom: max(0.1rem, env(safe-area-inset-bottom));
