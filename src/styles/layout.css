@@ -531,14 +531,28 @@
     border-right: 1px solid #e2e8f0;
     border-bottom: none;
     grid-template-rows: auto auto auto;
-    box-shadow: 16px 0 44px rgba(15, 23, 42, 0.24);
+    box-shadow: none;
     transform: translateX(-108%);
-    transition: transform 220ms ease;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform 220ms ease,
+      opacity 220ms ease,
+      visibility 0ms linear 220ms;
     z-index: 70;
   }
 
   .chat-app-shell.is-mobile-sidebar-open .chat-sidebar {
     transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    box-shadow: 16px 0 44px rgba(15, 23, 42, 0.24);
+    transition:
+      transform 220ms ease,
+      opacity 220ms ease,
+      visibility 0ms linear 0ms;
   }
 
   .chat-sidebar .sidebar-toggle-button {
@@ -599,6 +613,8 @@
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
     padding: 0;
     z-index: 80;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 
   .mobile-sidebar-pill-icon {
@@ -610,8 +626,18 @@
     border-color: transparent;
   }
 
+  .mobile-sidebar-pill:hover:enabled {
+    background: var(--color-surface-elevated);
+    border-color: var(--color-border);
+  }
+
+  .mobile-sidebar-pill.is-open:hover:enabled {
+    background: var(--interactive-hover-bg);
+    border-color: transparent;
+  }
+
   .mobile-sidebar-backdrop {
-    display: block;
+    display: none;
     position: fixed;
     inset: 0;
     background: rgba(2, 6, 23, 0.35);
@@ -622,6 +648,7 @@
   }
 
   .chat-app-shell.is-mobile-sidebar-open .mobile-sidebar-backdrop {
+    display: block;
     opacity: 1;
     pointer-events: auto;
   }
