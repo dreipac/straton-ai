@@ -198,6 +198,14 @@ export function ChatPage() {
     closeRenameModal()
   }
 
+  async function handleCreateNewChat() {
+    await createNewChat()
+    setOpenMenuThreadId(null)
+    setContextMenuPosition(null)
+    setIsProfileMenuOpen(false)
+    setIsMobileSidebarOpen(false)
+  }
+
   function openThreadContextMenu(event: ReactMouseEvent, threadId: string) {
     event.preventDefault()
     event.stopPropagation()
@@ -392,7 +400,9 @@ export function ChatPage() {
           ) : null}
           <button
             type="button"
-            onClick={createNewChat}
+            onClick={() => {
+              void handleCreateNewChat()
+            }}
             aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
           >
             <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
