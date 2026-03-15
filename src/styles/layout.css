@@ -622,8 +622,8 @@
   }
 
   .mobile-sidebar-pill.is-open {
-    background: var(--interactive-hover-bg);
-    border-color: transparent;
+    background: var(--color-surface-elevated);
+    border-color: var(--color-border);
   }
 
   .mobile-sidebar-pill:hover:enabled,
@@ -634,8 +634,8 @@
 
   .mobile-sidebar-pill.is-open:hover:enabled,
   .mobile-sidebar-pill.is-open:active:enabled {
-    background: var(--interactive-hover-bg);
-    border-color: transparent;
+    background: var(--color-surface-elevated);
+    border-color: var(--color-border);
   }
 
   .mobile-sidebar-backdrop {
