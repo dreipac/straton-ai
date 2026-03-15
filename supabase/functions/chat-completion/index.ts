@@ -16,6 +16,18 @@ type InputMessage = {
   content: string
 }
 
+type QuizEvaluationPayload = {
+  question: string
+  expectedAnswer: string
+  acceptableAnswers?: string[]
+  userAnswer: string
+}
+
+type QuizEvaluationResult = {
+  isCorrect: boolean
+  feedback: string
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -33,6 +45,59 @@ function jsonResponse(payload: unknown, status = 200) {
 
 function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
+}
+
+function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' {
+  return value === 'evaluate_quiz' ? 'evaluate_quiz' : 'chat'
+}
+
+function sanitizeQuizEvaluationPayload(value: unknown): QuizEvaluationPayload | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const payload = value as Record<string, unknown>
+  const question = typeof payload.question === 'string' ? payload.question.trim() : ''
+  const expectedAnswer = typeof payload.expectedAnswer === 'string' ? payload.expectedAnswer.trim() : ''
+  const userAnswer = typeof payload.userAnswer === 'string' ? payload.userAnswer.trim() : ''
+  const acceptableAnswers = Array.isArray(payload.acceptableAnswers)
+    ? payload.acceptableAnswers
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : undefined
+
+  if (!question || !expectedAnswer || !userAnswer) {
+    return null
+  }
+
+  return {
+    question,
+    expectedAnswer,
+    acceptableAnswers,
+    userAnswer,
+  }
+}
+
+function parseQuizEvaluationResult(raw: string): QuizEvaluationResult {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('KI Bewertung konnte nicht als JSON gelesen werden.')
+  }
+
+  const jsonChunk = trimmed.slice(start, end + 1)
+  const parsed = JSON.parse(jsonChunk) as { isCorrect?: unknown; feedback?: unknown }
+  const isCorrect = parsed.isCorrect === true
+  const feedback =
+    typeof parsed.feedback === 'string' && parsed.feedback.trim()
+      ? parsed.feedback.trim()
+      : isCorrect
+        ? 'Richtig.'
+        : 'Nicht ganz korrekt.'
+
+  return { isCorrect, feedback }
 }
 
 async function getProviderApiKey(
@@ -130,6 +195,45 @@ async function callAnthropic(messages: InputMessage[], apiKey: string): Promise<
   return content
 }
 
+async function evaluateQuizWithAi(
+  provider: Provider,
+  payload: QuizEvaluationPayload,
+  apiKey: string,
+): Promise<QuizEvaluationResult> {
+  const acceptableAnswers = payload.acceptableAnswers?.length
+    ? payload.acceptableAnswers.join(' | ')
+    : '(keine)'
+
+  const evaluationMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Du bist ein strenger, aber fairer Pruefungs-Korrektor.',
+        'Bewerte semantisch, nicht nur exakt wortgleich.',
+        'Antworte ausschliesslich als JSON Objekt ohne weiteren Text.',
+        'Schema: {"isCorrect": boolean, "feedback": string}',
+        'feedback kurz halten (max 220 Zeichen), auf Deutsch.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        `Frage: ${payload.question}`,
+        `Erwartete Antwort: ${payload.expectedAnswer}`,
+        `Alternative Antworten: ${acceptableAnswers}`,
+        `Antwort vom Nutzer: ${payload.userAnswer}`,
+      ].join('\n'),
+    },
+  ]
+
+  const raw =
+    provider === 'anthropic'
+      ? await callAnthropic(evaluationMessages, apiKey)
+      : await callOpenAi(evaluationMessages, apiKey)
+
+  return parseQuizEvaluationResult(raw)
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -168,10 +272,23 @@ serve(async (req) => {
 
   try {
     const body = (await req.json()) as {
+      mode?: unknown
       provider?: unknown
       messages?: unknown
+      payload?: unknown
     }
+    const mode = normalizeMode(body.mode)
     const provider = normalizeProvider(body.provider)
+    const apiKey = await getProviderApiKey(provider)
+    if (mode === 'evaluate_quiz') {
+      const payload = sanitizeQuizEvaluationPayload(body.payload)
+      if (!payload) {
+        return jsonResponse({ error: 'Ungueltige Bewertungsdaten uebermittelt.' }, 400)
+      }
+
+      const evaluation = await evaluateQuizWithAi(provider, payload, apiKey)
+      return jsonResponse({ evaluation })
+    }
 
     const inputMessages = Array.isArray(body.messages) ? body.messages : []
 
@@ -196,7 +313,6 @@ serve(async (req) => {
       return jsonResponse({ error: 'Keine gueltigen Nachrichten uebermittelt.' }, 400)
     }
 
-    const apiKey = await getProviderApiKey(provider)
     const assistantContent =
       provider === 'anthropic'
         ? await callAnthropic(messages, apiKey)

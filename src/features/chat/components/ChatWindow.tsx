@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import sendIcon from '../../../assets/icons/send.svg'
+import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
+import { parseInteractiveContent } from '../utils/interactiveQuiz'
 
 type ChatWindowProps = {
   messages: ChatMessage[]
@@ -8,6 +10,14 @@ type ChatWindowProps = {
   error: string | null
   greetingName: string
   onSendMessage: (content: string) => Promise<void>
+}
+
+type QuizAnswerStatus = 'idle' | 'correct' | 'incorrect'
+
+type QuizAnswerState = {
+  value: string
+  status: QuizAnswerStatus
+  feedback: string
 }
 
 export function ChatWindow({
@@ -22,6 +32,8 @@ export function ChatWindow({
   const [isInputFocused, setIsInputFocused] = useState(false)
   const [caretLeft, setCaretLeft] = useState(0)
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
+  const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLInputElement | null>(null)
   const measurerRef = useRef<HTMLSpanElement | null>(null)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
@@ -113,6 +125,69 @@ export function ChatWindow({
     wasSendingRef.current = isSending
   }, [isSending, messages])
 
+  function getQuizAnswerKey(messageId: string, questionId: string) {
+    return `${messageId}::${questionId}`
+  }
+
+  function getQuizAnswerState(messageId: string, questionId: string): QuizAnswerState {
+    const key = getQuizAnswerKey(messageId, questionId)
+    return quizAnswers[key] ?? { value: '', status: 'idle', feedback: '' }
+  }
+
+  function updateQuizAnswerValue(messageId: string, questionId: string, value: string) {
+    const key = getQuizAnswerKey(messageId, questionId)
+    setQuizAnswers((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? { status: 'idle', feedback: '' }),
+        value,
+      },
+    }))
+  }
+
+  async function checkQuizAnswer(message: ChatMessage, questionId: string) {
+    const parsed = parseInteractiveContent(message.content)
+    if (!parsed.quiz) {
+      return
+    }
+
+    const question = parsed.quiz.questions.find((entry) => entry.id === questionId)
+    if (!question) {
+      return
+    }
+
+    const key = getQuizAnswerKey(message.id, questionId)
+    const current = quizAnswers[key] ?? { value: '', status: 'idle', feedback: '' }
+    setQuizChecksInProgress((prev) => ({ ...prev, [key]: true }))
+
+    try {
+      const result = await evaluateQuizAnswerWithAi({
+        question,
+        userAnswer: current.value,
+      })
+
+      setQuizAnswers((prev) => ({
+        ...prev,
+        [key]: {
+          value: current.value,
+          status: result.isCorrect ? 'correct' : 'incorrect',
+          feedback: result.feedback,
+        },
+      }))
+    } catch {
+      setQuizAnswers((prev) => ({
+        ...prev,
+        [key]: {
+          value: current.value,
+          status: 'incorrect',
+          feedback: 'KI Bewertung momentan nicht erreichbar. Bitte erneut pruefen.',
+        },
+      }))
+    } finally {
+      setQuizChecksInProgress((prev) => ({ ...prev, [key]: false }))
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -169,19 +244,82 @@ export function ChatWindow({
   return (
     <section className="chat-panel">
       <div className="chat-messages">
-        {messages.map((message) => (
-          <article
-            key={message.id}
-            className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}
-          >
-            {message.role === 'assistant' ? <strong>Straton AI</strong> : null}
-            <p>
-              {message.role === 'assistant'
-                ? (animatedAssistantContent[message.id] ?? message.content)
-                : message.content}
-            </p>
-          </article>
-        ))}
+        {messages.map((message) => {
+          const isAssistant = message.role === 'assistant'
+          const parsed = isAssistant ? parseInteractiveContent(message.content) : null
+          const hasInteractiveQuiz = Boolean(parsed?.quiz)
+          const animatedContent = animatedAssistantContent[message.id] ?? message.content
+          const displayContent = hasInteractiveQuiz
+            ? parsed?.cleanText || ''
+            : isAssistant
+              ? animatedContent
+              : message.content
+
+          return (
+            <article
+              key={message.id}
+              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}
+            >
+              {isAssistant ? <strong>Straton AI</strong> : null}
+              {displayContent ? <p>{displayContent}</p> : null}
+
+              {hasInteractiveQuiz ? (
+                <section className="interactive-quiz-block" aria-label="Interaktive Pruefungsfragen">
+                  {parsed?.quiz?.title ? <h4 className="interactive-quiz-title">{parsed.quiz.title}</h4> : null}
+
+                  {parsed?.quiz?.questions.map((question) => {
+                    const current = getQuizAnswerState(message.id, question.id)
+                    const key = getQuizAnswerKey(message.id, question.id)
+                    const isChecking = quizChecksInProgress[key] === true
+                    const statusClass =
+                      current.status === 'correct'
+                        ? 'is-correct'
+                        : current.status === 'incorrect'
+                          ? 'is-incorrect'
+                          : ''
+
+                    return (
+                      <div key={question.id} className={`interactive-quiz-question ${statusClass}`}>
+                        <p className="interactive-quiz-prompt">{question.prompt}</p>
+                        <div className="interactive-quiz-answer-row">
+                          <input
+                            type="text"
+                            value={current.value}
+                            onChange={(event) =>
+                              updateQuizAnswerValue(message.id, question.id, event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                void checkQuizAnswer(message, question.id)
+                              }
+                            }}
+                            placeholder="Deine Antwort..."
+                            disabled={isChecking}
+                          />
+                          <button
+                            type="button"
+                            className={`interactive-quiz-check ${statusClass}`}
+                            aria-label="Antwort pruefen"
+                            onClick={() => {
+                              void checkQuizAnswer(message, question.id)
+                            }}
+                            disabled={!current.value.trim() || isChecking}
+                          >
+                            {isChecking ? '…' : '○'}
+                          </button>
+                        </div>
+                        {current.feedback ? (
+                          <p className={`interactive-quiz-feedback ${statusClass}`}>{current.feedback}</p>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </section>
+              ) : null}
+            </article>
+          )
+        })}
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}
