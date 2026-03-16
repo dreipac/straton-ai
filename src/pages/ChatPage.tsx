@@ -6,6 +6,7 @@ import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import accountIcon from '../assets/icons/account.svg'
+import aiIcon from '../assets/icons/ai.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
@@ -387,6 +388,17 @@ export function ChatPage() {
           >
             <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
             {!isSidebarCollapsed ? 'Einstellungen' : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              navigate('/learn')
+              setIsMobileSidebarOpen(false)
+            }}
+            aria-label={isSidebarCollapsed ? 'KI Lehrer' : undefined}
+          >
+            <img className="ui-icon chat-sidebar-top-button-icon" src={aiIcon} alt="" aria-hidden="true" />
+            {!isSidebarCollapsed ? 'KI Lehrer' : null}
           </button>
           {profile?.is_superadmin ? (
             <button

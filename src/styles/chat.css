@@ -117,10 +117,20 @@
   padding: 0.15rem 0;
 }
 
-.chat-message strong {
+.chat-message-author {
   font-size: 0.78rem;
   color: #64748b;
 }
+:root[data-theme='dark'] .chat-message-author {
+  color: #94a3b8;
+}
+
+.chat-message p strong {
+  font-size: inherit;
+  color: inherit;
+  font-weight: 700;
+}
+
 
 .chat-message p {
   margin: 0.25rem 0 0;
@@ -477,10 +487,6 @@
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-}
-
-:root[data-theme='dark'] .chat-message strong {
-  color: #94a3b8;
 }
 
 :root[data-theme='dark'] .chat-message p {

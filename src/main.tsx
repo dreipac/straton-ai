@@ -22,6 +22,7 @@ import './styles/ui.css'
 import './styles/menus.css'
 import './styles/layout.css'
 import './styles/chat.css'
+import './styles/learn.css'
 import './styles/settings.css'
 import './styles/auth.css'
 

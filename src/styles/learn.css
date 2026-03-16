@@ -1,0 +1,157 @@
+.learn-shell {
+  --sidebar-width: 300px;
+}
+
+.learn-main {
+  padding: 1.1rem 1.15rem;
+  overflow-y: auto;
+}
+
+.learn-page-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(260px, 340px) minmax(240px, 300px) minmax(320px, 1fr);
+  align-items: start;
+}
+
+.learn-card {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 0.9rem;
+  background: var(--color-surface);
+  box-shadow: 0 4px 14px var(--color-shadow-soft);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.learn-card h1,
+.learn-card h2 {
+  margin: 0;
+  color: var(--color-text-app);
+}
+
+.learn-card p,
+.learn-muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.learn-loading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+
+.learn-materials-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.learn-material-item {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+  padding: 0.5rem 0.55rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.learn-material-name {
+  margin: 0;
+  color: var(--color-text-app);
+  font-weight: 600;
+}
+
+.learn-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--color-text-app);
+}
+
+.learn-progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-border);
+}
+
+.learn-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-image: var(--accent-gradient);
+}
+
+.learn-success {
+  margin: 0;
+  color: #16a34a;
+  font-size: 0.84rem;
+}
+
+.learn-history {
+  display: grid;
+  gap: 0.42rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.learn-history-item {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.45rem 0.5rem;
+  background: var(--color-surface-elevated);
+}
+
+.learn-history-item p {
+  margin: 0;
+}
+
+.learn-quiz-card {
+  min-height: min(600px, calc(100dvh - 3rem));
+  max-height: calc(100dvh - 3rem);
+  overflow-y: auto;
+}
+
+.learn-quiz-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.learn-intro {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1200px) {
+  .learn-page-grid {
+    grid-template-columns: minmax(260px, 1fr) minmax(280px, 1fr);
+  }
+
+  .learn-quiz-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 860px) {
+  .learn-main {
+    padding: 0.85rem 0.8rem calc(0.85rem + env(safe-area-inset-bottom));
+  }
+
+  .learn-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .learn-card {
+    border-radius: 14px;
+    padding: 0.8rem;
+  }
+
+  .learn-quiz-card {
+    min-height: auto;
+    max-height: none;
+  }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import sendIcon from '../../../assets/icons/send.svg'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
@@ -39,6 +39,41 @@ export function ChatWindow({
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
   const wasSendingRef = useRef(isSending)
+
+  function renderInlineMarkdown(content: string): ReactNode[] {
+    const fragments: ReactNode[] = []
+    let cursor = 0
+    let keyIndex = 0
+
+    while (cursor < content.length) {
+      const start = content.indexOf('**', cursor)
+      if (start === -1) {
+        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
+        break
+      }
+
+      const end = content.indexOf('**', start + 2)
+      if (end === -1) {
+        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
+        break
+      }
+
+      if (start > cursor) {
+        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor, start)}</span>)
+      }
+
+      const boldText = content.slice(start + 2, end)
+      if (boldText) {
+        fragments.push(<strong key={`bold-${keyIndex++}`}>{boldText}</strong>)
+      } else {
+        fragments.push(<span key={`plain-${keyIndex++}`}>****</span>)
+      }
+
+      cursor = end + 2
+    }
+
+    return fragments
+  }
 
   const updateSmoothCaret = useCallback(() => {
     const inputElement = inputRef.current
@@ -260,8 +295,8 @@ export function ChatWindow({
               key={message.id}
               className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}
             >
-              {isAssistant ? <strong>Straton AI</strong> : null}
-              {displayContent ? <p>{displayContent}</p> : null}
+              {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
+              {displayContent ? <p>{renderInlineMarkdown(displayContent)}</p> : null}
 
               {hasInteractiveQuiz ? (
                 <section className="interactive-quiz-block" aria-label="Interaktive Pruefungsfragen">

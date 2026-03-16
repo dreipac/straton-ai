@@ -1,5 +1,6 @@
 import { Navigate, RouterProvider, createHashRouter } from 'react-router-dom'
 import { ChatPage } from '../pages/ChatPage'
+import { LearnPage } from '../pages/LearnPage'
 import { LoginPage } from '../pages/LoginPage'
 
 const router = createHashRouter([
@@ -14,6 +15,10 @@ const router = createHashRouter([
   {
     path: '/chat',
     element: <ChatPage />,
+  },
+  {
+    path: '/learn',
+    element: <LearnPage />,
   },
   {
     path: '/settings',
