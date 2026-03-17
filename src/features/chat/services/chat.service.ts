@@ -8,6 +8,10 @@ type SendMessageResult = {
   assistantMessage: ChatMessage
 }
 
+type GenerateTitleResult = {
+  title: string
+}
+
 type EvaluateQuizAnswerInput = {
   question: InteractiveQuizQuestion
   userAnswer: string
@@ -23,18 +27,20 @@ type GatewayMessage = {
   content: string
 }
 
+const MAX_CHAT_TITLE_LENGTH = 42
+
 const INTERACTIVE_QUIZ_PROMPT = [
   'Du bist Straton AI.',
-  'Wenn der Nutzer nach einer Pruefung, einem Quiz, Test oder Lernaufgaben fragt, liefere immer direkt ein interaktives Quiz mit strukturiertem Quiz-Block.',
-  'Stelle in diesem Fall keine Rueckfrage, ob es interaktiv sein soll.',
-  'Erstelle die interaktiven Fragen sofort in derselben Antwort.',
+  'Erzeuge ein interaktives Quiz nur dann, wenn der Nutzer es explizit verlangt.',
+  'Als explizite Signale gelten z.B.: "mach ein Quiz", "interaktives Quiz", "Einstiegstest", "Teste mich", "Quiz starten".',
+  'Wenn der Nutzer nicht explizit ein Quiz verlangt, antworte normal ohne Quiz-JSON-Block.',
   'Format des Blocks (ohne Code-Fences, exakt die Marker verwenden):',
   '<<<STRATON_QUIZ_JSON>>>',
   '{"title":"...","questions":[{"id":"q1","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."}]}',
   '<<<END_STRATON_QUIZ_JSON>>>',
   'Regeln:',
-  '- Bei Pruefungs/Quiz/Test-Anfragen: zuerst kurzer Einleitungstext, danach genau ein Quiz-JSON-Block in derselben Antwort.',
-  '- Frage den Nutzer nicht nach dem Modus, sondern liefere direkt interaktiv.',
+  '- Nur bei expliziter Quiz-Anfrage: zuerst kurzer Einleitungstext, danach genau ein Quiz-JSON-Block in derselben Antwort.',
+  '- Ohne explizite Quiz-Anfrage niemals Quiz-JSON ausgeben.',
   '- Gib mindestens 3 Fragen zur Uebung aus.',
   '- expectedAnswer kurz und klar halten.',
   '- acceptableAnswers optional als Liste moeglicher Alternativen.',
@@ -93,6 +99,58 @@ export async function sendMessage(messages: ChatMessage[]): Promise<SendMessageR
   return {
     assistantMessage: createAssistantMessage(content),
   }
+}
+
+function fallbackChatTitle(messages: ChatMessage[]): string {
+  const firstUser = messages.find((message) => message.role === 'user')?.content?.trim() ?? ''
+  if (!firstUser) {
+    return 'Neuer Chat'
+  }
+  return firstUser.length > MAX_CHAT_TITLE_LENGTH
+    ? `${firstUser.slice(0, MAX_CHAT_TITLE_LENGTH)}...`
+    : firstUser
+}
+
+function sanitizeChatTitle(raw: string): string {
+  const compact = raw
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact) {
+    return ''
+  }
+  return compact.length > MAX_CHAT_TITLE_LENGTH ? compact.slice(0, MAX_CHAT_TITLE_LENGTH).trim() : compact
+}
+
+export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {
+  if (env.aiProvider !== 'openai') {
+    return { title: fallbackChatTitle(messages) }
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      mode: 'generate_title',
+      provider: 'openai',
+      payload: {
+        messages: messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      },
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const title = sanitizeChatTitle(String(data?.title ?? ''))
+  if (!title) {
+    return { title: fallbackChatTitle(messages) }
+  }
+
+  return { title }
 }
 
 export async function evaluateQuizAnswerWithAi(

@@ -163,6 +163,31 @@
   color: var(--interactive-hover-text);
 }
 
+.chat-dev-badge {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.25rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.14);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.chat-beta-badge {
+  margin-left: 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0.2rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.16);
+  color: #7c3aed;
+  border: 1px solid rgba(139, 92, 246, 0.32);
+}
+
 .chat-sidebar-top-button-icon {
   --ui-icon-size: 19px;
 }
@@ -173,6 +198,7 @@
   align-content: start;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0.2rem;
 }
 
@@ -222,6 +248,7 @@
 }
 
 .chat-thread-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

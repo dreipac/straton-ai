@@ -241,6 +241,7 @@ export function ChatPage() {
                 <div className="chat-brand">
                   <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                   <h2>Straton</h2>
+                  <span className="chat-beta-badge">Beta</span>
                 </div>
                 <button
                   type="button"
@@ -279,6 +280,7 @@ export function ChatPage() {
 
           {!isSidebarCollapsed ? (
             <div className="chat-thread-list">
+              <p className="thread-list-info">Chats</p>
               <p className="thread-list-info">Melde dich an, um deine Chats in der Sidebar zu sehen.</p>
             </div>
           ) : null}
@@ -350,6 +352,7 @@ export function ChatPage() {
               <div className="chat-brand">
                 <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                 <h2>Straton</h2>
+                <span className="chat-beta-badge">Beta</span>
               </div>
               <button
                 type="button"
@@ -398,7 +401,12 @@ export function ChatPage() {
             aria-label={isSidebarCollapsed ? 'KI Lehrer' : undefined}
           >
             <img className="ui-icon chat-sidebar-top-button-icon" src={aiIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'KI Lehrer' : null}
+            {!isSidebarCollapsed ? (
+              <>
+                KI Lehrer
+                <span className="chat-dev-badge">In Entwicklung</span>
+              </>
+            ) : null}
           </button>
           {profile?.is_superadmin ? (
             <button
@@ -424,6 +432,7 @@ export function ChatPage() {
 
         {!isSidebarCollapsed ? (
           <div className="chat-thread-list">
+            <p className="thread-list-info">Chats</p>
             {isBootstrapping ? <p className="thread-list-info">Lade Chats...</p> : null}
             {threads.map((thread) => (
               <div

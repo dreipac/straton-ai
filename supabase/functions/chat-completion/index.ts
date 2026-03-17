@@ -47,8 +47,14 @@ function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' {
-  return value === 'evaluate_quiz' ? 'evaluate_quiz' : 'chat'
+function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' | 'generate_title' {
+  if (value === 'evaluate_quiz') {
+    return 'evaluate_quiz'
+  }
+  if (value === 'generate_title') {
+    return 'generate_title'
+  }
+  return 'chat'
 }
 
 function sanitizeQuizEvaluationPayload(value: unknown): QuizEvaluationPayload | null {
@@ -234,6 +240,55 @@ async function evaluateQuizWithAi(
   return parseQuizEvaluationResult(raw)
 }
 
+function sanitizeGeneratedTitle(raw: string): string {
+  const compact = raw
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact) {
+    return ''
+  }
+  return compact.length > 42 ? compact.slice(0, 42).trim() : compact
+}
+
+async function generateTitleWithAi(
+  provider: Provider,
+  sourceMessages: InputMessage[],
+  apiKey: string,
+): Promise<string> {
+  const transcript = sourceMessages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-8)
+    .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+    .join('\n')
+
+  const titleMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Erzeuge einen kurzen Chat-Titel auf Deutsch.',
+        'Maximal 6 Woerter und maximal 42 Zeichen.',
+        'Nur den Titel ausgeben, ohne Anfuehrungszeichen und ohne Satzzeichen am Ende.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: transcript || 'Allgemeiner Chat',
+    },
+  ]
+
+  const raw =
+    provider === 'anthropic'
+      ? await callAnthropic(titleMessages, apiKey)
+      : await callOpenAi(titleMessages, apiKey)
+
+  const cleaned = sanitizeGeneratedTitle(raw)
+  if (!cleaned) {
+    throw new Error('Titel konnte nicht generiert werden.')
+  }
+  return cleaned
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -290,7 +345,14 @@ serve(async (req) => {
       return jsonResponse({ evaluation })
     }
 
-    const inputMessages = Array.isArray(body.messages) ? body.messages : []
+    const inputMessages =
+      mode === 'generate_title'
+        ? Array.isArray((body.payload as { messages?: unknown } | undefined)?.messages)
+          ? ((body.payload as { messages?: unknown }).messages as unknown[])
+          : []
+        : Array.isArray(body.messages)
+          ? body.messages
+          : []
 
     const messages: InputMessage[] = inputMessages
       .map((message) => {
@@ -311,6 +373,11 @@ serve(async (req) => {
 
     if (messages.length === 0) {
       return jsonResponse({ error: 'Keine gueltigen Nachrichten uebermittelt.' }, 400)
+    }
+
+    if (mode === 'generate_title') {
+      const title = await generateTitleWithAi(provider, messages, apiKey)
+      return jsonResponse({ title })
     }
 
     const assistantContent =

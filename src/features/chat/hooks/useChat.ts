@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
-import { sendMessage } from '../services/chat.service'
+import { generateChatTitleWithAi, sendMessage } from '../services/chat.service'
 import {
   createChatMessage,
   createChatThread,
@@ -383,10 +383,10 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
       }))
 
       const shouldRename = activeThread?.title === 'Neuer Chat' || isTemporaryThread
-      const nextTitle = shouldRename ? createChatTitle(trimmed) : activeThread?.title
+      const provisionalTitle = shouldRename ? createChatTitle(trimmed) : activeThread?.title
 
-      if (nextTitle && shouldRename) {
-        await updateChatThreadTitle(targetThreadId, nextTitle)
+      if (provisionalTitle && shouldRename) {
+        await updateChatThreadTitle(targetThreadId, provisionalTitle)
       }
 
       await touchChatThread(targetThreadId)
@@ -396,7 +396,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           thread.id === targetThreadId
             ? {
                 ...thread,
-                title: nextTitle ?? thread.title,
+                title: provisionalTitle ?? thread.title,
                 updatedAt: new Date().toISOString(),
               }
             : thread,
@@ -429,6 +429,41 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         )
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
+
+      if (shouldRename) {
+        void (async () => {
+          try {
+            const { title } = await generateChatTitleWithAi([
+              ...nextMessages,
+              {
+                id: storedAssistantMessage.id,
+                role: 'assistant',
+                content: storedAssistantMessage.content,
+                createdAt: storedAssistantMessage.createdAt,
+              },
+            ])
+
+            if (!title || title === provisionalTitle) {
+              return
+            }
+
+            await updateChatThreadTitle(targetThreadId, title)
+            setThreads((prev) => {
+              const updated = prev.map((thread) =>
+                thread.id === targetThreadId
+                  ? {
+                      ...thread,
+                      title,
+                    }
+                  : thread,
+              )
+              return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            })
+          } catch {
+            // Keep provisional title when title generation fails.
+          }
+        })()
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Beim Senden ist ein unbekannter Fehler aufgetreten.'
