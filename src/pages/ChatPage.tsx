@@ -464,7 +464,7 @@ export function ChatPage() {
 
         <div className="chat-sidebar-bottom">
           <div className="account-profile-row">
-            <div className="account-profile">
+            <div className="account-profile chat-sidebar-profile-card">
               {profile?.avatar_url ? (
                 <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
               ) : (
@@ -476,38 +476,36 @@ export function ChatPage() {
                     <p className="account-value">{displayName}</p>
                     {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
                   </div>
-                  <p className="account-email">{user?.email ?? ''}</p>
+                </div>
+              ) : null}
+              {!isSidebarCollapsed ? (
+                <div ref={profileMenuRef} className="account-menu-anchor">
+                  <button
+                    type="button"
+                    className="account-menu-trigger"
+                    aria-label="Profil Aktionen"
+                    onClick={() => setIsProfileMenuOpen((prev) => !prev)}
+                  >
+                    <img className="ui-icon account-menu-icon" src={triangleIcon} alt="" aria-hidden="true" />
+                  </button>
+
+                  {isProfileMenuOpen ? (
+                    <ContextMenu className="account-thread-menu">
+                      <MenuItem
+                        iconSrc={logoutIcon}
+                        danger
+                        onClick={async () => {
+                          setIsProfileMenuOpen(false)
+                          await handleLogout()
+                        }}
+                      >
+                        Logout
+                      </MenuItem>
+                    </ContextMenu>
+                  ) : null}
                 </div>
               ) : null}
             </div>
-
-            {!isSidebarCollapsed ? (
-              <div ref={profileMenuRef} className="account-menu-anchor">
-                <button
-                  type="button"
-                  className="account-menu-trigger"
-                  aria-label="Profil Aktionen"
-                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                >
-                  <img className="ui-icon account-menu-icon" src={triangleIcon} alt="" aria-hidden="true" />
-                </button>
-
-                {isProfileMenuOpen ? (
-                  <ContextMenu className="account-thread-menu">
-                    <MenuItem
-                      iconSrc={logoutIcon}
-                      danger
-                      onClick={async () => {
-                        setIsProfileMenuOpen(false)
-                        await handleLogout()
-                      }}
-                    >
-                      Logout
-                    </MenuItem>
-                  </ContextMenu>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </div>
       </aside>

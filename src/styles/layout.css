@@ -391,6 +391,14 @@
   gap: 0.6rem;
 }
 
+.chat-sidebar-profile-card {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+  padding: 0.42rem 0.5rem;
+}
+
 .chat-sidebar.is-collapsed .account-profile {
   justify-content: center;
 }
@@ -409,6 +417,10 @@
 .account-menu-anchor {
   position: relative;
   flex-shrink: 0;
+}
+
+.account-profile .account-menu-anchor {
+  margin-left: auto;
 }
 
 .account-menu-trigger {

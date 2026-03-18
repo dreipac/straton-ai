@@ -1108,6 +1108,12 @@ export function LearnPage() {
     entryQuizTotalQuestions > 0
       ? (Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions) / entryQuizTotalQuestions) * 100
       : 0
+  const displayName =
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim() ||
+    profile?.first_name ||
+    user?.email ||
+    'Nutzer'
+  const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
   const proficiencyLabel =
     proficiencyLevel === 'low'
       ? 'Schlecht'
@@ -1172,9 +1178,27 @@ export function LearnPage() {
                 <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
               </button>
             ))}
-            <p className="thread-list-info">Nutzer: {profile?.first_name || user.email}</p>
           </div>
         ) : null}
+        <div className="chat-sidebar-bottom">
+          <div className="account-profile-row">
+            <div className="account-profile chat-sidebar-profile-card">
+              {profile?.avatar_url ? (
+                <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+              ) : (
+                <div className="account-avatar-fallback">{avatarFallback}</div>
+              )}
+              {!isSidebarCollapsed ? (
+                <div className="account-meta">
+                  <div className="account-name-row">
+                    <p className="account-value">{displayName}</p>
+                    {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </aside>
 
       <section className="chat-main learn-main">

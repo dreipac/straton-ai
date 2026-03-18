@@ -57,6 +57,27 @@
   color: var(--interactive-hover-text);
 }
 
+.learn-shell .chat-thread-item {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.learn-shell .chat-thread-title {
+  text-align: left;
+}
+
+.learn-sidebar-profile-card {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+  padding: 0.42rem 0.5rem;
+}
+
+.learn-shell .chat-sidebar-bottom {
+  border-top: none;
+}
+
 .learn-loading {
   min-height: 100dvh;
   display: grid;
