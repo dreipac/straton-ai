@@ -47,12 +47,15 @@ function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' | 'generate_title' {
+function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' | 'generate_title' | 'generate_topic_suggestions' {
   if (value === 'evaluate_quiz') {
     return 'evaluate_quiz'
   }
   if (value === 'generate_title') {
     return 'generate_title'
+  }
+  if (value === 'generate_topic_suggestions') {
+    return 'generate_topic_suggestions'
   }
   return 'chat'
 }
@@ -289,6 +292,59 @@ async function generateTitleWithAi(
   return cleaned
 }
 
+function sanitizeTopicSuggestions(raw: string): string[] {
+  const start = raw.indexOf('[')
+  const end = raw.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 5)
+  } catch {
+    return []
+  }
+}
+
+async function generateTopicSuggestionsWithAi(
+  provider: Provider,
+  topic: string,
+  apiKey: string,
+): Promise<string[]> {
+  const suggestionMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Du erstellst konkrete Unterthemen fuer Lernen.',
+        'Antworte nur als JSON-Array mit Strings.',
+        'Liefere maximal 5 kurze, konkrete Unterthemen auf Deutsch.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: `Thema: ${topic}`,
+    },
+  ]
+
+  const raw =
+    provider === 'anthropic'
+      ? await callAnthropic(suggestionMessages, apiKey)
+      : await callOpenAi(suggestionMessages, apiKey)
+
+  const suggestions = sanitizeTopicSuggestions(raw)
+  if (suggestions.length === 0) {
+    throw new Error('Unterthemen konnten nicht generiert werden.')
+  }
+  return suggestions
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -330,7 +386,7 @@ serve(async (req) => {
       mode?: unknown
       provider?: unknown
       messages?: unknown
-      payload?: unknown
+      payload?: { messages?: unknown; topic?: unknown } | unknown
     }
     const mode = normalizeMode(body.mode)
     const provider = normalizeProvider(body.provider)
@@ -343,6 +399,17 @@ serve(async (req) => {
 
       const evaluation = await evaluateQuizWithAi(provider, payload, apiKey)
       return jsonResponse({ evaluation })
+    }
+
+    if (mode === 'generate_topic_suggestions') {
+      const topic = typeof (body.payload as { topic?: unknown } | undefined)?.topic === 'string'
+        ? String((body.payload as { topic?: unknown }).topic).trim()
+        : ''
+      if (!topic) {
+        return jsonResponse({ error: 'Kein gueltiges Thema uebermittelt.' }, 400)
+      }
+      const suggestions = await generateTopicSuggestionsWithAi(provider, topic, apiKey)
+      return jsonResponse({ suggestions })
     }
 
     const inputMessages =

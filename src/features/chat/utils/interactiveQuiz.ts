@@ -1,6 +1,8 @@
 export type InteractiveQuizQuestion = {
   id: string
   prompt: string
+  questionType?: 'mcq' | 'text'
+  options?: string[]
   expectedAnswer: string
   acceptableAnswers: string[]
   hint?: string
@@ -21,12 +23,52 @@ export type ParsedInteractiveContent = {
 const QUIZ_START = '<<<STRATON_QUIZ_JSON>>>'
 const QUIZ_END = '<<<END_STRATON_QUIZ_JSON>>>'
 
+function tryParseQuizPayload(chunk: string): InteractiveQuizPayload | null {
+  try {
+    const parsed = JSON.parse(chunk) as unknown
+    return sanitizeQuizPayload(parsed)
+  } catch {
+    return null
+  }
+}
+
+function extractJsonCodeFence(content: string): string | null {
+  const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (!fenceMatch || typeof fenceMatch[1] !== 'string') {
+    return null
+  }
+  return fenceMatch[1].trim()
+}
+
+function extractLikelyJsonObject(content: string): string | null {
+  const start = content.indexOf('{')
+  const end = content.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) {
+    return null
+  }
+  return content.slice(start, end + 1).trim()
+}
+
 function normalizeText(value: string): string {
   return value
     .trim()
     .toLowerCase()
     .replace(/[.,!?;:()[\]{}"']/g, '')
     .replace(/\s+/g, ' ')
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const unique: string[] = []
+  for (const value of values) {
+    const normalized = normalizeText(value)
+    if (!normalized || seen.has(normalized)) {
+      continue
+    }
+    seen.add(normalized)
+    unique.push(value)
+  }
+  return unique
 }
 
 function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
@@ -49,10 +91,30 @@ function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestio
     : []
 
   const evaluation = candidate.evaluation === 'contains' ? 'contains' : 'exact'
+  const rawQuestionType =
+    candidate.questionType === 'mcq' ||
+    candidate.questionType === 'multiple_choice' ||
+    candidate.type === 'mcq' ||
+    candidate.type === 'multiple_choice'
+      ? 'mcq'
+      : 'text'
+  const rawOptions = Array.isArray(candidate.options)
+    ? candidate.options
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : []
+  const questionType = rawQuestionType === 'mcq' ? 'mcq' : 'text'
+  let options = dedupeStrings(rawOptions)
+  if (questionType === 'mcq') {
+    options = dedupeStrings([...options, expectedAnswer, ...acceptableAnswers]).slice(0, 6)
+  }
 
   return {
     id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
     prompt,
+    questionType,
+    options: questionType === 'mcq' ? options : undefined,
     expectedAnswer,
     acceptableAnswers,
     hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
@@ -99,19 +161,49 @@ export function parseInteractiveContent(rawContent: string): ParsedInteractiveCo
   const after = rawContent.slice(endIndex + QUIZ_END.length).trim()
   const cleanText = [before, after].filter(Boolean).join('\n\n').trim()
 
-  try {
-    const parsed = JSON.parse(jsonChunk) as unknown
-    const quiz = sanitizeQuizPayload(parsed)
+  const markerQuiz = tryParseQuizPayload(jsonChunk)
+  if (markerQuiz) {
     return {
       cleanText,
-      quiz,
-    }
-  } catch {
-    return {
-      cleanText: rawContent.trim(),
-      quiz: null,
+      quiz: markerQuiz,
     }
   }
+
+  return {
+    cleanText: rawContent.trim(),
+    quiz: null,
+  }
+}
+
+export function parseInteractiveContentWithFallback(rawContent: string): ParsedInteractiveContent {
+  const primary = parseInteractiveContent(rawContent)
+  if (primary.quiz) {
+    return primary
+  }
+
+  const fenceJson = extractJsonCodeFence(rawContent)
+  if (fenceJson) {
+    const fenceQuiz = tryParseQuizPayload(fenceJson)
+    if (fenceQuiz) {
+      return {
+        cleanText: rawContent.replace(/```(?:json)?\s*[\s\S]*?\s*```/i, '').trim(),
+        quiz: fenceQuiz,
+      }
+    }
+  }
+
+  const objectJson = extractLikelyJsonObject(rawContent)
+  if (objectJson) {
+    const objectQuiz = tryParseQuizPayload(objectJson)
+    if (objectQuiz) {
+      return {
+        cleanText: rawContent.replace(objectJson, '').trim(),
+        quiz: objectQuiz,
+      }
+    }
+  }
+
+  return primary
 }
 
 export function evaluateInteractiveAnswer(

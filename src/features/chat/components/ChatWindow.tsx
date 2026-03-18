@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import sendIcon from '../../../assets/icons/send.svg'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
-import { parseInteractiveContent } from '../utils/interactiveQuiz'
+import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 
 type ChatWindowProps = {
   messages: ChatMessage[]
@@ -181,7 +181,7 @@ export function ChatWindow({
   }
 
   async function checkQuizAnswer(message: ChatMessage, questionId: string) {
-    const parsed = parseInteractiveContent(message.content)
+    const parsed = parseInteractiveContentWithFallback(message.content)
     if (!parsed.quiz) {
       return
     }
@@ -281,7 +281,7 @@ export function ChatWindow({
       <div className="chat-messages">
         {messages.map((message) => {
           const isAssistant = message.role === 'assistant'
-          const parsed = isAssistant ? parseInteractiveContent(message.content) : null
+          const parsed = isAssistant ? parseInteractiveContentWithFallback(message.content) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = animatedAssistantContent[message.id] ?? message.content
           const displayContent = hasInteractiveQuiz

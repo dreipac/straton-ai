@@ -12,6 +12,14 @@ type GenerateTitleResult = {
   title: string
 }
 
+type GenerateTopicSuggestionsResult = {
+  suggestions: string[]
+}
+
+type SendMessageOptions = {
+  systemPrompt?: string
+}
+
 type EvaluateQuizAnswerInput = {
   question: InteractiveQuizQuestion
   userAnswer: string
@@ -56,11 +64,15 @@ function createAssistantMessage(content: string): ChatMessage {
   }
 }
 
-function buildGatewayMessages(messages: ChatMessage[]): GatewayMessage[] {
+function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
+  const combinedSystemPrompt = [INTERACTIVE_QUIZ_PROMPT, options?.systemPrompt?.trim() ?? '']
+    .filter(Boolean)
+    .join('\n\n')
+
   return [
     {
       role: 'system',
-      content: INTERACTIVE_QUIZ_PROMPT,
+      content: combinedSystemPrompt,
     },
     ...messages.map((message) => ({
       role: message.role,
@@ -69,13 +81,13 @@ function buildGatewayMessages(messages: ChatMessage[]): GatewayMessage[] {
   ]
 }
 
-async function getAssistantReply(messages: ChatMessage[]) {
+async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {
   if (env.aiProvider === 'openai') {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase.functions.invoke('chat-completion', {
       body: {
         provider: 'openai',
-        messages: buildGatewayMessages(messages),
+        messages: buildGatewayMessages(messages, options),
       },
     })
 
@@ -94,8 +106,11 @@ async function getAssistantReply(messages: ChatMessage[]) {
   return getMockAssistantReply(messages)
 }
 
-export async function sendMessage(messages: ChatMessage[]): Promise<SendMessageResult> {
-  const content = await getAssistantReply(messages)
+export async function sendMessage(
+  messages: ChatMessage[],
+  options?: SendMessageOptions,
+): Promise<SendMessageResult> {
+  const content = await getAssistantReply(messages, options)
   return {
     assistantMessage: createAssistantMessage(content),
   }
@@ -151,6 +166,51 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
   }
 
   return { title }
+}
+
+export async function generateTopicSuggestionsWithAi(topic: string): Promise<GenerateTopicSuggestionsResult> {
+  const normalizedTopic = topic.trim()
+  if (!normalizedTopic) {
+    return { suggestions: [] }
+  }
+
+  if (env.aiProvider !== 'openai') {
+    return {
+      suggestions: [
+        `${normalizedTopic} Grundlagen`,
+        `${normalizedTopic} Praxis`,
+        `${normalizedTopic} Vertiefung`,
+      ].slice(0, 5),
+    }
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      mode: 'generate_topic_suggestions',
+      provider: 'openai',
+      payload: {
+        topic: normalizedTopic,
+      },
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rawSuggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
+  const suggestions = rawSuggestions
+    .filter((entry: unknown): entry is string => typeof entry === 'string')
+    .map((entry: string) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+
+  if (suggestions.length === 0) {
+    return { suggestions: [`${normalizedTopic} Grundlagen`] }
+  }
+
+  return { suggestions }
 }
 
 export async function evaluateQuizAnswerWithAi(

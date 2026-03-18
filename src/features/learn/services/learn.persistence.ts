@@ -27,11 +27,16 @@ export type EntryQuizResult = {
   score: number
   total: number
   feedbackByQuestionId: Record<string, string>
+  correctnessByQuestionId?: Record<string, boolean>
+  evaluatedAnswersByQuestionId?: Record<string, string>
 }
 
 export type LearningPathRecord = LearningPathSummary & {
   topic: string
-  setupStep: 1 | 2
+  topicSuggestions: string[]
+  selectedTopic: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  setupStep: 1 | 2 | 3
   isSetupComplete: boolean
   materials: UploadedMaterial[]
   tutorMessages: TutorChatEntry[]
@@ -45,6 +50,9 @@ type LearningPathRow = {
   user_id: string
   title: string
   topic: string
+  topic_suggestions: unknown
+  selected_topic: string
+  proficiency_level: string
   setup_step: number
   is_setup_complete: boolean
   materials: unknown
@@ -59,7 +67,10 @@ type LearningPathRow = {
 type LearningPathPatch = Partial<{
   title: string
   topic: string
-  setupStep: 1 | 2
+  topicSuggestions: string[]
+  selectedTopic: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  setupStep: 1 | 2 | 3
   isSetupComplete: boolean
   materials: UploadedMaterial[]
   tutorMessages: TutorChatEntry[]
@@ -132,6 +143,17 @@ function mapTutorMessages(value: unknown): TutorChatEntry[] {
     .filter((entry): entry is TutorChatEntry => entry !== null)
 }
 
+function mapTopicSuggestions(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+}
+
 function mapEntryQuizAnswers(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
@@ -140,6 +162,21 @@ function mapEntryQuizAnswers(value: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
     if (!key.trim() || typeof raw !== 'string') {
+      continue
+    }
+    out[key] = raw
+  }
+  return out
+}
+
+function mapBooleanRecord(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  const out: Record<string, boolean> = {}
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!key.trim() || typeof raw !== 'boolean') {
       continue
     }
     out[key] = raw
@@ -175,9 +212,17 @@ function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
             .map((value) => value.trim())
             .filter(Boolean)
         : []
+      const options = Array.isArray(item.options)
+        ? item.options
+            .filter((value): value is string => typeof value === 'string')
+            .map((value) => value.trim())
+            .filter(Boolean)
+        : undefined
       return {
         id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `q${index + 1}`,
         prompt,
+        questionType: item.questionType === 'mcq' ? 'mcq' : 'text',
+        options: options && options.length > 0 ? options : undefined,
         expectedAnswer,
         acceptableAnswers,
         hint: typeof item.hint === 'string' ? item.hint : undefined,
@@ -212,7 +257,16 @@ function mapEntryQuizResult(value: unknown): EntryQuizResult | null {
     score,
     total,
     feedbackByQuestionId: mapEntryQuizAnswers(candidate.feedbackByQuestionId),
+    correctnessByQuestionId: mapBooleanRecord(candidate.correctnessByQuestionId),
+    evaluatedAnswersByQuestionId: mapEntryQuizAnswers(candidate.evaluatedAnswersByQuestionId),
   }
+}
+
+function mapProficiencyLevel(value: unknown): '' | 'low' | 'medium' | 'high' {
+  if (value === 'low' || value === 'medium' || value === 'high') {
+    return value
+  }
+  return ''
 }
 
 function mapRecord(row: LearningPathRow): LearningPathRecord {
@@ -221,7 +275,10 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     userId: row.user_id,
     title: row.title,
     topic: row.topic ?? '',
-    setupStep: row.setup_step === 2 ? 2 : 1,
+    topicSuggestions: mapTopicSuggestions(row.topic_suggestions),
+    selectedTopic: (row.selected_topic ?? '').trim(),
+    proficiencyLevel: mapProficiencyLevel(row.proficiency_level),
+    setupStep: row.setup_step === 2 ? 2 : row.setup_step === 3 ? 3 : 1,
     isSetupComplete: row.is_setup_complete === true,
     materials: mapMaterials(row.materials),
     tutorMessages: mapTutorMessages(row.tutor_messages),
@@ -237,6 +294,9 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   const row: Record<string, unknown> = {}
   if (patch.title !== undefined) row.title = patch.title
   if (patch.topic !== undefined) row.topic = patch.topic
+  if (patch.topicSuggestions !== undefined) row.topic_suggestions = patch.topicSuggestions
+  if (patch.selectedTopic !== undefined) row.selected_topic = patch.selectedTopic
+  if (patch.proficiencyLevel !== undefined) row.proficiency_level = patch.proficiencyLevel
   if (patch.setupStep !== undefined) row.setup_step = patch.setupStep
   if (patch.isSetupComplete !== undefined) row.is_setup_complete = patch.isSetupComplete
   if (patch.materials !== undefined) row.materials = patch.materials
@@ -252,7 +312,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
@@ -269,7 +329,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -297,7 +357,7 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
     )
     .single()
 
@@ -319,7 +379,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
     )
     .single()
 

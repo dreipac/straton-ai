@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import aiIcon from '../assets/icons/ai.svg'
+import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import sendIcon from '../assets/icons/send.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
+import starIcon from '../assets/icons/star.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
-import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
 import { evaluateQuizAnswerWithAi } from '../features/chat/services/chat.service'
+import { generateTopicSuggestionsWithAi } from '../features/chat/services/chat.service'
 import { sendMessage } from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
@@ -29,7 +31,7 @@ import {
   type UploadedMaterial,
 } from '../features/learn/services/learn.persistence'
 import {
-  parseInteractiveContent,
+  parseInteractiveContentWithFallback,
   type InteractiveQuizPayload,
 } from '../features/chat/utils/interactiveQuiz'
 
@@ -37,6 +39,22 @@ function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
   return trimmed ? trimmed : 'Neuer Lernpfad'
 }
+
+const LEARN_TUTOR_SYSTEM_PROMPT = [
+  'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
+  'Erklaere fachlich korrekt, aber einfach, klar und strukturiert.',
+  'Passe den Schwierigkeitsgrad an das Niveau des Nutzers an.',
+  'Nutze zuerst die hochgeladenen Unterlagen und Notizen als primaere Quelle.',
+  'Wenn etwas unklar ist, erklaere mit konkreten Beispielen aus der IT-Praxis.',
+  'Arbeite kapitelbasiert und baue auf dem gewaehlten Schwerpunkt auf.',
+  'Nach jeder Erklaerung stelle genau eine kurze Verstaendnisfrage.',
+].join('\n')
+
+const ENTRY_TEST_PREP_STEPS = [
+  'Straton analysiert dein Thema',
+  'Straton verarbeitet deine Inhalte',
+  'Straton erstellt deinen Einstiegstest',
+] as const
 
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
@@ -46,6 +64,7 @@ export function LearnPage() {
   const [topic, setTopic] = useState('')
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isLoadingTopicSuggestions, setIsLoadingTopicSuggestions] = useState(false)
   const [materials, setMaterials] = useState<UploadedMaterial[]>([])
   const [learningPaths, setLearningPaths] = useState<LearningPathSummary[]>([])
   const [activePathId, setActivePathId] = useState<string>('')
@@ -55,14 +74,23 @@ export function LearnPage() {
   const [isLayoutCustomizeMode, setIsLayoutCustomizeMode] = useState(false)
   const [mainSplitPercent, setMainSplitPercent] = useState(72)
   const [dragTarget, setDragTarget] = useState<'main' | null>(null)
-  const [setupStep, setSetupStep] = useState<1 | 2>(1)
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3>(1)
   const [isSetupComplete, setIsSetupComplete] = useState(false)
+  const [topicSuggestions, setTopicSuggestions] = useState<string[]>([])
+  const [visibleTopicSuggestionCount, setVisibleTopicSuggestionCount] = useState(0)
+  const [selectedTopic, setSelectedTopic] = useState('')
+  const [proficiencyLevel, setProficiencyLevel] = useState<'' | 'low' | 'medium' | 'high'>('')
   const [entryQuiz, setEntryQuiz] = useState<InteractiveQuizPayload | null>(null)
   const [isEntryQuizLoading, setIsEntryQuizLoading] = useState(false)
+  const [hasTriedEntryQuizGeneration, setHasTriedEntryQuizGeneration] = useState(false)
+  const [entryPrepStepIndex, setEntryPrepStepIndex] = useState(0)
+  const [entryPrepPercents, setEntryPrepPercents] = useState<number[]>([0, 0, 0])
+  const [isEntryPrepClosing, setIsEntryPrepClosing] = useState(false)
   const [isEntryQuizMounted, setIsEntryQuizMounted] = useState(false)
   const [isEntryQuizVisible, setIsEntryQuizVisible] = useState(false)
   const [entryQuizAnswers, setEntryQuizAnswers] = useState<Record<string, string>>({})
   const [entryQuizResult, setEntryQuizResult] = useState<EntryQuizResult | null>(null)
+  const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
   const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
   const [openPathMenuId, setOpenPathMenuId] = useState<string | null>(null)
   const [pathMenuPosition, setPathMenuPosition] = useState<{ x: number; y: number } | null>(null)
@@ -74,10 +102,17 @@ export function LearnPage() {
   const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
 
   const activePath = learningPaths.find((entry) => entry.id === activePathId) ?? null
+  const effectiveTopic = selectedTopic.trim() || topic.trim()
+  const entryTestDurationLabel = entryQuiz
+    ? `ca. ${Math.max(5, Math.ceil(entryQuiz.questions.length * 1.5))} Minuten`
+    : 'ca. 10 Minuten'
 
   const captureEditableState = useCallback(
     () => ({
       topic,
+      topicSuggestions,
+      selectedTopic,
+      proficiencyLevel,
       setupStep,
       isSetupComplete,
       materials,
@@ -88,6 +123,9 @@ export function LearnPage() {
     }),
     [
       topic,
+      topicSuggestions,
+      selectedTopic,
+      proficiencyLevel,
       setupStep,
       isSetupComplete,
       materials,
@@ -101,7 +139,10 @@ export function LearnPage() {
   const applyPathToState = useCallback(
     (record: {
       topic: string
-      setupStep: 1 | 2
+      topicSuggestions: string[]
+      selectedTopic: string
+      proficiencyLevel: '' | 'low' | 'medium' | 'high'
+      setupStep: 1 | 2 | 3
       isSetupComplete: boolean
       materials: UploadedMaterial[]
       tutorMessages: TutorChatEntry[]
@@ -111,6 +152,10 @@ export function LearnPage() {
     }) => {
       suppressAutosaveRef.current = true
       setTopic(record.topic)
+      setTopicSuggestions(record.topicSuggestions)
+      setVisibleTopicSuggestionCount(record.topicSuggestions.length)
+      setSelectedTopic(record.selectedTopic)
+      setProficiencyLevel(record.proficiencyLevel)
       setSetupStep(record.setupStep)
       setIsSetupComplete(record.isSetupComplete)
       setMaterials(record.materials)
@@ -119,6 +164,12 @@ export function LearnPage() {
       setEntryQuiz(record.entryQuiz)
       setEntryQuizAnswers(record.entryQuizAnswers)
       setEntryQuizResult(record.entryQuizResult)
+      setEntryQuizQuestionIndex(0)
+      setIsLoadingTopicSuggestions(false)
+      setHasTriedEntryQuizGeneration(Boolean(record.entryQuiz))
+      setEntryPrepStepIndex(0)
+      setEntryPrepPercents([0, 0, 0])
+      setIsEntryPrepClosing(false)
       if (entryQuizCloseTimerRef.current) {
         window.clearTimeout(entryQuizCloseTimerRef.current)
         entryQuizCloseTimerRef.current = null
@@ -142,6 +193,9 @@ export function LearnPage() {
     const updated = await updateLearningPathById(pathId, {
       title: getDisplayPathTitle(currentSummary.title),
       topic,
+      topicSuggestions,
+      selectedTopic,
+      proficiencyLevel,
       setupStep,
       isSetupComplete,
       materials,
@@ -155,6 +209,9 @@ export function LearnPage() {
   }, [
     learningPaths,
     topic,
+    topicSuggestions,
+    selectedTopic,
+    proficiencyLevel,
     setupStep,
     isSetupComplete,
     materials,
@@ -170,7 +227,10 @@ export function LearnPage() {
       title: string,
       snapshot: {
         topic: string
-        setupStep: 1 | 2
+        topicSuggestions: string[]
+        selectedTopic: string
+        proficiencyLevel: '' | 'low' | 'medium' | 'high'
+        setupStep: 1 | 2 | 3
         isSetupComplete: boolean
         materials: UploadedMaterial[]
         tutorMessages: TutorChatEntry[]
@@ -203,6 +263,10 @@ export function LearnPage() {
       setActivePathId('')
       activePathIdRef.current = ''
       setTopic('')
+      setTopicSuggestions([])
+      setVisibleTopicSuggestionCount(0)
+      setSelectedTopic('')
+      setProficiencyLevel('')
       setSetupStep(1)
       setIsSetupComplete(false)
       setMaterials([])
@@ -211,6 +275,12 @@ export function LearnPage() {
       setEntryQuiz(null)
       setEntryQuizAnswers({})
       setEntryQuizResult(null)
+      setEntryQuizQuestionIndex(0)
+      setIsLoadingTopicSuggestions(false)
+      setHasTriedEntryQuizGeneration(false)
+      setEntryPrepStepIndex(0)
+      setEntryPrepPercents([0, 0, 0])
+      setIsEntryPrepClosing(false)
       pathCacheRef.current = {}
       return
     }
@@ -288,6 +358,8 @@ export function LearnPage() {
     activePath,
     persistActivePath,
     topic,
+    topicSuggestions,
+    selectedTopic,
     setupStep,
     isSetupComplete,
     materials,
@@ -328,6 +400,136 @@ export function LearnPage() {
   }, [])
 
   useEffect(() => {
+    if (isSetupComplete || setupStep !== 1) {
+      return
+    }
+
+    const normalizedTopic = topic.trim()
+    if (!normalizedTopic) {
+      setTopicSuggestions([])
+      setVisibleTopicSuggestionCount(0)
+      setSelectedTopic('')
+      setProficiencyLevel('')
+      setIsLoadingTopicSuggestions(false)
+      return
+    }
+
+    let isCancelled = false
+    const timerId = window.setTimeout(async () => {
+      try {
+        setIsLoadingTopicSuggestions(true)
+        const { suggestions } = await generateTopicSuggestionsWithAi(normalizedTopic)
+        if (isCancelled) {
+          return
+        }
+        setTopicSuggestions(suggestions)
+        setVisibleTopicSuggestionCount(0)
+        setSelectedTopic((current) => (current && suggestions.includes(current) ? current : ''))
+      } catch {
+        if (!isCancelled) {
+          setTopicSuggestions([])
+          setVisibleTopicSuggestionCount(0)
+          setSelectedTopic('')
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingTopicSuggestions(false)
+        }
+      }
+    }, 380)
+
+    return () => {
+      isCancelled = true
+      window.clearTimeout(timerId)
+    }
+  }, [isSetupComplete, setupStep, topic])
+
+  useEffect(() => {
+    if (!(isEntryQuizLoading && tutorMessages.length === 0)) {
+      return
+    }
+
+    let isCancelled = false
+    const timers: number[] = []
+
+    setEntryPrepStepIndex(0)
+    setEntryPrepPercents([0, 0, 0])
+
+    function runStep(stepIndex: number) {
+      if (isCancelled) {
+        return
+      }
+
+      setEntryPrepStepIndex(stepIndex)
+      let percent = 0
+
+      const tick = () => {
+        if (isCancelled) {
+          return
+        }
+
+        const jump = Math.floor(Math.random() * 8) + 4
+        percent = Math.min(100, percent + jump)
+
+        setEntryPrepPercents((prev) => {
+          const next = [...prev]
+          next[stepIndex] = percent
+          return next
+        })
+
+        if (percent >= 100) {
+          if (stepIndex < ENTRY_TEST_PREP_STEPS.length - 1) {
+            const nextTimer = window.setTimeout(() => {
+              runStep(stepIndex + 1)
+            }, 220)
+            timers.push(nextTimer)
+          }
+          return
+        }
+
+        const timerId = window.setTimeout(tick, 95)
+        timers.push(timerId)
+      }
+
+      tick()
+    }
+
+    runStep(0)
+
+    return () => {
+      isCancelled = true
+      timers.forEach((timerId) => window.clearTimeout(timerId))
+    }
+  }, [isEntryQuizLoading, tutorMessages.length])
+
+  useEffect(() => {
+    if (topicSuggestions.length === 0) {
+      setVisibleTopicSuggestionCount(0)
+      return
+    }
+
+    let isCancelled = false
+    let nextCount = 0
+    setVisibleTopicSuggestionCount(0)
+
+    const intervalId = window.setInterval(() => {
+      if (isCancelled) {
+        return
+      }
+      nextCount += 1
+      setVisibleTopicSuggestionCount(nextCount)
+      if (nextCount >= topicSuggestions.length) {
+        window.clearInterval(intervalId)
+      }
+    }, 110)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [topicSuggestions])
+
+  useEffect(() => {
     if (!dragTarget) {
       return
     }
@@ -359,13 +561,22 @@ export function LearnPage() {
   }, [dragTarget])
 
   useEffect(() => {
-    if (!isSetupComplete || !activePath || isEntryQuizLoading || entryQuiz) {
+    if (
+      !isSetupComplete ||
+      !activePath ||
+      isEntryQuizLoading ||
+      entryQuiz ||
+      hasTriedEntryQuizGeneration
+    ) {
       return
     }
+    const activePathIdAtStart = activePath.id
     const activePathTitle = activePath.title
 
     async function generateEntryQuiz() {
+      setHasTriedEntryQuizGeneration(true)
       setIsEntryQuizLoading(true)
+      setIsEntryPrepClosing(false)
       setError(null)
 
       try {
@@ -378,17 +589,35 @@ export function LearnPage() {
           role: 'user',
           content: [
             `Lernpfad Name: ${getDisplayPathTitle(activePathTitle)}`,
-            `Thema: ${topic.trim() || getDisplayPathTitle(activePathTitle)}`,
+            `Thema: ${effectiveTopic || getDisplayPathTitle(activePathTitle)}`,
+            selectedTopic.trim() ? `Gewaehlter Schwerpunkt: ${selectedTopic.trim()}` : 'Gewaehlter Schwerpunkt: keiner',
+            proficiencyLevel
+              ? `Selbsteinschaetzung Niveau: ${
+                  proficiencyLevel === 'low'
+                    ? 'schwach'
+                    : proficiencyLevel === 'medium'
+                      ? 'mittel'
+                      : 'gut'
+                }`
+              : 'Selbsteinschaetzung Niveau: unbekannt',
             materialContext ? `Dateien:\n${materialContext}` : 'Dateien: keine hochgeladen.',
             'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
             'Der Test muss als interaktiver Quiz-JSON-Block mit mindestens 5 Fragen geliefert werden.',
+            'Nutze ein Mischformat aus Multiple-Choice und Freitext-Fragen.',
+            'Fuer Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
+            'Fuer Freitext-Fragen setze questionType auf "text".',
             'Antworte zuerst mit 1-2 kurzen Einleitungssaetzen und dann direkt mit dem Quiz-Block.',
           ].join('\n\n'),
           createdAt: new Date().toISOString(),
         }
 
-        const result = await sendMessage([quizRequestMessage])
-        const parsed = parseInteractiveContent(result.assistantMessage.content)
+        const result = await sendMessage([quizRequestMessage], {
+          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+        })
+        if (activePathIdRef.current !== activePathIdAtStart) {
+          return
+        }
+        const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
         if (!parsed.quiz) {
           throw new Error('Kein gueltiger Einstiegstest von der KI erhalten.')
         }
@@ -401,6 +630,17 @@ export function LearnPage() {
         setEntryQuiz(parsed.quiz)
         setEntryQuizAnswers(initialAnswers)
         setEntryQuizResult(null)
+        setEntryQuizQuestionIndex(0)
+        setEntryPrepStepIndex(ENTRY_TEST_PREP_STEPS.length - 1)
+        setEntryPrepPercents([100, 100, 100])
+        setIsEntryQuizLoading(false)
+        setIsEntryPrepClosing(true)
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 320)
+        })
+        if (activePathIdRef.current !== activePathIdAtStart) {
+          return
+        }
         setTutorMessages([
           {
             id: crypto.randomUUID(),
@@ -411,15 +651,31 @@ export function LearnPage() {
             action: 'open-entry-test',
           },
         ])
+        setIsEntryPrepClosing(false)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht erstellt werden.')
+        if (activePathIdRef.current === activePathIdAtStart) {
+          setIsEntryPrepClosing(false)
+          setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht erstellt werden.')
+        }
       } finally {
-        setIsEntryQuizLoading(false)
+        if (activePathIdRef.current === activePathIdAtStart) {
+          setIsEntryQuizLoading(false)
+        }
       }
     }
 
     void generateEntryQuiz()
-  }, [isSetupComplete, activePath, materials, topic, isEntryQuizLoading, entryQuiz])
+  }, [
+    isSetupComplete,
+    activePath,
+    materials,
+    effectiveTopic,
+    selectedTopic,
+    proficiencyLevel,
+    entryQuiz,
+    hasTriedEntryQuizGeneration,
+    isEntryQuizLoading,
+  ])
 
   if (isLoading) {
     return <main className="learn-loading">Lade Lernbereich...</main>
@@ -482,6 +738,10 @@ export function LearnPage() {
 
     suppressAutosaveRef.current = true
     setTopic('')
+    setTopicSuggestions([])
+    setVisibleTopicSuggestionCount(0)
+    setSelectedTopic('')
+    setProficiencyLevel('')
     setSetupStep(1)
     setIsSetupComplete(false)
     setMaterials([])
@@ -490,6 +750,7 @@ export function LearnPage() {
     setEntryQuiz(null)
     setEntryQuizAnswers({})
     setEntryQuizResult(null)
+    setEntryQuizQuestionIndex(0)
 
     try {
       const next = await getLearningPathById(pathId)
@@ -569,6 +830,10 @@ export function LearnPage() {
 
       suppressAutosaveRef.current = true
       setTopic('')
+      setTopicSuggestions([])
+      setVisibleTopicSuggestionCount(0)
+      setSelectedTopic('')
+      setProficiencyLevel('')
       setSetupStep(1)
       setIsSetupComplete(false)
       setMaterials([])
@@ -577,6 +842,7 @@ export function LearnPage() {
       setEntryQuiz(null)
       setEntryQuizAnswers({})
       setEntryQuizResult(null)
+      setEntryQuizQuestionIndex(0)
 
       const next = await getLearningPathById(nextSummary.id)
       if (!next) {
@@ -598,6 +864,7 @@ export function LearnPage() {
       entryQuizCloseTimerRef.current = null
     }
     setIsEntryQuizMounted(true)
+    setEntryQuizQuestionIndex(0)
     window.requestAnimationFrame(() => {
       setIsEntryQuizVisible(true)
     })
@@ -622,18 +889,37 @@ export function LearnPage() {
       setError('Bitte gib zuerst ein Thema ein.')
       return
     }
+    if (topicSuggestions.length > 0 && !selectedTopic.trim()) {
+      setError('Bitte waehle ein vorgeschlagenes Unterthema aus.')
+      return
+    }
 
     setError(null)
     setSetupStep(2)
   }
 
-  function handleFinishSetup() {
+  function handleContinueSetupStepTwo() {
     setError(null)
+    setSetupStep(3)
+  }
+
+  function handleFinishSetup() {
+    if (!proficiencyLevel) {
+      setError('Bitte waehle deine Selbsteinschaetzung aus.')
+      return
+    }
+    setError(null)
+    setHasTriedEntryQuizGeneration(false)
+    setIsEntryQuizLoading(false)
+    setIsEntryPrepClosing(false)
+    setEntryPrepStepIndex(0)
+    setEntryPrepPercents([0, 0, 0])
     setIsSetupComplete(true)
     setTutorMessages([])
     setEntryQuiz(null)
     setEntryQuizAnswers({})
     setEntryQuizResult(null)
+    setEntryQuizQuestionIndex(0)
   }
 
   async function handleUploadMaterials(fileList: FileList | null) {
@@ -691,7 +977,17 @@ export function LearnPage() {
         role: 'user',
         content: [
           `Lernpfad: ${activePath?.title ?? 'Neuer Lernpfad'}`,
-          `Thema: ${topic.trim() || activePath?.title || 'ohne Thema'}`,
+          `Thema: ${effectiveTopic || activePath?.title || 'ohne Thema'}`,
+          selectedTopic.trim() ? `Gewaehlter Schwerpunkt: ${selectedTopic.trim()}` : 'Gewaehlter Schwerpunkt: keiner',
+          proficiencyLevel
+            ? `Selbsteinschaetzung Niveau: ${
+                proficiencyLevel === 'low'
+                  ? 'schwach'
+                  : proficiencyLevel === 'medium'
+                    ? 'mittel'
+                    : 'gut'
+              }`
+            : 'Selbsteinschaetzung Niveau: unbekannt',
           materialContext ? `Materialien:\n${materialContext}` : 'Materialien: keine hochgeladen.',
           'Antworte als KI-Lehrer. Wenn sinnvoll, darfst du interaktive Quizfragen liefern.',
         ].join('\n\n'),
@@ -708,8 +1004,10 @@ export function LearnPage() {
         })),
       ]
 
-      const result = await sendMessage(chatMessages)
-      const parsed = parseInteractiveContent(result.assistantMessage.content)
+      const result = await sendMessage(chatMessages, {
+        systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+      })
+      const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
 
       const assistantMessage: TutorChatEntry = {
         id: crypto.randomUUID(),
@@ -734,15 +1032,34 @@ export function LearnPage() {
     setIsSubmittingEntryQuiz(true)
 
     try {
+      const cachedFeedback = entryQuizResult?.feedbackByQuestionId ?? {}
+      const cachedCorrectness = entryQuizResult?.correctnessByQuestionId ?? {}
+      const cachedAnswers = entryQuizResult?.evaluatedAnswersByQuestionId ?? {}
+
       const evaluations = await Promise.all(
         entryQuiz.questions.map(async (question) => {
           const answer = (entryQuizAnswers[question.id] ?? '').trim()
+          const canReuseCachedEvaluation =
+            cachedAnswers[question.id] === answer &&
+            typeof cachedFeedback[question.id] === 'string' &&
+            typeof cachedCorrectness[question.id] === 'boolean'
+
+          if (canReuseCachedEvaluation) {
+            return {
+              questionId: question.id,
+              answer,
+              isCorrect: cachedCorrectness[question.id],
+              feedback: cachedFeedback[question.id],
+            }
+          }
+
           const result = await evaluateQuizAnswerWithAi({
             question,
             userAnswer: answer,
           })
           return {
             questionId: question.id,
+            answer,
             isCorrect: result.isCorrect,
             feedback: result.feedback,
           }
@@ -754,11 +1071,21 @@ export function LearnPage() {
         acc[entry.questionId] = entry.feedback
         return acc
       }, {})
+      const correctnessByQuestionId = evaluations.reduce<Record<string, boolean>>((acc, entry) => {
+        acc[entry.questionId] = entry.isCorrect
+        return acc
+      }, {})
+      const evaluatedAnswersByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
+        acc[entry.questionId] = entry.answer
+        return acc
+      }, {})
 
       setEntryQuizResult({
         score,
         total: entryQuiz.questions.length,
         feedbackByQuestionId,
+        correctnessByQuestionId,
+        evaluatedAnswersByQuestionId,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht abgegeben werden.')
@@ -768,6 +1095,27 @@ export function LearnPage() {
   }
 
   const hasSetupPhase = !isSetupComplete
+  const entryQuizTotalQuestions = entryQuiz?.questions.length ?? 0
+  const activeEntryQuestion =
+    entryQuiz && entryQuizTotalQuestions > 0
+      ? entryQuiz.questions[Math.min(entryQuizQuestionIndex, entryQuizTotalQuestions - 1)]
+      : null
+  const hasMultipleChoiceOptions =
+    activeEntryQuestion?.questionType === 'mcq' && (activeEntryQuestion.options?.length ?? 0) >= 2
+  const activeEntryAnswer = activeEntryQuestion ? (entryQuizAnswers[activeEntryQuestion.id] ?? '') : ''
+  const isLastEntryQuestion = entryQuizTotalQuestions > 0 && entryQuizQuestionIndex >= entryQuizTotalQuestions - 1
+  const entryQuizProgressPercent =
+    entryQuizTotalQuestions > 0
+      ? (Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions) / entryQuizTotalQuestions) * 100
+      : 0
+  const proficiencyLabel =
+    proficiencyLevel === 'low'
+      ? 'Schlecht'
+      : proficiencyLevel === 'medium'
+        ? 'Mittel'
+        : proficiencyLevel === 'high'
+          ? 'Gut'
+          : '-'
 
   return (
     <main className={`chat-app-shell learn-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
@@ -862,24 +1210,75 @@ export function LearnPage() {
 
             {!isSetupComplete ? (
               <section className="learn-setup-standalone">
-                <div className="learn-setup-flow">
+                <div className={`learn-setup-flow ${setupStep === 1 ? 'is-topic-step' : ''}`}>
                   <div className="learn-setup-heading">
                     <h3>Einrichtung</h3>
                   </div>
                   {setupStep === 1 ? (
-                    <div className="learn-setup-step">
+                    <div className="learn-setup-step learn-setup-step-topic">
                       <label htmlFor="learn-topic-input">Thema</label>
-                      <p className="learn-setup-info">Gib das Thema ein wo du lernen möchtest</p>
+                      <p className="learn-setup-info">Gib das Thema ein, dann waehle ein passendes Unterthema.</p>
                       <input
                         id="learn-topic-input"
                         type="text"
                         placeholder="z.B. SQL Joins, Algebra, Anatomie..."
                         value={topic}
-                        onChange={(event) => setTopic(event.target.value)}
+                        onChange={(event) => {
+                          setTopic(event.target.value)
+                          setSelectedTopic('')
+                        }}
                       />
-                      <PrimaryButton type="button" onClick={handleContinueSetupStepOne} disabled={!topic.trim()}>
-                        Weiter
-                      </PrimaryButton>
+
+                      {topic.trim() || isLoadingTopicSuggestions || topicSuggestions.length > 0 ? (
+                        <div className="learn-topic-suggestions-panel">
+                          <p className="learn-topic-suggestions-label">Vorschlaege von der KI:</p>
+                          {isLoadingTopicSuggestions ? (
+                            <div className="learn-topic-suggestions-loader" role="status" aria-live="polite">
+                              <span className="learn-topic-loader-orbit" aria-hidden="true">
+                                <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                                <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                                <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                              </span>
+                              <span className="learn-topic-loader-text">Vorschlaege werden generiert...</span>
+                            </div>
+                          ) : topicSuggestions.length === 0 ? (
+                            <p className="learn-muted">Noch keine Vorschlaege vorhanden.</p>
+                          ) : (
+                            <div className="learn-topic-suggestions-list" role="list" aria-label="Unterthemen">
+                              {topicSuggestions.slice(0, visibleTopicSuggestionCount).map((suggestion) => (
+                                <button
+                                  key={suggestion}
+                                  type="button"
+                                  className={`learn-topic-suggestion-chip ${
+                                    selectedTopic === suggestion ? 'is-active' : ''
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedTopic(suggestion)
+                                    setError(null)
+                                  }}
+                                >
+                                  {suggestion}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {selectedTopic ? (
+                            <p className="learn-topic-selection-info">
+                              Ausgewaehlt: <strong>{selectedTopic}</strong>
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      <div className="learn-setup-actions learn-setup-actions-topic">
+                        <PrimaryButton
+                          type="button"
+                          onClick={handleContinueSetupStepOne}
+                          disabled={!topic.trim() || (topicSuggestions.length > 0 && !selectedTopic.trim())}
+                        >
+                          Weiter
+                        </PrimaryButton>
+                      </div>
                     </div>
                   ) : null}
 
@@ -918,7 +1317,54 @@ export function LearnPage() {
                         <SecondaryButton type="button" onClick={() => setSetupStep(1)}>
                           Zurück
                         </SecondaryButton>
-                        <PrimaryButton type="button" onClick={handleFinishSetup}>
+                        <PrimaryButton type="button" onClick={handleContinueSetupStepTwo}>
+                          Weiter
+                        </PrimaryButton>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {setupStep === 3 ? (
+                    <div className="learn-setup-step">
+                      <label>Selbsteinschaetzung</label>
+                      <p className="learn-setup-info">Wie gut bist du in diesem Thema?</p>
+                      <div className="learn-proficiency-options" role="radiogroup" aria-label="Niveauauswahl">
+                        <button
+                          type="button"
+                          className={`learn-proficiency-option ${proficiencyLevel === 'low' ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setProficiencyLevel('low')
+                            setError(null)
+                          }}
+                        >
+                          Schlecht
+                        </button>
+                        <button
+                          type="button"
+                          className={`learn-proficiency-option ${proficiencyLevel === 'medium' ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setProficiencyLevel('medium')
+                            setError(null)
+                          }}
+                        >
+                          Mittel
+                        </button>
+                        <button
+                          type="button"
+                          className={`learn-proficiency-option ${proficiencyLevel === 'high' ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setProficiencyLevel('high')
+                            setError(null)
+                          }}
+                        >
+                          Gut
+                        </button>
+                      </div>
+                      <div className="learn-setup-actions">
+                        <SecondaryButton type="button" onClick={() => setSetupStep(2)}>
+                          Zurück
+                        </SecondaryButton>
+                        <PrimaryButton type="button" onClick={handleFinishSetup} disabled={!proficiencyLevel}>
                           Einrichtung abschliessen
                         </PrimaryButton>
                       </div>
@@ -929,6 +1375,8 @@ export function LearnPage() {
                     <div className={`learn-setup-progress-step ${setupStep >= 1 ? 'is-active' : ''}`}>1</div>
                     <div className={`learn-setup-progress-segment ${setupStep >= 2 ? 'is-active' : ''}`} />
                     <div className={`learn-setup-progress-step ${setupStep >= 2 ? 'is-active' : ''}`}>2</div>
+                    <div className={`learn-setup-progress-segment ${setupStep >= 3 ? 'is-active' : ''}`} />
+                    <div className={`learn-setup-progress-step ${setupStep >= 3 ? 'is-active' : ''}`}>3</div>
                   </div>
                 </div>
               </section>
@@ -936,12 +1384,78 @@ export function LearnPage() {
               <>
                 <section className="learn-conversation">
                   {tutorMessages.length === 0 ? (
-                    <p className="learn-muted">Die KI erstellt deinen Einstiegstest...</p>
+                    isEntryQuizLoading || isEntryPrepClosing ? (
+                    <section
+                      className={`learn-entry-prep ${isEntryPrepClosing ? 'is-exiting' : ''}`}
+                      aria-live="polite"
+                      aria-label="Ladevorgang Einstiegstest"
+                    >
+                      <div className="learn-entry-prep-header">
+                        <span className="learn-topic-loader-orbit" aria-hidden="true">
+                          <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                          <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                          <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                        </span>
+                        <p className="learn-entry-prep-title">Dein Lernpfad wird vorbereitet...</p>
+                      </div>
+                      <div className="learn-entry-prep-steps">
+                        {ENTRY_TEST_PREP_STEPS.slice(0, entryPrepStepIndex + 1).map((label, index) => (
+                          <div
+                            key={label}
+                            className={`learn-entry-prep-step ${
+                              index < entryPrepStepIndex
+                                ? 'is-complete'
+                                : index === entryPrepStepIndex
+                                  ? 'is-active'
+                                  : ''
+                            }`}
+                          >
+                            <span>{label}</span>
+                            <strong>{Math.max(0, Math.min(100, Math.round(entryPrepPercents[index] ?? 0)))}%</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                    ) : (
+                      <div className="learn-entry-prep-fallback">
+                        <p className="learn-muted">Einstiegstest konnte nicht automatisch erstellt werden.</p>
+                        {error ? <p className="learn-muted">{error}</p> : null}
+                        <SecondaryButton
+                          type="button"
+                          onClick={() => {
+                            setHasTriedEntryQuizGeneration(false)
+                            setError(null)
+                          }}
+                        >
+                          Erneut versuchen
+                        </SecondaryButton>
+                      </div>
+                    )
                   ) : (
                     tutorMessages.map((message) => (
-                      <article key={message.id} className={`learn-conversation-message is-${message.role}`}>
-                        {message.role === 'assistant' ? <strong className="chat-message-author">Straton AI</strong> : null}
-                        <p>{message.content}</p>
+                      <article
+                        key={message.id}
+                        className={`learn-conversation-message is-${message.role} ${
+                          message.role === 'assistant' ? 'is-reveal' : ''
+                        }`}
+                      >
+                        {message.role === 'assistant' && message.action !== 'open-entry-test' ? (
+                          <strong className="chat-message-author">Straton AI</strong>
+                        ) : null}
+                        {message.action === 'open-entry-test' ? (
+                          <div className="learn-entry-test-ready">
+                            <p className="learn-entry-test-ready-title">
+                              <img className="ui-icon learn-entry-test-ready-check" src={checkIcon} alt="" aria-hidden="true" />
+                              <span>Einstiegstest bereit</span>
+                            </p>
+                            <p className="learn-entry-test-ready-description">
+                              Dieser Test hilft dir, dein Wissen zu analysieren und deinen Lernpfad anzupassen.
+                            </p>
+                            <p className="learn-entry-test-ready-duration">Dauer: {entryTestDurationLabel}</p>
+                          </div>
+                        ) : (
+                          <p>{message.content}</p>
+                        )}
                         {message.action === 'open-entry-test' ? (
                           <button
                             type="button"
@@ -953,7 +1467,7 @@ export function LearnPage() {
                             </span>
                             <span className="learn-entry-test-link-content">
                               <span className="learn-entry-test-link-title">Einstiegstest</span>
-                              <span className="learn-entry-test-link-meta">Zum Starten klicken</span>
+                              <span className="learn-entry-test-link-meta">Datei oeffnen</span>
                             </span>
                           </button>
                         ) : null}
@@ -989,36 +1503,61 @@ export function LearnPage() {
 
           <article className="learn-card learn-overview-card">
             <h2>Übersicht</h2>
-            <div className="learn-progress-row">
-              <span>Einrichtung</span>
-              <strong>{isSetupComplete ? 'Abgeschlossen' : `Schritt ${setupStep}/2`}</strong>
-            </div>
-            <div className="learn-progress-bar">
-              <span style={{ width: `${isSetupComplete ? 100 : setupStep * 50}%` }} />
-            </div>
-            <div className="learn-progress-row">
-              <span>Thema</span>
-              <strong>{topic.trim() || '-'}</strong>
-            </div>
-            <div className="learn-progress-bar">
-              <span style={{ width: `${topic.trim() ? 100 : 0}%` }} />
-            </div>
-            <div className="learn-progress-row">
-              <span>Dateien</span>
-              <strong>{materials.length}</strong>
-            </div>
-            <div className="learn-progress-row">
-              <span>Einstiegstest</span>
-              <strong>
-                {entryQuizResult ? `Abgegeben (${entryQuizResult.score}/${entryQuizResult.total})` : 'Offen'}
-              </strong>
-            </div>
-            <div className="learn-history">
-              <p className="learn-muted">
-                Nach der Einrichtung erstellt der KI-Lehrer einen Einstiegstest. Im Chat kannst du ihn per Link
-                oeffnen und im Modal abgeben.
-              </p>
-            </div>
+            {!isSetupComplete ? (
+              <>
+                <div className="learn-progress-row">
+                  <span>Einrichtung</span>
+                  <strong>{`Schritt ${setupStep}/3`}</strong>
+                </div>
+                <div className="learn-progress-bar">
+                  <span style={{ width: `${(setupStep / 3) * 100}%` }} />
+                </div>
+                <div className="learn-progress-row">
+                  <span>Thema</span>
+                  <strong>{effectiveTopic || '-'}</strong>
+                </div>
+                <div className="learn-progress-bar">
+                  <span style={{ width: `${effectiveTopic ? 100 : 0}%` }} />
+                </div>
+                <div className="learn-progress-row">
+                  <span>Niveau</span>
+                  <strong>{proficiencyLabel}</strong>
+                </div>
+                <div className="learn-progress-row">
+                  <span>Dateien</span>
+                  <strong>{materials.length}</strong>
+                </div>
+                <div className="learn-progress-row">
+                  <span>Einstiegstest</span>
+                  <strong>{entryQuizResult ? 'Abgegeben' : 'Offen'}</strong>
+                </div>
+              </>
+            ) : (
+              <section className="learn-overview-compact" aria-label="Kompakte Lernübersicht">
+                <div className="learn-overview-compact-line">
+                  <span>Status</span>
+                  <strong>{entryQuizResult ? 'Einstiegstest abgegeben' : 'Einstiegstest offen'}</strong>
+                </div>
+                <div className="learn-overview-compact-grid">
+                  <div className="learn-overview-compact-item">
+                    <span>Thema</span>
+                    <strong>{effectiveTopic || '-'}</strong>
+                  </div>
+                  <div className="learn-overview-compact-item">
+                    <span>Niveau</span>
+                    <strong>{proficiencyLabel}</strong>
+                  </div>
+                  <div className="learn-overview-compact-item">
+                    <span>Dateien</span>
+                    <strong>{materials.length}</strong>
+                  </div>
+                  <div className="learn-overview-compact-item">
+                    <span>Testergebnis</span>
+                    <strong>{entryQuizResult ? `${entryQuizResult.score}/${entryQuizResult.total}` : '-'}</strong>
+                  </div>
+                </div>
+              </section>
+            )}
           </article>
           {isLayoutCustomizeMode ? (
             <div
@@ -1035,56 +1574,122 @@ export function LearnPage() {
         </div>
       </section>
       {isEntryQuizMounted ? (
-        <ModalShell isOpen={isEntryQuizVisible}>
+        <ModalShell isOpen={isEntryQuizVisible} className="learn-entry-test-overlay">
           <section className="learn-entry-test-modal" role="dialog" aria-modal="true" aria-label="Einstiegstest">
-            <ModalHeader
-              title={entryQuiz?.title || 'Einstiegstest'}
-              headingLevel="h2"
-              className="learn-entry-test-header"
-              onClose={closeEntryQuizModal}
-              closeLabel="Einstiegstest schliessen"
-            />
+            <header className="learn-entry-test-header">
+              <div className="learn-entry-test-header-copy">
+                <h2>{effectiveTopic || entryQuiz?.title || 'Thema'}</h2>
+                <p>Einstiegstest</p>
+              </div>
+              <button
+                type="button"
+                className="settings-close-button"
+                onClick={closeEntryQuizModal}
+                aria-label="Einstiegstest schliessen"
+              >
+                <span className="ui-icon settings-close-icon" aria-hidden="true" />
+              </button>
+            </header>
             <div className="learn-entry-test-body">
               {!entryQuiz ? <p>Kein Einstiegstest verfuegbar.</p> : null}
-              {entryQuiz?.questions.map((question, index) => (
-                <article key={question.id} className="learn-entry-test-question">
-                  <p className="learn-entry-test-prompt">
-                    {index + 1}. {question.prompt}
-                  </p>
-                  <textarea
-                    value={entryQuizAnswers[question.id] ?? ''}
-                    onChange={(event) =>
-                      setEntryQuizAnswers((prev) => ({
-                        ...prev,
-                        [question.id]: event.target.value,
-                      }))
-                    }
-                    placeholder="Deine Antwort..."
-                    disabled={isSubmittingEntryQuiz}
-                  />
-                  {entryQuizResult?.feedbackByQuestionId[question.id] ? (
-                    <p className="learn-entry-test-feedback">
-                      {entryQuizResult.feedbackByQuestionId[question.id]}
-                    </p>
-                  ) : null}
-                </article>
-              ))}
+              {activeEntryQuestion ? (
+                <>
+                  <article key={activeEntryQuestion.id} className="learn-entry-test-question">
+                    <p className="learn-entry-test-prompt">{activeEntryQuestion.prompt}</p>
+                    {hasMultipleChoiceOptions ? (
+                      <div className="learn-entry-test-options" role="radiogroup" aria-label="Antwortoptionen">
+                        {activeEntryQuestion.options?.map((option) => {
+                          const isSelected = (entryQuizAnswers[activeEntryQuestion.id] ?? '').trim() === option
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              className={`learn-entry-test-option ${isSelected ? 'is-selected' : ''}`}
+                              onClick={() =>
+                                setEntryQuizAnswers((prev) => ({
+                                  ...prev,
+                                  [activeEntryQuestion.id]: option,
+                                }))
+                              }
+                              disabled={isSubmittingEntryQuiz}
+                            >
+                              {option}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <textarea
+                        value={entryQuizAnswers[activeEntryQuestion.id] ?? ''}
+                        onChange={(event) =>
+                          setEntryQuizAnswers((prev) => ({
+                            ...prev,
+                            [activeEntryQuestion.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Deine Antwort..."
+                        disabled={isSubmittingEntryQuiz}
+                      />
+                    )}
+                    {entryQuizResult?.feedbackByQuestionId[activeEntryQuestion.id] ? (
+                      <p className="learn-entry-test-feedback">
+                        {entryQuizResult.feedbackByQuestionId[activeEntryQuestion.id]}
+                      </p>
+                    ) : null}
+                  </article>
+                </>
+              ) : null}
             </div>
             <footer className="learn-entry-test-footer">
-              {entryQuizResult ? (
-                <p className="learn-entry-test-score">
-                  Ergebnis: {entryQuizResult.score} / {entryQuizResult.total}
-                </p>
-              ) : null}
-              <PrimaryButton
-                type="button"
-                onClick={() => {
-                  void handleSubmitEntryQuiz()
-                }}
-                disabled={!entryQuiz || isSubmittingEntryQuiz}
-              >
-                {isSubmittingEntryQuiz ? 'Wird abgegeben...' : 'Abgeben'}
-              </PrimaryButton>
+              <div className="learn-entry-test-footer-meta">
+                <div className="learn-entry-test-counter">
+                  Frage {Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions)} von {entryQuizTotalQuestions}
+                </div>
+                <div
+                  className="learn-entry-test-progress"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(entryQuizProgressPercent)}
+                >
+                  <span style={{ width: `${entryQuizProgressPercent}%` }} />
+                </div>
+                {entryQuizResult ? (
+                  <p className="learn-entry-test-score">
+                    Ergebnis: {entryQuizResult.score} / {entryQuizResult.total}
+                  </p>
+                ) : null}
+              </div>
+              <div className="learn-entry-test-footer-actions">
+                <SecondaryButton
+                  type="button"
+                  onClick={() => setEntryQuizQuestionIndex((prev) => Math.max(0, prev - 1))}
+                  disabled={isSubmittingEntryQuiz || !activeEntryQuestion || entryQuizQuestionIndex === 0}
+                >
+                  Zurueck
+                </SecondaryButton>
+                {isLastEntryQuestion ? (
+                  <PrimaryButton
+                    type="button"
+                    onClick={() => {
+                      void handleSubmitEntryQuiz()
+                    }}
+                    disabled={!entryQuiz || isSubmittingEntryQuiz || !activeEntryAnswer.trim()}
+                  >
+                    {isSubmittingEntryQuiz ? 'Wird abgegeben...' : 'Abgeben'}
+                  </PrimaryButton>
+                ) : (
+                  <PrimaryButton
+                    type="button"
+                    onClick={() =>
+                      setEntryQuizQuestionIndex((prev) => Math.min(entryQuizTotalQuestions - 1, prev + 1))
+                    }
+                    disabled={isSubmittingEntryQuiz || !activeEntryQuestion || !activeEntryAnswer.trim()}
+                  >
+                    Naechste Frage
+                  </PrimaryButton>
+                )}
+              </div>
             </footer>
           </section>
         </ModalShell>
