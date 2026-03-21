@@ -84,6 +84,111 @@
   place-items: center;
 }
 
+.learn-next-step-hint {
+  margin: 0 0 0.35rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+.learn-next-step-actions {
+  margin-top: 0.2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.learn-chapter-preview {
+  display: grid;
+  gap: 1rem;
+  padding-top: 0.1rem;
+}
+
+.learn-chapter-preview-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.72rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.learn-chapter-preview-label {
+  margin: 0;
+  font-size: 1.14rem;
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.learn-chapter-preview-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.learn-chapter-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+.learn-chapter-preview-status-text {
+  margin: 0.08rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.learn-chapter-preview-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.learn-chapter-preview-kpis span {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.14rem 0.48rem;
+  font-size: 0.76rem;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-elevated);
+}
+
+.learn-chapter-preview-box {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-surface) 72%, #000 28%);
+  padding: 0.86rem 0.92rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.learn-chapter-preview-box p {
+  margin: 0;
+  color: var(--color-text-app);
+}
+
+.learn-chapter-preview-box ul {
+  margin: 0;
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.learn-chapter-preview-box li {
+  color: var(--color-text-app);
+}
+
+.learn-chapter-preview-button {
+  justify-self: start;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(35, 197, 94, 0.28), rgba(34, 211, 238, 0.22));
+  color: var(--color-text-app);
+  font-weight: 700;
+  padding: 0.52rem 0.82rem;
+  cursor: default;
+  opacity: 0.9;
+}
+
 .learn-materials-list {
   display: grid;
   gap: 0.45rem;
@@ -631,6 +736,32 @@
   text-align: right;
 }
 
+.learn-overview-chapters {
+  padding-top: 0.62rem;
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  gap: 0.38rem;
+}
+
+.learn-overview-chapters-title {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.learn-overview-chapters-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.learn-overview-chapters-list li {
+  color: var(--color-text-app);
+  font-size: 0.83rem;
+  line-height: 1.3;
+}
+
 @keyframes learnSuggestionPanelExpand {
   from {
     max-height: 0;
@@ -1062,6 +1193,112 @@
   margin: 0;
   color: var(--color-text-app);
   font-weight: 700;
+}
+
+.learn-chapter-modal-overlay {
+  padding: 0.35rem;
+}
+
+.learn-chapter-modal {
+  width: min(1240px, calc(100vw - 0.8rem));
+  max-height: calc(100dvh - 0.8rem);
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.learn-chapter-modal-header {
+  padding: 0.84rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.learn-chapter-modal-header-copy h2 {
+  margin: 0;
+  font-size: clamp(1.1rem, 1rem + 0.6vw, 1.6rem);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.learn-chapter-modal-header-copy p {
+  margin: 0.2rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.learn-chapter-modal-progress {
+  padding: 0.64rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.learn-chapter-modal-progress p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.84rem;
+}
+
+.learn-chapter-modal-body {
+  overflow-y: auto;
+  padding: 0.95rem 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.learn-chapter-step-card {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  border-radius: 14px;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.learn-chapter-step-card h3 {
+  margin: 0;
+  font-size: 1.03rem;
+  color: var(--color-text-app);
+}
+
+.learn-chapter-step-card p {
+  margin: 0;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+}
+
+.learn-chapter-step-label {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.learn-chapter-step-bullets {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.learn-chapter-step-bullets li {
+  color: var(--color-text-app);
+}
+
+.learn-chapter-modal-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 0.78rem 1rem 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
 }
 
 @media (max-width: 1000px) {

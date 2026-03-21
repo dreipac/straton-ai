@@ -31,6 +31,51 @@ export type EntryQuizResult = {
   evaluatedAnswersByQuestionId?: Record<string, string>
 }
 
+export type ChapterStep =
+  | {
+      id: string
+      type: 'explanation'
+      title: string
+      content: string
+      bullets?: string[]
+    }
+  | {
+      id: string
+      type: 'question'
+      questionType: 'mcq' | 'text'
+      prompt: string
+      options?: string[]
+      expectedAnswer: string
+      acceptableAnswers?: string[]
+      hint?: string
+      explanation?: string
+      evaluation?: 'exact' | 'contains'
+    }
+  | {
+      id: string
+      type: 'recap'
+      title: string
+      content: string
+      bullets?: string[]
+    }
+
+export type ChapterBlueprint = {
+  id: string
+  title: string
+  description?: string
+  steps: ChapterStep[]
+}
+
+export type ChapterSession = {
+  chapterIndex: number
+  stepIndex: number
+  answersByStepId: Record<string, string>
+  feedbackByStepId: Record<string, string>
+  correctnessByStepId: Record<string, boolean>
+  evaluatedAnswersByStepId: Record<string, string>
+  completedChapterIndexes: number[]
+}
+
 export type LearningPathRecord = LearningPathSummary & {
   topic: string
   topicSuggestions: string[]
@@ -43,6 +88,9 @@ export type LearningPathRecord = LearningPathSummary & {
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  learningChapters: string[]
+  chapterBlueprints: ChapterBlueprint[]
+  chapterSession: ChapterSession
 }
 
 type LearningPathRow = {
@@ -60,6 +108,9 @@ type LearningPathRow = {
   entry_quiz: unknown
   entry_quiz_answers: unknown
   entry_quiz_result: unknown
+  learning_chapters: unknown
+  chapter_blueprints: unknown
+  chapter_session: unknown
   created_at: string
   updated_at: string
 }
@@ -77,7 +128,29 @@ type LearningPathPatch = Partial<{
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  learningChapters: string[]
+  chapterBlueprints: ChapterBlueprint[]
+  chapterSession: ChapterSession
 }>
+
+function toReadableError(error: unknown): Error {
+  if (!error || typeof error !== 'object') {
+    return new Error('Unbekannter Supabase-Fehler.')
+  }
+  const candidate = error as {
+    message?: unknown
+    details?: unknown
+    hint?: unknown
+    code?: unknown
+  }
+  const parts = [
+    typeof candidate.message === 'string' ? candidate.message : '',
+    typeof candidate.details === 'string' ? candidate.details : '',
+    typeof candidate.hint === 'string' ? candidate.hint : '',
+    typeof candidate.code === 'string' ? `Code: ${candidate.code}` : '',
+  ].filter(Boolean)
+  return new Error(parts.join(' | ') || 'Supabase-Anfrage fehlgeschlagen.')
+}
 
 function mapMaterials(value: unknown): UploadedMaterial[] {
   if (!Array.isArray(value)) {
@@ -152,6 +225,148 @@ function mapTopicSuggestions(value: unknown): string[] {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .slice(0, 5)
+}
+
+function mapLearningChapters(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+}
+
+function mapChapterStep(value: unknown, index: number): ChapterStep | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const item = value as Record<string, unknown>
+  const type = item.type === 'question' || item.type === 'recap' ? item.type : 'explanation'
+  const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `step-${index + 1}`
+
+  if (type === 'question') {
+    const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
+    const expectedAnswer = typeof item.expectedAnswer === 'string' ? item.expectedAnswer.trim() : ''
+    if (!prompt || !expectedAnswer) {
+      return null
+    }
+    const options = Array.isArray(item.options)
+      ? item.options
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : undefined
+    const acceptableAnswers = Array.isArray(item.acceptableAnswers)
+      ? item.acceptableAnswers
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : undefined
+    return {
+      id,
+      type,
+      questionType: item.questionType === 'mcq' ? 'mcq' : 'text',
+      prompt,
+      options: options && options.length > 0 ? options : undefined,
+      expectedAnswer,
+      acceptableAnswers,
+      hint: typeof item.hint === 'string' ? item.hint : undefined,
+      explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
+      evaluation: item.evaluation === 'contains' ? 'contains' : 'exact',
+    }
+  }
+
+  const title = typeof item.title === 'string' ? item.title.trim() : ''
+  const content = typeof item.content === 'string' ? item.content.trim() : ''
+  if (!title || !content) {
+    return null
+  }
+  const bullets = Array.isArray(item.bullets)
+    ? item.bullets
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : undefined
+
+  if (type === 'recap') {
+    return {
+      id,
+      type: 'recap',
+      title,
+      content,
+      bullets,
+    }
+  }
+
+  return {
+    id,
+    type: 'explanation',
+    title,
+    content,
+    bullets,
+  }
+}
+
+function mapChapterBlueprints(value: unknown): ChapterBlueprint[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+      const item = entry as Record<string, unknown>
+      const title = typeof item.title === 'string' ? item.title.trim() : ''
+      const rawSteps = Array.isArray(item.steps) ? item.steps : []
+      const steps = rawSteps
+        .map((step, stepIndex) => mapChapterStep(step, stepIndex))
+        .filter(Boolean) as ChapterStep[]
+      if (!title || steps.length === 0) {
+        return null
+      }
+      return {
+        id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `chapter-${index + 1}`,
+        title,
+        description: typeof item.description === 'string' ? item.description.trim() : undefined,
+        steps,
+      } satisfies ChapterBlueprint
+    })
+    .filter(Boolean)
+    .map((entry) => entry as ChapterBlueprint)
+    .slice(0, 6)
+}
+
+function mapChapterSession(value: unknown): ChapterSession {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      chapterIndex: 0,
+      stepIndex: 0,
+      answersByStepId: {},
+      feedbackByStepId: {},
+      correctnessByStepId: {},
+      evaluatedAnswersByStepId: {},
+      completedChapterIndexes: [],
+    }
+  }
+  const item = value as Record<string, unknown>
+  const chapterIndex = typeof item.chapterIndex === 'number' && Number.isFinite(item.chapterIndex) ? item.chapterIndex : 0
+  const stepIndex = typeof item.stepIndex === 'number' && Number.isFinite(item.stepIndex) ? item.stepIndex : 0
+  const completedChapterIndexes = Array.isArray(item.completedChapterIndexes)
+    ? item.completedChapterIndexes.filter((entry): entry is number => typeof entry === 'number' && Number.isFinite(entry))
+    : []
+  return {
+    chapterIndex,
+    stepIndex,
+    answersByStepId: mapEntryQuizAnswers(item.answersByStepId),
+    feedbackByStepId: mapEntryQuizAnswers(item.feedbackByStepId),
+    correctnessByStepId: mapBooleanRecord(item.correctnessByStepId),
+    evaluatedAnswersByStepId: mapEntryQuizAnswers(item.evaluatedAnswersByStepId),
+    completedChapterIndexes,
+  }
 }
 
 function mapEntryQuizAnswers(value: unknown): Record<string, string> {
@@ -285,6 +500,9 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     entryQuiz: mapEntryQuiz(row.entry_quiz),
     entryQuizAnswers: mapEntryQuizAnswers(row.entry_quiz_answers),
     entryQuizResult: mapEntryQuizResult(row.entry_quiz_result),
+    learningChapters: mapLearningChapters(row.learning_chapters),
+    chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
+    chapterSession: mapChapterSession(row.chapter_session),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -304,7 +522,27 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.entryQuiz !== undefined) row.entry_quiz = patch.entryQuiz
   if (patch.entryQuizAnswers !== undefined) row.entry_quiz_answers = patch.entryQuizAnswers
   if (patch.entryQuizResult !== undefined) row.entry_quiz_result = patch.entryQuizResult
+  if (patch.learningChapters !== undefined) row.learning_chapters = patch.learningChapters
+  if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
+  if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
   return row
+}
+
+function stripNullChars(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/\u0000/g, '')
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripNullChars(entry))
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = stripNullChars(entry)
+    }
+    return out
+  }
+  return value
 }
 
 export async function listLearningPathsByUserId(userId: string): Promise<LearningPathRecord[]> {
@@ -312,13 +550,13 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
 
   if (error) {
-    throw error
+    throw toReadableError(error)
   }
 
   return (data ?? []).map((row) => mapRecord(row as LearningPathRow))
@@ -329,13 +567,13 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
 
   if (error) {
-    throw error
+    throw toReadableError(error)
   }
 
   if (!data) {
@@ -357,12 +595,12 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
     )
     .single()
 
   if (error) {
-    throw error
+    throw toReadableError(error)
   }
 
   return mapRecord(data as LearningPathRow)
@@ -372,19 +610,19 @@ export async function updateLearningPathById(
   pathId: string,
   patch: LearningPathPatch,
 ): Promise<LearningPathRecord> {
-  const rowPatch = toUpdateRow(patch)
+  const rowPatch = stripNullChars(toUpdateRow(patch)) as Record<string, unknown>
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('learning_paths')
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
     )
     .single()
 
   if (error) {
-    throw error
+    throw toReadableError(error)
   }
 
   return mapRecord(data as LearningPathRow)
@@ -395,6 +633,6 @@ export async function deleteLearningPathById(pathId: string): Promise<void> {
   const { error } = await supabase.from('learning_paths').delete().eq('id', pathId)
 
   if (error) {
-    throw error
+    throw toReadableError(error)
   }
 }

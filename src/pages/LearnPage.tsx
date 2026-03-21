@@ -5,7 +5,6 @@ import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
-import sendIcon from '../assets/icons/send.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import starIcon from '../assets/icons/star.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
@@ -20,6 +19,9 @@ import { sendMessage } from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
   createLearningPathByUserId,
+  type ChapterBlueprint,
+  type ChapterSession,
+  type ChapterStep,
   deleteLearningPathById,
   getLearningPathById,
   listLearningPathsByUserId,
@@ -31,6 +33,7 @@ import {
   type UploadedMaterial,
 } from '../features/learn/services/learn.persistence'
 import {
+  evaluateInteractiveAnswer,
   parseInteractiveContentWithFallback,
   type InteractiveQuizPayload,
 } from '../features/chat/utils/interactiveQuiz'
@@ -56,6 +59,322 @@ const ENTRY_TEST_PREP_STEPS = [
   'Straton erstellt deinen Einstiegstest',
 ] as const
 
+const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Kapitel werden generiert'] as const
+
+const DEFAULT_CHAPTER_SESSION: ChapterSession = {
+  chapterIndex: 0,
+  stepIndex: 0,
+  answersByStepId: {},
+  feedbackByStepId: {},
+  correctnessByStepId: {},
+  evaluatedAnswersByStepId: {},
+  completedChapterIndexes: [],
+}
+
+function parseLearningChaptersFromText(raw: string): string[] {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+    }
+  } catch {
+    // fallback to line-based parsing below
+  }
+
+  return trimmed
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+[\.\)]\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 6)
+}
+
+function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed
+      .map((entry, chapterIndex) => {
+        if (!entry || typeof entry !== 'object') {
+          return null
+        }
+        const candidate = entry as Record<string, unknown>
+        const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
+        const stepsRaw = Array.isArray(candidate.steps) ? candidate.steps : []
+        if (!title || stepsRaw.length === 0) {
+          return null
+        }
+        const steps = stepsRaw
+          .map((step, stepIndex) => {
+            if (!step || typeof step !== 'object') {
+              return null
+            }
+            const stepCandidate = step as Record<string, unknown>
+            const type = stepCandidate.type === 'question' || stepCandidate.type === 'recap' ? stepCandidate.type : 'explanation'
+            const id =
+              typeof stepCandidate.id === 'string' && stepCandidate.id.trim()
+                ? stepCandidate.id.trim()
+                : `c${chapterIndex + 1}-s${stepIndex + 1}`
+            if (type === 'question') {
+              const prompt = typeof stepCandidate.prompt === 'string' ? stepCandidate.prompt.trim() : ''
+              const expectedAnswer =
+                typeof stepCandidate.expectedAnswer === 'string' ? stepCandidate.expectedAnswer.trim() : ''
+              if (!prompt || !expectedAnswer) {
+                return null
+              }
+              const options = Array.isArray(stepCandidate.options)
+                ? stepCandidate.options
+                    .filter((opt): opt is string => typeof opt === 'string')
+                    .map((opt) => opt.trim())
+                    .filter(Boolean)
+                : undefined
+              return {
+                id,
+                type: 'question',
+                questionType: stepCandidate.questionType === 'mcq' ? 'mcq' : 'text',
+                prompt,
+                options: options && options.length > 0 ? options : undefined,
+                expectedAnswer,
+                acceptableAnswers: Array.isArray(stepCandidate.acceptableAnswers)
+                  ? stepCandidate.acceptableAnswers
+                      .filter((opt): opt is string => typeof opt === 'string')
+                      .map((opt) => opt.trim())
+                      .filter(Boolean)
+                  : [],
+                hint: typeof stepCandidate.hint === 'string' ? stepCandidate.hint : undefined,
+                explanation: typeof stepCandidate.explanation === 'string' ? stepCandidate.explanation : undefined,
+                evaluation: stepCandidate.evaluation === 'contains' ? 'contains' : 'exact',
+              } satisfies ChapterStep
+            }
+            const stepTitle = typeof stepCandidate.title === 'string' ? stepCandidate.title.trim() : ''
+            const content = typeof stepCandidate.content === 'string' ? stepCandidate.content.trim() : ''
+            if (!stepTitle || !content) {
+              return null
+            }
+            const bullets = Array.isArray(stepCandidate.bullets)
+              ? stepCandidate.bullets
+                  .filter((opt): opt is string => typeof opt === 'string')
+                  .map((opt) => opt.trim())
+                  .filter(Boolean)
+              : undefined
+            if (type === 'recap') {
+              return { id, type: 'recap', title: stepTitle, content, bullets } satisfies ChapterStep
+            }
+            return { id, type: 'explanation', title: stepTitle, content, bullets } satisfies ChapterStep
+          })
+          .filter(Boolean) as ChapterStep[]
+        if (steps.length === 0) {
+          return null
+        }
+        return {
+          id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `chapter-${chapterIndex + 1}`,
+          title,
+          description: typeof candidate.description === 'string' ? candidate.description.trim() : undefined,
+          steps,
+        } satisfies ChapterBlueprint
+      })
+      .filter(Boolean)
+      .map((chapter) => chapter as ChapterBlueprint)
+      .slice(0, 6)
+  } catch {
+    return []
+  }
+}
+
+function buildRichFallbackChapterSteps(title: string, chapterIndex: number): ChapterStep[] {
+  return [
+    {
+      id: `c${chapterIndex + 1}-s1`,
+      type: 'explanation',
+      title: 'Warmup',
+      content: `Kurzer Einstieg in ${title}: Wir aktivieren zuerst dein Vorwissen und ordnen das Thema ein.`,
+      bullets: ['Worum geht es?', 'Warum ist es in der Praxis wichtig?'],
+    },
+    {
+      id: `c${chapterIndex + 1}-s2`,
+      type: 'question',
+      questionType: 'mcq',
+      prompt: `Welche Aussage trifft am ehesten auf ${title} zu?`,
+      options: [
+        `${title} ist nur Theorie ohne Praxisbezug`,
+        `${title} wird in realen IT-Abläufen eingesetzt`,
+        `${title} ist veraltet und kaum relevant`,
+      ],
+      expectedAnswer: `${title} wird in realen IT-Abläufen eingesetzt`,
+      acceptableAnswers: [],
+      evaluation: 'exact',
+      hint: 'Denke an den Alltag im Betrieb.',
+      explanation: 'Genau: Das Thema ist praxisrelevant und wird im Alltag angewendet.',
+    },
+    {
+      id: `c${chapterIndex + 1}-s3`,
+      type: 'explanation',
+      title: 'Konzept 1',
+      content: `Wir schauen auf den ersten Kernbaustein von ${title} und wie er aufgebaut ist.`,
+      bullets: ['Definition', 'Aufbau', 'typische Begriffe'],
+    },
+    {
+      id: `c${chapterIndex + 1}-s4`,
+      type: 'question',
+      questionType: 'text',
+      prompt: `Erklaere den wichtigsten Kernbegriff in ${title} in 2-3 Saetzen.`,
+      expectedAnswer: 'Der Kernbegriff wird fachlich korrekt und einfach erklaert.',
+      acceptableAnswers: [],
+      evaluation: 'contains',
+      hint: 'Nutze einfache Worte und ein kleines Praxisbeispiel.',
+      explanation: 'Achte auf fachlich korrekte, aber einfache Formulierungen.',
+    },
+    {
+      id: `c${chapterIndex + 1}-s5`,
+      type: 'explanation',
+      title: 'Konzept 2',
+      content: `Jetzt vertiefen wir den zweiten Baustein und verbinden ihn mit dem ersten.`,
+      bullets: ['Zusammenhang verstehen', 'Abgrenzung zu aehnlichen Themen'],
+    },
+    {
+      id: `c${chapterIndex + 1}-s6`,
+      type: 'question',
+      questionType: 'mcq',
+      prompt: `Welche Option beschreibt den Zusammenhang der beiden Konzepte am besten?`,
+      options: [
+        'Sie sind komplett unabhaengig',
+        'Sie bauen logisch aufeinander auf',
+        'Sie widersprechen sich grundsaetzlich',
+      ],
+      expectedAnswer: 'Sie bauen logisch aufeinander auf',
+      acceptableAnswers: [],
+      evaluation: 'exact',
+      hint: 'Denke an den Lernfluss aus dem Kapitel.',
+      explanation: 'Richtig: Die Konzepte greifen ineinander und bauen aufeinander auf.',
+    },
+    {
+      id: `c${chapterIndex + 1}-s7`,
+      type: 'explanation',
+      title: 'Praxisbezug',
+      content: `So taucht ${title} in echten IT-Situationen auf.`,
+      bullets: ['typischer Use-Case', 'haeufige Fehler', 'Best Practice'],
+    },
+    {
+      id: `c${chapterIndex + 1}-s8`,
+      type: 'question',
+      questionType: 'text',
+      prompt: `Nenne einen praktischen Anwendungsfall fuer ${title} und erklaere kurz den Nutzen.`,
+      expectedAnswer: 'Ein plausibler Use-Case mit nachvollziehbarem Nutzen wird beschrieben.',
+      acceptableAnswers: [],
+      evaluation: 'contains',
+      hint: 'Beziehe dich auf ein realistisches Szenario.',
+      explanation: 'Sehr gut, wenn dein Szenario konkret und fachlich stimmig ist.',
+    },
+    {
+      id: `c${chapterIndex + 1}-s9`,
+      type: 'explanation',
+      title: 'Merksaetze',
+      content: `Die wichtigsten Punkte von ${title} auf einen Blick.`,
+      bullets: ['1-2 Kernregeln', 'Wann besonders aufpassen?', 'Was unbedingt merken?'],
+    },
+    {
+      id: `c${chapterIndex + 1}-s10`,
+      type: 'recap',
+      title: 'Kapitelabschluss',
+      content: `Du hast die wichtigsten Grundlagen von ${title} aufgebaut und praktisch geuebt.`,
+      bullets: ['Konzepte verstanden', 'Fragen angewendet', 'Bereit fuer das naechste Kapitel'],
+    },
+  ]
+}
+
+function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): ChapterBlueprint[] {
+  return blueprints.map((chapter, index) => {
+    if (chapter.steps.length >= 8) {
+      return chapter
+    }
+    const fallback = buildRichFallbackChapterSteps(chapter.title, index)
+    const merged = [...chapter.steps]
+    for (const step of fallback) {
+      if (merged.length >= 10) {
+        break
+      }
+      if (!merged.some((existing) => existing.id === step.id)) {
+        merged.push(step)
+      }
+    }
+    return {
+      ...chapter,
+      steps: merged,
+    }
+  })
+}
+
+function buildChallengeChapterFromWrongAnswers(
+  blueprints: ChapterBlueprint[],
+  session: ChapterSession,
+): ChapterBlueprint | null {
+  const wrongQuestionSteps: Extract<ChapterStep, { type: 'question' }>[] = []
+  const seen = new Set<string>()
+
+  for (const chapter of blueprints) {
+    for (const step of chapter.steps) {
+      if (step.type !== 'question') {
+        continue
+      }
+      if (session.correctnessByStepId[step.id] !== false) {
+        continue
+      }
+      if (seen.has(step.id)) {
+        continue
+      }
+      seen.add(step.id)
+      wrongQuestionSteps.push(step)
+    }
+  }
+
+  if (wrongQuestionSteps.length === 0) {
+    return null
+  }
+
+  const challengeSteps: ChapterStep[] = [
+    {
+      id: 'challenge-intro',
+      type: 'explanation',
+      title: 'Knifflige Wiederholung',
+      content:
+        'Dieses Abschlusskapitel sammelt Fragen, die im Lernverlauf falsch beantwortet wurden, damit du genau diese Luecken schliesst.',
+      bullets: ['Gezielte Wiederholung', 'Fokus auf schwierige Punkte', 'Direktes Feedback pro Frage'],
+    },
+    ...wrongQuestionSteps.slice(0, 12).map((step, index) => ({
+      ...step,
+      id: `challenge-q${index + 1}`,
+    })),
+    {
+      id: 'challenge-recap',
+      type: 'recap',
+      title: 'Abschluss',
+      content: 'Sehr stark. Du hast die schwierigsten Fragen nochmal gezielt bearbeitet.',
+      bullets: ['Fehlerbereiche stabilisiert', 'Lernfortschritt gesichert'],
+    },
+  ]
+
+  return {
+    id: 'challenge-chapter',
+    title: 'Knifflige Fragen',
+    description: 'Abschlusskapitel mit schwierigen Wiederholungsfragen',
+    steps: challengeSteps,
+  }
+}
+
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
   const { user, profile, isLoading } = useAuth()
@@ -69,8 +388,7 @@ export function LearnPage() {
   const [learningPaths, setLearningPaths] = useState<LearningPathSummary[]>([])
   const [activePathId, setActivePathId] = useState<string>('')
   const [tutorMessages, setTutorMessages] = useState<TutorChatEntry[]>([])
-  const [tutorDraft, setTutorDraft] = useState('')
-  const [isTutorSending, setIsTutorSending] = useState(false)
+  const [isChapterPreviewVisible, setIsChapterPreviewVisible] = useState(false)
   const [isLayoutCustomizeMode, setIsLayoutCustomizeMode] = useState(false)
   const [mainSplitPercent, setMainSplitPercent] = useState(72)
   const [dragTarget, setDragTarget] = useState<'main' | null>(null)
@@ -90,13 +408,23 @@ export function LearnPage() {
   const [isEntryQuizVisible, setIsEntryQuizVisible] = useState(false)
   const [entryQuizAnswers, setEntryQuizAnswers] = useState<Record<string, string>>({})
   const [entryQuizResult, setEntryQuizResult] = useState<EntryQuizResult | null>(null)
+  const [learningChapters, setLearningChapters] = useState<string[]>([])
+  const [chapterBlueprints, setChapterBlueprints] = useState<ChapterBlueprint[]>([])
+  const [chapterSession, setChapterSession] = useState<ChapterSession>(DEFAULT_CHAPTER_SESSION)
+  const [isChapterModalMounted, setIsChapterModalMounted] = useState(false)
+  const [isChapterModalVisible, setIsChapterModalVisible] = useState(false)
+  const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
   const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
   const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
+  const [isPostEntryPrepLoading, setIsPostEntryPrepLoading] = useState(false)
+  const [postEntryPrepStepIndex, setPostEntryPrepStepIndex] = useState(0)
+  const [postEntryPrepPercents, setPostEntryPrepPercents] = useState<number[]>([0, 0])
   const [openPathMenuId, setOpenPathMenuId] = useState<string | null>(null)
   const [pathMenuPosition, setPathMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const learnPageGridRef = useRef<HTMLDivElement | null>(null)
   const pathMenuRef = useRef<HTMLDivElement | null>(null)
   const entryQuizCloseTimerRef = useRef<number | null>(null)
+  const chapterModalCloseTimerRef = useRef<number | null>(null)
   const suppressAutosaveRef = useRef(false)
   const activePathIdRef = useRef('')
   const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
@@ -120,6 +448,9 @@ export function LearnPage() {
       entryQuiz,
       entryQuizAnswers,
       entryQuizResult,
+      learningChapters,
+      chapterBlueprints,
+      chapterSession,
     }),
     [
       topic,
@@ -133,6 +464,9 @@ export function LearnPage() {
       entryQuiz,
       entryQuizAnswers,
       entryQuizResult,
+      learningChapters,
+      chapterBlueprints,
+      chapterSession,
     ],
   )
 
@@ -149,6 +483,9 @@ export function LearnPage() {
       entryQuiz: InteractiveQuizPayload | null
       entryQuizAnswers: Record<string, string>
       entryQuizResult: EntryQuizResult | null
+      learningChapters: string[]
+      chapterBlueprints: ChapterBlueprint[]
+      chapterSession: ChapterSession
     }) => {
       suppressAutosaveRef.current = true
       setTopic(record.topic)
@@ -160,19 +497,32 @@ export function LearnPage() {
       setIsSetupComplete(record.isSetupComplete)
       setMaterials(record.materials)
       setTutorMessages(record.tutorMessages)
-      setTutorDraft('')
+      setIsChapterPreviewVisible(false)
       setEntryQuiz(record.entryQuiz)
       setEntryQuizAnswers(record.entryQuizAnswers)
       setEntryQuizResult(record.entryQuizResult)
+      setLearningChapters(record.learningChapters)
+      setChapterBlueprints(record.chapterBlueprints)
+      setChapterSession(record.chapterSession)
       setEntryQuizQuestionIndex(0)
       setIsLoadingTopicSuggestions(false)
       setHasTriedEntryQuizGeneration(Boolean(record.entryQuiz))
       setEntryPrepStepIndex(0)
       setEntryPrepPercents([0, 0, 0])
       setIsEntryPrepClosing(false)
+      setIsPostEntryPrepLoading(false)
+      setPostEntryPrepStepIndex(0)
+      setPostEntryPrepPercents([0, 0])
+      setIsChapterModalVisible(false)
+      setIsChapterModalMounted(false)
+      setIsEvaluatingChapterStep(false)
       if (entryQuizCloseTimerRef.current) {
         window.clearTimeout(entryQuizCloseTimerRef.current)
         entryQuizCloseTimerRef.current = null
+      }
+      if (chapterModalCloseTimerRef.current) {
+        window.clearTimeout(chapterModalCloseTimerRef.current)
+        chapterModalCloseTimerRef.current = null
       }
       setIsEntryQuizVisible(false)
       setIsEntryQuizMounted(false)
@@ -203,6 +553,9 @@ export function LearnPage() {
       entryQuiz,
       entryQuizAnswers,
       entryQuizResult,
+      learningChapters,
+      chapterBlueprints,
+      chapterSession,
     })
 
     pathCacheRef.current[pathId] = updated
@@ -219,6 +572,9 @@ export function LearnPage() {
     entryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    learningChapters,
+    chapterBlueprints,
+    chapterSession,
   ])
 
   const persistPathInBackground = useCallback(
@@ -237,6 +593,9 @@ export function LearnPage() {
         entryQuiz: InteractiveQuizPayload | null
         entryQuizAnswers: Record<string, string>
         entryQuizResult: EntryQuizResult | null
+        learningChapters: string[]
+        chapterBlueprints: ChapterBlueprint[]
+        chapterSession: ChapterSession
       },
     ) => {
       void updateLearningPathById(pathId, {
@@ -271,16 +630,22 @@ export function LearnPage() {
       setIsSetupComplete(false)
       setMaterials([])
       setTutorMessages([])
-      setTutorDraft('')
+      setIsChapterPreviewVisible(false)
       setEntryQuiz(null)
       setEntryQuizAnswers({})
       setEntryQuizResult(null)
+      setLearningChapters([])
+      setChapterBlueprints([])
+      setChapterSession(DEFAULT_CHAPTER_SESSION)
       setEntryQuizQuestionIndex(0)
       setIsLoadingTopicSuggestions(false)
       setHasTriedEntryQuizGeneration(false)
       setEntryPrepStepIndex(0)
       setEntryPrepPercents([0, 0, 0])
       setIsEntryPrepClosing(false)
+      setIsPostEntryPrepLoading(false)
+      setPostEntryPrepStepIndex(0)
+      setPostEntryPrepPercents([0, 0])
       pathCacheRef.current = {}
       return
     }
@@ -367,6 +732,7 @@ export function LearnPage() {
     entryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    learningChapters,
   ])
 
   useEffect(() => {
@@ -395,6 +761,9 @@ export function LearnPage() {
     return () => {
       if (entryQuizCloseTimerRef.current) {
         window.clearTimeout(entryQuizCloseTimerRef.current)
+      }
+      if (chapterModalCloseTimerRef.current) {
+        window.clearTimeout(chapterModalCloseTimerRef.current)
       }
     }
   }, [])
@@ -630,6 +999,9 @@ export function LearnPage() {
         setEntryQuiz(parsed.quiz)
         setEntryQuizAnswers(initialAnswers)
         setEntryQuizResult(null)
+        setLearningChapters([])
+        setChapterBlueprints([])
+        setChapterSession(DEFAULT_CHAPTER_SESSION)
         setEntryQuizQuestionIndex(0)
         setEntryPrepStepIndex(ENTRY_TEST_PREP_STEPS.length - 1)
         setEntryPrepPercents([100, 100, 100])
@@ -746,11 +1118,17 @@ export function LearnPage() {
     setIsSetupComplete(false)
     setMaterials([])
     setTutorMessages([])
-    setTutorDraft('')
+    setIsChapterPreviewVisible(false)
     setEntryQuiz(null)
     setEntryQuizAnswers({})
     setEntryQuizResult(null)
+    setLearningChapters([])
+    setChapterBlueprints([])
+    setChapterSession(DEFAULT_CHAPTER_SESSION)
     setEntryQuizQuestionIndex(0)
+    setIsPostEntryPrepLoading(false)
+    setPostEntryPrepStepIndex(0)
+    setPostEntryPrepPercents([0, 0])
 
     try {
       const next = await getLearningPathById(pathId)
@@ -838,11 +1216,17 @@ export function LearnPage() {
       setIsSetupComplete(false)
       setMaterials([])
       setTutorMessages([])
-      setTutorDraft('')
+      setIsChapterPreviewVisible(false)
       setEntryQuiz(null)
       setEntryQuizAnswers({})
       setEntryQuizResult(null)
+      setLearningChapters([])
+      setChapterBlueprints([])
+      setChapterSession(DEFAULT_CHAPTER_SESSION)
       setEntryQuizQuestionIndex(0)
+      setIsPostEntryPrepLoading(false)
+      setPostEntryPrepStepIndex(0)
+      setPostEntryPrepPercents([0, 0])
 
       const next = await getLearningPathById(nextSummary.id)
       if (!next) {
@@ -914,11 +1298,17 @@ export function LearnPage() {
     setIsEntryPrepClosing(false)
     setEntryPrepStepIndex(0)
     setEntryPrepPercents([0, 0, 0])
+    setIsPostEntryPrepLoading(false)
+    setPostEntryPrepStepIndex(0)
+    setPostEntryPrepPercents([0, 0])
     setIsSetupComplete(true)
     setTutorMessages([])
     setEntryQuiz(null)
     setEntryQuizAnswers({})
     setEntryQuizResult(null)
+    setLearningChapters([])
+    setChapterBlueprints([])
+    setChapterSession(DEFAULT_CHAPTER_SESSION)
     setEntryQuizQuestionIndex(0)
   }
 
@@ -945,81 +1335,6 @@ export function LearnPage() {
       setMaterials((prev) => [...uploaded, ...prev].slice(0, 8))
     } finally {
       setIsUploading(false)
-    }
-  }
-
-  async function handleTutorChatSubmit() {
-    const prompt = tutorDraft.trim()
-    if (!prompt || isTutorSending) {
-      return
-    }
-
-    setError(null)
-    setIsTutorSending(true)
-
-    const nextUserMessage: TutorChatEntry = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: prompt,
-    }
-
-    const nextHistory = [...tutorMessages, nextUserMessage]
-    setTutorMessages(nextHistory)
-    setTutorDraft('')
-
-    try {
-      const materialContext = materials
-        .map((material, index) => `Material ${index + 1} (${material.name}): ${material.excerpt}`)
-        .join('\n')
-
-      const tutorContext: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: [
-          `Lernpfad: ${activePath?.title ?? 'Neuer Lernpfad'}`,
-          `Thema: ${effectiveTopic || activePath?.title || 'ohne Thema'}`,
-          selectedTopic.trim() ? `Gewaehlter Schwerpunkt: ${selectedTopic.trim()}` : 'Gewaehlter Schwerpunkt: keiner',
-          proficiencyLevel
-            ? `Selbsteinschaetzung Niveau: ${
-                proficiencyLevel === 'low'
-                  ? 'schwach'
-                  : proficiencyLevel === 'medium'
-                    ? 'mittel'
-                    : 'gut'
-              }`
-            : 'Selbsteinschaetzung Niveau: unbekannt',
-          materialContext ? `Materialien:\n${materialContext}` : 'Materialien: keine hochgeladen.',
-          'Antworte als KI-Lehrer. Wenn sinnvoll, darfst du interaktive Quizfragen liefern.',
-        ].join('\n\n'),
-        createdAt: new Date().toISOString(),
-      }
-
-      const chatMessages: ChatMessage[] = [
-        tutorContext,
-        ...nextHistory.map((entry) => ({
-          id: entry.id,
-          role: entry.role,
-          content: entry.content,
-          createdAt: new Date().toISOString(),
-        })),
-      ]
-
-      const result = await sendMessage(chatMessages, {
-        systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
-      })
-      const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
-
-      const assistantMessage: TutorChatEntry = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: parsed.cleanText || result.assistantMessage.content,
-      }
-
-      setTutorMessages((prev) => [...prev, assistantMessage])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tutor-Chat derzeit nicht verfuegbar.')
-    } finally {
-      setIsTutorSending(false)
     }
   }
 
@@ -1087,11 +1402,259 @@ export function LearnPage() {
         correctnessByQuestionId,
         evaluatedAnswersByQuestionId,
       })
+
+      closeEntryQuizModal()
+      setTutorMessages([])
+      setIsChapterPreviewVisible(false)
+      setIsPostEntryPrepLoading(true)
+      setPostEntryPrepStepIndex(0)
+      setPostEntryPrepPercents([0, 0])
+
+      await new Promise<void>((resolve) => {
+        let percent = 0
+        const timerId = window.setInterval(() => {
+          percent = Math.min(100, percent + (Math.floor(Math.random() * 8) + 5))
+          setPostEntryPrepPercents((prev) => [percent, prev[1] ?? 0])
+          if (percent >= 100) {
+            window.clearInterval(timerId)
+            resolve()
+          }
+        }, 55)
+      })
+
+      setPostEntryPrepStepIndex(1)
+
+      let stageTwoPercent = 0
+      const stageTwoTimerId = window.setInterval(() => {
+        stageTwoPercent = Math.min(92, stageTwoPercent + (Math.floor(Math.random() * 5) + 3))
+        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, stageTwoPercent])
+      }, 85)
+
+      try {
+        const evaluationSummary = entryQuiz.questions
+          .map((question) => ({
+            prompt: question.prompt,
+            isCorrect: correctnessByQuestionId[question.id] === true,
+            feedback: feedbackByQuestionId[question.id] ?? '',
+          }))
+          .map(
+            (item, index) =>
+              `${index + 1}. ${item.prompt}\nStatus: ${item.isCorrect ? 'sicher' : 'Lernpotenzial'}\nHinweis: ${
+                item.feedback || '-'
+              }`,
+          )
+          .join('\n\n')
+
+        const chapterRequest: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: [
+            `Thema: ${effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')}`,
+            selectedTopic.trim() ? `Schwerpunkt: ${selectedTopic.trim()}` : 'Schwerpunkt: keiner',
+            `Testergebnis: ${score}/${entryQuiz.questions.length}`,
+            'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
+            'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
+            'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
+            'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
+            'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
+            'Fragetypen mischen: text und mcq.',
+            'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
+            'Schema pro Kapitel: {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
+            `Auswertungsgrundlage:\n${evaluationSummary}`,
+          ].join('\n\n'),
+          createdAt: new Date().toISOString(),
+        }
+
+        const chapterResponse = await sendMessage([chapterRequest], {
+          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+        })
+        const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
+        const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
+        const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
+        const generated = parseLearningChaptersFromText(parsedContent)
+        const nextLearningChapters =
+          generated.length > 0
+            ? generated.slice(0, 6)
+            : [
+                `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
+                'Schwaechere Bereiche aus dem Einstiegstest vertiefen',
+                'Kurzer Praxis-Transfer fuer sichere Themen',
+              ]
+        const nextBlueprints: ChapterBlueprint[] =
+          parsedBlueprints.length > 0
+            ? parsedBlueprints
+            : (nextLearningChapters.map((title, index) => ({
+                id: `chapter-${index + 1}`,
+                title,
+                steps: buildRichFallbackChapterSteps(title, index),
+              })) as ChapterBlueprint[])
+
+        window.clearInterval(stageTwoTimerId)
+        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, 100])
+
+        setLearningChapters(nextLearningChapters)
+        setChapterBlueprints(nextBlueprints)
+        setChapterSession(DEFAULT_CHAPTER_SESSION)
+        setTutorMessages([
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: 'Anhand deiner Testergebnisse wurden Lernkapitel generiert.',
+            action: 'open-entry-test',
+          },
+        ])
+      } finally {
+        window.clearInterval(stageTwoTimerId)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht abgegeben werden.')
     } finally {
+      setIsPostEntryPrepLoading(false)
       setIsSubmittingEntryQuiz(false)
     }
+  }
+
+  function openChapterModal() {
+    if (chapterModalCloseTimerRef.current) {
+      window.clearTimeout(chapterModalCloseTimerRef.current)
+      chapterModalCloseTimerRef.current = null
+    }
+    setIsChapterModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsChapterModalVisible(true)
+    })
+  }
+
+  function closeChapterModal() {
+    setIsChapterModalVisible(false)
+    chapterModalCloseTimerRef.current = window.setTimeout(() => {
+      setIsChapterModalMounted(false)
+      chapterModalCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
+  async function handleEvaluateCurrentChapterQuestion() {
+    const activeChapter =
+      effectiveChapterBlueprints[Math.max(0, Math.min(chapterSession.chapterIndex, effectiveChapterBlueprints.length - 1))]
+    const activeStep = activeChapter?.steps[Math.max(0, Math.min(chapterSession.stepIndex, (activeChapter?.steps.length ?? 1) - 1))]
+    if (!activeChapter || !activeStep || activeStep.type !== 'question' || isEvaluatingChapterStep) {
+      return
+    }
+    const answer = (chapterSession.answersByStepId[activeStep.id] ?? '').trim()
+    if (!answer) {
+      return
+    }
+
+    setIsEvaluatingChapterStep(true)
+    try {
+      const cachedAnswer = chapterSession.evaluatedAnswersByStepId[activeStep.id]
+      const cachedFeedback = chapterSession.feedbackByStepId[activeStep.id]
+      const cachedCorrect = chapterSession.correctnessByStepId[activeStep.id]
+      if (cachedAnswer === answer && typeof cachedFeedback === 'string' && typeof cachedCorrect === 'boolean') {
+        return
+      }
+
+      let result: { isCorrect: boolean; feedback: string }
+      if (activeStep.questionType === 'mcq') {
+        result = evaluateInteractiveAnswer(answer, {
+          id: activeStep.id,
+          prompt: activeStep.prompt,
+          expectedAnswer: activeStep.expectedAnswer,
+          acceptableAnswers: activeStep.acceptableAnswers ?? [],
+          evaluation: activeStep.evaluation === 'contains' ? 'contains' : 'exact',
+          hint: activeStep.hint,
+          explanation: activeStep.explanation,
+        })
+      } else {
+        result = await evaluateQuizAnswerWithAi({
+          question: {
+            id: activeStep.id,
+            prompt: activeStep.prompt,
+            expectedAnswer: activeStep.expectedAnswer,
+            acceptableAnswers: activeStep.acceptableAnswers ?? [],
+            evaluation: activeStep.evaluation === 'contains' ? 'contains' : 'exact',
+            hint: activeStep.hint,
+            explanation: activeStep.explanation,
+          },
+          userAnswer: answer,
+        })
+      }
+
+      setChapterSession((prev) => ({
+        ...prev,
+        feedbackByStepId: {
+          ...prev.feedbackByStepId,
+          [activeStep.id]: result.feedback,
+        },
+        correctnessByStepId: {
+          ...prev.correctnessByStepId,
+          [activeStep.id]: result.isCorrect,
+        },
+        evaluatedAnswersByStepId: {
+          ...prev.evaluatedAnswersByStepId,
+          [activeStep.id]: answer,
+        },
+      }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Frage konnte nicht ausgewertet werden.')
+    } finally {
+      setIsEvaluatingChapterStep(false)
+    }
+  }
+
+  function handleNextChapterStep() {
+    const activeChapter =
+      effectiveChapterBlueprints[Math.max(0, Math.min(chapterSession.chapterIndex, effectiveChapterBlueprints.length - 1))]
+    const activeStep = activeChapter?.steps[Math.max(0, Math.min(chapterSession.stepIndex, (activeChapter?.steps.length ?? 1) - 1))]
+    if (!activeChapter || !activeStep) {
+      return
+    }
+
+    if (activeStep.type === 'question' && !chapterSession.feedbackByStepId[activeStep.id]) {
+      return
+    }
+
+    setChapterSession((prev) => {
+      const chapter =
+        effectiveChapterBlueprints[Math.max(0, Math.min(prev.chapterIndex, effectiveChapterBlueprints.length - 1))]
+      if (!chapter) {
+        return prev
+      }
+      if (prev.stepIndex < chapter.steps.length - 1) {
+        return {
+          ...prev,
+          stepIndex: prev.stepIndex + 1,
+        }
+      }
+      const nextChapterIndex = Math.min(effectiveChapterBlueprints.length - 1, prev.chapterIndex + 1)
+      const isCompleted = prev.completedChapterIndexes.includes(prev.chapterIndex)
+      return {
+        ...prev,
+        chapterIndex: nextChapterIndex,
+        stepIndex: 0,
+        completedChapterIndexes: isCompleted ? prev.completedChapterIndexes : [...prev.completedChapterIndexes, prev.chapterIndex],
+      }
+    })
+  }
+
+  function handlePreviousChapterStep() {
+    setChapterSession((prev) => {
+      if (prev.stepIndex > 0) {
+        return {
+          ...prev,
+          stepIndex: prev.stepIndex - 1,
+        }
+      }
+      if (prev.chapterIndex > 0) {
+        const previousChapter = effectiveChapterBlueprints[prev.chapterIndex - 1]
+        return {
+          ...prev,
+          chapterIndex: prev.chapterIndex - 1,
+          stepIndex: Math.max(0, (previousChapter?.steps.length ?? 1) - 1),
+        }
+      }
+      return prev
+    })
   }
 
   const hasSetupPhase = !isSetupComplete
@@ -1108,12 +1671,69 @@ export function LearnPage() {
     entryQuizTotalQuestions > 0
       ? (Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions) / entryQuizTotalQuestions) * 100
       : 0
+  const challengeChapter = buildChallengeChapterFromWrongAnswers(chapterBlueprints, chapterSession)
+  const effectiveChapterBlueprints = challengeChapter ? [...chapterBlueprints, challengeChapter] : chapterBlueprints
+  const safeChapterIndex = Math.max(
+    0,
+    Math.min(chapterSession.chapterIndex, Math.max(0, effectiveChapterBlueprints.length - 1)),
+  )
+  const activeChapterBlueprint = effectiveChapterBlueprints[safeChapterIndex] ?? null
+  const safeChapterStepIndex = Math.max(
+    0,
+    Math.min(chapterSession.stepIndex, Math.max(0, (activeChapterBlueprint?.steps.length ?? 1) - 1)),
+  )
+  const activeChapterStep = activeChapterBlueprint?.steps[safeChapterStepIndex] ?? null
+  const chapterProgressPercent =
+    activeChapterBlueprint && activeChapterBlueprint.steps.length > 0
+      ? ((safeChapterStepIndex + 1) / activeChapterBlueprint.steps.length) * 100
+      : 0
+  const currentChapterAnswer =
+    activeChapterStep?.type === 'question' ? (chapterSession.answersByStepId[activeChapterStep.id] ?? '') : ''
+  const currentChapterFeedback =
+    activeChapterStep?.type === 'question' ? (chapterSession.feedbackByStepId[activeChapterStep.id] ?? '') : ''
+  const totalAnsweredChapterQuestions = Object.keys(chapterSession.correctnessByStepId).length
+  const totalCorrectChapterQuestions = Object.values(chapterSession.correctnessByStepId).filter(Boolean).length
+  const totalWrongChapterQuestions = Math.max(0, totalAnsweredChapterQuestions - totalCorrectChapterQuestions)
+  const chapterAccuracyPercent =
+    totalAnsweredChapterQuestions > 0
+      ? Math.round((totalCorrectChapterQuestions / totalAnsweredChapterQuestions) * 100)
+      : 0
   const displayName =
     [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim() ||
     profile?.first_name ||
     user?.email ||
     'Nutzer'
   const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const previewBlueprint = effectiveChapterBlueprints[0]
+  const previewChapterTitle = previewBlueprint?.title ?? learningChapters[0] ?? `Grundlagen zu ${effectiveTopic || 'deinem Thema'}`
+  const previewExplanationStep =
+    previewBlueprint?.steps.find(
+      (step): step is Extract<ChapterStep, { type: 'explanation' }> => step.type === 'explanation',
+    ) ?? null
+  const previewStepCount = previewBlueprint?.steps.length ?? 0
+  const previewQuestionCount = previewBlueprint?.steps.filter((step) => step.type === 'question').length ?? 0
+  const previewCompleted = chapterSession.completedChapterIndexes.includes(safeChapterIndex)
+  const previewStatusLabel = previewCompleted
+    ? 'Abgeschlossen'
+    : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+      ? 'In Bearbeitung'
+      : 'Bereit'
+  const previewStatusText = previewCompleted
+    ? 'Du hast dieses Kapitel bereits abgeschlossen.'
+    : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+      ? `Du bist gerade in Schritt ${safeChapterStepIndex + 1}.`
+      : 'Dieses Kapitel ist bereit zum Start.'
+  const previewRecommendation =
+    totalWrongChapterQuestions > 0
+      ? `Fokus: ${totalWrongChapterQuestions} offene Schwachpunkte zuerst stabilisieren.`
+      : totalAnsweredChapterQuestions > 0
+        ? 'Stark! Weiter so, du kannst das Tempo leicht erhoehen.'
+        : 'Startklar: Beginne mit den Kernkonzepten und teste direkt dein Verstaendnis.'
+  const previewEstimatedMinutes = Math.max(5, Math.round(previewStepCount * 1.2))
+  const previewChapterBullets =
+    previewExplanationStep?.bullets && previewExplanationStep.bullets.length > 0
+      ? previewExplanationStep.bullets
+      : [`${previewChapterTitle} sicher verstehen`, 'Wichtige Kernkonzepte strukturiert aufbauen', 'Typische Fehlerquellen in der Praxis vermeiden']
   const proficiencyLabel =
     proficiencyLevel === 'low'
       ? 'Schlecht'
@@ -1407,7 +2027,94 @@ export function LearnPage() {
             ) : (
               <>
                 <section className="learn-conversation">
-                  {tutorMessages.length === 0 ? (
+                  {entryQuizResult ? (
+                    <p className="learn-next-step-hint">
+                      Wenn du die Testergebnisse angeschaut hast, koennen wir zum naechsten Schritt gehen.
+                    </p>
+                  ) : null}
+                  {isChapterPreviewVisible && learningChapters.length > 0 ? (
+                    <section className="learn-chapter-preview" aria-label="Kapitelvorschau">
+                      <div className="learn-chapter-preview-section">
+                        <p className="learn-chapter-preview-label">Titel</p>
+                        <p className="learn-chapter-preview-title">
+                          Kapitel {safeChapterIndex + 1}: {previewChapterTitle}
+                        </p>
+                        <div className="learn-chapter-preview-meta">
+                          <span>Status: {previewStatusLabel}</span>
+                          <span>
+                            Fortschritt: Schritt {safeChapterStepIndex + 1} / {Math.max(1, previewStepCount)}
+                          </span>
+                        </div>
+                        <p className="learn-chapter-preview-status-text">{previewStatusText}</p>
+                        <div className="learn-chapter-preview-kpis">
+                          <span>Richtig: {totalCorrectChapterQuestions}</span>
+                          <span>Falsch: {totalWrongChapterQuestions}</span>
+                          <span>Quote: {chapterAccuracyPercent}%</span>
+                        </div>
+                      </div>
+                      <div className="learn-chapter-preview-section">
+                        <p className="learn-chapter-preview-label">Beschreibung</p>
+                        <div className="learn-chapter-preview-box">
+                          <p>In diesem Kapitel lernst du:</p>
+                          <ul>
+                            {previewChapterBullets.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      <div className="learn-chapter-preview-section">
+                        <p className="learn-chapter-preview-label">Zusatz (optional aber stark)</p>
+                        <div className="learn-chapter-preview-box">
+                          <p>Dauer: ca. {previewEstimatedMinutes} Minuten</p>
+                          <p>
+                            {Math.max(1, previewStepCount - previewQuestionCount)} Lernblöcke · {previewQuestionCount}{' '}
+                            Interaktive Fragen
+                          </p>
+                          <p>{previewRecommendation}</p>
+                        </div>
+                      </div>
+                      <div className="learn-chapter-preview-section">
+                        <p className="learn-chapter-preview-label">Hauptbutton</p>
+                        <button
+                          type="button"
+                          className="learn-chapter-preview-button"
+                          disabled={effectiveChapterBlueprints.length === 0}
+                          onClick={openChapterModal}
+                        >
+                          Kapitel starten
+                        </button>
+                      </div>
+                    </section>
+                  ) : isPostEntryPrepLoading ? (
+                    <section className="learn-entry-prep" aria-live="polite" aria-label="Ladevorgang Kapitelgenerierung">
+                      <div className="learn-entry-prep-header">
+                        <span className="learn-topic-loader-orbit" aria-hidden="true">
+                          <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                          <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                          <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                        </span>
+                        <p className="learn-entry-prep-title">Dein Lernpfad wird vorbereitet...</p>
+                      </div>
+                      <div className="learn-entry-prep-steps">
+                        {POST_ENTRY_PREP_STEPS.slice(0, postEntryPrepStepIndex + 1).map((label, index) => (
+                          <div
+                            key={label}
+                            className={`learn-entry-prep-step ${
+                              index < postEntryPrepStepIndex
+                                ? 'is-complete'
+                                : index === postEntryPrepStepIndex
+                                  ? 'is-active'
+                                  : ''
+                            }`}
+                          >
+                            <span>{label}</span>
+                            <strong>{Math.max(0, Math.min(100, Math.round(postEntryPrepPercents[index] ?? 0)))}%</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : tutorMessages.length === 0 ? (
                     isEntryQuizLoading || isEntryPrepClosing ? (
                     <section
                       className={`learn-entry-prep ${isEntryPrepClosing ? 'is-exiting' : ''}`}
@@ -1470,12 +2177,16 @@ export function LearnPage() {
                           <div className="learn-entry-test-ready">
                             <p className="learn-entry-test-ready-title">
                               <img className="ui-icon learn-entry-test-ready-check" src={checkIcon} alt="" aria-hidden="true" />
-                              <span>Einstiegstest bereit</span>
+                              <span>{entryQuizResult ? 'Einstiegstest ausgewertet' : 'Einstiegstest bereit'}</span>
                             </p>
                             <p className="learn-entry-test-ready-description">
-                              Dieser Test hilft dir, dein Wissen zu analysieren und deinen Lernpfad anzupassen.
+                              {entryQuizResult
+                                ? 'Anhand deiner Testergebnisse wurden Lernkapitel generiert.'
+                                : 'Dieser Test hilft dir, dein Wissen zu analysieren und deinen Lernpfad anzupassen.'}
                             </p>
-                            <p className="learn-entry-test-ready-duration">Dauer: {entryTestDurationLabel}</p>
+                            <p className="learn-entry-test-ready-duration">
+                              {entryQuizResult ? `Ergebnis: ${entryQuizResult.score}/${entryQuizResult.total}` : `Dauer: ${entryTestDurationLabel}`}
+                            </p>
                           </div>
                         ) : (
                           <p>{message.content}</p>
@@ -1490,8 +2201,12 @@ export function LearnPage() {
                               <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
                             </span>
                             <span className="learn-entry-test-link-content">
-                              <span className="learn-entry-test-link-title">Einstiegstest</span>
-                              <span className="learn-entry-test-link-meta">Datei oeffnen</span>
+                              <span className="learn-entry-test-link-title">
+                                {entryQuizResult ? 'Einstiegstest Ergebnisse' : 'Einstiegstest'}
+                              </span>
+                              <span className="learn-entry-test-link-meta">
+                                {entryQuizResult ? 'Ergebnisdatei oeffnen' : 'Datei oeffnen'}
+                              </span>
                             </span>
                           </button>
                         ) : null}
@@ -1499,27 +2214,28 @@ export function LearnPage() {
                     ))
                   )}
                 </section>
-                <form
-                  className="chat-input-row learn-shared-chat-input"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void handleTutorChatSubmit()
-                  }}
-                >
-                  <div className="chat-input-field">
-                    <input
-                      className="chat-input"
-                      type="text"
-                      value={tutorDraft}
-                      onChange={(event) => setTutorDraft(event.target.value)}
-                      placeholder="Nachricht eingeben..."
-                      disabled={isTutorSending}
-                    />
-                  </div>
-                  <button type="submit" disabled={!tutorDraft.trim() || isTutorSending}>
-                    <img className="ui-icon chat-send-icon" src={sendIcon} alt="" aria-hidden="true" />
-                  </button>
-                </form>
+                <div className="learn-next-step-actions">
+                  <PrimaryButton
+                    type="button"
+                    disabled={!entryQuizResult || isPostEntryPrepLoading}
+                    onClick={() => {
+                      if (!entryQuizResult || isPostEntryPrepLoading) {
+                        return
+                      }
+                      if (learningChapters.length === 0) {
+                        return
+                      }
+                      setChapterSession((prev) => ({
+                        ...prev,
+                        chapterIndex: 0,
+                        stepIndex: 0,
+                      }))
+                      setIsChapterPreviewVisible(true)
+                    }}
+                  >
+                    Weiter
+                  </PrimaryButton>
+                </div>
               </>
             )}
 
@@ -1580,6 +2296,16 @@ export function LearnPage() {
                     <strong>{entryQuizResult ? `${entryQuizResult.score}/${entryQuizResult.total}` : '-'}</strong>
                   </div>
                 </div>
+                {learningChapters.length > 0 ? (
+                  <div className="learn-overview-chapters" aria-label="Generierte Lernkapitel">
+                    <p className="learn-overview-chapters-title">Lernkapitel</p>
+                    <ol className="learn-overview-chapters-list">
+                      {learningChapters.slice(0, 6).map((chapter) => (
+                        <li key={chapter}>{chapter}</li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
               </section>
             )}
           </article>
@@ -1714,6 +2440,130 @@ export function LearnPage() {
                   </PrimaryButton>
                 )}
               </div>
+            </footer>
+          </section>
+        </ModalShell>
+      ) : null}
+      {isChapterModalMounted ? (
+        <ModalShell isOpen={isChapterModalVisible} className="learn-chapter-modal-overlay">
+          <section className="learn-chapter-modal" role="dialog" aria-modal="true" aria-label="Lernkapitel">
+            <header className="learn-chapter-modal-header">
+              <div className="learn-chapter-modal-header-copy">
+                <h2>{activeChapterBlueprint?.title || 'Lernkapitel'}</h2>
+                <p>
+                  Kapitel {safeChapterIndex + 1} von {Math.max(1, effectiveChapterBlueprints.length)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="settings-close-button"
+                onClick={closeChapterModal}
+                aria-label="Lernkapitel schliessen"
+              >
+                <span className="ui-icon settings-close-icon" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="learn-chapter-modal-progress">
+              <p>
+                Schritt {safeChapterStepIndex + 1} von {Math.max(1, activeChapterBlueprint?.steps.length ?? 1)}
+              </p>
+              <div className="learn-entry-test-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(chapterProgressPercent)}>
+                <span style={{ width: `${chapterProgressPercent}%` }} />
+              </div>
+            </div>
+            <div className="learn-chapter-modal-body">
+              {!activeChapterStep ? (
+                <p className="learn-muted">Keine Schritte verfuegbar.</p>
+              ) : activeChapterStep.type === 'question' ? (
+                <article className="learn-chapter-step-card">
+                  <p className="learn-chapter-step-label">
+                    {activeChapterStep.questionType === 'mcq' ? 'Interaktive Multiple-Choice Frage' : 'Interaktive Freitext Frage'}
+                  </p>
+                  <h3>{activeChapterStep.prompt}</h3>
+                  {activeChapterStep.questionType === 'mcq' && (activeChapterStep.options?.length ?? 0) > 0 ? (
+                    <div className="learn-entry-test-options" role="radiogroup" aria-label="Antwortoptionen Kapitel">
+                      {activeChapterStep.options?.map((option) => {
+                        const isSelected = currentChapterAnswer.trim() === option
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            className={`learn-entry-test-option ${isSelected ? 'is-selected' : ''}`}
+                            onClick={() =>
+                              setChapterSession((prev) => ({
+                                ...prev,
+                                answersByStepId: {
+                                  ...prev.answersByStepId,
+                                  [activeChapterStep.id]: option,
+                                },
+                              }))
+                            }
+                            disabled={isEvaluatingChapterStep}
+                          >
+                            {option}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <textarea
+                      value={currentChapterAnswer}
+                      onChange={(event) =>
+                        setChapterSession((prev) => ({
+                          ...prev,
+                          answersByStepId: {
+                            ...prev.answersByStepId,
+                            [activeChapterStep.id]: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Deine Antwort..."
+                      disabled={isEvaluatingChapterStep}
+                    />
+                  )}
+                  {currentChapterFeedback ? <p className="learn-entry-test-feedback">{currentChapterFeedback}</p> : null}
+                </article>
+              ) : (
+                <article className="learn-chapter-step-card">
+                  <p className="learn-chapter-step-label">{activeChapterStep.type === 'recap' ? 'Zusammenfassung' : 'Erklaerung'}</p>
+                  <h3>{activeChapterStep.title}</h3>
+                  <p>{activeChapterStep.content}</p>
+                  {activeChapterStep.bullets && activeChapterStep.bullets.length > 0 ? (
+                    <ul className="learn-chapter-step-bullets">
+                      {activeChapterStep.bullets.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </article>
+              )}
+            </div>
+            <footer className="learn-chapter-modal-footer">
+              <SecondaryButton
+                type="button"
+                onClick={handlePreviousChapterStep}
+                disabled={safeChapterIndex === 0 && safeChapterStepIndex === 0}
+              >
+                Zurueck
+              </SecondaryButton>
+              {activeChapterStep?.type === 'question' ? (
+                <PrimaryButton
+                  type="button"
+                  onClick={() => {
+                    void handleEvaluateCurrentChapterQuestion()
+                  }}
+                  disabled={!currentChapterAnswer.trim() || isEvaluatingChapterStep}
+                >
+                  {isEvaluatingChapterStep ? 'Wird bewertet...' : 'Antwort pruefen'}
+                </PrimaryButton>
+              ) : null}
+              <PrimaryButton
+                type="button"
+                onClick={handleNextChapterStep}
+                disabled={activeChapterStep?.type === 'question' && !currentChapterFeedback}
+              >
+                Weiter
+              </PrimaryButton>
             </footer>
           </section>
         </ModalShell>
