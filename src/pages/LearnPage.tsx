@@ -3,7 +3,9 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
+import learnIcon from '../assets/icons/learn.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
+import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import starIcon from '../assets/icons/star.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
@@ -35,6 +37,7 @@ import {
   parseInteractiveContentWithFallback,
   type InteractiveQuizPayload,
 } from '../features/chat/utils/interactiveQuiz'
+import { SettingsModal } from './SettingsPage'
 
 function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
@@ -428,6 +431,8 @@ export function LearnPage() {
   const [isEntryPrepClosing, setIsEntryPrepClosing] = useState(false)
   const [isEntryQuizMounted, setIsEntryQuizMounted] = useState(false)
   const [isEntryQuizVisible, setIsEntryQuizVisible] = useState(false)
+  const [isSettingsMounted, setIsSettingsMounted] = useState(false)
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false)
   const [entryQuizAnswers, setEntryQuizAnswers] = useState<Record<string, string>>({})
   const [entryQuizResult, setEntryQuizResult] = useState<EntryQuizResult | null>(null)
   const [learningChapters, setLearningChapters] = useState<string[]>([])
@@ -447,6 +452,7 @@ export function LearnPage() {
   const pathMenuRef = useRef<HTMLDivElement | null>(null)
   const entryQuizCloseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
+  const settingsCloseTimerRef = useRef<number | null>(null)
   const suppressAutosaveRef = useRef(false)
   const activePathIdRef = useRef('')
   const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
@@ -567,8 +573,14 @@ export function LearnPage() {
         window.clearTimeout(chapterModalCloseTimerRef.current)
         chapterModalCloseTimerRef.current = null
       }
+      if (settingsCloseTimerRef.current) {
+        window.clearTimeout(settingsCloseTimerRef.current)
+        settingsCloseTimerRef.current = null
+      }
       setIsEntryQuizVisible(false)
       setIsEntryQuizMounted(false)
+      setIsSettingsVisible(false)
+      setIsSettingsMounted(false)
     },
     [],
   )
@@ -806,6 +818,9 @@ export function LearnPage() {
       }
       if (chapterModalCloseTimerRef.current) {
         window.clearTimeout(chapterModalCloseTimerRef.current)
+      }
+      if (settingsCloseTimerRef.current) {
+        window.clearTimeout(settingsCloseTimerRef.current)
       }
     }
   }, [])
@@ -1598,6 +1613,25 @@ export function LearnPage() {
     }, MODAL_ANIMATION_MS)
   }
 
+  function openSettingsModal() {
+    if (settingsCloseTimerRef.current) {
+      window.clearTimeout(settingsCloseTimerRef.current)
+      settingsCloseTimerRef.current = null
+    }
+    setIsSettingsMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsSettingsVisible(true)
+    })
+  }
+
+  function closeSettingsModal() {
+    setIsSettingsVisible(false)
+    settingsCloseTimerRef.current = window.setTimeout(() => {
+      setIsSettingsMounted(false)
+      settingsCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
   async function handleEvaluateCurrentChapterQuestion() {
     const activeChapter =
       effectiveChapterBlueprints[Math.max(0, Math.min(chapterSession.chapterIndex, effectiveChapterBlueprints.length - 1))]
@@ -1858,6 +1892,14 @@ export function LearnPage() {
             <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
             {!isSidebarCollapsed ? 'Zum Chat' : null}
           </button>
+          <button
+            type="button"
+            onClick={openSettingsModal}
+            aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
+          >
+            <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
+            {!isSidebarCollapsed ? 'Einstellungen' : null}
+          </button>
         </div>
 
         {!isSidebarCollapsed ? (
@@ -1909,6 +1951,7 @@ export function LearnPage() {
         >
           <article className="learn-card learn-workspace-card">
             <header className="learn-workspace-header">
+              <img className="ui-icon learn-workspace-title-icon" src={learnIcon} alt="" aria-hidden="true" />
               <input
                 id="learn-path-name-input"
                 type="text"
@@ -2422,11 +2465,14 @@ export function LearnPage() {
                 {learningChapters.length > 0 ? (
                   <div className="learn-overview-chapters" aria-label="Generierte Lernkapitel">
                     <p className="learn-overview-chapters-title">Lernkapitel</p>
-                    <ol className="learn-overview-chapters-list">
-                      {learningChapters.slice(0, 6).map((chapter) => (
-                        <li key={chapter}>{chapter}</li>
+                    <div className="learn-overview-chapters-list" role="list">
+                      {learningChapters.slice(0, 6).map((chapter, index) => (
+                        <article key={`${chapter}-${index}`} className="learn-overview-chapter-card" role="listitem">
+                          <span className="learn-overview-chapter-badge">Kapitel {index + 1}</span>
+                          <p className="learn-overview-chapter-name">{chapter}</p>
+                        </article>
                       ))}
-                    </ol>
+                    </div>
                   </div>
                 ) : null}
               </section>
@@ -2730,6 +2776,11 @@ export function LearnPage() {
               </PrimaryButton>
             </footer>
           </section>
+        </ModalShell>
+      ) : null}
+      {isSettingsMounted ? (
+        <ModalShell isOpen={isSettingsVisible}>
+          <SettingsModal onClose={closeSettingsModal} />
         </ModalShell>
       ) : null}
       {openPathMenuId && pathMenuPosition ? (
