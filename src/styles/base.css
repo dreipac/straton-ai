@@ -19,6 +19,14 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --accent-gradient: linear-gradient(135deg, #2563eb 0%, #14b8a6 52%, #0ea5e9 100%);
+  /* Primary-Buttons: dunkles Navy → helles Ozeanblau (Verlauf nach rechts) */
+  --primary-button-gradient: linear-gradient(
+    90deg,
+    #0f172a 0%,
+    #1d4ed8 38%,
+    #38bdf8 72%,
+    #bae6fd 100%
+  );
   --accent-gradient-line: linear-gradient(
     90deg,
     rgba(37, 99, 235, 0),

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import aiIcon from '../assets/icons/ai.svg'
 import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
@@ -14,7 +13,6 @@ import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
 import { evaluateQuizAnswerWithAi } from '../features/chat/services/chat.service'
-import { generateTopicSuggestionsWithAi } from '../features/chat/services/chat.service'
 import { sendMessage } from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
@@ -201,8 +199,8 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
       id: `c${chapterIndex + 1}-s1`,
       type: 'explanation',
       title: 'Warmup',
-      content: `Kurzer Einstieg in ${title}: Wir aktivieren zuerst dein Vorwissen und ordnen das Thema ein.`,
-      bullets: ['Worum geht es?', 'Warum ist es in der Praxis wichtig?'],
+      content: `Kurzer Einstieg in ${title}: Wir aktivieren dein Vorwissen, ordnen zentrale Begriffe ein und klaeren, warum das Thema im Berufsalltag relevant ist.`,
+      bullets: ['Worum geht es konkret?', 'Warum ist es in der Praxis wichtig?', 'Welches Ziel hat dieses Kapitel?'],
     },
     {
       id: `c${chapterIndex + 1}-s2`,
@@ -224,8 +222,8 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
       id: `c${chapterIndex + 1}-s3`,
       type: 'explanation',
       title: 'Konzept 1',
-      content: `Wir schauen auf den ersten Kernbaustein von ${title} und wie er aufgebaut ist.`,
-      bullets: ['Definition', 'Aufbau', 'typische Begriffe'],
+      content: `Wir schauen auf den ersten Kernbaustein von ${title}, was er fachlich bedeutet und wie du ihn Schritt fuer Schritt im Kontext erkennst.`,
+      bullets: ['Klare Definition', 'Aufbau in einfachen Schritten', 'Typische Begriffe aus Unterlagen und Praxis'],
     },
     {
       id: `c${chapterIndex + 1}-s4`,
@@ -242,8 +240,8 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
       id: `c${chapterIndex + 1}-s5`,
       type: 'explanation',
       title: 'Konzept 2',
-      content: `Jetzt vertiefen wir den zweiten Baustein und verbinden ihn mit dem ersten.`,
-      bullets: ['Zusammenhang verstehen', 'Abgrenzung zu aehnlichen Themen'],
+      content: `Jetzt vertiefen wir den zweiten Baustein, grenzen ihn sauber ab und verbinden ihn mit Konzept 1, damit das Gesamtbild klar wird.`,
+      bullets: ['Zusammenhang verstehen', 'Abgrenzung zu aehnlichen Themen', 'Typische Stolperfallen vermeiden'],
     },
     {
       id: `c${chapterIndex + 1}-s6`,
@@ -265,19 +263,19 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
       id: `c${chapterIndex + 1}-s7`,
       type: 'explanation',
       title: 'Praxisbezug',
-      content: `So taucht ${title} in echten IT-Situationen auf.`,
-      bullets: ['typischer Use-Case', 'haeufige Fehler', 'Best Practice'],
+      content: `So taucht ${title} in echten IT-Situationen auf: Wir verbinden die Theorie mit einem realistischen Ablauf aus dem Betrieb.`,
+      bullets: ['Typischer Use-Case', 'Haeufige Fehler', 'Best Practice im Tagesgeschaeft'],
     },
     {
       id: `c${chapterIndex + 1}-s8`,
       type: 'question',
       questionType: 'text',
-      prompt: `Nenne einen praktischen Anwendungsfall fuer ${title} und erklaere kurz den Nutzen.`,
-      expectedAnswer: 'Ein plausibler Use-Case mit nachvollziehbarem Nutzen wird beschrieben.',
+      prompt: `Praxisfall: Ein Team muss ${title} in einem laufenden Projekt anwenden. Welche 2-3 Schritte wuerdest du vorschlagen und warum?`,
+      expectedAnswer: 'Ein realistischer Praxisplan mit nachvollziehbaren Schritten und kurzer Begruendung wird beschrieben.',
       acceptableAnswers: [],
       evaluation: 'contains',
-      hint: 'Beziehe dich auf ein realistisches Szenario.',
-      explanation: 'Sehr gut, wenn dein Szenario konkret und fachlich stimmig ist.',
+      hint: 'Nutze ein konkretes IT-Szenario und argumentiere knapp, aber klar.',
+      explanation: 'Sehr gut, wenn dein Vorgehen realistisch, begruendet und fachlich stimmig ist.',
     },
     {
       id: `c${chapterIndex + 1}-s9`,
@@ -298,11 +296,35 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
 
 function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): ChapterBlueprint[] {
   return blueprints.map((chapter, index) => {
-    if (chapter.steps.length >= 8) {
-      return chapter
+    const hasPraxisTask = chapter.steps.some(
+      (step) => step.type === 'question' && /praxis|anwendungsfall|szenario|fall/i.test(step.prompt),
+    )
+    let normalized = chapter
+    if (!hasPraxisTask) {
+      normalized = {
+        ...chapter,
+        steps: [
+          ...chapter.steps,
+          {
+            id: `c${index + 1}-praxis-task`,
+            type: 'question',
+            questionType: 'text',
+            prompt: `Praxisfall: Beschreibe ein realistisches Szenario, in dem ${chapter.title} eingesetzt wird, und erklaere dein Vorgehen in 2-4 Schritten.`,
+            expectedAnswer: 'Ein konkreter Praxisfall mit klarem, fachlich stimmigem Vorgehen wird beschrieben.',
+            acceptableAnswers: [],
+            evaluation: 'contains',
+            hint: 'Nutze eine kurze Situation aus dem IT-Alltag und bleibe konkret.',
+            explanation: 'Achte auf klare Schritte und einen nachvollziehbaren Nutzen.',
+          } satisfies ChapterStep,
+        ],
+      }
+    }
+
+    if (normalized.steps.length >= 8) {
+      return normalized
     }
     const fallback = buildRichFallbackChapterSteps(chapter.title, index)
-    const merged = [...chapter.steps]
+    const merged = [...normalized.steps]
     for (const step of fallback) {
       if (merged.length >= 10) {
         break
@@ -383,7 +405,7 @@ export function LearnPage() {
   const [topic, setTopic] = useState('')
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isLoadingTopicSuggestions, setIsLoadingTopicSuggestions] = useState(false)
+  const [isAnalyzingSetupTopic, setIsAnalyzingSetupTopic] = useState(false)
   const [materials, setMaterials] = useState<UploadedMaterial[]>([])
   const [learningPaths, setLearningPaths] = useState<LearningPathSummary[]>([])
   const [activePathId, setActivePathId] = useState<string>('')
@@ -395,8 +417,8 @@ export function LearnPage() {
   const [setupStep, setSetupStep] = useState<1 | 2 | 3>(1)
   const [isSetupComplete, setIsSetupComplete] = useState(false)
   const [topicSuggestions, setTopicSuggestions] = useState<string[]>([])
-  const [visibleTopicSuggestionCount, setVisibleTopicSuggestionCount] = useState(0)
   const [selectedTopic, setSelectedTopic] = useState('')
+  const [setupAnalysisPercent, setSetupAnalysisPercent] = useState(0)
   const [proficiencyLevel, setProficiencyLevel] = useState<'' | 'low' | 'medium' | 'high'>('')
   const [entryQuiz, setEntryQuiz] = useState<InteractiveQuizPayload | null>(null)
   const [isEntryQuizLoading, setIsEntryQuizLoading] = useState(false)
@@ -431,6 +453,28 @@ export function LearnPage() {
 
   const activePath = learningPaths.find((entry) => entry.id === activePathId) ?? null
   const effectiveTopic = selectedTopic.trim() || topic.trim()
+  const setupAnalysisPercentClamped = Math.max(0, Math.min(100, Math.round(setupAnalysisPercent)))
+  const entryPrepStepSafeIndex = Math.max(0, Math.min(ENTRY_TEST_PREP_STEPS.length - 1, entryPrepStepIndex))
+  const entryPrepCurrentStepPercent = Math.max(0, Math.min(100, entryPrepPercents[entryPrepStepSafeIndex] ?? 0))
+  const entryPrepOverallPercent =
+    ENTRY_TEST_PREP_STEPS.length > 0
+      ? Math.round(((entryPrepStepSafeIndex + entryPrepCurrentStepPercent / 100) / ENTRY_TEST_PREP_STEPS.length) * 100)
+      : 0
+  const postEntryPrepStepSafeIndex = Math.max(0, Math.min(POST_ENTRY_PREP_STEPS.length - 1, postEntryPrepStepIndex))
+  const postEntryCurrentStepPercent = Math.max(0, Math.min(100, postEntryPrepPercents[postEntryPrepStepSafeIndex] ?? 0))
+  const postEntryPrepOverallPercent =
+    POST_ENTRY_PREP_STEPS.length > 0
+      ? Math.round(((postEntryPrepStepSafeIndex + postEntryCurrentStepPercent / 100) / POST_ENTRY_PREP_STEPS.length) * 100)
+      : 0
+  const setupAnalysisArcRadius = 44
+  const setupAnalysisCircumference = 2 * Math.PI * setupAnalysisArcRadius
+  const setupAnalysisArcRatio = 0.82
+  const setupAnalysisArcLength = setupAnalysisCircumference * setupAnalysisArcRatio
+  const setupAnalysisArcOffset =
+    setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, setupAnalysisPercent)) / 100)
+  const entryPrepArcOffset = setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, entryPrepOverallPercent)) / 100)
+  const postEntryPrepArcOffset =
+    setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, postEntryPrepOverallPercent)) / 100)
   const entryTestDurationLabel = entryQuiz
     ? `ca. ${Math.max(5, Math.ceil(entryQuiz.questions.length * 1.5))} Minuten`
     : 'ca. 10 Minuten'
@@ -490,7 +534,6 @@ export function LearnPage() {
       suppressAutosaveRef.current = true
       setTopic(record.topic)
       setTopicSuggestions(record.topicSuggestions)
-      setVisibleTopicSuggestionCount(record.topicSuggestions.length)
       setSelectedTopic(record.selectedTopic)
       setProficiencyLevel(record.proficiencyLevel)
       setSetupStep(record.setupStep)
@@ -505,7 +548,7 @@ export function LearnPage() {
       setChapterBlueprints(record.chapterBlueprints)
       setChapterSession(record.chapterSession)
       setEntryQuizQuestionIndex(0)
-      setIsLoadingTopicSuggestions(false)
+      setIsAnalyzingSetupTopic(false)
       setHasTriedEntryQuizGeneration(Boolean(record.entryQuiz))
       setEntryPrepStepIndex(0)
       setEntryPrepPercents([0, 0, 0])
@@ -623,7 +666,6 @@ export function LearnPage() {
       activePathIdRef.current = ''
       setTopic('')
       setTopicSuggestions([])
-      setVisibleTopicSuggestionCount(0)
       setSelectedTopic('')
       setProficiencyLevel('')
       setSetupStep(1)
@@ -638,7 +680,7 @@ export function LearnPage() {
       setChapterBlueprints([])
       setChapterSession(DEFAULT_CHAPTER_SESSION)
       setEntryQuizQuestionIndex(0)
-      setIsLoadingTopicSuggestions(false)
+      setIsAnalyzingSetupTopic(false)
       setHasTriedEntryQuizGeneration(false)
       setEntryPrepStepIndex(0)
       setEntryPrepPercents([0, 0, 0])
@@ -769,49 +811,36 @@ export function LearnPage() {
   }, [])
 
   useEffect(() => {
-    if (isSetupComplete || setupStep !== 1) {
-      return
-    }
-
-    const normalizedTopic = topic.trim()
-    if (!normalizedTopic) {
-      setTopicSuggestions([])
-      setVisibleTopicSuggestionCount(0)
-      setSelectedTopic('')
-      setProficiencyLevel('')
-      setIsLoadingTopicSuggestions(false)
+    if (!isAnalyzingSetupTopic) {
+      setSetupAnalysisPercent(0)
       return
     }
 
     let isCancelled = false
-    const timerId = window.setTimeout(async () => {
-      try {
-        setIsLoadingTopicSuggestions(true)
-        const { suggestions } = await generateTopicSuggestionsWithAi(normalizedTopic)
-        if (isCancelled) {
-          return
-        }
-        setTopicSuggestions(suggestions)
-        setVisibleTopicSuggestionCount(0)
-        setSelectedTopic((current) => (current && suggestions.includes(current) ? current : ''))
-      } catch {
-        if (!isCancelled) {
-          setTopicSuggestions([])
-          setVisibleTopicSuggestionCount(0)
-          setSelectedTopic('')
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingTopicSuggestions(false)
-        }
+    let current = 0
+    const timers: number[] = []
+
+    const tick = () => {
+      if (isCancelled) {
+        return
       }
-    }, 380)
+      const jump = Math.floor(Math.random() * 6) + 2
+      current = Math.min(96, current + jump)
+      setSetupAnalysisPercent(current)
+      if (current >= 96) {
+        return
+      }
+      const timerId = window.setTimeout(tick, Math.floor(Math.random() * 120) + 90)
+      timers.push(timerId)
+    }
+
+    tick()
 
     return () => {
       isCancelled = true
-      window.clearTimeout(timerId)
+      timers.forEach((timerId) => window.clearTimeout(timerId))
     }
-  }, [isSetupComplete, setupStep, topic])
+  }, [isAnalyzingSetupTopic])
 
   useEffect(() => {
     if (!(isEntryQuizLoading && tutorMessages.length === 0)) {
@@ -870,33 +899,6 @@ export function LearnPage() {
       timers.forEach((timerId) => window.clearTimeout(timerId))
     }
   }, [isEntryQuizLoading, tutorMessages.length])
-
-  useEffect(() => {
-    if (topicSuggestions.length === 0) {
-      setVisibleTopicSuggestionCount(0)
-      return
-    }
-
-    let isCancelled = false
-    let nextCount = 0
-    setVisibleTopicSuggestionCount(0)
-
-    const intervalId = window.setInterval(() => {
-      if (isCancelled) {
-        return
-      }
-      nextCount += 1
-      setVisibleTopicSuggestionCount(nextCount)
-      if (nextCount >= topicSuggestions.length) {
-        window.clearInterval(intervalId)
-      }
-    }, 110)
-
-    return () => {
-      isCancelled = true
-      window.clearInterval(intervalId)
-    }
-  }, [topicSuggestions])
 
   useEffect(() => {
     if (!dragTarget) {
@@ -1111,11 +1113,11 @@ export function LearnPage() {
     suppressAutosaveRef.current = true
     setTopic('')
     setTopicSuggestions([])
-    setVisibleTopicSuggestionCount(0)
     setSelectedTopic('')
     setProficiencyLevel('')
     setSetupStep(1)
     setIsSetupComplete(false)
+    setIsAnalyzingSetupTopic(false)
     setMaterials([])
     setTutorMessages([])
     setIsChapterPreviewVisible(false)
@@ -1209,11 +1211,11 @@ export function LearnPage() {
       suppressAutosaveRef.current = true
       setTopic('')
       setTopicSuggestions([])
-      setVisibleTopicSuggestionCount(0)
       setSelectedTopic('')
       setProficiencyLevel('')
       setSetupStep(1)
       setIsSetupComplete(false)
+      setIsAnalyzingSetupTopic(false)
       setMaterials([])
       setTutorMessages([])
       setIsChapterPreviewVisible(false)
@@ -1269,17 +1271,78 @@ export function LearnPage() {
   }
 
   function handleContinueSetupStepOne() {
-    if (!topic.trim()) {
-      setError('Bitte gib zuerst ein Thema ein.')
-      return
-    }
-    if (topicSuggestions.length > 0 && !selectedTopic.trim()) {
-      setError('Bitte waehle ein vorgeschlagenes Unterthema aus.')
+    if (isUploading || isAnalyzingSetupTopic) {
       return
     }
 
+    if (materials.length === 0) {
+      setError('Bitte lade zuerst mindestens eine Datei hoch.')
+      return
+    }
+
+    const previewText = materials
+      .slice(0, 4)
+      .map((material, index) => {
+        const normalizedExcerpt = material.excerpt.replace(/\s+/g, ' ').trim().slice(0, 1100)
+        return `Datei ${index + 1}: ${material.name}\n${normalizedExcerpt || '(Kein auswertbarer Text gefunden)'}`.trim()
+      })
+      .join('\n\n---\n\n')
+
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: [
+        'Analysiere die hochgeladenen Unterlagen und bestimme genau ein passendes Lernthema.',
+        'Antwortformat:',
+        'THEMA: <kurzer Titel>',
+        '',
+        previewText,
+      ].join('\n'),
+      createdAt: new Date().toISOString(),
+    }
+
     setError(null)
-    setSetupStep(2)
+    setIsAnalyzingSetupTopic(true)
+    void sendMessage([userMessage], {
+      systemPrompt: [
+        'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
+        'Lies die Unterlagen und leite ein konkretes Hauptthema ab.',
+        'Antworte nur in genau einer Zeile im Format: THEMA: <Thema>',
+        'Der Titel soll kurz sein (maximal 6 Woerter).',
+      ].join('\n'),
+    })
+      .then(async ({ assistantMessage }) => {
+        const raw = assistantMessage.content.trim()
+        const themeLine = raw
+          .split('\n')
+          .map((line) => line.trim())
+          .find((line) => line.toUpperCase().startsWith('THEMA:'))
+        const detectedTopic = (themeLine ? themeLine.slice(6) : raw)
+          .replace(/["'`]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 80)
+
+        if (!detectedTopic) {
+          setError('Thema konnte aus den Dateien nicht erkannt werden. Bitte versuche es erneut.')
+          return
+        }
+
+        setSetupAnalysisPercent(100)
+        await new Promise<void>((resolve) => {
+          window.setTimeout(() => resolve(), 180)
+        })
+        setTopic(detectedTopic)
+        setSelectedTopic(detectedTopic)
+        setTopicSuggestions([])
+        setSetupStep(2)
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Dateien konnten nicht analysiert werden.')
+      })
+      .finally(() => {
+        setIsAnalyzingSetupTopic(false)
+      })
   }
 
   function handleContinueSetupStepTwo() {
@@ -1455,6 +1518,8 @@ export function LearnPage() {
             'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
             'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
             'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
+            'Erklaerungs-Steps sollen etwas ausfuehrlicher sein (ca. 2-4 Saetze), aber kompakt bleiben.',
+            'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
             'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
             'Fragetypen mischen: text und mcq.',
@@ -1691,6 +1756,9 @@ export function LearnPage() {
     activeChapterStep?.type === 'question' ? (chapterSession.answersByStepId[activeChapterStep.id] ?? '') : ''
   const currentChapterFeedback =
     activeChapterStep?.type === 'question' ? (chapterSession.feedbackByStepId[activeChapterStep.id] ?? '') : ''
+  const currentChapterIsCorrect =
+    activeChapterStep?.type === 'question' ? chapterSession.correctnessByStepId[activeChapterStep.id] : undefined
+  const hasCurrentChapterEvaluation = typeof currentChapterIsCorrect === 'boolean'
   const totalAnsweredChapterQuestions = Object.keys(chapterSession.correctnessByStepId).length
   const totalCorrectChapterQuestions = Object.values(chapterSession.correctnessByStepId).filter(Boolean).length
   const totalWrongChapterQuestions = Math.max(0, totalAnsweredChapterQuestions - totalCorrectChapterQuestions)
@@ -1729,6 +1797,22 @@ export function LearnPage() {
       : totalAnsweredChapterQuestions > 0
         ? 'Stark! Weiter so, du kannst das Tempo leicht erhoehen.'
         : 'Startklar: Beginne mit den Kernkonzepten und teste direkt dein Verstaendnis.'
+  const currentChapterStepProgressPercent = previewStepCount > 0 ? ((safeChapterStepIndex + 1) / previewStepCount) * 100 : 0
+  const isAllChaptersCompleted =
+    effectiveChapterBlueprints.length > 0 && chapterSession.completedChapterIndexes.length >= effectiveChapterBlueprints.length
+  const previewGreetingText = isAllChaptersCompleted
+    ? 'Stark gemacht. Alle Lernbloecke abgeschlossen - bis bald und weiter so.'
+    : previewCompleted
+      ? 'Sehr gut, dieser Lernblock ist abgeschlossen. Du kannst direkt den naechsten starten.'
+      : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+        ? `Willkommen zurueck. Du bist bei Schritt ${safeChapterStepIndex + 1} und machst guten Fortschritt.`
+        : 'Willkommen. Dein Lernblock ist bereit - starte mit dem ersten Schritt.'
+  const hasStartedFirstChapter =
+    chapterSession.chapterIndex > 0 ||
+    chapterSession.stepIndex > 0 ||
+    chapterSession.completedChapterIndexes.length > 0 ||
+    totalAnsweredChapterQuestions > 0
+  const showChapterPreview = learningChapters.length > 0 || isChapterPreviewVisible
   const previewEstimatedMinutes = Math.max(5, Math.round(previewStepCount * 1.2))
   const previewChapterBullets =
     previewExplanationStep?.bullets && previewExplanationStep.bullets.length > 0
@@ -1773,10 +1857,6 @@ export function LearnPage() {
           <button type="button" onClick={() => navigate('/chat')} aria-label={isSidebarCollapsed ? 'Zum Chat' : undefined}>
             <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
             {!isSidebarCollapsed ? 'Zum Chat' : null}
-          </button>
-          <button type="button" aria-label={isSidebarCollapsed ? 'KI Lehrer' : undefined}>
-            <img className="ui-icon chat-sidebar-top-button-icon" src={aiIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'KI Lehrer aktiv' : null}
           </button>
         </div>
 
@@ -1859,104 +1939,107 @@ export function LearnPage() {
                     <h3>Einrichtung</h3>
                   </div>
                   {setupStep === 1 ? (
-                    <div className="learn-setup-step learn-setup-step-topic">
-                      <label htmlFor="learn-topic-input">Thema</label>
-                      <p className="learn-setup-info">Gib das Thema ein, dann waehle ein passendes Unterthema.</p>
-                      <input
-                        id="learn-topic-input"
-                        type="text"
-                        placeholder="z.B. SQL Joins, Algebra, Anatomie..."
-                        value={topic}
-                        onChange={(event) => {
-                          setTopic(event.target.value)
-                          setSelectedTopic('')
-                        }}
-                      />
-
-                      {topic.trim() || isLoadingTopicSuggestions || topicSuggestions.length > 0 ? (
-                        <div className="learn-topic-suggestions-panel">
-                          <p className="learn-topic-suggestions-label">Vorschlaege von der KI:</p>
-                          {isLoadingTopicSuggestions ? (
-                            <div className="learn-topic-suggestions-loader" role="status" aria-live="polite">
-                              <span className="learn-topic-loader-orbit" aria-hidden="true">
-                                <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
-                                <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
-                                <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
-                              </span>
-                              <span className="learn-topic-loader-text">Vorschlaege werden generiert...</span>
-                            </div>
-                          ) : topicSuggestions.length === 0 ? (
-                            <p className="learn-muted">Noch keine Vorschlaege vorhanden.</p>
-                          ) : (
-                            <div className="learn-topic-suggestions-list" role="list" aria-label="Unterthemen">
-                              {topicSuggestions.slice(0, visibleTopicSuggestionCount).map((suggestion) => (
-                                <button
-                                  key={suggestion}
-                                  type="button"
-                                  className={`learn-topic-suggestion-chip ${
-                                    selectedTopic === suggestion ? 'is-active' : ''
-                                  }`}
-                                  onClick={() => {
-                                    setSelectedTopic(suggestion)
-                                    setError(null)
-                                  }}
-                                >
-                                  {suggestion}
-                                </button>
+                    <div className="learn-setup-step">
+                      {isAnalyzingSetupTopic ? (
+                        <section className="learn-setup-analysis" aria-live="polite" aria-label="Dateianalyse">
+                          <div className="learn-setup-analysis-ring">
+                            <svg
+                              className="learn-setup-analysis-ring-svg"
+                              width="104"
+                              height="104"
+                              viewBox="0 0 104 104"
+                              aria-hidden="true"
+                            >
+                              <g transform="rotate(-130 52 52)">
+                                <circle
+                                  className="learn-setup-analysis-ring-track"
+                                  cx="52"
+                                  cy="52"
+                                  r={setupAnalysisArcRadius}
+                                  fill="none"
+                                  strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                                />
+                                <circle
+                                  className="learn-setup-analysis-ring-progress"
+                                  cx="52"
+                                  cy="52"
+                                  r={setupAnalysisArcRadius}
+                                  fill="none"
+                                  strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                                  strokeDashoffset={setupAnalysisArcOffset}
+                                />
+                              </g>
+                            </svg>
+                            <span className="learn-setup-analysis-percent">{setupAnalysisPercentClamped}%</span>
+                          </div>
+                          <div className="learn-topic-suggestions-loader" role="status">
+                            <span className="learn-topic-loader-orbit" aria-hidden="true">
+                              <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                              <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                              <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                            </span>
+                            <span className="learn-topic-loader-text">Dateien werden analysiert...</span>
+                          </div>
+                        </section>
+                      ) : (
+                        <>
+                          <label htmlFor="learn-files-input">Dateien hochladen</label>
+                          <p className="learn-setup-info">
+                            Lade zuerst deine Unterlagen hoch. Danach analysiert die KI die Inhalte und erkennt automatisch das Thema.
+                          </p>
+                          <input
+                            id="learn-files-input"
+                            type="file"
+                            multiple
+                            onChange={(event) => {
+                              void handleUploadMaterials(event.target.files)
+                              event.currentTarget.value = ''
+                            }}
+                          />
+                          {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
+                          {materials.length > 0 ? (
+                            <div className="learn-materials-list">
+                              {materials.map((material) => (
+                                <div key={material.id} className="learn-material-item">
+                                  <div>
+                                    <p className="learn-material-name">{material.name}</p>
+                                    <p className="learn-muted">{Math.round(material.size / 1024)} KB</p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMaterials((prev) => prev.filter((entry) => entry.id !== material.id))}
+                                  >
+                                    Entfernen
+                                  </button>
+                                </div>
                               ))}
                             </div>
-                          )}
-                          {selectedTopic ? (
-                            <p className="learn-topic-selection-info">
-                              Ausgewaehlt: <strong>{selectedTopic}</strong>
-                            </p>
                           ) : null}
-                        </div>
-                      ) : null}
-
-                      <div className="learn-setup-actions learn-setup-actions-topic">
-                        <PrimaryButton
-                          type="button"
-                          onClick={handleContinueSetupStepOne}
-                          disabled={!topic.trim() || (topicSuggestions.length > 0 && !selectedTopic.trim())}
-                        >
-                          Weiter
-                        </PrimaryButton>
-                      </div>
+                          <div className="learn-setup-actions">
+                            <PrimaryButton
+                              type="button"
+                              onClick={handleContinueSetupStepOne}
+                              disabled={isUploading || materials.length === 0}
+                            >
+                              Dateien analysieren
+                            </PrimaryButton>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ) : null}
 
                   {setupStep === 2 ? (
                     <div className="learn-setup-step">
-                      <label htmlFor="learn-files-input">Dateien hochladen (optional)</label>
-                      <input
-                        id="learn-files-input"
-                        type="file"
-                        multiple
-                        onChange={(event) => {
-                          void handleUploadMaterials(event.target.files)
-                          event.currentTarget.value = ''
-                        }}
-                      />
-                      {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
-                      {materials.length > 0 ? (
-                        <div className="learn-materials-list">
-                          {materials.map((material) => (
-                            <div key={material.id} className="learn-material-item">
-                              <div>
-                                <p className="learn-material-name">{material.name}</p>
-                                <p className="learn-muted">{Math.round(material.size / 1024)} KB</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setMaterials((prev) => prev.filter((entry) => entry.id !== material.id))}
-                              >
-                                Entfernen
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
+                      <label>Thema aus Datei erkannt</label>
+                      <p className="learn-setup-info">
+                        Die KI hat aus deinen Unterlagen folgendes Hauptthema erkannt. Im naechsten Schritt waehlst du dein Niveau.
+                      </p>
+                      <div className="learn-topic-suggestions-panel">
+                        <p className="learn-topic-selection-info">
+                          Erkanntes Thema: <strong>{effectiveTopic || '-'}</strong>
+                        </p>
+                      </div>
                       <div className="learn-setup-actions">
                         <SecondaryButton type="button" onClick={() => setSetupStep(1)}>
                           Zurück
@@ -2027,15 +2110,10 @@ export function LearnPage() {
             ) : (
               <>
                 <section className="learn-conversation">
-                  {entryQuizResult ? (
-                    <p className="learn-next-step-hint">
-                      Wenn du die Testergebnisse angeschaut hast, koennen wir zum naechsten Schritt gehen.
-                    </p>
-                  ) : null}
-                  {isChapterPreviewVisible && learningChapters.length > 0 ? (
+                  {showChapterPreview && learningChapters.length > 0 ? (
                     <section className="learn-chapter-preview" aria-label="Kapitelvorschau">
                       <div className="learn-chapter-preview-section">
-                        <p className="learn-chapter-preview-label">Titel</p>
+                        <p className="learn-chapter-preview-greeting">{previewGreetingText}</p>
                         <p className="learn-chapter-preview-title">
                           Kapitel {safeChapterIndex + 1}: {previewChapterTitle}
                         </p>
@@ -2045,6 +2123,15 @@ export function LearnPage() {
                             Fortschritt: Schritt {safeChapterStepIndex + 1} / {Math.max(1, previewStepCount)}
                           </span>
                         </div>
+                        <div
+                          className="learn-chapter-preview-progress"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={Math.round(currentChapterStepProgressPercent)}
+                        >
+                          <span style={{ width: `${Math.max(0, Math.min(100, currentChapterStepProgressPercent))}%` }} />
+                        </div>
                         <p className="learn-chapter-preview-status-text">{previewStatusText}</p>
                         <div className="learn-chapter-preview-kpis">
                           <span>Richtig: {totalCorrectChapterQuestions}</span>
@@ -2052,28 +2139,32 @@ export function LearnPage() {
                           <span>Quote: {chapterAccuracyPercent}%</span>
                         </div>
                       </div>
-                      <div className="learn-chapter-preview-section">
-                        <p className="learn-chapter-preview-label">Beschreibung</p>
-                        <div className="learn-chapter-preview-box">
-                          <p>In diesem Kapitel lernst du:</p>
-                          <ul>
-                            {previewChapterBullets.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                      <div className="learn-chapter-preview-section">
-                        <p className="learn-chapter-preview-label">Zusatz (optional aber stark)</p>
-                        <div className="learn-chapter-preview-box">
-                          <p>Dauer: ca. {previewEstimatedMinutes} Minuten</p>
-                          <p>
-                            {Math.max(1, previewStepCount - previewQuestionCount)} Lernblöcke · {previewQuestionCount}{' '}
-                            Interaktive Fragen
-                          </p>
-                          <p>{previewRecommendation}</p>
-                        </div>
-                      </div>
+                      {!hasStartedFirstChapter ? (
+                        <>
+                          <div className="learn-chapter-preview-section">
+                            <p className="learn-chapter-preview-label">Beschreibung</p>
+                            <div className="learn-chapter-preview-box">
+                              <p>In diesem Kapitel lernst du:</p>
+                              <ul>
+                                {previewChapterBullets.map((item) => (
+                                  <li key={item}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          <div className="learn-chapter-preview-section">
+                            <p className="learn-chapter-preview-label">Zusatz (optional aber stark)</p>
+                            <div className="learn-chapter-preview-box">
+                              <p>Dauer: ca. {previewEstimatedMinutes} Minuten</p>
+                              <p>
+                                {Math.max(1, previewStepCount - previewQuestionCount)} Lernblöcke · {previewQuestionCount}{' '}
+                                Interaktive Fragen
+                              </p>
+                              <p>{previewRecommendation}</p>
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
                       <div className="learn-chapter-preview-section">
                         <p className="learn-chapter-preview-label">Hauptbutton</p>
                         <button
@@ -2088,13 +2179,39 @@ export function LearnPage() {
                     </section>
                   ) : isPostEntryPrepLoading ? (
                     <section className="learn-entry-prep" aria-live="polite" aria-label="Ladevorgang Kapitelgenerierung">
-                      <div className="learn-entry-prep-header">
-                        <span className="learn-topic-loader-orbit" aria-hidden="true">
-                          <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
-                          <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
-                          <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
-                        </span>
-                        <p className="learn-entry-prep-title">Dein Lernpfad wird vorbereitet...</p>
+                      <div className="learn-entry-prep-progress">
+                        <div className="learn-setup-analysis-ring">
+                          <svg className="learn-setup-analysis-ring-svg" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true">
+                            <g transform="rotate(-130 52 52)">
+                              <circle
+                                className="learn-setup-analysis-ring-track"
+                                cx="52"
+                                cy="52"
+                                r={setupAnalysisArcRadius}
+                                fill="none"
+                                strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                              />
+                              <circle
+                                className="learn-setup-analysis-ring-progress"
+                                cx="52"
+                                cy="52"
+                                r={setupAnalysisArcRadius}
+                                fill="none"
+                                strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                                strokeDashoffset={postEntryPrepArcOffset}
+                              />
+                            </g>
+                          </svg>
+                          <span className="learn-setup-analysis-percent">{postEntryPrepOverallPercent}%</span>
+                        </div>
+                        <div className="learn-topic-suggestions-loader" role="status">
+                          <span className="learn-topic-loader-orbit" aria-hidden="true">
+                            <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                            <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                            <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                          </span>
+                          <span className="learn-topic-loader-text">Dein Lernpfad wird vorbereitet...</span>
+                        </div>
                       </div>
                       <div className="learn-entry-prep-steps">
                         {POST_ENTRY_PREP_STEPS.slice(0, postEntryPrepStepIndex + 1).map((label, index) => (
@@ -2121,13 +2238,39 @@ export function LearnPage() {
                       aria-live="polite"
                       aria-label="Ladevorgang Einstiegstest"
                     >
-                      <div className="learn-entry-prep-header">
-                        <span className="learn-topic-loader-orbit" aria-hidden="true">
-                          <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
-                          <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
-                          <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
-                        </span>
-                        <p className="learn-entry-prep-title">Dein Lernpfad wird vorbereitet...</p>
+                      <div className="learn-entry-prep-progress">
+                        <div className="learn-setup-analysis-ring">
+                          <svg className="learn-setup-analysis-ring-svg" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true">
+                            <g transform="rotate(-130 52 52)">
+                              <circle
+                                className="learn-setup-analysis-ring-track"
+                                cx="52"
+                                cy="52"
+                                r={setupAnalysisArcRadius}
+                                fill="none"
+                                strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                              />
+                              <circle
+                                className="learn-setup-analysis-ring-progress"
+                                cx="52"
+                                cy="52"
+                                r={setupAnalysisArcRadius}
+                                fill="none"
+                                strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                                strokeDashoffset={entryPrepArcOffset}
+                              />
+                            </g>
+                          </svg>
+                          <span className="learn-setup-analysis-percent">{entryPrepOverallPercent}%</span>
+                        </div>
+                        <div className="learn-topic-suggestions-loader" role="status">
+                          <span className="learn-topic-loader-orbit" aria-hidden="true">
+                            <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                            <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                            <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                          </span>
+                          <span className="learn-topic-loader-text">Dein Lernpfad wird vorbereitet...</span>
+                        </div>
                       </div>
                       <div className="learn-entry-prep-steps">
                         {ENTRY_TEST_PREP_STEPS.slice(0, entryPrepStepIndex + 1).map((label, index) => (
@@ -2214,35 +2357,15 @@ export function LearnPage() {
                     ))
                   )}
                 </section>
-                <div className="learn-next-step-actions">
-                  <PrimaryButton
-                    type="button"
-                    disabled={!entryQuizResult || isPostEntryPrepLoading}
-                    onClick={() => {
-                      if (!entryQuizResult || isPostEntryPrepLoading) {
-                        return
-                      }
-                      if (learningChapters.length === 0) {
-                        return
-                      }
-                      setChapterSession((prev) => ({
-                        ...prev,
-                        chapterIndex: 0,
-                        stepIndex: 0,
-                      }))
-                      setIsChapterPreviewVisible(true)
-                    }}
-                  >
-                    Weiter
-                  </PrimaryButton>
-                </div>
               </>
             )}
 
           </article>
 
           <article className="learn-card learn-overview-card">
-            <h2>Übersicht</h2>
+            <header className="learn-overview-header">
+              <h2>Übersicht</h2>
+            </header>
             {!isSetupComplete ? (
               <>
                 <div className="learn-progress-row">
@@ -2484,19 +2607,41 @@ export function LearnPage() {
                     <div className="learn-entry-test-options" role="radiogroup" aria-label="Antwortoptionen Kapitel">
                       {activeChapterStep.options?.map((option) => {
                         const isSelected = currentChapterAnswer.trim() === option
+                        const normalizedOption = option.trim().toLowerCase()
+                        const normalizedExpected = activeChapterStep.expectedAnswer.trim().toLowerCase()
+                        const normalizedAcceptable = (activeChapterStep.acceptableAnswers ?? []).map((entry) =>
+                          entry.trim().toLowerCase(),
+                        )
+                        const isCorrectOption =
+                          normalizedOption === normalizedExpected || normalizedAcceptable.includes(normalizedOption)
+                        const isWrongSelection = hasCurrentChapterEvaluation && currentChapterIsCorrect === false && isSelected
+                        const showCorrectOption = hasCurrentChapterEvaluation && isCorrectOption
                         return (
                           <button
                             key={option}
                             type="button"
-                            className={`learn-entry-test-option ${isSelected ? 'is-selected' : ''}`}
+                            className={`learn-entry-test-option ${isSelected ? 'is-selected' : ''} ${
+                              isWrongSelection ? 'is-wrong' : ''
+                            } ${showCorrectOption ? 'is-correct' : ''}`}
                             onClick={() =>
-                              setChapterSession((prev) => ({
-                                ...prev,
-                                answersByStepId: {
-                                  ...prev.answersByStepId,
-                                  [activeChapterStep.id]: option,
-                                },
-                              }))
+                              setChapterSession((prev) => {
+                                const nextFeedbackByStepId = { ...prev.feedbackByStepId }
+                                const nextCorrectnessByStepId = { ...prev.correctnessByStepId }
+                                const nextEvaluatedAnswersByStepId = { ...prev.evaluatedAnswersByStepId }
+                                delete nextFeedbackByStepId[activeChapterStep.id]
+                                delete nextCorrectnessByStepId[activeChapterStep.id]
+                                delete nextEvaluatedAnswersByStepId[activeChapterStep.id]
+                                return {
+                                  ...prev,
+                                  answersByStepId: {
+                                    ...prev.answersByStepId,
+                                    [activeChapterStep.id]: option,
+                                  },
+                                  feedbackByStepId: nextFeedbackByStepId,
+                                  correctnessByStepId: nextCorrectnessByStepId,
+                                  evaluatedAnswersByStepId: nextEvaluatedAnswersByStepId,
+                                }
+                              })
                             }
                             disabled={isEvaluatingChapterStep}
                           >
@@ -2509,19 +2654,38 @@ export function LearnPage() {
                     <textarea
                       value={currentChapterAnswer}
                       onChange={(event) =>
-                        setChapterSession((prev) => ({
-                          ...prev,
-                          answersByStepId: {
-                            ...prev.answersByStepId,
-                            [activeChapterStep.id]: event.target.value,
-                          },
-                        }))
+                        setChapterSession((prev) => {
+                          const nextFeedbackByStepId = { ...prev.feedbackByStepId }
+                          const nextCorrectnessByStepId = { ...prev.correctnessByStepId }
+                          const nextEvaluatedAnswersByStepId = { ...prev.evaluatedAnswersByStepId }
+                          delete nextFeedbackByStepId[activeChapterStep.id]
+                          delete nextCorrectnessByStepId[activeChapterStep.id]
+                          delete nextEvaluatedAnswersByStepId[activeChapterStep.id]
+                          return {
+                            ...prev,
+                            answersByStepId: {
+                              ...prev.answersByStepId,
+                              [activeChapterStep.id]: event.target.value,
+                            },
+                            feedbackByStepId: nextFeedbackByStepId,
+                            correctnessByStepId: nextCorrectnessByStepId,
+                            evaluatedAnswersByStepId: nextEvaluatedAnswersByStepId,
+                          }
+                        })
                       }
                       placeholder="Deine Antwort..."
                       disabled={isEvaluatingChapterStep}
                     />
                   )}
-                  {currentChapterFeedback ? <p className="learn-entry-test-feedback">{currentChapterFeedback}</p> : null}
+                  {currentChapterFeedback ? (
+                    <p
+                      className={`learn-entry-test-feedback ${
+                        hasCurrentChapterEvaluation && currentChapterIsCorrect === false ? 'is-error' : 'is-success'
+                      }`}
+                    >
+                      {currentChapterFeedback}
+                    </p>
+                  ) : null}
                 </article>
               ) : (
                 <article className="learn-chapter-step-card">
