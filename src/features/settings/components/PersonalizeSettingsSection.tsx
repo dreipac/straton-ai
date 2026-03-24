@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { ACCENT_PALETTES } from '../constants/accentPalettes'
 import { HOVER_PALETTES } from '../constants/hoverPalettes'
+import type { LearnPathTitleColorMode } from '../constants/learnPathTitleColor'
 import { MESSAGE_BOX_PALETTES } from '../constants/messageBoxPalettes'
 
 type PersonalizeSettingsSectionProps = {
@@ -9,11 +10,13 @@ type PersonalizeSettingsSectionProps = {
   accentPaletteId: string
   hoverPaletteId: string
   messageBoxPaletteId: string
+  learnPathTitleColorMode: LearnPathTitleColorMode
   onChangeThemeMode: (nextThemeMode: 'light' | 'dark' | 'pink-glass') => void
   onChangeSidebarScale: (nextScale: '100' | '75') => void
   onChangeAccentPalette: (nextPaletteId: string) => void
   onChangeHoverPalette: (nextPaletteId: string) => void
   onChangeMessageBoxPalette: (nextPaletteId: string) => void
+  onChangeLearnPathTitleColorMode: (nextMode: LearnPathTitleColorMode) => void
 }
 
 export function PersonalizeSettingsSection({
@@ -22,11 +25,13 @@ export function PersonalizeSettingsSection({
   accentPaletteId,
   hoverPaletteId,
   messageBoxPaletteId,
+  learnPathTitleColorMode,
   onChangeThemeMode,
   onChangeSidebarScale,
   onChangeAccentPalette,
   onChangeHoverPalette,
   onChangeMessageBoxPalette,
+  onChangeLearnPathTitleColorMode,
 }: PersonalizeSettingsSectionProps) {
   return (
     <div className="personalize-panel">
@@ -151,6 +156,32 @@ export function PersonalizeSettingsSection({
               <span className="personalize-message-preview" style={{ backgroundImage: palette.preview }} />
             </button>
           ))}
+        </div>
+      </div>
+      <div className="settings-section-divider" />
+      <div className="personalize-scale-row">
+        <p className="personalize-subtitle">Lernpfad-Titel</p>
+        <p className="personalize-hint">Farbe des Titels im Lernbereich (neben dem Symbol).</p>
+        <div
+          className={`personalize-scale-toggle ${learnPathTitleColorMode === 'accent' ? 'is-75' : ''}`}
+          role="group"
+          aria-label="Lernpfad-Titel Farbe"
+        >
+          <span className="personalize-scale-pill" aria-hidden="true" />
+          <button
+            type="button"
+            className={`personalize-scale-option ${learnPathTitleColorMode === 'neutral' ? 'is-active' : ''}`}
+            onClick={() => onChangeLearnPathTitleColorMode('neutral')}
+          >
+            Neutral
+          </button>
+          <button
+            type="button"
+            className={`personalize-scale-option ${learnPathTitleColorMode === 'accent' ? 'is-active' : ''}`}
+            onClick={() => onChangeLearnPathTitleColorMode('accent')}
+          >
+            Akzent
+          </button>
         </div>
       </div>
     </div>

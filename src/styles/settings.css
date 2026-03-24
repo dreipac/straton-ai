@@ -386,6 +386,13 @@
   color: #334155;
 }
 
+.personalize-hint {
+  margin: -0.15rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
 .personalize-theme-toggle {
   justify-self: start;
 }
@@ -1156,6 +1163,10 @@
 :root[data-theme='dark'] .settings-menu-item.is-active,
 :root[data-theme='dark'] .personalize-subtitle {
   color: #f3f4f6;
+}
+
+:root[data-theme='dark'] .personalize-hint {
+  color: #94a3b8;
 }
 
 :root[data-theme='dark'] .general-setting-copy h3 {

@@ -16,6 +16,10 @@ import {
   DEFAULT_MESSAGE_BOX_PALETTE_ID,
   MESSAGE_BOX_STORAGE_KEY,
 } from './features/settings/constants/messageBoxPalettes'
+import {
+  applyLearnPathTitleColorMode,
+  readPersistedLearnPathTitleColorMode,
+} from './features/settings/constants/learnPathTitleColor'
 import './styles/theme.css'
 import './styles/base.css'
 import './styles/ui.css'
@@ -49,6 +53,8 @@ window.localStorage.setItem(HOVER_STORAGE_KEY, initialHoverPaletteId)
 const persistedMessageBoxPaletteId = window.localStorage.getItem(MESSAGE_BOX_STORAGE_KEY)
 const initialMessageBoxPaletteId = applyMessageBoxPalette(persistedMessageBoxPaletteId ?? DEFAULT_MESSAGE_BOX_PALETTE_ID)
 window.localStorage.setItem(MESSAGE_BOX_STORAGE_KEY, initialMessageBoxPaletteId)
+
+applyLearnPathTitleColorMode(readPersistedLearnPathTitleColorMode())
 
 const persistedLanguage = window.localStorage.getItem('straton-language')
 document.documentElement.lang =

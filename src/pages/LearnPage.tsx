@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
-import learnIcon from '../assets/icons/learn.svg'
+import setupPng from '../assets/png/setup.png'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
@@ -42,6 +42,83 @@ import { SettingsModal } from './SettingsPage'
 function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
   return trimmed ? trimmed : 'Neuer Lernpfad'
+}
+
+type MaterialTypeVariant = 'pdf' | 'image' | 'doc' | 'sheet' | 'archive' | 'code' | 'other'
+
+function getMaterialFileExtension(filename: string): string {
+  const base = filename.trim()
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0 || dot === base.length - 1) {
+    return ''
+  }
+  return base.slice(dot + 1).toLowerCase()
+}
+
+const MATERIAL_EXT_LABEL: Record<string, string> = {
+  jpeg: 'JPEG',
+  jpg: 'JPG',
+  png: 'PNG',
+  gif: 'GIF',
+  webp: 'WEBP',
+  svg: 'SVG',
+  bmp: 'BMP',
+  ico: 'ICO',
+  avif: 'AVIF',
+  pdf: 'PDF',
+  txt: 'TXT',
+  md: 'MD',
+  doc: 'DOC',
+  docx: 'DOCX',
+  xls: 'XLS',
+  xlsx: 'XLSX',
+  csv: 'CSV',
+  ppt: 'PPT',
+  pptx: 'PPTX',
+  odt: 'ODT',
+  ods: 'ODS',
+  rtf: 'RTF',
+  zip: 'ZIP',
+  rar: 'RAR',
+  '7z': '7Z',
+  tar: 'TAR',
+  gz: 'GZ',
+  json: 'JSON',
+  xml: 'XML',
+  html: 'HTML',
+  css: 'CSS',
+  js: 'JS',
+  ts: 'TS',
+  tsx: 'TSX',
+  jsx: 'JSX',
+  py: 'PY',
+}
+
+function getMaterialTypeBadge(filename: string): { label: string; variant: MaterialTypeVariant } {
+  const ext = getMaterialFileExtension(filename)
+  if (!ext) {
+    return { label: 'FILE', variant: 'other' }
+  }
+  const label = MATERIAL_EXT_LABEL[ext] ?? ext.toUpperCase().slice(0, 10)
+  if (ext === 'pdf') {
+    return { label, variant: 'pdf' }
+  }
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)) {
+    return { label, variant: 'image' }
+  }
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) {
+    return { label, variant: 'doc' }
+  }
+  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) {
+    return { label, variant: 'sheet' }
+  }
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+    return { label, variant: 'archive' }
+  }
+  if (['json', 'xml', 'html', 'css', 'js', 'ts', 'tsx', 'jsx', 'py', 'java', 'cpp', 'c', 'h', 'cs'].includes(ext)) {
+    return { label, variant: 'code' }
+  }
+  return { label, variant: 'other' }
 }
 
 const LEARN_TUTOR_SYSTEM_PROMPT = [
@@ -1951,7 +2028,7 @@ export function LearnPage() {
         >
           <article className="learn-card learn-workspace-card">
             <header className="learn-workspace-header">
-              <img className="ui-icon learn-workspace-title-icon" src={learnIcon} alt="" aria-hidden="true" />
+              <span className="learn-workspace-title-icon" aria-hidden="true" />
               <input
                 id="learn-path-name-input"
                 type="text"
@@ -2026,38 +2103,68 @@ export function LearnPage() {
                         </section>
                       ) : (
                         <>
-                          <label htmlFor="learn-files-input">Dateien hochladen</label>
                           <p className="learn-setup-info">
                             Lade zuerst deine Unterlagen hoch. Danach analysiert die KI die Inhalte und erkennt automatisch das Thema.
                           </p>
-                          <input
-                            id="learn-files-input"
-                            type="file"
-                            multiple
-                            onChange={(event) => {
-                              void handleUploadMaterials(event.target.files)
-                              event.currentTarget.value = ''
-                            }}
-                          />
-                          {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
-                          {materials.length > 0 ? (
-                            <div className="learn-materials-list">
-                              {materials.map((material) => (
-                                <div key={material.id} className="learn-material-item">
-                                  <div>
-                                    <p className="learn-material-name">{material.name}</p>
-                                    <p className="learn-muted">{Math.round(material.size / 1024)} KB</p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setMaterials((prev) => prev.filter((entry) => entry.id !== material.id))}
-                                  >
-                                    Entfernen
-                                  </button>
+                          <div className="learn-file-upload-block">
+                            <input
+                              id="learn-files-input"
+                              type="file"
+                              multiple
+                              className="learn-file-upload-input-sr"
+                              onChange={(event) => {
+                                void handleUploadMaterials(event.target.files)
+                                event.currentTarget.value = ''
+                              }}
+                            />
+                            {materials.length === 0 ? (
+                              <label htmlFor="learn-files-input" className="learn-file-upload-zone">
+                                <span className="learn-file-upload-zone-inner">
+                                  <strong className="learn-file-upload-title">Dateien hochladen</strong>
+                                  <span className="learn-file-upload-hint">Klicke in das Feld oder wähle Dateien aus</span>
+                                </span>
+                              </label>
+                            ) : (
+                              <div className="learn-file-upload-after-list">
+                                <div className="learn-materials-list">
+                                  {materials.map((material) => {
+                                    const typeBadge = getMaterialTypeBadge(material.name)
+                                    return (
+                                    <div key={material.id} className="learn-material-item">
+                                      <div className="learn-material-main">
+                                        <img className="ui-icon learn-material-file-icon" src={fileIcon} alt="" aria-hidden="true" />
+                                        <div className="learn-material-copy">
+                                          <div className="learn-material-title-row">
+                                            <p className="learn-material-name">{material.name}</p>
+                                            <span
+                                              className={`learn-material-type-badge learn-material-type-badge--${typeBadge.variant}`}
+                                            >
+                                              {typeBadge.label}
+                                            </span>
+                                          </div>
+                                          <p className="learn-muted learn-material-meta">{Math.round(material.size / 1024)} KB</p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        className="learn-material-remove-button"
+                                        onClick={() => setMaterials((prev) => prev.filter((entry) => entry.id !== material.id))}
+                                        aria-label={`${material.name} entfernen`}
+                                      >
+                                        <img className="ui-icon learn-material-remove-icon" src={deleteIcon} alt="" aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                    )
+                                  })}
                                 </div>
-                              ))}
-                            </div>
-                          ) : null}
+                                <label htmlFor="learn-files-input" className="learn-file-upload-add-more">
+                                  <span className="learn-file-upload-add-more-icon" aria-hidden="true" />
+                                  <span className="learn-file-upload-add-more-label">Weitere Dateien hinzufügen</span>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                          {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
                           <div className="learn-setup-actions">
                             <PrimaryButton
                               type="button"
@@ -2148,6 +2255,12 @@ export function LearnPage() {
                     <div className={`learn-setup-progress-segment ${setupStep >= 3 ? 'is-active' : ''}`} />
                     <div className={`learn-setup-progress-step ${setupStep >= 3 ? 'is-active' : ''}`}>3</div>
                   </div>
+                  {setupStep === 1 ? (
+                    <div className="learn-setup-step-hint" aria-label="Aktueller Schritt: Datei hochladen">
+                      <p className="learn-setup-step-hint-label">Datei hochladen</p>
+                      <img className="ui-icon learn-setup-step-hint-icon" src={setupPng} alt="" aria-hidden="true" />
+                    </div>
+                  ) : null}
                 </div>
               </section>
             ) : (

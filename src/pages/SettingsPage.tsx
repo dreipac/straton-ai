@@ -26,6 +26,11 @@ import {
   HOVER_STORAGE_KEY,
 } from '../features/settings/constants/hoverPalettes'
 import {
+  applyLearnPathTitleColorMode,
+  readPersistedLearnPathTitleColorMode,
+  type LearnPathTitleColorMode,
+} from '../features/settings/constants/learnPathTitleColor'
+import {
   applyMessageBoxPalette,
   DEFAULT_MESSAGE_BOX_PALETTE_ID,
   MESSAGE_BOX_STORAGE_KEY,
@@ -80,6 +85,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     const persistedMessageBoxPalette = window.localStorage.getItem(MESSAGE_BOX_STORAGE_KEY)
     return applyMessageBoxPalette(persistedMessageBoxPalette ?? DEFAULT_MESSAGE_BOX_PALETTE_ID)
   })
+  const [learnPathTitleColorMode, setLearnPathTitleColorMode] = useState<LearnPathTitleColorMode>(() =>
+    readPersistedLearnPathTitleColorMode(),
+  )
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
   const [chatCleanupInfo, setChatCleanupInfo] = useState<string | null>(null)
@@ -320,6 +328,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     window.localStorage.setItem(MESSAGE_BOX_STORAGE_KEY, appliedMessageBoxPaletteId)
   }, [messageBoxPaletteId])
 
+  useEffect(() => {
+    applyLearnPathTitleColorMode(learnPathTitleColorMode)
+  }, [learnPathTitleColorMode])
+
   const activeSectionConfig = sections.find((section) => section.id === activeSection) ?? sections[0]
   const autoRemoveEmptyChats = profile?.auto_remove_empty_chats ?? true
 
@@ -494,11 +506,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               accentPaletteId={accentPaletteId}
               hoverPaletteId={hoverPaletteId}
               messageBoxPaletteId={messageBoxPaletteId}
+              learnPathTitleColorMode={learnPathTitleColorMode}
               onChangeThemeMode={setThemeMode}
               onChangeSidebarScale={setSidebarScale}
               onChangeAccentPalette={setAccentPaletteId}
               onChangeHoverPalette={setHoverPaletteId}
               onChangeMessageBoxPalette={setMessageBoxPaletteId}
+              onChangeLearnPathTitleColorMode={setLearnPathTitleColorMode}
             />
           ) : null}
           {activeSection === 'chat' ? (
