@@ -1252,36 +1252,81 @@
 }
 
 .learn-setup-progress-step {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-surface) 86%, var(--color-border) 14%);
+  color: color-mix(in srgb, var(--color-text-app) 84%, transparent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.82rem;
-  font-weight: 700;
-  transition: transform 220ms ease, background-color 220ms ease, color 220ms ease;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 6px var(--color-shadow-soft);
+  transition:
+    transform 220ms ease,
+    background-color 220ms ease,
+    color 220ms ease,
+    box-shadow 260ms ease;
 }
 
 .learn-setup-progress-step.is-active {
   border-color: transparent;
-  background: var(--interactive-hover-bg);
+  background-image: var(--accent-gradient);
   color: var(--interactive-hover-text);
-  transform: scale(1.04);
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-hover-bg) 42%, transparent);
+  animation: learnProgressStepPulse 1.8s ease-in-out infinite;
 }
 
 .learn-setup-progress-segment {
   height: 6px;
   border-radius: 999px;
-  background: var(--color-border);
-  transition: background-color 220ms ease, background-image 220ms ease;
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-border) 86%, transparent);
+  transition: background-color 220ms ease, background-image 220ms ease, box-shadow 220ms ease;
 }
 
 .learn-setup-progress-segment.is-active {
   background-image: var(--accent-gradient);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--interactive-hover-bg) 38%, transparent);
+}
+
+.learn-setup-progress-segment.is-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: learnProgressSegmentShimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes learnProgressSegmentShimmer {
+  0% {
+    left: -45%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.7;
+  }
+  100% {
+    left: 110%;
+    opacity: 0;
+  }
+}
+
+@keyframes learnProgressStepPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-hover-bg) 32%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-hover-bg) 18%, transparent);
+  }
 }
 
 .learn-proficiency-options {

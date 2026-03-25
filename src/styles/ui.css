@@ -76,7 +76,7 @@
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background-image: var(--primary-button-gradient);
+  background-image: var(--accent-gradient);
   background-size: 200% 100%;
   background-position: 0% 50%;
   opacity: 1;
@@ -118,7 +118,7 @@
 }
 
 :root[data-theme='dark'] .ui-button-primary::before {
-  background-image: var(--primary-button-gradient);
+  background-image: var(--accent-gradient);
 }
 
 :root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled {

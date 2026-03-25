@@ -37,6 +37,8 @@ import {
   parseInteractiveContentWithFallback,
   type InteractiveQuizPayload,
 } from '../features/chat/utils/interactiveQuiz'
+import { extractLearningMaterialText } from '../features/learn/utils/documentParser'
+import { formatRelevantMaterialContext } from '../features/learn/utils/ragLite'
 import { SettingsModal } from './SettingsPage'
 
 function getDisplayPathTitle(title: string) {
@@ -138,6 +140,54 @@ const ENTRY_TEST_PREP_STEPS = [
 ] as const
 
 const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Kapitel werden generiert'] as const
+const ENTRY_QUIZ_MIN_QUESTIONS = 5
+const ENTRY_QUIZ_MIN_MCQ = 2
+const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
+const CHAPTER_GENERATION_TIMEOUT_MS = 90000
+const CHAPTER_GENERATION_MAX_ATTEMPTS = 2
+const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
+const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
+
+function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { valid: boolean; reason: string } {
+  if (!Array.isArray(quiz.questions) || quiz.questions.length < ENTRY_QUIZ_MIN_QUESTIONS) {
+    return {
+      valid: false,
+      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_QUESTIONS} Fragen.`,
+    }
+  }
+
+  const mcqQuestions = quiz.questions.filter((question) => question.questionType === 'mcq')
+  if (mcqQuestions.length < ENTRY_QUIZ_MIN_MCQ) {
+    return {
+      valid: false,
+      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_MCQ} Multiple-Choice-Fragen.`,
+    }
+  }
+
+  const firstQuestion = quiz.questions[0]
+  if (!firstQuestion || firstQuestion.questionType !== 'mcq') {
+    return {
+      valid: false,
+      reason: 'Die erste Frage muss eine Multiple-Choice-Frage sein.',
+    }
+  }
+
+  for (let index = 0; index < quiz.questions.length; index += 1) {
+    const question = quiz.questions[index]
+    if (question.questionType !== 'mcq') {
+      continue
+    }
+    const optionCount = question.options?.length ?? 0
+    if (optionCount < 3 || optionCount > 5) {
+      return {
+        valid: false,
+        reason: `MCQ Frage ${index + 1} muss 3-5 Antwortoptionen haben.`,
+      }
+    }
+  }
+
+  return { valid: true, reason: '' }
+}
 
 const DEFAULT_CHAPTER_SESSION: ChapterSession = {
   chapterIndex: 0,
@@ -289,10 +339,10 @@ function buildRichFallbackChapterSteps(title: string, chapterIndex: number): Cha
       prompt: `Welche Aussage trifft am ehesten auf ${title} zu?`,
       options: [
         `${title} ist nur Theorie ohne Praxisbezug`,
-        `${title} wird in realen IT-Abläufen eingesetzt`,
+        `${title} wird in realen IT-Abl\u00E4ufen eingesetzt`,
         `${title} ist veraltet und kaum relevant`,
       ],
-      expectedAnswer: `${title} wird in realen IT-Abläufen eingesetzt`,
+      expectedAnswer: `${title} wird in realen IT-Abl\u00E4ufen eingesetzt`,
       acceptableAnswers: [],
       evaluation: 'exact',
       hint: 'Denke an den Alltag im Betrieb.',
@@ -420,10 +470,7 @@ function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): ChapterBluep
   })
 }
 
-function buildChallengeChapterFromWrongAnswers(
-  blueprints: ChapterBlueprint[],
-  session: ChapterSession,
-): ChapterBlueprint | null {
+function collectWeakQuestionSteps(blueprints: ChapterBlueprint[], session: ChapterSession): Extract<ChapterStep, { type: 'question' }>[] {
   const wrongQuestionSteps: Extract<ChapterStep, { type: 'question' }>[] = []
   const seen = new Set<string>()
 
@@ -443,36 +490,66 @@ function buildChallengeChapterFromWrongAnswers(
     }
   }
 
-  if (wrongQuestionSteps.length === 0) {
-    return null
-  }
+  return wrongQuestionSteps
+}
 
+function buildAdaptiveChapterPlaceholder(totalWrongQuestions: number): ChapterBlueprint {
+  return {
+    id: ADAPTIVE_CHAPTER_PLACEHOLDER_ID,
+    title: 'Schwachstellen-Fokus',
+    description: 'Dieses Kapitel wird nach Abschluss der Grundkapitel personalisiert erstellt.',
+    steps: [
+      {
+        id: 'adaptive-placeholder-intro',
+        type: 'explanation',
+        title: 'Personalisierter Abschluss',
+        content:
+          'Dieses Kapitel bleibt zunaechst ohne Fragen. Sobald du alle Grundkapitel abgeschlossen hast, erstellt die KI hier automatisch gezielte Uebungen zu deinen Schwachstellen.',
+        bullets: [
+          'Wird erst nach allen Grundkapiteln erstellt',
+          totalWrongQuestions > 0
+            ? `${totalWrongQuestions} erkannte Schwachpunkte stehen bereits zur Analyse bereit`
+            : 'Noch keine Schwachpunkte erkannt - die KI analysiert deine Antworten nach Abschluss',
+        ],
+      },
+      {
+        id: 'adaptive-placeholder-recap',
+        type: 'recap',
+        title: 'Noch gesperrt',
+        content: 'Schliesse zuerst alle Grundkapitel ab, damit dieses Kapitel mit deinen realen Daten erstellt wird.',
+        bullets: ['Kapitel wird automatisch freigeschaltet', 'Die Fragen werden dann dynamisch generiert'],
+      },
+    ],
+  }
+}
+
+function buildAdaptiveChallengeFallback(weakQuestions: Extract<ChapterStep, { type: 'question' }>[]): ChapterBlueprint {
   const challengeSteps: ChapterStep[] = [
     {
-      id: 'challenge-intro',
+      id: 'adaptive-intro',
       type: 'explanation',
-      title: 'Knifflige Wiederholung',
+      title: 'Gezielte Wiederholung',
       content:
-        'Dieses Abschlusskapitel sammelt Fragen, die im Lernverlauf falsch beantwortet wurden, damit du genau diese Luecken schliesst.',
+        'Dieses adaptive Kapitel basiert auf deinen bisherigen Antworten und trainiert deine erkannten Schwachstellen.',
       bullets: ['Gezielte Wiederholung', 'Fokus auf schwierige Punkte', 'Direktes Feedback pro Frage'],
     },
-    ...wrongQuestionSteps.slice(0, 12).map((step, index) => ({
+    ...weakQuestions.slice(0, 10).map((step, index) => ({
       ...step,
-      id: `challenge-q${index + 1}`,
+      id: `adaptive-q${index + 1}`,
     })),
     {
-      id: 'challenge-recap',
+      id: 'adaptive-recap',
       type: 'recap',
       title: 'Abschluss',
-      content: 'Sehr stark. Du hast die schwierigsten Fragen nochmal gezielt bearbeitet.',
+      content: 'Stark. Du hast gezielt an deinen schwierigsten Punkten gearbeitet.',
       bullets: ['Fehlerbereiche stabilisiert', 'Lernfortschritt gesichert'],
     },
   ]
 
   return {
-    id: 'challenge-chapter',
-    title: 'Knifflige Fragen',
-    description: 'Abschlusskapitel mit schwierigen Wiederholungsfragen',
+    id: ADAPTIVE_CHAPTER_GENERATED_ID,
+    title: 'Schwachstellen-Fokus',
+    description: 'Adaptives Abschlusskapitel mit KI-generierten Fragen',
     steps: challengeSteps,
   }
 }
@@ -515,6 +592,8 @@ export function LearnPage() {
   const [learningChapters, setLearningChapters] = useState<string[]>([])
   const [chapterBlueprints, setChapterBlueprints] = useState<ChapterBlueprint[]>([])
   const [chapterSession, setChapterSession] = useState<ChapterSession>(DEFAULT_CHAPTER_SESSION)
+  const [adaptiveChapterBlueprint, setAdaptiveChapterBlueprint] = useState<ChapterBlueprint | null>(null)
+  const [isGeneratingAdaptiveChapter, setIsGeneratingAdaptiveChapter] = useState(false)
   const [isChapterModalMounted, setIsChapterModalMounted] = useState(false)
   const [isChapterModalVisible, setIsChapterModalVisible] = useState(false)
   const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
@@ -531,6 +610,7 @@ export function LearnPage() {
   const chapterModalCloseTimerRef = useRef<number | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const suppressAutosaveRef = useRef(false)
+  const adaptiveChapterGenerationRef = useRef(false)
   const activePathIdRef = useRef('')
   const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
 
@@ -561,6 +641,97 @@ export function LearnPage() {
   const entryTestDurationLabel = entryQuiz
     ? `ca. ${Math.max(5, Math.ceil(entryQuiz.questions.length * 1.5))} Minuten`
     : 'ca. 10 Minuten'
+  const wrongQuestionSteps = collectWeakQuestionSteps(chapterBlueprints, chapterSession)
+  const completedBaseChapterCount = new Set(
+    chapterSession.completedChapterIndexes.filter((index) => index >= 0 && index < chapterBlueprints.length),
+  ).size
+  const areBaseChaptersCompleted = chapterBlueprints.length > 0 && completedBaseChapterCount >= chapterBlueprints.length
+
+  const generateAdaptiveWeaknessChapter = useCallback(async () => {
+    if (adaptiveChapterGenerationRef.current) {
+      return
+    }
+
+    const weakQuestions = collectWeakQuestionSteps(chapterBlueprints, chapterSession)
+    adaptiveChapterGenerationRef.current = true
+    setIsGeneratingAdaptiveChapter(true)
+
+    try {
+      const weaknessSummary =
+        weakQuestions.length > 0
+          ? weakQuestions
+              .slice(0, 12)
+              .map((step, index) => `${index + 1}. ${step.prompt}`)
+              .join('\n')
+          : 'Keine explizit falschen Antworten vorhanden. Erzeuge adaptive Fragen auf Basis typischer Stolpersteine im Thema.'
+
+      const adaptiveMaterialContext = formatRelevantMaterialContext(
+        `${effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')} ${selectedTopic} Schwachstellen Training`,
+        materials,
+        { maxChunks: 6, maxChars: 3200 },
+      )
+
+      const request: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [
+          'Erstelle genau EIN Abschlusskapitel fuer Schwachstellen als JSON-Array mit genau 1 Kapitelobjekt.',
+          'Nur JSON ohne Erklaerung.',
+          'Das Kapitel muss 1 kurze Einfuehrung, dann 6-10 Fragen und am Ende 1 Recap enthalten.',
+          'Fokussiere auf erkannte Schwachstellen aus den falsch beantworteten Fragen.',
+          'Nutze vorhandene Unterlagen als primaere Quelle.',
+          `Thema: ${selectedTopic || effectiveTopic || 'Informatik Grundlagen'}`,
+          `Schwachstellen aus bisherigem Lernverlauf:\n${weaknessSummary}`,
+          adaptiveMaterialContext ? `Materialauszuege:\n${adaptiveMaterialContext}` : 'Materialauszuege: keine',
+          'Schema pro Kapitel: {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
+        ].join('\n\n'),
+        createdAt: new Date().toISOString(),
+      }
+
+      const response = await Promise.race([
+        sendMessage([request], {
+          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+        }),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('Adaptive Kapitelgenerierung dauert zu lange.')), CHAPTER_GENERATION_TIMEOUT_MS)
+        }),
+      ])
+
+      const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
+      const parsedContent = parsed.cleanText || response.assistantMessage.content
+      const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
+      const generatedAdaptive = parsedBlueprints[0] ?? null
+
+      if (generatedAdaptive) {
+        setAdaptiveChapterBlueprint({
+          ...generatedAdaptive,
+          id: ADAPTIVE_CHAPTER_GENERATED_ID,
+          title: generatedAdaptive.title.trim() || 'Schwachstellen-Fokus',
+        })
+      } else {
+        setAdaptiveChapterBlueprint(buildAdaptiveChallengeFallback(weakQuestions))
+      }
+    } catch (err) {
+      console.error('Lernbereich: Adaptives Schwachstellen-Kapitel konnte nicht generiert werden', err)
+      setAdaptiveChapterBlueprint(buildAdaptiveChallengeFallback(weakQuestions))
+    } finally {
+      setIsGeneratingAdaptiveChapter(false)
+      adaptiveChapterGenerationRef.current = false
+    }
+  }, [activePath?.title, chapterBlueprints, chapterSession, effectiveTopic, materials, selectedTopic])
+
+  useEffect(() => {
+    if (!areBaseChaptersCompleted || adaptiveChapterBlueprint || isGeneratingAdaptiveChapter) {
+      return
+    }
+    void generateAdaptiveWeaknessChapter()
+  }, [adaptiveChapterBlueprint, areBaseChaptersCompleted, generateAdaptiveWeaknessChapter, isGeneratingAdaptiveChapter])
+
+  useEffect(() => {
+    setAdaptiveChapterBlueprint(null)
+    setIsGeneratingAdaptiveChapter(false)
+    adaptiveChapterGenerationRef.current = false
+  }, [activePathId, chapterBlueprints])
 
   const captureEditableState = useCallback(
     () => ({
@@ -1043,54 +1214,83 @@ export function LearnPage() {
       setError(null)
 
       try {
-        const materialContext = materials
-          .map((material, index) => `Material ${index + 1} (${material.name}): ${material.excerpt}`)
-          .join('\n')
+        const materialContext = formatRelevantMaterialContext(
+          ((effectiveTopic || getDisplayPathTitle(activePathTitle)) + ' ' + selectedTopic).trim(),
+          materials,
+          { maxChunks: 10, maxChars: 6500 },
+        )
 
-        const quizRequestMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: [
-            `Lernpfad Name: ${getDisplayPathTitle(activePathTitle)}`,
-            `Thema: ${effectiveTopic || getDisplayPathTitle(activePathTitle)}`,
-            selectedTopic.trim() ? `Gewaehlter Schwerpunkt: ${selectedTopic.trim()}` : 'Gewaehlter Schwerpunkt: keiner',
-            proficiencyLevel
-              ? `Selbsteinschaetzung Niveau: ${
-                  proficiencyLevel === 'low'
-                    ? 'schwach'
-                    : proficiencyLevel === 'medium'
-                      ? 'mittel'
-                      : 'gut'
-                }`
-              : 'Selbsteinschaetzung Niveau: unbekannt',
-            materialContext ? `Dateien:\n${materialContext}` : 'Dateien: keine hochgeladen.',
-            'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
-            'Der Test muss als interaktiver Quiz-JSON-Block mit mindestens 5 Fragen geliefert werden.',
-            'Nutze ein Mischformat aus Multiple-Choice und Freitext-Fragen.',
-            'Fuer Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
-            'Fuer Freitext-Fragen setze questionType auf "text".',
-            'Antworte zuerst mit 1-2 kurzen Einleitungssaetzen und dann direkt mit dem Quiz-Block.',
-          ].join('\n\n'),
-          createdAt: new Date().toISOString(),
+        let parsedQuiz: InteractiveQuizPayload | null = null
+        let parsedCleanText = ''
+        let validationReason = ''
+
+        for (let attempt = 1; attempt <= ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS; attempt += 1) {
+          const quizRequestMessage: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: 'user',
+            content: [
+              'Lernpfad Name: ' + getDisplayPathTitle(activePathTitle),
+              'Thema: ' + (effectiveTopic || getDisplayPathTitle(activePathTitle)),
+              selectedTopic.trim() ? 'Gewaehlter Schwerpunkt: ' + selectedTopic.trim() : 'Gewaehlter Schwerpunkt: keiner',
+              proficiencyLevel
+                ? 'Selbsteinschaetzung Niveau: ' +
+                  (proficiencyLevel === 'low' ? 'schwach' : proficiencyLevel === 'medium' ? 'mittel' : 'gut')
+                : 'Selbsteinschaetzung Niveau: unbekannt',
+              materialContext ? 'Dateien:\n' + materialContext : 'Dateien: keine hochgeladen.',
+              'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
+              'Der Test muss als interaktiver Quiz-JSON-Block mit mindestens 5 Fragen geliefert werden.',
+              'Die ERSTE Frage MUSS Multiple-Choice sein.',
+              'Insgesamt muessen mindestens 2 Multiple-Choice-Fragen enthalten sein.',
+              'Jede Multiple-Choice-Frage MUSS 3-5 Optionen enthalten.',
+              'Nutze ein Mischformat aus Multiple-Choice und Freitext-Fragen.',
+              'Fuer Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
+              'Fuer Freitext-Fragen setze questionType auf "text".',
+              validationReason
+                ? 'Der vorige Versuch war ungueltig: ' + validationReason + ' Halte dich strikt an alle Regeln.'
+                : 'Halte dich strikt an alle Regeln.',
+              'Antworte zuerst mit 1-2 kurzen Einleitungssaetzen und dann direkt mit dem Quiz-Block.',
+            ].join('\n\n'),
+            createdAt: new Date().toISOString(),
+          }
+
+          const result = await sendMessage([quizRequestMessage], {
+            systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+          })
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
+
+          const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
+          if (!parsed.quiz) {
+            validationReason = 'Kein gueltiger Quiz-JSON-Block erhalten.'
+            continue
+          }
+
+          const validation = validateGeneratedEntryQuiz(parsed.quiz)
+          if (!validation.valid) {
+            validationReason = validation.reason
+            continue
+          }
+
+          parsedQuiz = parsed.quiz
+          parsedCleanText = parsed.cleanText
+          break
         }
 
-        const result = await sendMessage([quizRequestMessage], {
-          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
-        })
-        if (activePathIdRef.current !== activePathIdAtStart) {
-          return
-        }
-        const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
-        if (!parsed.quiz) {
-          throw new Error('Kein gueltiger Einstiegstest von der KI erhalten.')
+        if (!parsedQuiz) {
+          throw new Error(
+            validationReason
+              ? `Einstiegstest ungueltig: ${validationReason}`
+              : 'Kein gueltiger Einstiegstest von der KI erhalten.',
+          )
         }
 
-        const initialAnswers = parsed.quiz.questions.reduce<Record<string, string>>((acc, question) => {
+        const initialAnswers = parsedQuiz.questions.reduce<Record<string, string>>((acc, question) => {
           acc[question.id] = ''
           return acc
         }, {})
 
-        setEntryQuiz(parsed.quiz)
+        setEntryQuiz(parsedQuiz)
         setEntryQuizAnswers(initialAnswers)
         setEntryQuizResult(null)
         setLearningChapters([])
@@ -1112,7 +1312,7 @@ export function LearnPage() {
             id: crypto.randomUUID(),
             role: 'assistant',
             content:
-              (parsed.cleanText || 'Dein Einstiegstest ist bereit.') +
+              (parsedCleanText || 'Dein Einstiegstest ist bereit.') +
               '\n\nHier ist dein Test: Einstiegstest starten',
             action: 'open-entry-test',
           },
@@ -1372,13 +1572,11 @@ export function LearnPage() {
       return
     }
 
-    const previewText = materials
-      .slice(0, 4)
-      .map((material, index) => {
-        const normalizedExcerpt = material.excerpt.replace(/\s+/g, ' ').trim().slice(0, 1100)
-        return `Datei ${index + 1}: ${material.name}\n${normalizedExcerpt || '(Kein auswertbarer Text gefunden)'}`.trim()
-      })
-      .join('\n\n---\n\n')
+    const previewText =
+      formatRelevantMaterialContext('Thema aus Unterlagen erkennen', materials, {
+        maxChunks: 8,
+        maxChars: 5200,
+      }) || '(Kein auswertbarer Text gefunden)'
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -1410,7 +1608,7 @@ export function LearnPage() {
           .map((line) => line.trim())
           .find((line) => line.toUpperCase().startsWith('THEMA:'))
         const detectedTopic = (themeLine ? themeLine.slice(6) : raw)
-          .replace(/["'`]/g, '')
+          .replace(/["']/g, '')
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 80)
@@ -1478,12 +1676,12 @@ export function LearnPage() {
       const uploaded: UploadedMaterial[] = []
 
       for (const file of files) {
-        const text = await file.text()
+        const text = await extractLearningMaterialText(file)
         uploaded.push({
           id: crypto.randomUUID(),
           name: file.name,
           size: file.size,
-          excerpt: text.replace(/\s+/g, ' ').trim().slice(0, 2500),
+          excerpt: text,
         })
       }
 
@@ -1600,6 +1798,12 @@ export function LearnPage() {
           )
           .join('\n\n')
 
+        const chapterMaterialContext = formatRelevantMaterialContext(
+          ((effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')) + ' ' + selectedTopic + ' ' + evaluationSummary).trim(),
+          materials,
+          { maxChunks: 8, maxChars: 4200 },
+        )
+
         const chapterRequest: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'user',
@@ -1618,13 +1822,36 @@ export function LearnPage() {
             'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
             'Schema pro Kapitel: {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
             `Auswertungsgrundlage:\n${evaluationSummary}`,
+            chapterMaterialContext ? 'Materialauszuege:\n' + chapterMaterialContext : 'Materialauszuege: keine',
           ].join('\n\n'),
           createdAt: new Date().toISOString(),
         }
 
-        const chapterResponse = await sendMessage([chapterRequest], {
-          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
-        })
+        let chapterResponse: Awaited<ReturnType<typeof sendMessage>> | null = null
+        let chapterError: Error | null = null
+
+        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+          try {
+            chapterResponse = await Promise.race([
+              sendMessage([chapterRequest], {
+                systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+              }),
+              new Promise<never>((_, reject) => {
+                window.setTimeout(() => reject(new Error('Kapitelgenerierung dauert zu lange. Bitte erneut versuchen.')), CHAPTER_GENERATION_TIMEOUT_MS)
+              }),
+            ])
+            break
+          } catch (err) {
+            chapterError = err instanceof Error ? err : new Error('Kapitel konnten nicht generiert werden.')
+            if (attempt >= CHAPTER_GENERATION_MAX_ATTEMPTS) {
+              throw chapterError
+            }
+          }
+        }
+
+        if (!chapterResponse) {
+          throw chapterError ?? new Error('Kapitel konnten nicht generiert werden.')
+        }
         const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
         const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
         const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
@@ -1664,6 +1891,7 @@ export function LearnPage() {
         window.clearInterval(stageTwoTimerId)
       }
     } catch (err) {
+      console.error('Lernbereich: Kapitelgenerierung fehlgeschlagen', err)
       setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht abgegeben werden.')
     } finally {
       setIsPostEntryPrepLoading(false)
@@ -1847,8 +2075,8 @@ export function LearnPage() {
     entryQuizTotalQuestions > 0
       ? (Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions) / entryQuizTotalQuestions) * 100
       : 0
-  const challengeChapter = buildChallengeChapterFromWrongAnswers(chapterBlueprints, chapterSession)
-  const effectiveChapterBlueprints = challengeChapter ? [...chapterBlueprints, challengeChapter] : chapterBlueprints
+  const adaptiveTailChapter = adaptiveChapterBlueprint ?? buildAdaptiveChapterPlaceholder(wrongQuestionSteps.length)
+  const effectiveChapterBlueprints = chapterBlueprints.length > 0 ? [...chapterBlueprints, adaptiveTailChapter] : chapterBlueprints
   const safeChapterIndex = Math.max(
     0,
     Math.min(chapterSession.chapterIndex, Math.max(0, effectiveChapterBlueprints.length - 1)),
@@ -2121,7 +2349,7 @@ export function LearnPage() {
                               <label htmlFor="learn-files-input" className="learn-file-upload-zone">
                                 <span className="learn-file-upload-zone-inner">
                                   <strong className="learn-file-upload-title">Dateien hochladen</strong>
-                                  <span className="learn-file-upload-hint">Klicke in das Feld oder wähle Dateien aus</span>
+                                  <span className="learn-file-upload-hint">Klicke in das Feld oder w\u00E4hle Dateien aus</span>
                                 </span>
                               </label>
                             ) : (
@@ -2159,7 +2387,7 @@ export function LearnPage() {
                                 </div>
                                 <label htmlFor="learn-files-input" className="learn-file-upload-add-more">
                                   <span className="learn-file-upload-add-more-icon" aria-hidden="true" />
-                                  <span className="learn-file-upload-add-more-label">Weitere Dateien hinzufügen</span>
+                                  <span className="learn-file-upload-add-more-label">Weitere Dateien hinzuf\u00FCgen</span>
                                 </label>
                               </div>
                             )}
@@ -2192,7 +2420,7 @@ export function LearnPage() {
                       </div>
                       <div className="learn-setup-actions">
                         <SecondaryButton type="button" onClick={() => setSetupStep(1)}>
-                          Zurück
+                          Zur\u00FCck
                         </SecondaryButton>
                         <PrimaryButton type="button" onClick={handleContinueSetupStepTwo}>
                           Weiter
@@ -2239,7 +2467,7 @@ export function LearnPage() {
                       </div>
                       <div className="learn-setup-actions">
                         <SecondaryButton type="button" onClick={() => setSetupStep(2)}>
-                          Zurück
+                          Zur\u00FCck
                         </SecondaryButton>
                         <PrimaryButton type="button" onClick={handleFinishSetup} disabled={!proficiencyLevel}>
                           Einrichtung abschliessen
@@ -2313,7 +2541,7 @@ export function LearnPage() {
                             <div className="learn-chapter-preview-box">
                               <p>Dauer: ca. {previewEstimatedMinutes} Minuten</p>
                               <p>
-                                {Math.max(1, previewStepCount - previewQuestionCount)} Lernblöcke · {previewQuestionCount}{' '}
+                                {Math.max(1, previewStepCount - previewQuestionCount)} Lernbl\u00F6cke \u00B7 {previewQuestionCount}{' '}
                                 Interaktive Fragen
                               </p>
                               <p>{previewRecommendation}</p>
@@ -2520,7 +2748,7 @@ export function LearnPage() {
 
           <article className="learn-card learn-overview-card">
             <header className="learn-overview-header">
-              <h2>Übersicht</h2>
+              <h2>{'\u00DCbersicht'}</h2>
             </header>
             {!isSetupComplete ? (
               <>
@@ -2552,7 +2780,7 @@ export function LearnPage() {
                 </div>
               </>
             ) : (
-              <section className="learn-overview-compact" aria-label="Kompakte Lernübersicht">
+              <section className="learn-overview-compact" aria-label={'Kompakte Lern\u00FCbersicht'}>
                 <div className="learn-overview-compact-line">
                   <span>Status</span>
                   <strong>{entryQuizResult ? 'Einstiegstest abgegeben' : 'Einstiegstest offen'}</strong>
@@ -2600,7 +2828,7 @@ export function LearnPage() {
               }}
               role="separator"
               aria-orientation="vertical"
-              aria-label="Breite zwischen Arbeitsbereich und Übersicht anpassen"
+              aria-label={'Breite zwischen Arbeitsbereich und \u00DCbersicht anpassen'}
             />
           ) : null}
         </div>
@@ -2698,7 +2926,7 @@ export function LearnPage() {
                   onClick={() => setEntryQuizQuestionIndex((prev) => Math.max(0, prev - 1))}
                   disabled={isSubmittingEntryQuiz || !activeEntryQuestion || entryQuizQuestionIndex === 0}
                 >
-                  Zurueck
+                  Zur\u00FCck
                 </SecondaryButton>
                 {isLastEntryQuestion ? (
                   <PrimaryButton
@@ -2867,7 +3095,7 @@ export function LearnPage() {
                 onClick={handlePreviousChapterStep}
                 disabled={safeChapterIndex === 0 && safeChapterStepIndex === 0}
               >
-                Zurueck
+                Zur\u00FCck
               </SecondaryButton>
               {activeChapterStep?.type === 'question' ? (
                 <PrimaryButton
@@ -2909,10 +3137,29 @@ export function LearnPage() {
               void handleDeleteLearningPath(openPathMenuId)
             }}
           >
-            Löschen
+            {'L\u00F6schen'}
           </MenuItem>
         </ContextMenu>
       ) : null}
     </main>
   )
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
