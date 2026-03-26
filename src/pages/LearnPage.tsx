@@ -4,10 +4,10 @@ import checkIcon from '../assets/icons/check.svg'
 import deleteIcon from '../assets/icons/delete.svg'
 import fileIcon from '../assets/icons/file.svg'
 import setupPng from '../assets/png/setup.png'
-import newMessageIcon from '../assets/icons/newMessage.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import starIcon from '../assets/icons/star.svg'
+import statusIcon from '../assets/icons/status.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
@@ -22,537 +22,46 @@ import {
   type ChapterBlueprint,
   type ChapterSession,
   type ChapterStep,
-  deleteLearningPathById,
-  getLearningPathById,
   listLearningPathsByUserId,
-  updateLearningPathById,
   type EntryQuizResult,
   type LearningPathRecord,
   type LearningPathSummary,
   type TutorChatEntry,
   type UploadedMaterial,
 } from '../features/learn/services/learn.persistence'
+import { useLearningPathActions } from '../features/learn/hooks/useLearningPathActions'
+import { useLearnSetupFlow } from '../features/learn/hooks/useLearnSetupFlow'
+import { useEntryQuizUiFlow } from '../features/learn/hooks/useEntryQuizUiFlow'
+import { useEntryQuizSubmissionFlow } from '../features/learn/hooks/useEntryQuizSubmissionFlow'
+import {
+  useLearningPathPersistence,
+  type EditableLearningPathSnapshot,
+} from '../features/learn/hooks/useLearningPathPersistence'
 import {
   evaluateInteractiveAnswer,
   parseInteractiveContentWithFallback,
   type InteractiveQuizPayload,
 } from '../features/chat/utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../features/learn/utils/documentParser'
+import {
+  ADAPTIVE_CHAPTER_GENERATED_ID,
+  CHAPTER_GENERATION_TIMEOUT_MS,
+  DEFAULT_CHAPTER_SESSION,
+  ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS,
+  ENTRY_TEST_PREP_STEPS,
+  LEARN_TUTOR_SYSTEM_PROMPT,
+  POST_ENTRY_PREP_STEPS,
+  buildAdaptiveChallengeFallback,
+  buildAdaptiveChapterPlaceholder,
+  collectWeakQuestionSteps,
+  ensureMinimumChapterDepth,
+  getDisplayPathTitle,
+  getMaterialTypeBadge,
+  parseChapterBlueprintsFromText,
+  validateGeneratedEntryQuiz,
+} from '../features/learn/utils/learnPageHelpers'
 import { formatRelevantMaterialContext } from '../features/learn/utils/ragLite'
 import { SettingsModal } from './SettingsPage'
-
-function getDisplayPathTitle(title: string) {
-  const trimmed = title.trim()
-  return trimmed ? trimmed : 'Neuer Lernpfad'
-}
-
-type MaterialTypeVariant = 'pdf' | 'image' | 'doc' | 'sheet' | 'archive' | 'code' | 'other'
-
-function getMaterialFileExtension(filename: string): string {
-  const base = filename.trim()
-  const dot = base.lastIndexOf('.')
-  if (dot <= 0 || dot === base.length - 1) {
-    return ''
-  }
-  return base.slice(dot + 1).toLowerCase()
-}
-
-const MATERIAL_EXT_LABEL: Record<string, string> = {
-  jpeg: 'JPEG',
-  jpg: 'JPG',
-  png: 'PNG',
-  gif: 'GIF',
-  webp: 'WEBP',
-  svg: 'SVG',
-  bmp: 'BMP',
-  ico: 'ICO',
-  avif: 'AVIF',
-  pdf: 'PDF',
-  txt: 'TXT',
-  md: 'MD',
-  doc: 'DOC',
-  docx: 'DOCX',
-  xls: 'XLS',
-  xlsx: 'XLSX',
-  csv: 'CSV',
-  ppt: 'PPT',
-  pptx: 'PPTX',
-  odt: 'ODT',
-  ods: 'ODS',
-  rtf: 'RTF',
-  zip: 'ZIP',
-  rar: 'RAR',
-  '7z': '7Z',
-  tar: 'TAR',
-  gz: 'GZ',
-  json: 'JSON',
-  xml: 'XML',
-  html: 'HTML',
-  css: 'CSS',
-  js: 'JS',
-  ts: 'TS',
-  tsx: 'TSX',
-  jsx: 'JSX',
-  py: 'PY',
-}
-
-function getMaterialTypeBadge(filename: string): { label: string; variant: MaterialTypeVariant } {
-  const ext = getMaterialFileExtension(filename)
-  if (!ext) {
-    return { label: 'FILE', variant: 'other' }
-  }
-  const label = MATERIAL_EXT_LABEL[ext] ?? ext.toUpperCase().slice(0, 10)
-  if (ext === 'pdf') {
-    return { label, variant: 'pdf' }
-  }
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)) {
-    return { label, variant: 'image' }
-  }
-  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) {
-    return { label, variant: 'doc' }
-  }
-  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) {
-    return { label, variant: 'sheet' }
-  }
-  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-    return { label, variant: 'archive' }
-  }
-  if (['json', 'xml', 'html', 'css', 'js', 'ts', 'tsx', 'jsx', 'py', 'java', 'cpp', 'c', 'h', 'cs'].includes(ext)) {
-    return { label, variant: 'code' }
-  }
-  return { label, variant: 'other' }
-}
-
-const LEARN_TUTOR_SYSTEM_PROMPT = [
-  'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
-  'Erklaere fachlich korrekt, aber einfach, klar und strukturiert.',
-  'Passe den Schwierigkeitsgrad an das Niveau des Nutzers an.',
-  'Nutze zuerst die hochgeladenen Unterlagen und Notizen als primaere Quelle.',
-  'Wenn etwas unklar ist, erklaere mit konkreten Beispielen aus der IT-Praxis.',
-  'Arbeite kapitelbasiert und baue auf dem gewaehlten Schwerpunkt auf.',
-  'Nach jeder Erklaerung stelle genau eine kurze Verstaendnisfrage.',
-].join('\n')
-
-const ENTRY_TEST_PREP_STEPS = [
-  'Straton analysiert dein Thema',
-  'Straton verarbeitet deine Inhalte',
-  'Straton erstellt deinen Einstiegstest',
-] as const
-
-const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Kapitel werden generiert'] as const
-const ENTRY_QUIZ_MIN_QUESTIONS = 5
-const ENTRY_QUIZ_MIN_MCQ = 2
-const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
-const CHAPTER_GENERATION_TIMEOUT_MS = 90000
-const CHAPTER_GENERATION_MAX_ATTEMPTS = 2
-const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
-const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
-
-function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { valid: boolean; reason: string } {
-  if (!Array.isArray(quiz.questions) || quiz.questions.length < ENTRY_QUIZ_MIN_QUESTIONS) {
-    return {
-      valid: false,
-      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_QUESTIONS} Fragen.`,
-    }
-  }
-
-  const mcqQuestions = quiz.questions.filter((question) => question.questionType === 'mcq')
-  if (mcqQuestions.length < ENTRY_QUIZ_MIN_MCQ) {
-    return {
-      valid: false,
-      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_MCQ} Multiple-Choice-Fragen.`,
-    }
-  }
-
-  const firstQuestion = quiz.questions[0]
-  if (!firstQuestion || firstQuestion.questionType !== 'mcq') {
-    return {
-      valid: false,
-      reason: 'Die erste Frage muss eine Multiple-Choice-Frage sein.',
-    }
-  }
-
-  for (let index = 0; index < quiz.questions.length; index += 1) {
-    const question = quiz.questions[index]
-    if (question.questionType !== 'mcq') {
-      continue
-    }
-    const optionCount = question.options?.length ?? 0
-    if (optionCount < 3 || optionCount > 5) {
-      return {
-        valid: false,
-        reason: `MCQ Frage ${index + 1} muss 3-5 Antwortoptionen haben.`,
-      }
-    }
-  }
-
-  return { valid: true, reason: '' }
-}
-
-const DEFAULT_CHAPTER_SESSION: ChapterSession = {
-  chapterIndex: 0,
-  stepIndex: 0,
-  answersByStepId: {},
-  feedbackByStepId: {},
-  correctnessByStepId: {},
-  evaluatedAnswersByStepId: {},
-  completedChapterIndexes: [],
-}
-
-function parseLearningChaptersFromText(raw: string): string[] {
-  const trimmed = raw.trim()
-  if (!trimmed) {
-    return []
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((entry): entry is string => typeof entry === 'string')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .slice(0, 6)
-    }
-  } catch {
-    // fallback to line-based parsing below
-  }
-
-  return trimmed
-    .split('\n')
-    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+[\.\)]\s+/, '').trim())
-    .filter(Boolean)
-    .slice(0, 6)
-}
-
-function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] {
-  const trimmed = raw.trim()
-  if (!trimmed) {
-    return []
-  }
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-    return parsed
-      .map((entry, chapterIndex) => {
-        if (!entry || typeof entry !== 'object') {
-          return null
-        }
-        const candidate = entry as Record<string, unknown>
-        const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
-        const stepsRaw = Array.isArray(candidate.steps) ? candidate.steps : []
-        if (!title || stepsRaw.length === 0) {
-          return null
-        }
-        const steps = stepsRaw
-          .map((step, stepIndex) => {
-            if (!step || typeof step !== 'object') {
-              return null
-            }
-            const stepCandidate = step as Record<string, unknown>
-            const type = stepCandidate.type === 'question' || stepCandidate.type === 'recap' ? stepCandidate.type : 'explanation'
-            const id =
-              typeof stepCandidate.id === 'string' && stepCandidate.id.trim()
-                ? stepCandidate.id.trim()
-                : `c${chapterIndex + 1}-s${stepIndex + 1}`
-            if (type === 'question') {
-              const prompt = typeof stepCandidate.prompt === 'string' ? stepCandidate.prompt.trim() : ''
-              const expectedAnswer =
-                typeof stepCandidate.expectedAnswer === 'string' ? stepCandidate.expectedAnswer.trim() : ''
-              if (!prompt || !expectedAnswer) {
-                return null
-              }
-              const options = Array.isArray(stepCandidate.options)
-                ? stepCandidate.options
-                    .filter((opt): opt is string => typeof opt === 'string')
-                    .map((opt) => opt.trim())
-                    .filter(Boolean)
-                : undefined
-              return {
-                id,
-                type: 'question',
-                questionType: stepCandidate.questionType === 'mcq' ? 'mcq' : 'text',
-                prompt,
-                options: options && options.length > 0 ? options : undefined,
-                expectedAnswer,
-                acceptableAnswers: Array.isArray(stepCandidate.acceptableAnswers)
-                  ? stepCandidate.acceptableAnswers
-                      .filter((opt): opt is string => typeof opt === 'string')
-                      .map((opt) => opt.trim())
-                      .filter(Boolean)
-                  : [],
-                hint: typeof stepCandidate.hint === 'string' ? stepCandidate.hint : undefined,
-                explanation: typeof stepCandidate.explanation === 'string' ? stepCandidate.explanation : undefined,
-                evaluation: stepCandidate.evaluation === 'contains' ? 'contains' : 'exact',
-              } satisfies ChapterStep
-            }
-            const stepTitle = typeof stepCandidate.title === 'string' ? stepCandidate.title.trim() : ''
-            const content = typeof stepCandidate.content === 'string' ? stepCandidate.content.trim() : ''
-            if (!stepTitle || !content) {
-              return null
-            }
-            const bullets = Array.isArray(stepCandidate.bullets)
-              ? stepCandidate.bullets
-                  .filter((opt): opt is string => typeof opt === 'string')
-                  .map((opt) => opt.trim())
-                  .filter(Boolean)
-              : undefined
-            if (type === 'recap') {
-              return { id, type: 'recap', title: stepTitle, content, bullets } satisfies ChapterStep
-            }
-            return { id, type: 'explanation', title: stepTitle, content, bullets } satisfies ChapterStep
-          })
-          .filter(Boolean) as ChapterStep[]
-        if (steps.length === 0) {
-          return null
-        }
-        return {
-          id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `chapter-${chapterIndex + 1}`,
-          title,
-          description: typeof candidate.description === 'string' ? candidate.description.trim() : undefined,
-          steps,
-        } satisfies ChapterBlueprint
-      })
-      .filter(Boolean)
-      .map((chapter) => chapter as ChapterBlueprint)
-      .slice(0, 6)
-  } catch {
-    return []
-  }
-}
-
-function buildRichFallbackChapterSteps(title: string, chapterIndex: number): ChapterStep[] {
-  return [
-    {
-      id: `c${chapterIndex + 1}-s1`,
-      type: 'explanation',
-      title: 'Warmup',
-      content: `Kurzer Einstieg in ${title}: Wir aktivieren dein Vorwissen, ordnen zentrale Begriffe ein und klaeren, warum das Thema im Berufsalltag relevant ist.`,
-      bullets: ['Worum geht es konkret?', 'Warum ist es in der Praxis wichtig?', 'Welches Ziel hat dieses Kapitel?'],
-    },
-    {
-      id: `c${chapterIndex + 1}-s2`,
-      type: 'question',
-      questionType: 'mcq',
-      prompt: `Welche Aussage trifft am ehesten auf ${title} zu?`,
-      options: [
-        `${title} ist nur Theorie ohne Praxisbezug`,
-        `${title} wird in realen IT-Abl\u00E4ufen eingesetzt`,
-        `${title} ist veraltet und kaum relevant`,
-      ],
-      expectedAnswer: `${title} wird in realen IT-Abl\u00E4ufen eingesetzt`,
-      acceptableAnswers: [],
-      evaluation: 'exact',
-      hint: 'Denke an den Alltag im Betrieb.',
-      explanation: 'Genau: Das Thema ist praxisrelevant und wird im Alltag angewendet.',
-    },
-    {
-      id: `c${chapterIndex + 1}-s3`,
-      type: 'explanation',
-      title: 'Konzept 1',
-      content: `Wir schauen auf den ersten Kernbaustein von ${title}, was er fachlich bedeutet und wie du ihn Schritt fuer Schritt im Kontext erkennst.`,
-      bullets: ['Klare Definition', 'Aufbau in einfachen Schritten', 'Typische Begriffe aus Unterlagen und Praxis'],
-    },
-    {
-      id: `c${chapterIndex + 1}-s4`,
-      type: 'question',
-      questionType: 'text',
-      prompt: `Erklaere den wichtigsten Kernbegriff in ${title} in 2-3 Saetzen.`,
-      expectedAnswer: 'Der Kernbegriff wird fachlich korrekt und einfach erklaert.',
-      acceptableAnswers: [],
-      evaluation: 'contains',
-      hint: 'Nutze einfache Worte und ein kleines Praxisbeispiel.',
-      explanation: 'Achte auf fachlich korrekte, aber einfache Formulierungen.',
-    },
-    {
-      id: `c${chapterIndex + 1}-s5`,
-      type: 'explanation',
-      title: 'Konzept 2',
-      content: `Jetzt vertiefen wir den zweiten Baustein, grenzen ihn sauber ab und verbinden ihn mit Konzept 1, damit das Gesamtbild klar wird.`,
-      bullets: ['Zusammenhang verstehen', 'Abgrenzung zu aehnlichen Themen', 'Typische Stolperfallen vermeiden'],
-    },
-    {
-      id: `c${chapterIndex + 1}-s6`,
-      type: 'question',
-      questionType: 'mcq',
-      prompt: `Welche Option beschreibt den Zusammenhang der beiden Konzepte am besten?`,
-      options: [
-        'Sie sind komplett unabhaengig',
-        'Sie bauen logisch aufeinander auf',
-        'Sie widersprechen sich grundsaetzlich',
-      ],
-      expectedAnswer: 'Sie bauen logisch aufeinander auf',
-      acceptableAnswers: [],
-      evaluation: 'exact',
-      hint: 'Denke an den Lernfluss aus dem Kapitel.',
-      explanation: 'Richtig: Die Konzepte greifen ineinander und bauen aufeinander auf.',
-    },
-    {
-      id: `c${chapterIndex + 1}-s7`,
-      type: 'explanation',
-      title: 'Praxisbezug',
-      content: `So taucht ${title} in echten IT-Situationen auf: Wir verbinden die Theorie mit einem realistischen Ablauf aus dem Betrieb.`,
-      bullets: ['Typischer Use-Case', 'Haeufige Fehler', 'Best Practice im Tagesgeschaeft'],
-    },
-    {
-      id: `c${chapterIndex + 1}-s8`,
-      type: 'question',
-      questionType: 'text',
-      prompt: `Praxisfall: Ein Team muss ${title} in einem laufenden Projekt anwenden. Welche 2-3 Schritte wuerdest du vorschlagen und warum?`,
-      expectedAnswer: 'Ein realistischer Praxisplan mit nachvollziehbaren Schritten und kurzer Begruendung wird beschrieben.',
-      acceptableAnswers: [],
-      evaluation: 'contains',
-      hint: 'Nutze ein konkretes IT-Szenario und argumentiere knapp, aber klar.',
-      explanation: 'Sehr gut, wenn dein Vorgehen realistisch, begruendet und fachlich stimmig ist.',
-    },
-    {
-      id: `c${chapterIndex + 1}-s9`,
-      type: 'explanation',
-      title: 'Merksaetze',
-      content: `Die wichtigsten Punkte von ${title} auf einen Blick.`,
-      bullets: ['1-2 Kernregeln', 'Wann besonders aufpassen?', 'Was unbedingt merken?'],
-    },
-    {
-      id: `c${chapterIndex + 1}-s10`,
-      type: 'recap',
-      title: 'Kapitelabschluss',
-      content: `Du hast die wichtigsten Grundlagen von ${title} aufgebaut und praktisch geuebt.`,
-      bullets: ['Konzepte verstanden', 'Fragen angewendet', 'Bereit fuer das naechste Kapitel'],
-    },
-  ]
-}
-
-function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): ChapterBlueprint[] {
-  return blueprints.map((chapter, index) => {
-    const hasPraxisTask = chapter.steps.some(
-      (step) => step.type === 'question' && /praxis|anwendungsfall|szenario|fall/i.test(step.prompt),
-    )
-    let normalized = chapter
-    if (!hasPraxisTask) {
-      normalized = {
-        ...chapter,
-        steps: [
-          ...chapter.steps,
-          {
-            id: `c${index + 1}-praxis-task`,
-            type: 'question',
-            questionType: 'text',
-            prompt: `Praxisfall: Beschreibe ein realistisches Szenario, in dem ${chapter.title} eingesetzt wird, und erklaere dein Vorgehen in 2-4 Schritten.`,
-            expectedAnswer: 'Ein konkreter Praxisfall mit klarem, fachlich stimmigem Vorgehen wird beschrieben.',
-            acceptableAnswers: [],
-            evaluation: 'contains',
-            hint: 'Nutze eine kurze Situation aus dem IT-Alltag und bleibe konkret.',
-            explanation: 'Achte auf klare Schritte und einen nachvollziehbaren Nutzen.',
-          } satisfies ChapterStep,
-        ],
-      }
-    }
-
-    if (normalized.steps.length >= 8) {
-      return normalized
-    }
-    const fallback = buildRichFallbackChapterSteps(chapter.title, index)
-    const merged = [...normalized.steps]
-    for (const step of fallback) {
-      if (merged.length >= 10) {
-        break
-      }
-      if (!merged.some((existing) => existing.id === step.id)) {
-        merged.push(step)
-      }
-    }
-    return {
-      ...chapter,
-      steps: merged,
-    }
-  })
-}
-
-function collectWeakQuestionSteps(blueprints: ChapterBlueprint[], session: ChapterSession): Extract<ChapterStep, { type: 'question' }>[] {
-  const wrongQuestionSteps: Extract<ChapterStep, { type: 'question' }>[] = []
-  const seen = new Set<string>()
-
-  for (const chapter of blueprints) {
-    for (const step of chapter.steps) {
-      if (step.type !== 'question') {
-        continue
-      }
-      if (session.correctnessByStepId[step.id] !== false) {
-        continue
-      }
-      if (seen.has(step.id)) {
-        continue
-      }
-      seen.add(step.id)
-      wrongQuestionSteps.push(step)
-    }
-  }
-
-  return wrongQuestionSteps
-}
-
-function buildAdaptiveChapterPlaceholder(totalWrongQuestions: number): ChapterBlueprint {
-  return {
-    id: ADAPTIVE_CHAPTER_PLACEHOLDER_ID,
-    title: 'Schwachstellen-Fokus',
-    description: 'Dieses Kapitel wird nach Abschluss der Grundkapitel personalisiert erstellt.',
-    steps: [
-      {
-        id: 'adaptive-placeholder-intro',
-        type: 'explanation',
-        title: 'Personalisierter Abschluss',
-        content:
-          'Dieses Kapitel bleibt zunaechst ohne Fragen. Sobald du alle Grundkapitel abgeschlossen hast, erstellt die KI hier automatisch gezielte Uebungen zu deinen Schwachstellen.',
-        bullets: [
-          'Wird erst nach allen Grundkapiteln erstellt',
-          totalWrongQuestions > 0
-            ? `${totalWrongQuestions} erkannte Schwachpunkte stehen bereits zur Analyse bereit`
-            : 'Noch keine Schwachpunkte erkannt - die KI analysiert deine Antworten nach Abschluss',
-        ],
-      },
-      {
-        id: 'adaptive-placeholder-recap',
-        type: 'recap',
-        title: 'Noch gesperrt',
-        content: 'Schliesse zuerst alle Grundkapitel ab, damit dieses Kapitel mit deinen realen Daten erstellt wird.',
-        bullets: ['Kapitel wird automatisch freigeschaltet', 'Die Fragen werden dann dynamisch generiert'],
-      },
-    ],
-  }
-}
-
-function buildAdaptiveChallengeFallback(weakQuestions: Extract<ChapterStep, { type: 'question' }>[]): ChapterBlueprint {
-  const challengeSteps: ChapterStep[] = [
-    {
-      id: 'adaptive-intro',
-      type: 'explanation',
-      title: 'Gezielte Wiederholung',
-      content:
-        'Dieses adaptive Kapitel basiert auf deinen bisherigen Antworten und trainiert deine erkannten Schwachstellen.',
-      bullets: ['Gezielte Wiederholung', 'Fokus auf schwierige Punkte', 'Direktes Feedback pro Frage'],
-    },
-    ...weakQuestions.slice(0, 10).map((step, index) => ({
-      ...step,
-      id: `adaptive-q${index + 1}`,
-    })),
-    {
-      id: 'adaptive-recap',
-      type: 'recap',
-      title: 'Abschluss',
-      content: 'Stark. Du hast gezielt an deinen schwierigsten Punkten gearbeitet.',
-      bullets: ['Fehlerbereiche stabilisiert', 'Lernfortschritt gesichert'],
-    },
-  ]
-
-  return {
-    id: ADAPTIVE_CHAPTER_GENERATED_ID,
-    title: 'Schwachstellen-Fokus',
-    description: 'Adaptives Abschlusskapitel mit KI-generierten Fragen',
-    steps: challengeSteps,
-  }
-}
 
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
@@ -833,37 +342,31 @@ export function LearnPage() {
     [],
   )
 
-  const persistActivePath = useCallback(async () => {
-    const pathId = activePathIdRef.current
-    if (!pathId) {
-      return
-    }
-    const currentSummary = learningPaths.find((entry) => entry.id === pathId)
-    if (!currentSummary) {
-      return
-    }
+  const resetPathStateForLoading = useCallback(() => {
+    suppressAutosaveRef.current = true
+    setTopic('')
+    setTopicSuggestions([])
+    setSelectedTopic('')
+    setProficiencyLevel('')
+    setSetupStep(1)
+    setIsSetupComplete(false)
+    setIsAnalyzingSetupTopic(false)
+    setMaterials([])
+    setTutorMessages([])
+    setIsChapterPreviewVisible(false)
+    setEntryQuiz(null)
+    setEntryQuizAnswers({})
+    setEntryQuizResult(null)
+    setLearningChapters([])
+    setChapterBlueprints([])
+    setChapterSession(DEFAULT_CHAPTER_SESSION)
+    setEntryQuizQuestionIndex(0)
+    setIsPostEntryPrepLoading(false)
+    setPostEntryPrepStepIndex(0)
+    setPostEntryPrepPercents([0, 0])
+  }, [])
 
-    const updated = await updateLearningPathById(pathId, {
-      title: getDisplayPathTitle(currentSummary.title),
-      topic,
-      topicSuggestions,
-      selectedTopic,
-      proficiencyLevel,
-      setupStep,
-      isSetupComplete,
-      materials,
-      tutorMessages,
-      entryQuiz,
-      entryQuizAnswers,
-      entryQuizResult,
-      learningChapters,
-      chapterBlueprints,
-      chapterSession,
-    })
-
-    pathCacheRef.current[pathId] = updated
-  }, [
-    learningPaths,
+  const editableSnapshot: EditableLearningPathSnapshot = {
     topic,
     topicSuggestions,
     selectedTopic,
@@ -878,42 +381,65 @@ export function LearnPage() {
     learningChapters,
     chapterBlueprints,
     chapterSession,
-  ])
+  }
 
-  const persistPathInBackground = useCallback(
-    (
-      pathId: string,
-      title: string,
-      snapshot: {
-        topic: string
-        topicSuggestions: string[]
-        selectedTopic: string
-        proficiencyLevel: '' | 'low' | 'medium' | 'high'
-        setupStep: 1 | 2 | 3
-        isSetupComplete: boolean
-        materials: UploadedMaterial[]
-        tutorMessages: TutorChatEntry[]
-        entryQuiz: InteractiveQuizPayload | null
-        entryQuizAnswers: Record<string, string>
-        entryQuizResult: EntryQuizResult | null
-        learningChapters: string[]
-        chapterBlueprints: ChapterBlueprint[]
-        chapterSession: ChapterSession
-      },
-    ) => {
-      void updateLearningPathById(pathId, {
-        title: getDisplayPathTitle(title),
-        ...snapshot,
-      })
-        .then((updated) => {
-          pathCacheRef.current[pathId] = updated
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht gespeichert werden.')
-        })
+  const { persistActivePath, persistPathInBackground } = useLearningPathPersistence({
+    activePathIdRef,
+    learningPaths,
+    pathCacheRef,
+    setError,
+    snapshot: editableSnapshot,
+  })
+
+  const { handleCreateLearningPath, handleSelectLearningPath, handleDeleteLearningPath } = useLearningPathActions({
+    userId: user?.id,
+    learningPaths,
+    setLearningPaths,
+    activePathIdRef,
+    setActivePathId,
+    pathCacheRef,
+    setError,
+    applyPathToState,
+    resetPathStateForLoading,
+    captureEditableState,
+    persistActivePath,
+    persistPathInBackground,
+    closePathMenu: () => {
+      setOpenPathMenuId(null)
+      setPathMenuPosition(null)
     },
-    [],
-  )
+  })
+
+  const { handleContinueSetupStepOne, handleContinueSetupStepTwo, handleFinishSetup } = useLearnSetupFlow({
+    isUploading,
+    isAnalyzingSetupTopic,
+    materials,
+    proficiencyLevel,
+    setError,
+    setIsAnalyzingSetupTopic,
+    setSetupAnalysisPercent,
+    setTopic,
+    setSelectedTopic,
+    setTopicSuggestions,
+    setSetupStep,
+    setHasTriedEntryQuizGeneration,
+    setIsEntryQuizLoading,
+    setIsEntryPrepClosing,
+    setEntryPrepStepIndex,
+    setEntryPrepPercents,
+    setIsPostEntryPrepLoading,
+    setPostEntryPrepStepIndex,
+    setPostEntryPrepPercents,
+    setIsSetupComplete,
+    setTutorMessages,
+    setEntryQuiz,
+    setEntryQuizAnswers,
+    setEntryQuizResult,
+    setLearningChapters,
+    setChapterBlueprints,
+    setChapterSession,
+    setEntryQuizQuestionIndex,
+  })
 
   useEffect(() => {
     activePathIdRef.current = activePathId
@@ -1343,102 +869,50 @@ export function LearnPage() {
     isEntryQuizLoading,
   ])
 
+  const {
+    openEntryQuizModal,
+    closeEntryQuizModal,
+    handleEntryQuizAnswerChange,
+    handlePreviousEntryQuestion,
+    handleNextEntryQuestion,
+  } = useEntryQuizUiFlow({
+    entryQuizCloseTimerRef,
+    modalAnimationMs: MODAL_ANIMATION_MS,
+    entryQuizTotalQuestions: entryQuiz?.questions.length ?? 0,
+    setIsEntryQuizMounted,
+    setIsEntryQuizVisible,
+    setEntryQuizQuestionIndex,
+    setEntryQuizAnswers,
+  })
+  const { handleSubmitEntryQuiz } = useEntryQuizSubmissionFlow({
+    entryQuiz,
+    isSubmittingEntryQuiz,
+    entryQuizAnswers,
+    entryQuizResult,
+    effectiveTopic,
+    activePathTitle: activePath?.title ?? '',
+    selectedTopic,
+    materials,
+    closeEntryQuizModal,
+    setError,
+    setIsSubmittingEntryQuiz,
+    setEntryQuizResult,
+    setTutorMessages,
+    setIsChapterPreviewVisible,
+    setIsPostEntryPrepLoading,
+    setPostEntryPrepStepIndex,
+    setPostEntryPrepPercents,
+    setLearningChapters,
+    setChapterBlueprints,
+    setChapterSession,
+  })
+
   if (isLoading) {
     return <main className="learn-loading">Lade Lernbereich...</main>
   }
 
   if (!user) {
     return <Navigate to="/login" replace />
-  }
-
-  async function handleCreateLearningPath() {
-    if (!user) {
-      return
-    }
-
-    setError(null)
-
-    try {
-      await persistActivePath()
-      const created = await createLearningPathByUserId(user.id, 'Neuer Lernpfad')
-      setLearningPaths((prev) => [
-        {
-          id: created.id,
-          userId: created.userId,
-          title: created.title,
-          createdAt: created.createdAt,
-          updatedAt: created.updatedAt,
-        },
-        ...prev,
-      ])
-      setActivePathId(created.id)
-      activePathIdRef.current = created.id
-      applyPathToState(created)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Neuer Lernpfad konnte nicht erstellt werden.')
-    }
-  }
-
-  async function handleSelectLearningPath(pathId: string) {
-    if (pathId === activePathIdRef.current) {
-      return
-    }
-
-    setError(null)
-    const previousPathId = activePathIdRef.current
-    const previousSummary = learningPaths.find((path) => path.id === previousPathId)
-    const previousSnapshot = captureEditableState()
-
-    if (previousPathId && previousSummary) {
-      persistPathInBackground(previousPathId, previousSummary.title, previousSnapshot)
-    }
-
-    setActivePathId(pathId)
-    activePathIdRef.current = pathId
-
-    const cached = pathCacheRef.current[pathId]
-    if (cached) {
-      applyPathToState(cached)
-      return
-    }
-
-    suppressAutosaveRef.current = true
-    setTopic('')
-    setTopicSuggestions([])
-    setSelectedTopic('')
-    setProficiencyLevel('')
-    setSetupStep(1)
-    setIsSetupComplete(false)
-    setIsAnalyzingSetupTopic(false)
-    setMaterials([])
-    setTutorMessages([])
-    setIsChapterPreviewVisible(false)
-    setEntryQuiz(null)
-    setEntryQuizAnswers({})
-    setEntryQuizResult(null)
-    setLearningChapters([])
-    setChapterBlueprints([])
-    setChapterSession(DEFAULT_CHAPTER_SESSION)
-    setEntryQuizQuestionIndex(0)
-    setIsPostEntryPrepLoading(false)
-    setPostEntryPrepStepIndex(0)
-    setPostEntryPrepPercents([0, 0])
-
-    try {
-      const next = await getLearningPathById(pathId)
-      if (!next) {
-        return
-      }
-      pathCacheRef.current[pathId] = next
-      if (activePathIdRef.current !== pathId) {
-        return
-      }
-      applyPathToState(next)
-    } catch (err) {
-      if (activePathIdRef.current === pathId) {
-        setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht geladen werden.')
-      }
-    }
   }
 
   function openLearningPathContextMenu(event: ReactMouseEvent, pathId: string) {
@@ -1451,218 +925,10 @@ export function LearnPage() {
     })
   }
 
-  async function handleDeleteLearningPath(pathId: string) {
-    if (!user) {
-      return
-    }
-
-    setOpenPathMenuId(null)
-    setPathMenuPosition(null)
-    setError(null)
-
-    const currentActivePathId = activePathIdRef.current
-    const remainingPaths = learningPaths.filter((path) => path.id !== pathId)
-
-    try {
-      await deleteLearningPathById(pathId)
-      delete pathCacheRef.current[pathId]
-      setLearningPaths(remainingPaths)
-
-      if (pathId !== currentActivePathId) {
-        return
-      }
-
-      const nextSummary = remainingPaths[0]
-      if (!nextSummary) {
-        const created = await createLearningPathByUserId(user.id, 'Neuer Lernpfad')
-        pathCacheRef.current[created.id] = created
-        setLearningPaths([
-          {
-            id: created.id,
-            userId: created.userId,
-            title: created.title,
-            createdAt: created.createdAt,
-            updatedAt: created.updatedAt,
-          },
-        ])
-        setActivePathId(created.id)
-        activePathIdRef.current = created.id
-        applyPathToState(created)
-        return
-      }
-
-      setActivePathId(nextSummary.id)
-      activePathIdRef.current = nextSummary.id
-
-      const cached = pathCacheRef.current[nextSummary.id]
-      if (cached) {
-        applyPathToState(cached)
-        return
-      }
-
-      suppressAutosaveRef.current = true
-      setTopic('')
-      setTopicSuggestions([])
-      setSelectedTopic('')
-      setProficiencyLevel('')
-      setSetupStep(1)
-      setIsSetupComplete(false)
-      setIsAnalyzingSetupTopic(false)
-      setMaterials([])
-      setTutorMessages([])
-      setIsChapterPreviewVisible(false)
-      setEntryQuiz(null)
-      setEntryQuizAnswers({})
-      setEntryQuizResult(null)
-      setLearningChapters([])
-      setChapterBlueprints([])
-      setChapterSession(DEFAULT_CHAPTER_SESSION)
-      setEntryQuizQuestionIndex(0)
-      setIsPostEntryPrepLoading(false)
-      setPostEntryPrepStepIndex(0)
-      setPostEntryPrepPercents([0, 0])
-
-      const next = await getLearningPathById(nextSummary.id)
-      if (!next) {
-        return
-      }
-      pathCacheRef.current[nextSummary.id] = next
-      if (activePathIdRef.current !== nextSummary.id) {
-        return
-      }
-      applyPathToState(next)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht geloescht werden.')
-    }
-  }
-
-  function openEntryQuizModal() {
-    if (entryQuizCloseTimerRef.current) {
-      window.clearTimeout(entryQuizCloseTimerRef.current)
-      entryQuizCloseTimerRef.current = null
-    }
-    setIsEntryQuizMounted(true)
-    setEntryQuizQuestionIndex(0)
-    window.requestAnimationFrame(() => {
-      setIsEntryQuizVisible(true)
-    })
-  }
-
-  function closeEntryQuizModal() {
-    setIsEntryQuizVisible(false)
-    entryQuizCloseTimerRef.current = window.setTimeout(() => {
-      setIsEntryQuizMounted(false)
-      entryQuizCloseTimerRef.current = null
-    }, MODAL_ANIMATION_MS)
-  }
-
   function handleActivePathNameChange(value: string) {
     setLearningPaths((prev) =>
       prev.map((path) => (path.id === activePathId ? { ...path, title: value } : path)),
     )
-  }
-
-  function handleContinueSetupStepOne() {
-    if (isUploading || isAnalyzingSetupTopic) {
-      return
-    }
-
-    if (materials.length === 0) {
-      setError('Bitte lade zuerst mindestens eine Datei hoch.')
-      return
-    }
-
-    const previewText =
-      formatRelevantMaterialContext('Thema aus Unterlagen erkennen', materials, {
-        maxChunks: 8,
-        maxChars: 5200,
-      }) || '(Kein auswertbarer Text gefunden)'
-
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: [
-        'Analysiere die hochgeladenen Unterlagen und bestimme genau ein passendes Lernthema.',
-        'Antwortformat:',
-        'THEMA: <kurzer Titel>',
-        '',
-        previewText,
-      ].join('\n'),
-      createdAt: new Date().toISOString(),
-    }
-
-    setError(null)
-    setIsAnalyzingSetupTopic(true)
-    void sendMessage([userMessage], {
-      systemPrompt: [
-        'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
-        'Lies die Unterlagen und leite ein konkretes Hauptthema ab.',
-        'Antworte nur in genau einer Zeile im Format: THEMA: <Thema>',
-        'Der Titel soll kurz sein (maximal 6 Woerter).',
-      ].join('\n'),
-    })
-      .then(async ({ assistantMessage }) => {
-        const raw = assistantMessage.content.trim()
-        const themeLine = raw
-          .split('\n')
-          .map((line) => line.trim())
-          .find((line) => line.toUpperCase().startsWith('THEMA:'))
-        const detectedTopic = (themeLine ? themeLine.slice(6) : raw)
-          .replace(/["']/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 80)
-
-        if (!detectedTopic) {
-          setError('Thema konnte aus den Dateien nicht erkannt werden. Bitte versuche es erneut.')
-          return
-        }
-
-        setSetupAnalysisPercent(100)
-        await new Promise<void>((resolve) => {
-          window.setTimeout(() => resolve(), 180)
-        })
-        setTopic(detectedTopic)
-        setSelectedTopic(detectedTopic)
-        setTopicSuggestions([])
-        setSetupStep(2)
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Dateien konnten nicht analysiert werden.')
-      })
-      .finally(() => {
-        setIsAnalyzingSetupTopic(false)
-      })
-  }
-
-  function handleContinueSetupStepTwo() {
-    setError(null)
-    setSetupStep(3)
-  }
-
-  function handleFinishSetup() {
-    if (!proficiencyLevel) {
-      setError('Bitte waehle deine Selbsteinschaetzung aus.')
-      return
-    }
-    setError(null)
-    setHasTriedEntryQuizGeneration(false)
-    setIsEntryQuizLoading(false)
-    setIsEntryPrepClosing(false)
-    setEntryPrepStepIndex(0)
-    setEntryPrepPercents([0, 0, 0])
-    setIsPostEntryPrepLoading(false)
-    setPostEntryPrepStepIndex(0)
-    setPostEntryPrepPercents([0, 0])
-    setIsSetupComplete(true)
-    setTutorMessages([])
-    setEntryQuiz(null)
-    setEntryQuizAnswers({})
-    setEntryQuizResult(null)
-    setLearningChapters([])
-    setChapterBlueprints([])
-    setChapterSession(DEFAULT_CHAPTER_SESSION)
-    setEntryQuizQuestionIndex(0)
   }
 
   async function handleUploadMaterials(fileList: FileList | null) {
@@ -1688,214 +954,6 @@ export function LearnPage() {
       setMaterials((prev) => [...uploaded, ...prev].slice(0, 8))
     } finally {
       setIsUploading(false)
-    }
-  }
-
-  async function handleSubmitEntryQuiz() {
-    if (!entryQuiz || isSubmittingEntryQuiz) {
-      return
-    }
-
-    setError(null)
-    setIsSubmittingEntryQuiz(true)
-
-    try {
-      const cachedFeedback = entryQuizResult?.feedbackByQuestionId ?? {}
-      const cachedCorrectness = entryQuizResult?.correctnessByQuestionId ?? {}
-      const cachedAnswers = entryQuizResult?.evaluatedAnswersByQuestionId ?? {}
-
-      const evaluations = await Promise.all(
-        entryQuiz.questions.map(async (question) => {
-          const answer = (entryQuizAnswers[question.id] ?? '').trim()
-          const canReuseCachedEvaluation =
-            cachedAnswers[question.id] === answer &&
-            typeof cachedFeedback[question.id] === 'string' &&
-            typeof cachedCorrectness[question.id] === 'boolean'
-
-          if (canReuseCachedEvaluation) {
-            return {
-              questionId: question.id,
-              answer,
-              isCorrect: cachedCorrectness[question.id],
-              feedback: cachedFeedback[question.id],
-            }
-          }
-
-          const result = await evaluateQuizAnswerWithAi({
-            question,
-            userAnswer: answer,
-          })
-          return {
-            questionId: question.id,
-            answer,
-            isCorrect: result.isCorrect,
-            feedback: result.feedback,
-          }
-        }),
-      )
-
-      const score = evaluations.filter((entry) => entry.isCorrect).length
-      const feedbackByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
-        acc[entry.questionId] = entry.feedback
-        return acc
-      }, {})
-      const correctnessByQuestionId = evaluations.reduce<Record<string, boolean>>((acc, entry) => {
-        acc[entry.questionId] = entry.isCorrect
-        return acc
-      }, {})
-      const evaluatedAnswersByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
-        acc[entry.questionId] = entry.answer
-        return acc
-      }, {})
-
-      setEntryQuizResult({
-        score,
-        total: entryQuiz.questions.length,
-        feedbackByQuestionId,
-        correctnessByQuestionId,
-        evaluatedAnswersByQuestionId,
-      })
-
-      closeEntryQuizModal()
-      setTutorMessages([])
-      setIsChapterPreviewVisible(false)
-      setIsPostEntryPrepLoading(true)
-      setPostEntryPrepStepIndex(0)
-      setPostEntryPrepPercents([0, 0])
-
-      await new Promise<void>((resolve) => {
-        let percent = 0
-        const timerId = window.setInterval(() => {
-          percent = Math.min(100, percent + (Math.floor(Math.random() * 8) + 5))
-          setPostEntryPrepPercents((prev) => [percent, prev[1] ?? 0])
-          if (percent >= 100) {
-            window.clearInterval(timerId)
-            resolve()
-          }
-        }, 55)
-      })
-
-      setPostEntryPrepStepIndex(1)
-
-      let stageTwoPercent = 0
-      const stageTwoTimerId = window.setInterval(() => {
-        stageTwoPercent = Math.min(92, stageTwoPercent + (Math.floor(Math.random() * 5) + 3))
-        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, stageTwoPercent])
-      }, 85)
-
-      try {
-        const evaluationSummary = entryQuiz.questions
-          .map((question) => ({
-            prompt: question.prompt,
-            isCorrect: correctnessByQuestionId[question.id] === true,
-            feedback: feedbackByQuestionId[question.id] ?? '',
-          }))
-          .map(
-            (item, index) =>
-              `${index + 1}. ${item.prompt}\nStatus: ${item.isCorrect ? 'sicher' : 'Lernpotenzial'}\nHinweis: ${
-                item.feedback || '-'
-              }`,
-          )
-          .join('\n\n')
-
-        const chapterMaterialContext = formatRelevantMaterialContext(
-          ((effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')) + ' ' + selectedTopic + ' ' + evaluationSummary).trim(),
-          materials,
-          { maxChunks: 8, maxChars: 4200 },
-        )
-
-        const chapterRequest: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: [
-            `Thema: ${effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')}`,
-            selectedTopic.trim() ? `Schwerpunkt: ${selectedTopic.trim()}` : 'Schwerpunkt: keiner',
-            `Testergebnis: ${score}/${entryQuiz.questions.length}`,
-            'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
-            'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
-            'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
-            'Erklaerungs-Steps sollen etwas ausfuehrlicher sein (ca. 2-4 Saetze), aber kompakt bleiben.',
-            'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
-            'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
-            'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
-            'Fragetypen mischen: text und mcq.',
-            'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
-            'Schema pro Kapitel: {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
-            `Auswertungsgrundlage:\n${evaluationSummary}`,
-            chapterMaterialContext ? 'Materialauszuege:\n' + chapterMaterialContext : 'Materialauszuege: keine',
-          ].join('\n\n'),
-          createdAt: new Date().toISOString(),
-        }
-
-        let chapterResponse: Awaited<ReturnType<typeof sendMessage>> | null = null
-        let chapterError: Error | null = null
-
-        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
-          try {
-            chapterResponse = await Promise.race([
-              sendMessage([chapterRequest], {
-                systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
-              }),
-              new Promise<never>((_, reject) => {
-                window.setTimeout(() => reject(new Error('Kapitelgenerierung dauert zu lange. Bitte erneut versuchen.')), CHAPTER_GENERATION_TIMEOUT_MS)
-              }),
-            ])
-            break
-          } catch (err) {
-            chapterError = err instanceof Error ? err : new Error('Kapitel konnten nicht generiert werden.')
-            if (attempt >= CHAPTER_GENERATION_MAX_ATTEMPTS) {
-              throw chapterError
-            }
-          }
-        }
-
-        if (!chapterResponse) {
-          throw chapterError ?? new Error('Kapitel konnten nicht generiert werden.')
-        }
-        const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
-        const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
-        const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
-        const generated = parseLearningChaptersFromText(parsedContent)
-        const nextLearningChapters =
-          generated.length > 0
-            ? generated.slice(0, 6)
-            : [
-                `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
-                'Schwaechere Bereiche aus dem Einstiegstest vertiefen',
-                'Kurzer Praxis-Transfer fuer sichere Themen',
-              ]
-        const nextBlueprints: ChapterBlueprint[] =
-          parsedBlueprints.length > 0
-            ? parsedBlueprints
-            : (nextLearningChapters.map((title, index) => ({
-                id: `chapter-${index + 1}`,
-                title,
-                steps: buildRichFallbackChapterSteps(title, index),
-              })) as ChapterBlueprint[])
-
-        window.clearInterval(stageTwoTimerId)
-        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, 100])
-
-        setLearningChapters(nextLearningChapters)
-        setChapterBlueprints(nextBlueprints)
-        setChapterSession(DEFAULT_CHAPTER_SESSION)
-        setTutorMessages([
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: 'Anhand deiner Testergebnisse wurden Lernkapitel generiert.',
-            action: 'open-entry-test',
-          },
-        ])
-      } finally {
-        window.clearInterval(stageTwoTimerId)
-      }
-    } catch (err) {
-      console.error('Lernbereich: Kapitelgenerierung fehlgeschlagen', err)
-      setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht abgegeben werden.')
-    } finally {
-      setIsPostEntryPrepLoading(false)
-      setIsSubmittingEntryQuiz(false)
     }
   }
 
@@ -2190,12 +1248,8 @@ export function LearnPage() {
             onClick={handleCreateLearningPath}
             aria-label={isSidebarCollapsed ? 'Neuer Lernpfad' : undefined}
           >
-            <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'Neuer Lernpfad' : null}
-          </button>
-          <button type="button" onClick={() => navigate('/chat')} aria-label={isSidebarCollapsed ? 'Zum Chat' : undefined}>
-            <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'Zum Chat' : null}
+            <span className="learn-new-path-icon chat-sidebar-top-button-icon" aria-hidden="true" />
+            {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Lernpfad</span> : null}
           </button>
           <button
             type="button"
@@ -2228,21 +1282,37 @@ export function LearnPage() {
           </div>
         ) : null}
         <div className="chat-sidebar-bottom">
-          <div className="account-profile-row">
-            <div className="account-profile chat-sidebar-profile-card">
-              {profile?.avatar_url ? (
-                <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
-              ) : (
-                <div className="account-avatar-fallback">{avatarFallback}</div>
-              )}
+          <div className="learn-sidebar-account-combined">
+            <button
+              type="button"
+              className="learn-mode-switch-button"
+              onClick={() => navigate('/chat')}
+              aria-label={isSidebarCollapsed ? 'Zum Standardmodus wechseln' : undefined}
+            >
+              <img className="ui-icon chat-sidebar-top-button-icon" src={statusIcon} alt="" aria-hidden="true" />
               {!isSidebarCollapsed ? (
-                <div className="account-meta">
-                  <div className="account-name-row">
-                    <p className="account-value">{displayName}</p>
-                    {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
-                  </div>
-                </div>
+                <span className="learn-mode-switch-copy">
+                  <span className="learn-mode-switch-title">Standardmodus</span>
+                  <span className="learn-mode-switch-subtitle">Bereich wechseln</span>
+                </span>
               ) : null}
+            </button>
+            <div className="account-profile-row">
+              <div className="account-profile chat-sidebar-profile-card">
+                {profile?.avatar_url ? (
+                  <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+                ) : (
+                  <div className="account-avatar-fallback">{avatarFallback}</div>
+                )}
+                {!isSidebarCollapsed ? (
+                  <div className="account-meta">
+                    <div className="account-name-row">
+                      <p className="account-value">{displayName}</p>
+                      {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
@@ -2881,12 +1951,7 @@ export function LearnPage() {
                     ) : (
                       <textarea
                         value={entryQuizAnswers[activeEntryQuestion.id] ?? ''}
-                        onChange={(event) =>
-                          setEntryQuizAnswers((prev) => ({
-                            ...prev,
-                            [activeEntryQuestion.id]: event.target.value,
-                          }))
-                        }
+                        onChange={(event) => handleEntryQuizAnswerChange(activeEntryQuestion.id, event.target.value)}
                         placeholder="Deine Antwort..."
                         disabled={isSubmittingEntryQuiz}
                       />
@@ -2923,7 +1988,7 @@ export function LearnPage() {
               <div className="learn-entry-test-footer-actions">
                 <SecondaryButton
                   type="button"
-                  onClick={() => setEntryQuizQuestionIndex((prev) => Math.max(0, prev - 1))}
+                  onClick={handlePreviousEntryQuestion}
                   disabled={isSubmittingEntryQuiz || !activeEntryQuestion || entryQuizQuestionIndex === 0}
                 >
                   Zur\u00FCck
@@ -2941,9 +2006,7 @@ export function LearnPage() {
                 ) : (
                   <PrimaryButton
                     type="button"
-                    onClick={() =>
-                      setEntryQuizQuestionIndex((prev) => Math.min(entryQuizTotalQuestions - 1, prev + 1))
-                    }
+                    onClick={handleNextEntryQuestion}
                     disabled={isSubmittingEntryQuiz || !activeEntryQuestion || !activeEntryAnswer.trim()}
                   >
                     Naechste Frage
@@ -3144,6 +2207,7 @@ export function LearnPage() {
     </main>
   )
 }
+
 
 
 
