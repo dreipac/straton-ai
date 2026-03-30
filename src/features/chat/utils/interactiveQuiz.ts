@@ -1,7 +1,10 @@
 export type InteractiveQuizQuestion = {
   id: string
   prompt: string
-  questionType?: 'mcq' | 'text'
+  questionType?: 'mcq' | 'text' | 'match'
+  /** Zuordnung: links Begriffe, rechts passende Definitionen (Index i gehoert zusammen). */
+  matchLeft?: string[]
+  matchRight?: string[]
   options?: string[]
   expectedAnswer: string
   acceptableAnswers: string[]
@@ -71,6 +74,16 @@ function dedupeStrings(values: string[]): string[] {
   return unique
 }
 
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
 function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
   if (!input || typeof input !== 'object') {
     return null
@@ -78,6 +91,42 @@ function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestio
 
   const candidate = input as Record<string, unknown>
   const prompt = typeof candidate.prompt === 'string' ? candidate.prompt.trim() : ''
+
+  const wantsMatch =
+    candidate.questionType === 'match' ||
+    candidate.type === 'match' ||
+    (Array.isArray(candidate.matchLeft) && Array.isArray(candidate.matchRight))
+
+  const matchLeft = parseStringArray(candidate.matchLeft)
+  const matchRight = parseStringArray(candidate.matchRight)
+
+  if (wantsMatch && matchLeft.length >= 2 && matchLeft.length === matchRight.length && prompt) {
+    const n = matchLeft.length
+    const canonicalExpected = Array.from({ length: n }, (_, i) => String(i)).join(',')
+    const expectedAnswer =
+      typeof candidate.expectedAnswer === 'string' && candidate.expectedAnswer.trim()
+        ? candidate.expectedAnswer.trim()
+        : canonicalExpected
+    const acceptableAnswers = Array.isArray(candidate.acceptableAnswers)
+      ? candidate.acceptableAnswers
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    return {
+      id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
+      prompt,
+      questionType: 'match',
+      matchLeft,
+      matchRight,
+      expectedAnswer,
+      acceptableAnswers,
+      hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
+      explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
+      evaluation: 'exact',
+    }
+  }
+
   const expectedAnswer = typeof candidate.expectedAnswer === 'string' ? candidate.expectedAnswer.trim() : ''
   if (!prompt || !expectedAnswer) {
     return null
@@ -206,10 +255,88 @@ export function parseInteractiveContentWithFallback(rawContent: string): ParsedI
   return primary
 }
 
+export function isMatchQuestion(question: InteractiveQuizQuestion | null | undefined): boolean {
+  return (
+    question?.questionType === 'match' &&
+    Array.isArray(question.matchLeft) &&
+    Array.isArray(question.matchRight) &&
+    question.matchLeft.length >= 2 &&
+    question.matchLeft.length === question.matchRight.length
+  )
+}
+
+/** Antwortformat: Komma-getrennte Original-Indizes der rechten Karten, Zeile fuer Zeile links (z. B. 2,0,1). */
+export function isMatchAnswerComplete(question: InteractiveQuizQuestion | null | undefined, answer: string): boolean {
+  if (!isMatchQuestion(question) || !question) {
+    return answer.trim().length > 0
+  }
+  const n = question.matchLeft!.length
+  const parts = answer
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  if (parts.length !== n) {
+    return false
+  }
+  const nums = parts.map((p) => Number.parseInt(p, 10))
+  if (nums.some((x) => Number.isNaN(x))) {
+    return false
+  }
+  if (nums.some((x) => x < 0 || x >= n)) {
+    return false
+  }
+  return new Set(nums).size === n
+}
+
+function evaluateMatchAnswer(answer: string, question: InteractiveQuizQuestion): { isCorrect: boolean; feedback: string } {
+  const n = question.matchLeft!.length
+  const parts = answer
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  if (parts.length !== n) {
+    return {
+      isCorrect: false,
+      feedback: 'Bitte ordne alle Begriffe per Drag-and-Drop zu.',
+    }
+  }
+  const nums = parts.map((p) => Number.parseInt(p, 10))
+  if (nums.some((x) => Number.isNaN(x)) || new Set(nums).size !== n || nums.some((x) => x < 0 || x >= n)) {
+    return {
+      isCorrect: false,
+      feedback: 'Die Zuordnung ist unvollstaendig oder ungueltig.',
+    }
+  }
+  const expected = Array.from({ length: n }, (_, i) => i)
+  const ok = nums.every((v, i) => v === expected[i])
+  if (ok) {
+    return {
+      isCorrect: true,
+      feedback: question.explanation || 'Richtig. Alle Zuordnungen stimmen.',
+    }
+  }
+  const baseHint = question.hint || 'Vergleiche Begriff und Definition erneut.'
+  return {
+    isCorrect: false,
+    feedback: question.explanation ? `${baseHint} ${question.explanation}` : baseHint,
+  }
+}
+
 export function evaluateInteractiveAnswer(
   answer: string,
   question: InteractiveQuizQuestion,
 ): { isCorrect: boolean; feedback: string } {
+  if (question.questionType === 'match' && isMatchQuestion(question)) {
+    const trimmed = answer.trim()
+    if (!trimmed) {
+      return {
+        isCorrect: false,
+        feedback: 'Bitte ordne alle Begriffe zu.',
+      }
+    }
+    return evaluateMatchAnswer(trimmed, question)
+  }
+
   const user = normalizeText(answer)
   if (!user) {
     return {

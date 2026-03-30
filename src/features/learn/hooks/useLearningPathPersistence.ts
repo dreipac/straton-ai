@@ -4,6 +4,7 @@ import {
   type ChapterBlueprint,
   type ChapterSession,
   type EntryQuizResult,
+  type LearnFlashcard,
   type LearningPathRecord,
   type LearningPathSummary,
   type TutorChatEntry,
@@ -27,6 +28,7 @@ export type EditableLearningPathSnapshot = {
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
+  learnFlashcards: LearnFlashcard[]
 }
 
 type UseLearningPathPersistenceArgs = {

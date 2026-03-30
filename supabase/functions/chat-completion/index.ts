@@ -47,17 +47,31 @@ function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-function normalizeMode(value: unknown): 'chat' | 'evaluate_quiz' | 'generate_title' | 'generate_topic_suggestions' {
-  if (value === 'evaluate_quiz') {
+function normalizeMode(
+  value: unknown,
+): 'chat' | 'evaluate_quiz' | 'generate_title' | 'generate_topic_suggestions' | 'generate_flashcards' {
+  const v = typeof value === 'string' ? value.trim() : value
+  if (v === 'evaluate_quiz') {
     return 'evaluate_quiz'
   }
-  if (value === 'generate_title') {
+  if (v === 'generate_title') {
     return 'generate_title'
   }
-  if (value === 'generate_topic_suggestions') {
+  if (v === 'generate_topic_suggestions') {
     return 'generate_topic_suggestions'
   }
+  if (v === 'generate_flashcards') {
+    return 'generate_flashcards'
+  }
   return 'chat'
+}
+
+function chapterOutlineFromBody(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+  const o = payload as { chapterOutline?: unknown }
+  return typeof o.chapterOutline === 'string' ? o.chapterOutline.trim() : ''
 }
 
 function sanitizeQuizEvaluationPayload(value: unknown): QuizEvaluationPayload | null {
@@ -121,8 +135,9 @@ async function getProviderApiKey(
   return apiKey
 }
 
-async function callOpenAi(messages: InputMessage[], apiKey: string): Promise<string> {
-  const modelsToTry = ['gpt-5-mini', 'gpt-4o-mini']
+async function callOpenAi(messages: InputMessage[], apiKey: string, models?: string[]): Promise<string> {
+  const modelsToTry =
+    Array.isArray(models) && models.length > 0 ? models : (['gpt-5-mini', 'gpt-4o-mini'] as string[])
 
   for (const model of modelsToTry) {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -313,6 +328,80 @@ function sanitizeTopicSuggestions(raw: string): string[] {
   }
 }
 
+type FlashcardPayload = {
+  question: string
+  answer: string
+}
+
+function parseFlashcardsFromRaw(raw: string): FlashcardPayload[] {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('[')
+  const end = trimmed.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const out: FlashcardPayload[] = []
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const o = entry as Record<string, unknown>
+      const question = typeof o.question === 'string' ? o.question.trim() : ''
+      const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+      if (question && answer) {
+        out.push({ question, answer })
+      }
+    }
+    return out.slice(0, 24)
+  } catch {
+    return []
+  }
+}
+
+async function generateFlashcardsWithAi(
+  provider: Provider,
+  chapterOutline: string,
+  apiKey: string,
+): Promise<FlashcardPayload[]> {
+  const outline = chapterOutline.trim()
+  if (!outline) {
+    throw new Error('Keine Kapiteldaten fuer Lernkarten.')
+  }
+
+  const flashcardMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Du erstellst Lernkarten (Karteikarten) fuer Berufsschule/EFZ Informatik.',
+        'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+        'Antworte ausschliesslich mit einem JSON-Array, kein Text davor oder danach.',
+        'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Saetze)"}]',
+        'Maximal 16 Karten, auf Deutsch, fachlich korrekt, verschiedene Aspekte abdecken.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: `Gespeicherte Kapitelinhalte (Auszug):\n\n${outline.slice(0, 28000)}`,
+    },
+  ]
+
+  const raw =
+    provider === 'anthropic'
+      ? await callAnthropic(flashcardMessages, apiKey)
+      : await callOpenAi(flashcardMessages, apiKey, ['gpt-4o-mini', 'gpt-4o'])
+
+  const cards = parseFlashcardsFromRaw(raw)
+  if (cards.length === 0) {
+    throw new Error('Lernkarten konnten nicht aus der KI-Antwort gelesen werden.')
+  }
+  return cards
+}
+
 async function generateTopicSuggestionsWithAi(
   provider: Provider,
   topic: string,
@@ -388,7 +477,12 @@ serve(async (req) => {
       messages?: unknown
       payload?: { messages?: unknown; topic?: unknown } | unknown
     }
-    const mode = normalizeMode(body.mode)
+    let mode = normalizeMode(body.mode)
+    const outlinePreview = chapterOutlineFromBody(body.payload)
+    // Ohne gueltigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
+    if (mode === 'chat' && outlinePreview) {
+      mode = 'generate_flashcards'
+    }
     const provider = normalizeProvider(body.provider)
     const apiKey = await getProviderApiKey(provider)
     if (mode === 'evaluate_quiz') {
@@ -410,6 +504,15 @@ serve(async (req) => {
       }
       const suggestions = await generateTopicSuggestionsWithAi(provider, topic, apiKey)
       return jsonResponse({ suggestions })
+    }
+
+    if (mode === 'generate_flashcards') {
+      const outline = outlinePreview
+      if (!outline) {
+        return jsonResponse({ error: 'Kein Kapitelkontext fuer Lernkarten uebermittelt.' }, 400)
+      }
+      const flashcards = await generateFlashcardsWithAi(provider, outline, apiKey)
+      return jsonResponse({ flashcards })
     }
 
     const inputMessages =

@@ -4,6 +4,9 @@ import * as XLSX from 'xlsx'
 
 const MAX_EXCERPT_LENGTH = 2500
 
+/** Raster-Bilder: OCR (kein SVG — das ist Vektor/Markup) */
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'])
+
 function normalizeExtractedText(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim().slice(0, MAX_EXCERPT_LENGTH)
 }
@@ -51,6 +54,34 @@ async function parseSpreadsheet(file: File): Promise<string> {
   return sheets.join('\n\n')
 }
 
+function isRasterImageFile(file: File, ext: string): boolean {
+  if (ext === 'svg') {
+    return false
+  }
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return true
+  }
+  const t = file.type
+  if (t.startsWith('image/') && t !== 'image/svg+xml') {
+    return true
+  }
+  return false
+}
+
+/** OCR im Browser (Tesseract.js), Deutsch + Englisch — wird nur bei Bild-Uploads dynamisch importiert. */
+async function parseImageWithOcr(file: File): Promise<string> {
+  const { createWorker } = await import('tesseract.js')
+  const worker = await createWorker(['deu', 'eng'], 1, {})
+  try {
+    const {
+      data: { text },
+    } = await worker.recognize(file)
+    return typeof text === 'string' ? text : ''
+  } finally {
+    await worker.terminate()
+  }
+}
+
 export async function extractLearningMaterialText(file: File): Promise<string> {
   const ext = getExtension(file.name)
   try {
@@ -63,8 +94,14 @@ export async function extractLearningMaterialText(file: File): Promise<string> {
     if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
       return normalizeExtractedText(await parseSpreadsheet(file))
     }
+    if (isRasterImageFile(file, ext)) {
+      return normalizeExtractedText(await parseImageWithOcr(file))
+    }
     return normalizeExtractedText(await file.text())
   } catch {
+    if (isRasterImageFile(file, ext)) {
+      return ''
+    }
     return normalizeExtractedText(await file.text().catch(() => ''))
   }
 }

@@ -83,11 +83,23 @@ export function getMaterialTypeBadge(filename: string): { label: string; variant
   return { label, variant: 'other' }
 }
 
+/** Regeln fuer Einstiegstest / Kapitel: Fragen an echte Übungsinhalte koppeln, nicht an generische Theorie. */
+export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
+  'UEBUNGS-TREUE (wenn die Dateiauszuege Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. IP/CIDR), Tabellen oder nummerierte Teilfragen enthalten):',
+  'Die Fragen und Aufgaben MUESSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Netze wo moeglich, gleiche Art von Teilaufgabe (z. B. Subnetzmaske berechnen statt "Hauptfunktion von Subnetting").',
+  'VERBOTEN in diesem Fall: reine Definitions- oder "Was ist die Hauptfunktion von ..."-Fragen, wenn im Material bereits konkrete Übungen stehen — ausser EINER optionalen sehr kurzen Grundlagenfrage.',
+  'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Netz 192.168.31.0/24: ..."), nicht das Thema nur allgemein abfragen.',
+].join('\n')
+
 export const LEARN_TUTOR_SYSTEM_PROMPT = [
   'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
   'Erklaere fachlich korrekt, aber einfach, klar und strukturiert.',
   'Passe den Schwierigkeitsgrad an das Niveau des Nutzers an.',
   'Nutze zuerst die hochgeladenen Unterlagen und Notizen als primaere Quelle.',
+  'Wenn die Unterlagen ein Übungsblatt oder Arbeitsblatt sind: orientiere dich an den VORGABEN und AUFGABEN im Text (Zahlen, Netze, Teilfragen), nicht an allgemeiner Theorie.',
+  'Wenn Materialauszuege mitgeliefert werden: beziehe dich in Erklaerungen und Aufgaben darauf (Begriffe, Beispiele, Definitionen aus den Dateien).',
+  'Baue in jede Erklaerung mindestens ein kurzes Mini-Beispiel ein (1-3 Saetze): z. B. Mini-Szenario, Zahlenbeispiel, Gegenueberstellung, oder konkreter IT-Fall — kein reines Abstract ohne Anker.',
+  'Bei Fragen: mindestens die Haelfte der Fragen pro Kapitel soll sich direkt auf Inhalte aus den Unterlagen beziehen (z. B. „Laut Auszug …“, „Was bedeutet in deinen Unterlagen der Begriff …“, „Ordne zu …“). Wenn keine Dateien vorliegen: nutze realistische Praxisbeispiele.',
   'Wenn etwas unklar ist, erklaere mit konkreten Beispielen aus der IT-Praxis.',
   'Arbeite kapitelbasiert und baue auf dem gewaehlten Schwerpunkt auf.',
   'Nach jeder Erklaerung stelle genau eine kurze Verstaendnisfrage.',
@@ -134,6 +146,17 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
 
   for (let index = 0; index < quiz.questions.length; index += 1) {
     const question = quiz.questions[index]
+    if (question.questionType === 'match') {
+      const left = question.matchLeft ?? []
+      const right = question.matchRight ?? []
+      if (left.length < 2 || left.length !== right.length) {
+        return {
+          valid: false,
+          reason: `Zuordnungsfrage ${index + 1} braucht gleich lange matchLeft/matchRight (mindestens 2 Paare).`,
+        }
+      }
+      continue
+    }
     if (question.questionType !== 'mcq') {
       continue
     }
@@ -159,39 +182,101 @@ export const DEFAULT_CHAPTER_SESSION: ChapterSession = {
   completedChapterIndexes: [],
 }
 
+/**
+ * Prepares model output for JSON.parse: strips ```json … ``` fences and isolates a top-level `[...]` array.
+ */
+export function normalizeJsonArrayPayload(raw: string): string {
+  let s = raw.trim()
+  if (!s) {
+    return ''
+  }
+  const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fenceMatch?.[1]) {
+    s = fenceMatch[1].trim()
+  }
+  if (s.startsWith('[')) {
+    return s
+  }
+  const start = s.indexOf('[')
+  const end = s.lastIndexOf(']')
+  if (start !== -1 && end > start) {
+    return s.slice(start, end + 1)
+  }
+  return s
+}
+
+/** True if the string looks like a JSON/markdown fragment mistakenly used as a title (e.g. legacy line-split bug). */
+export function looksLikeJsonSyntaxGarbage(title: string): boolean {
+  const t = title.trim()
+  if (!t) {
+    return true
+  }
+  if (/^```/.test(t)) {
+    return true
+  }
+  if (/^[`\[\]{}\s'",:]+$/.test(t)) {
+    return true
+  }
+  if (/^["']?id["']?\s*:/i.test(t)) {
+    return true
+  }
+  if (t === '[' || t === '{' || t === '}' || t === ']') {
+    return true
+  }
+  return false
+}
+
+export function sanitizeChapterTitleForUi(title: string, index: number, topicFallback: string): string {
+  const tf = topicFallback.trim()
+  if (!looksLikeJsonSyntaxGarbage(title)) {
+    return title.trim()
+  }
+  return tf ? `Kapitel ${index + 1}: ${tf}` : `Kapitel ${index + 1}`
+}
+
+export function sanitizeChapterTitlesForUi(titles: string[], topicFallback: string): string[] {
+  return titles.map((title, index) => sanitizeChapterTitleForUi(title, index, topicFallback))
+}
+
 export function parseLearningChaptersFromText(raw: string): string[] {
-  const trimmed = raw.trim()
-  if (!trimmed) {
+  const normalized = normalizeJsonArrayPayload(raw)
+  if (!normalized) {
     return []
   }
 
   try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((entry): entry is string => typeof entry === 'string')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .slice(0, 6)
+    const parsed = JSON.parse(normalized) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
     }
+    const titles: string[] = []
+    for (const entry of parsed) {
+      if (typeof entry === 'string') {
+        const t = entry.trim()
+        if (t) {
+          titles.push(t)
+        }
+      } else if (entry && typeof entry === 'object') {
+        const rec = entry as Record<string, unknown>
+        const title = typeof rec.title === 'string' ? rec.title.trim() : ''
+        if (title) {
+          titles.push(title)
+        }
+      }
+    }
+    return titles.slice(0, 6)
   } catch {
-    // fallback to line-based parsing below
+    return []
   }
-
-  return trimmed
-    .split('\n')
-    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+[\.\)]\s+/, '').trim())
-    .filter(Boolean)
-    .slice(0, 6)
 }
 
 export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] {
-  const trimmed = raw.trim()
-  if (!trimmed) {
+  const normalized = normalizeJsonArrayPayload(raw)
+  if (!normalized) {
     return []
   }
   try {
-    const parsed = JSON.parse(trimmed) as unknown
+    const parsed = JSON.parse(normalized) as unknown
     if (!Array.isArray(parsed)) {
       return []
     }

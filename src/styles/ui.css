@@ -144,3 +144,37 @@
   background: #252b35;
   border-color: #4b5563;
 }
+
+/* Globale mehrzeilige Texteingabe (TextArea-Komponente) */
+textarea.ui-textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 90px;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text-app);
+  padding: 0.72rem 0.8rem;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+textarea.ui-textarea::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.9;
+}
+
+textarea.ui-textarea:focus-visible {
+  outline: none;
+  border-color: var(--interactive-hover-border);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-hover-bg) 50%, transparent);
+}
+
+textarea.ui-textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  resize: none;
+}

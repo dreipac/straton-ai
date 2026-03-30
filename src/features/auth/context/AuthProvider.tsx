@@ -2,13 +2,14 @@ import type { User } from '@supabase/supabase-js'
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react'
 import { hasSupabaseConfig } from '../../../config/env'
 import { AuthContext, type AuthContextValue } from './AuthContext'
 import {
-  ensureProfileForUser,
+  ensureProfileForUserWithSessionRecovery,
   getCurrentSession,
   getUserFromSession,
   onAuthStateChange,
@@ -25,16 +26,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const isConfigured = hasSupabaseConfig()
+  const isMountedRef = useRef(true)
 
-  async function hydrateProfile(nextUser: User | null) {
-    if (!nextUser) {
-      setProfile(null)
-      return
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
     }
-
-    const nextProfile = await ensureProfileForUser(nextUser.id)
-    setProfile(nextProfile)
-  }
+  }, [])
 
   useEffect(() => {
     if (!isConfigured) {
@@ -45,48 +44,124 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return
     }
 
-    let isMounted = true
-
     async function loadSession() {
       try {
         const session = await getCurrentSession()
-        if (isMounted) {
-          const nextUser = getUserFromSession(session)
-          setUser(nextUser)
-          void hydrateProfile(nextUser).catch((err) => {
-            if (isMounted) {
-              setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
+        if (!isMountedRef.current) {
+          return
+        }
+        const nextUser = getUserFromSession(session)
+        setUser(nextUser)
+        if (nextUser) {
+          try {
+            const nextProfile = await ensureProfileForUserWithSessionRecovery(nextUser.id)
+            if (!isMountedRef.current) {
+              return
             }
-          })
+            setProfile(nextProfile)
+            setError(null)
+          } catch (err) {
+            if (!isMountedRef.current) {
+              return
+            }
+            setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
+          }
+        } else {
+          setProfile(null)
         }
       } catch (err) {
-        if (isMounted) {
-          setError(err instanceof Error ? err.message : 'Session konnte nicht geladen werden.')
+        if (!isMountedRef.current) {
+          return
         }
+        setError(err instanceof Error ? err.message : 'Session konnte nicht geladen werden.')
       } finally {
-        if (isMounted) {
+        if (isMountedRef.current) {
           setIsLoading(false)
         }
       }
     }
 
     loadSession().catch(() => {
-      // no-op, Zustand wird bereits im loadSession gesetzt
+      // Zustand wird bereits in loadSession gesetzt
     })
 
     const subscription = onAuthStateChange((_event, session) => {
       const nextUser = getUserFromSession(session)
       setUser(nextUser)
+      if (!nextUser) {
+        setProfile(null)
+        setError(null)
+        return
+      }
 
-      void hydrateProfile(nextUser).catch((err) => {
-        setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
-      })
+      void (async () => {
+        try {
+          const nextProfile = await ensureProfileForUserWithSessionRecovery(nextUser.id)
+          if (!isMountedRef.current) {
+            return
+          }
+          setProfile(nextProfile)
+          setError(null)
+        } catch (err) {
+          if (!isMountedRef.current) {
+            return
+          }
+          setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
+        }
+      })()
     })
 
     return () => {
-      isMounted = false
       subscription.unsubscribe()
     }
+  }, [isConfigured])
+
+  useEffect(() => {
+    if (!isConfigured) {
+      return
+    }
+
+    function onVisible() {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      void (async () => {
+        try {
+          const session = await getCurrentSession()
+          if (!isMountedRef.current) {
+            return
+          }
+          const nextUser = getUserFromSession(session)
+          setUser(nextUser)
+          if (nextUser) {
+            try {
+              const nextProfile = await ensureProfileForUserWithSessionRecovery(nextUser.id)
+              if (!isMountedRef.current) {
+                return
+              }
+              setProfile(nextProfile)
+              setError(null)
+            } catch (err) {
+              if (!isMountedRef.current) {
+                return
+              }
+              setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
+            }
+          } else {
+            setProfile(null)
+            setError(null)
+          }
+        } catch (err) {
+          if (!isMountedRef.current) {
+            return
+          }
+          setError(err instanceof Error ? err.message : 'Session konnte nicht synchronisiert werden.')
+        }
+      })()
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [isConfigured])
 
   useEffect(() => {

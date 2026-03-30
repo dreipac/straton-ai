@@ -31,6 +31,12 @@ export type EntryQuizResult = {
   evaluatedAnswersByQuestionId?: Record<string, string>
 }
 
+export type LearnFlashcard = {
+  id: string
+  question: string
+  answer: string
+}
+
 export type ChapterStep =
   | {
       id: string
@@ -91,6 +97,7 @@ export type LearningPathRecord = LearningPathSummary & {
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
+  learnFlashcards: LearnFlashcard[]
 }
 
 type LearningPathRow = {
@@ -111,6 +118,7 @@ type LearningPathRow = {
   learning_chapters: unknown
   chapter_blueprints: unknown
   chapter_session: unknown
+  learn_flashcards: unknown
   created_at: string
   updated_at: string
 }
@@ -131,6 +139,7 @@ type LearningPathPatch = Partial<{
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
+  learnFlashcards: LearnFlashcard[]
 }>
 
 function toReadableError(error: unknown): Error {
@@ -272,8 +281,8 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
       options: options && options.length > 0 ? options : undefined,
       expectedAnswer,
       acceptableAnswers,
-      hint: typeof item.hint === 'string' ? item.hint : undefined,
-      explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
+      hint: typeof item.hint === 'string' && item.hint.trim() ? item.hint.trim() : undefined,
+      explanation: typeof item.explanation === 'string' && item.explanation.trim() ? item.explanation.trim() : undefined,
       evaluation: item.evaluation === 'contains' ? 'contains' : 'exact',
     }
   }
@@ -399,6 +408,16 @@ function mapBooleanRecord(value: unknown): Record<string, boolean> {
   return out
 }
 
+function parsePersistedStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
 function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -417,6 +436,39 @@ function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
       }
       const item = entry as Record<string, unknown>
       const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
+      const matchLeft = parsePersistedStringArray(item.matchLeft)
+      const matchRight = parsePersistedStringArray(item.matchRight)
+      const wantsMatch =
+        item.questionType === 'match' ||
+        (matchLeft.length >= 2 && matchLeft.length === matchRight.length && prompt.length > 0)
+
+      if (wantsMatch && matchLeft.length === matchRight.length && matchLeft.length >= 2 && prompt) {
+        const n = matchLeft.length
+        const canonicalExpected = Array.from({ length: n }, (_, i) => String(i)).join(',')
+        const expectedAnswer =
+          typeof item.expectedAnswer === 'string' && item.expectedAnswer.trim()
+            ? item.expectedAnswer.trim()
+            : canonicalExpected
+        const acceptableAnswers = Array.isArray(item.acceptableAnswers)
+          ? item.acceptableAnswers
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : []
+        return {
+          id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `q${index + 1}`,
+          prompt,
+          questionType: 'match' as const,
+          matchLeft,
+          matchRight,
+          expectedAnswer,
+          acceptableAnswers,
+          hint: typeof item.hint === 'string' ? item.hint.trim() : undefined,
+          explanation: typeof item.explanation === 'string' ? item.explanation.trim() : undefined,
+          evaluation: 'exact' as const,
+        } satisfies InteractiveQuizPayload['questions'][number]
+      }
+
       const expectedAnswer = typeof item.expectedAnswer === 'string' ? item.expectedAnswer.trim() : ''
       if (!prompt || !expectedAnswer) {
         return null
@@ -477,6 +529,31 @@ function mapEntryQuizResult(value: unknown): EntryQuizResult | null {
   }
 }
 
+function mapLearnFlashcards(value: unknown): LearnFlashcard[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const out: LearnFlashcard[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+    const o = entry as Record<string, unknown>
+    const id =
+      typeof o.id === 'string' && o.id.trim()
+        ? o.id.trim()
+        : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `fc-${out.length + 1}`
+    const question = typeof o.question === 'string' ? o.question.trim() : ''
+    const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+    if (question && answer) {
+      out.push({ id, question, answer })
+    }
+  }
+  return out.slice(0, 50)
+}
+
 function mapProficiencyLevel(value: unknown): '' | 'low' | 'medium' | 'high' {
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
@@ -503,6 +580,7 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     learningChapters: mapLearningChapters(row.learning_chapters),
     chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
     chapterSession: mapChapterSession(row.chapter_session),
+    learnFlashcards: mapLearnFlashcards(row.learn_flashcards),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -525,6 +603,7 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.learningChapters !== undefined) row.learning_chapters = patch.learningChapters
   if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
   if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
+  if (patch.learnFlashcards !== undefined) row.learn_flashcards = patch.learnFlashcards
   return row
 }
 
@@ -550,7 +629,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
@@ -567,7 +646,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -595,7 +674,7 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
     )
     .single()
 
@@ -617,7 +696,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
     )
     .single()
 

@@ -8,6 +8,7 @@ import {
   CHAPTER_GENERATION_TIMEOUT_MS,
   DEFAULT_CHAPTER_SESSION,
   LEARN_TUTOR_SYSTEM_PROMPT,
+  WORKSHEET_EXERCISE_FIDELITY_RULES,
   buildRichFallbackChapterSteps,
   ensureMinimumChapterDepth,
   getDisplayPathTitle,
@@ -171,7 +172,14 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
           .join('\n\n')
 
         const chapterMaterialContext = formatRelevantMaterialContext(
-          ((effectiveTopic || getDisplayPathTitle(activePathTitle)) + ' ' + selectedTopic + ' ' + evaluationSummary).trim(),
+          (
+            (effectiveTopic || getDisplayPathTitle(activePathTitle)) +
+            ' ' +
+            selectedTopic +
+            ' ' +
+            evaluationSummary +
+            ' Uebung Aufgabe Berechnung Teilaufgabe'
+          ).trim(),
           materials,
           { maxChunks: 8, maxChars: 4200 },
         )
@@ -186,15 +194,20 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
             'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
             'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
-            'Erklaerungs-Steps sollen etwas ausfuehrlicher sein (ca. 2-4 Saetze), aber kompakt bleiben.',
+            'Erklaerungs-Steps (type explanation): im Feld "content" immer 2-5 Saetze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" koennen 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
+            'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (mcq/text) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
+            WORKSHEET_EXERCISE_FIDELITY_RULES,
             'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
             'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
             'Fragetypen mischen: text und mcq.',
             'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
             'Schema pro Kapitel: {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
+            'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten). Feld "explanation" optional: kurze Begruendung zur erwarteten Antwort.',
             `Auswertungsgrundlage:\n${evaluationSummary}`,
-            chapterMaterialContext ? 'Materialauszuege:\n' + chapterMaterialContext : 'Materialauszuege: keine',
+            chapterMaterialContext
+              ? 'Materialauszuege (Pflichtbezug fuer Erklaerungen und mindestens Haelfte der Fragen):\n' + chapterMaterialContext
+              : 'Materialauszuege: keine — nutze dann realistische IT-Praxisbeispiele in Erklaerungen und Aufgaben.',
           ].join('\n\n'),
           createdAt: new Date().toISOString(),
         }
@@ -227,15 +240,19 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
         const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
         const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
+        const titlesFromBlueprints = parsedBlueprints.map((chapter) => chapter.title).filter(Boolean)
         const generated = parseLearningChaptersFromText(parsedContent)
+        const placeholderTitles = [
+          `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
+          'Schwaechere Bereiche aus dem Einstiegstest vertiefen',
+          'Kurzer Praxis-Transfer fuer sichere Themen',
+        ]
         const nextLearningChapters =
-          generated.length > 0
-            ? generated.slice(0, 6)
-            : [
-                `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
-                'Schwaechere Bereiche aus dem Einstiegstest vertiefen',
-                'Kurzer Praxis-Transfer fuer sichere Themen',
-              ]
+          titlesFromBlueprints.length > 0
+            ? titlesFromBlueprints.slice(0, 6)
+            : generated.length > 0
+              ? generated.slice(0, 6)
+              : placeholderTitles
         const nextBlueprints: ChapterBlueprint[] =
           parsedBlueprints.length > 0
             ? parsedBlueprints

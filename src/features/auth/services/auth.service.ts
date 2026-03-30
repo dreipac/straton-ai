@@ -1,6 +1,73 @@
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 
+let sessionResolveInFlight: Promise<Session | null> | null = null
+
+/** Erkennt abgelaufene/ungültige JWTs (Auth API und PostgREST PGRST303). */
+export function isLikelyExpiredJwtError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const o = err as { code?: unknown; message?: unknown; status?: unknown }
+  const code = String(o.code ?? '').toUpperCase()
+  const msg = String(o.message ?? '').toLowerCase()
+  if (code === 'PGRST303') {
+    return true
+  }
+  if (msg.includes('pgrst303')) {
+    return true
+  }
+  if (msg.includes('jwt expired') || msg.includes('invalid jwt')) {
+    return true
+  }
+  const st = o.status
+  if (st === 401 || st === '401') {
+    return true
+  }
+  return false
+}
+
+function authFailureSuggestsTokenRefresh(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('jwt') ||
+    m.includes('expired') ||
+    m.includes('invalid token') ||
+    m.includes('malformed') ||
+    m.includes('refresh token')
+  )
+}
+
+async function resolveCurrentSession(): Promise<Session | null> {
+  const supabase = getSupabaseClient()
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) {
+    throw sessionError
+  }
+
+  const session = sessionData.session
+  if (!session) {
+    return null
+  }
+
+  const { error: userError } = await supabase.auth.getUser()
+  if (!userError) {
+    return (await supabase.auth.getSession()).data.session ?? session
+  }
+
+  const msg = userError.message || ''
+  if (authFailureSuggestsTokenRefresh(msg)) {
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession()
+    if (!refreshError && refreshed.session) {
+      return refreshed.session
+    }
+  }
+
+  await supabase.auth.signOut({ scope: 'local' })
+  return null
+}
+
 export type UserProfile = {
   first_name: string | null
   last_name: string | null
@@ -10,15 +77,37 @@ export type UserProfile = {
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
 }
 
+/**
+ * Liefert eine gültige Sitzung: prüft per Auth-Server (getUser), erneuert abgelaufene Access-Tokens
+ * oder meldet lokal ab, wenn keine Erneuerung möglich ist.
+ */
 export async function getCurrentSession(): Promise<Session | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase.auth.getSession()
-
-  if (error) {
-    throw error
+  if (sessionResolveInFlight) {
+    return sessionResolveInFlight
   }
 
-  return data.session
+  sessionResolveInFlight = resolveCurrentSession().finally(() => {
+    sessionResolveInFlight = null
+  })
+
+  return sessionResolveInFlight
+}
+
+/** Nach Profil-/DB-Fehler: Session erneuern und Profil erneut anlegen/laden (ein Versuch). */
+export async function ensureProfileForUserWithSessionRecovery(userId: string): Promise<UserProfile | null> {
+  try {
+    return await ensureProfileForUser(userId)
+  } catch (err) {
+    if (!isLikelyExpiredJwtError(err)) {
+      throw err
+    }
+    const session = await getCurrentSession()
+    const nextId = session?.user?.id ?? null
+    if (!nextId) {
+      throw new Error('Sitzung abgelaufen. Bitte erneut anmelden.')
+    }
+    return await ensureProfileForUser(nextId)
+  }
 }
 
 export async function signInWithEmailPassword(email: string, password: string) {
