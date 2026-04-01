@@ -316,6 +316,8 @@
   min-width: 0;
   color: #0f172a;
   caret-color: #2563eb;
+  font-size: 1.0625rem;
+  line-height: 1.45;
 }
 
 .chat-input-field {
@@ -437,7 +439,7 @@
   }
 
   .chat-input-row input {
-    font-size: 16px;
+    font-size: 17px;
     padding: 0.5rem 0.45rem 0.5rem 0.6rem;
   }
 
