@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import sendIcon from '../../../assets/icons/send.svg'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
@@ -29,13 +29,10 @@ export function ChatWindow({
 }: ChatWindowProps) {
   const [draft, setDraft] = useState('')
   const isEmptyState = messages.length === 0
-  const [isInputFocused, setIsInputFocused] = useState(false)
-  const [caretLeft, setCaretLeft] = useState(0)
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const measurerRef = useRef<HTMLSpanElement | null>(null)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
   const wasSendingRef = useRef(isSending)
@@ -74,30 +71,6 @@ export function ChatWindow({
 
     return fragments
   }
-
-  const updateSmoothCaret = useCallback(() => {
-    const inputElement = inputRef.current
-    const measurerElement = measurerRef.current
-    if (!inputElement || !measurerElement) {
-      return
-    }
-
-    const cursorIndex = inputElement.selectionStart ?? inputElement.value.length
-    const textBeforeCursor = inputElement.value.slice(0, cursorIndex).replace(/ /g, '\u00a0')
-    measurerElement.textContent = textBeforeCursor || '\u200b'
-
-    const computed = window.getComputedStyle(inputElement)
-    const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0
-    const paddingRight = Number.parseFloat(computed.paddingRight) || 0
-    const measuredWidth = measurerElement.getBoundingClientRect().width
-    const nextLeft = paddingLeft + measuredWidth - inputElement.scrollLeft
-    const maxLeft = inputElement.clientWidth - paddingRight - 2
-    setCaretLeft(Math.min(Math.max(nextLeft, paddingLeft), Math.max(maxLeft, paddingLeft)))
-  }, [])
-
-  useLayoutEffect(() => {
-    updateSmoothCaret()
-  }, [draft, updateSmoothCaret])
 
   useEffect(() => {
     return () => {
@@ -245,24 +218,13 @@ export function ChatWindow({
             <div className="chat-input-field">
               <input
                 ref={inputRef}
-                className="chat-input has-smooth-caret"
+                className="chat-input"
                 type="text"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                onKeyUp={updateSmoothCaret}
-                onClick={updateSmoothCaret}
-                onSelect={updateSmoothCaret}
-                onScroll={updateSmoothCaret}
-                onFocus={() => {
-                  setIsInputFocused(true)
-                  updateSmoothCaret()
-                }}
-                onBlur={() => setIsInputFocused(false)}
                 placeholder="Nachricht eingeben..."
                 disabled={isSending}
               />
-              <span ref={measurerRef} className="chat-caret-measurer" aria-hidden="true" />
-              {isInputFocused ? <span className="chat-smooth-caret" style={{ left: `${caretLeft}px` }} /> : null}
             </div>
             <button type="submit" disabled={isSending || !draft.trim()}>
               <img className="ui-icon chat-send-icon" src={sendIcon} alt="" aria-hidden="true" />
@@ -364,24 +326,13 @@ export function ChatWindow({
         <div className="chat-input-field">
           <input
             ref={inputRef}
-            className="chat-input has-smooth-caret"
+            className="chat-input"
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            onKeyUp={updateSmoothCaret}
-            onClick={updateSmoothCaret}
-            onSelect={updateSmoothCaret}
-            onScroll={updateSmoothCaret}
-            onFocus={() => {
-              setIsInputFocused(true)
-              updateSmoothCaret()
-            }}
-            onBlur={() => setIsInputFocused(false)}
             placeholder="Nachricht eingeben..."
             disabled={isSending}
           />
-          <span ref={measurerRef} className="chat-caret-measurer" aria-hidden="true" />
-          {isInputFocused ? <span className="chat-smooth-caret" style={{ left: `${caretLeft}px` }} /> : null}
         </div>
         <button type="submit" disabled={isSending || !draft.trim()}>
           <img className="ui-icon chat-send-icon" src={sendIcon} alt="" aria-hidden="true" />
