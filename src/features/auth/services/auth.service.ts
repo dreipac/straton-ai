@@ -75,6 +75,8 @@ export type UserProfile = {
   auto_remove_empty_chats: boolean
   is_superadmin: boolean
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
+  /** false = Chat-Einstiegs-Tour (Neuer Chat, Lernpfade) noch anzeigen */
+  chat_onboarding_completed: boolean
 }
 
 /**
@@ -131,6 +133,26 @@ export async function signOut() {
   }
 }
 
+/** Ändert die Login-E-Mail über Supabase Auth (Bestätigung per Link an die neue Adresse, je nach Projekt-Einstellung). */
+export async function updateAuthEmail(newEmail: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const email = newEmail.trim()
+  if (!email) {
+    throw new Error('E-Mail darf nicht leer sein.')
+  }
+  const { error } = await supabase.auth.updateUser({ email })
+  if (error) {
+    const msg = error.message?.toLowerCase() ?? ''
+    if (msg.includes('same') || msg.includes('gleich')) {
+      throw new Error('Die neue E-Mail ist identisch mit der aktuellen.')
+    }
+    if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+      throw new Error('Diese E-Mail ist bereits registriert.')
+    }
+    throw new Error(error.message || 'E-Mail konnte nicht geändert werden.')
+  }
+}
+
 export function onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void) {
   const supabase = getSupabaseClient()
   const { data } = supabase.auth.onAuthStateChange(callback)
@@ -145,7 +167,9 @@ export async function getProfileByUserId(userId: string): Promise<UserProfile | 
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('profiles')
-    .select('first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language')
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
     .eq('id', userId)
     .maybeSingle()
 
@@ -165,7 +189,9 @@ export async function updateAutoRemoveEmptyChatsByUserId(
     .from('profiles')
     .update({ auto_remove_empty_chats: enabled })
     .eq('id', userId)
-    .select('first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language')
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
     .single()
 
   if (error) {
@@ -188,7 +214,9 @@ export async function updateProfileNamesByUserId(
       last_name: lastName.trim() || null,
     })
     .eq('id', userId)
-    .select('first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language')
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
     .single()
 
   if (error) {
@@ -220,7 +248,27 @@ export async function updateSuperadminByUserId(
     .from('profiles')
     .update({ is_superadmin: enabled })
     .eq('id', userId)
-    .select('first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language')
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export async function completeChatOnboardingByUserId(userId: string): Promise<UserProfile | null> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ chat_onboarding_completed: true })
+    .eq('id', userId)
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
     .single()
 
   if (error) {
@@ -239,7 +287,9 @@ export async function updateLanguageByUserId(
     .from('profiles')
     .update({ language })
     .eq('id', userId)
-    .select('first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language')
+    .select(
+      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
+    )
     .single()
 
   if (error) {

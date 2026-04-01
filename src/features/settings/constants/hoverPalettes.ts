@@ -25,9 +25,9 @@ export const HOVER_PALETTES: HoverPalette[] = [
   {
     id: 'standard',
     label: 'Standard',
-    preview: 'linear-gradient(135deg, #d5deea 0%, #f8fafc 100%)',
-    lightBg: '#f8fafc',
-    lightBorder: '#d5deea',
+    preview: 'linear-gradient(135deg, #cbd5e1 0%, #e2e8f0 100%)',
+    lightBg: '#e2e8f0',
+    lightBorder: '#cbd5e1',
     lightText: '#0f172a',
     darkBg: '#252b35',
     darkBorder: '#3a424f',

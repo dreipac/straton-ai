@@ -2,10 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import accountIcon from '../assets/icons/account.svg'
 import aiIcon from '../assets/icons/ai.svg'
 import generalIcon from '../assets/icons/general.svg'
+import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
+import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
+import {
+  DEFAULT_SYSTEM_PROMPTS,
+  SYSTEM_PROMPT_KEYS,
+  SYSTEM_PROMPT_LABELS,
+  type SystemPromptKey,
+} from '../config/systemPromptDefaults'
 import { listAdminUsers, type AdminUser } from '../features/auth/services/admin.service'
+import { useSystemPrompts } from '../features/systemPrompts/SystemPromptsContext'
+import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
 
-type AdminSectionId = 'overview' | 'users' | 'roles' | 'aiProviders'
+type AdminSectionId = 'overview' | 'users' | 'roles' | 'aiProviders' | 'systemPrompts'
 
 type AdminSection = {
   id: AdminSectionId
@@ -19,6 +29,7 @@ const sections: AdminSection[] = [
   { id: 'users', label: 'Nutzer', title: 'Nutzerverwaltung', icon: accountIcon },
   { id: 'roles', label: 'Rollen', title: 'Rollen und Rechte', icon: accountIcon },
   { id: 'aiProviders', label: 'KI Provider', title: 'KI Provider konfigurieren', icon: aiIcon },
+  { id: 'systemPrompts', label: 'KI Anweisungen', title: 'KI Systemanweisungen', icon: aiIcon },
 ]
 
 type AdministratorModalProps = {
@@ -27,6 +38,12 @@ type AdministratorModalProps = {
 
 export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [activeSection, setActiveSection] = useState<AdminSectionId>('overview')
+  const { prompts, refresh, isLoading: promptsContextLoading } = useSystemPrompts()
+  const [promptDrafts, setPromptDrafts] = useState<Record<SystemPromptKey, string>>(() => ({
+    ...DEFAULT_SYSTEM_PROMPTS,
+  }))
+  const [promptSaveError, setPromptSaveError] = useState<string | null>(null)
+  const [promptActionKey, setPromptActionKey] = useState<SystemPromptKey | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
   const [usersError, setUsersError] = useState<string | null>(null)
@@ -68,6 +85,40 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       isMounted = false
     }
   }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'systemPrompts') {
+      return
+    }
+    setPromptDrafts({ ...prompts })
+    setPromptSaveError(null)
+  }, [activeSection, prompts])
+
+  async function handleSaveSystemPrompt(key: SystemPromptKey) {
+    setPromptActionKey(key)
+    setPromptSaveError(null)
+    try {
+      await upsertSystemPrompt(key, promptDrafts[key] ?? '')
+      await refresh()
+    } catch (err) {
+      setPromptSaveError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.')
+    } finally {
+      setPromptActionKey(null)
+    }
+  }
+
+  async function handleResetSystemPrompt(key: SystemPromptKey) {
+    setPromptActionKey(key)
+    setPromptSaveError(null)
+    try {
+      await deleteSystemPromptOverride(key)
+      await refresh()
+    } catch (err) {
+      setPromptSaveError(err instanceof Error ? err.message : 'Zuruecksetzen fehlgeschlagen.')
+    } finally {
+      setPromptActionKey(null)
+    }
+  }
 
   function getUserLabel(user: AdminUser) {
     const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
@@ -167,6 +218,53 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </p>
               </div>
             </article>
+          ) : null}
+          {activeSection === 'systemPrompts' ? (
+            <div className="admin-system-prompts-panel">
+              <p className="admin-users-warning">
+                Aenderungen gelten fuer alle angemeldeten Nutzer. Leere DB-Zeile = App nutzt Code-Standard nach
+                &quot;Zuruecksetzen&quot;. Nach Migration bitte Tabelle <code>app_system_prompts</code> anlegen.
+              </p>
+              {promptSaveError ? <p className="error-text">{promptSaveError}</p> : null}
+              {promptsContextLoading ? <p>Lade Anweisungen...</p> : null}
+              <div className="admin-system-prompts-list">
+                {SYSTEM_PROMPT_KEYS.map((key) => {
+                  const meta = SYSTEM_PROMPT_LABELS[key]
+                  const busy = promptActionKey === key
+                  return (
+                    <article key={key} className="settings-card admin-system-prompt-block">
+                      <h3 className="admin-system-prompt-title">{meta.title}</h3>
+                      <p className="admin-system-prompt-hint">{meta.hint}</p>
+                      <textarea
+                        className="admin-system-prompt-textarea"
+                        rows={14}
+                        spellCheck={false}
+                        value={promptDrafts[key] ?? ''}
+                        onChange={(event) =>
+                          setPromptDrafts((prev) => ({
+                            ...prev,
+                            [key]: event.target.value,
+                          }))
+                        }
+                        aria-label={meta.title}
+                      />
+                      <div className="admin-system-prompt-actions">
+                        <PrimaryButton type="button" disabled={busy} onClick={() => void handleSaveSystemPrompt(key)}>
+                          {busy ? 'Speichern…' : 'Speichern'}
+                        </PrimaryButton>
+                        <SecondaryButton
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleResetSystemPrompt(key)}
+                        >
+                          Standard wiederherstellen
+                        </SecondaryButton>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
           ) : null}
         </section>
       </div>

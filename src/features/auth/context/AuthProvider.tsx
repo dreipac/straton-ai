@@ -17,6 +17,8 @@ import {
   signOut,
   updateAutoRemoveEmptyChatsByUserId,
   updateLanguageByUserId,
+  completeChatOnboardingByUserId,
+  updateAuthEmail,
   updateProfileNamesByUserId,
 } from '../services/auth.service'
 
@@ -219,6 +221,30 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  async function updateEmail(email: string) {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    await updateAuthEmail(email)
+    const session = await getCurrentSession()
+    if (!isMountedRef.current) {
+      return
+    }
+    setUser(getUserFromSession(session))
+  }
+
+  async function completeChatOnboarding() {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await completeChatOnboardingByUserId(user.id)
+    setProfile(nextProfile)
+  }
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -231,6 +257,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       updateAutoRemoveEmptyChats,
       updateProfileNames,
       updateLanguage,
+      updateEmail,
+      completeChatOnboarding,
     }),
     [user, profile, isLoading, error, isConfigured],
   )

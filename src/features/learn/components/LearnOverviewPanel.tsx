@@ -3,7 +3,7 @@ import { sanitizeChapterTitlesForUi } from '../utils/learnPageHelpers'
 
 export type LearnOverviewPanelProps = {
   isSetupComplete: boolean
-  setupStep: 1 | 2 | 3
+  setupStep: 1 | 2 | 3 | 4
   effectiveTopic: string
   proficiencyLabel: string
   materialsCount: number
@@ -27,10 +27,10 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
       <>
         <div className="learn-progress-row">
           <span>Einrichtung</span>
-          <strong>{`Schritt ${setupStep}/3`}</strong>
+          <strong>{`Schritt ${setupStep}/4`}</strong>
         </div>
         <div className="learn-progress-bar">
-          <span style={{ width: `${(setupStep / 3) * 100}%` }} />
+          <span style={{ width: `${(setupStep / 4) * 100}%` }} />
         </div>
         <div className="learn-progress-row">
           <span>Thema</span>

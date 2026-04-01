@@ -102,7 +102,8 @@ export function LearnEntryQuizModal(props: LearnEntryQuizModalProps) {
                           onClick={() => onEntryQuizAnswerChange(activeEntryQuestion.id, option)}
                           disabled={isSubmittingEntryQuiz}
                         >
-                          {option}
+                          <span className="learn-entry-test-option-radio" aria-hidden="true" />
+                          <span className="learn-entry-test-option-text">{option}</span>
                         </button>
                       )
                     })}

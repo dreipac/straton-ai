@@ -145,32 +145,44 @@
   border-color: #4b5563;
 }
 
-/* Globale mehrzeilige Texteingabe (TextArea-Komponente) */
+/* Globale mehrzeilige Texteingabe (TextArea-Komponente) — gleiche Underline-Logik wie native Inputs */
 textarea.ui-textarea {
   display: block;
   box-sizing: border-box;
   width: 100%;
   min-height: 90px;
   margin: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-surface);
-  color: var(--color-text-app);
-  padding: 0.72rem 0.8rem;
+  border: none;
+  border-radius: 12px 12px 10px 10px;
+  background-color: var(--input-field-bg);
+  background-image: none;
+  color: var(--input-field-text);
+  padding: 0.72rem 0.95rem;
   font: inherit;
   line-height: 1.45;
   resize: vertical;
+  border-bottom: 1px solid var(--input-field-border-idle);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 textarea.ui-textarea::placeholder {
-  color: var(--color-text-secondary);
-  opacity: 0.9;
+  color: var(--input-field-placeholder);
+  opacity: 1;
 }
 
 textarea.ui-textarea:focus-visible {
   outline: none;
-  border-color: var(--interactive-hover-border);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-hover-bg) 50%, transparent);
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  border-bottom-color: transparent;
+  box-shadow: var(--input-field-shadow-focus);
+  caret-color: var(--input-field-text);
 }
 
 textarea.ui-textarea:disabled {

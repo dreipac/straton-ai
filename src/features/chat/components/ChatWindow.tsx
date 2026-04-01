@@ -318,6 +318,7 @@ export function ChatWindow({
                         <p className="interactive-quiz-prompt">{question.prompt}</p>
                         <div className="interactive-quiz-answer-row">
                           <input
+                            className="interactive-quiz-answer-input"
                             type="text"
                             value={current.value}
                             onChange={(event) =>

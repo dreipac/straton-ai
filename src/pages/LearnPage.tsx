@@ -5,6 +5,7 @@ import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
+import { useSystemPrompts } from '../features/systemPrompts/SystemPromptsContext'
 import { generateLearnFlashcards, sendMessage } from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
@@ -37,7 +38,6 @@ import {
   DEFAULT_CHAPTER_SESSION,
   ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS,
   ENTRY_TEST_PREP_STEPS,
-  LEARN_TUTOR_SYSTEM_PROMPT,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   POST_ENTRY_PREP_STEPS,
   getDisplayPathTitle,
@@ -57,6 +57,7 @@ import { SettingsModal } from './SettingsPage'
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
   const { user, profile, isLoading } = useAuth()
+  const { getPrompt } = useSystemPrompts()
   const navigate = useNavigate()
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [topic, setTopic] = useState('')
@@ -71,10 +72,11 @@ export function LearnPage() {
   const [isLayoutCustomizeMode, setIsLayoutCustomizeMode] = useState(false)
   const [mainSplitPercent, setMainSplitPercent] = useState(72)
   const [dragTarget, setDragTarget] = useState<'main' | null>(null)
-  const [setupStep, setSetupStep] = useState<1 | 2 | 3>(1)
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3 | 4>(1)
   const [isSetupComplete, setIsSetupComplete] = useState(false)
   const [topicSuggestions, setTopicSuggestions] = useState<string[]>([])
   const [selectedTopic, setSelectedTopic] = useState('')
+  const [aiGuidance, setAiGuidance] = useState('')
   const [setupAnalysisPercent, setSetupAnalysisPercent] = useState(0)
   const [proficiencyLevel, setProficiencyLevel] = useState<'' | 'low' | 'medium' | 'high'>('')
   const [entryQuiz, setEntryQuiz] = useState<InteractiveQuizPayload | null>(null)
@@ -160,6 +162,7 @@ export function LearnPage() {
       topic,
       topicSuggestions,
       selectedTopic,
+      aiGuidance,
       proficiencyLevel,
       setupStep,
       isSetupComplete,
@@ -177,6 +180,7 @@ export function LearnPage() {
       topic,
       topicSuggestions,
       selectedTopic,
+      aiGuidance,
       proficiencyLevel,
       setupStep,
       isSetupComplete,
@@ -198,6 +202,7 @@ export function LearnPage() {
       setTopic(record.topic)
       setTopicSuggestions(record.topicSuggestions)
       setSelectedTopic(record.selectedTopic)
+      setAiGuidance(record.aiGuidance ?? '')
       setProficiencyLevel(record.proficiencyLevel)
       setSetupStep(record.setupStep)
       setIsSetupComplete(record.isSetupComplete)
@@ -256,6 +261,7 @@ export function LearnPage() {
     setTopic('')
     setTopicSuggestions([])
     setSelectedTopic('')
+    setAiGuidance('')
     setProficiencyLevel('')
     setSetupStep(1)
     setIsSetupComplete(false)
@@ -280,6 +286,7 @@ export function LearnPage() {
     topic,
     topicSuggestions,
     selectedTopic,
+    aiGuidance,
     proficiencyLevel,
     setupStep,
     isSetupComplete,
@@ -321,7 +328,8 @@ export function LearnPage() {
     },
   })
 
-  const { handleContinueSetupStepOne, handleContinueSetupStepTwo, handleFinishSetup } = useLearnSetupFlow({
+  const { handleContinueSetupStepOne, handleContinueSetupStepTwo, handleContinueSetupStepThree, handleFinishSetup } =
+    useLearnSetupFlow({
     isUploading,
     isAnalyzingSetupTopic,
     materials,
@@ -350,7 +358,7 @@ export function LearnPage() {
     setChapterBlueprints,
     setChapterSession,
     setEntryQuizQuestionIndex,
-  })
+    })
 
   useEffect(() => {
     activePathIdRef.current = activePathId
@@ -364,6 +372,7 @@ export function LearnPage() {
       setTopic('')
       setTopicSuggestions([])
       setSelectedTopic('')
+      setAiGuidance('')
       setProficiencyLevel('')
       setSetupStep(1)
       setIsSetupComplete(false)
@@ -677,6 +686,7 @@ export function LearnPage() {
               'Lernpfad Name: ' + getDisplayPathTitle(activePathTitle),
               'Thema: ' + (effectiveTopic || getDisplayPathTitle(activePathTitle)),
               selectedTopic.trim() ? 'Gewaehlter Schwerpunkt: ' + selectedTopic.trim() : 'Gewaehlter Schwerpunkt: keiner',
+              aiGuidance.trim() ? 'Zusatzhinweise des Lernenden: ' + aiGuidance.trim() : 'Zusatzhinweise des Lernenden: keine',
               proficiencyLevel
                 ? 'Selbsteinschaetzung Niveau: ' +
                   (proficiencyLevel === 'low' ? 'schwach' : proficiencyLevel === 'medium' ? 'mittel' : 'gut')
@@ -705,7 +715,8 @@ export function LearnPage() {
           }
 
           const result = await sendMessage([quizRequestMessage], {
-            systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+            interactiveQuizPrompt: getPrompt('interactive_quiz'),
+            systemPrompt: getPrompt('learn_tutor'),
           })
           if (activePathIdRef.current !== activePathIdAtStart) {
             return
@@ -788,8 +799,10 @@ export function LearnPage() {
     materials,
     effectiveTopic,
     selectedTopic,
+    aiGuidance,
     proficiencyLevel,
     entryQuiz,
+    getPrompt,
     hasTriedEntryQuizGeneration,
     isEntryQuizLoading,
   ])
@@ -817,6 +830,7 @@ export function LearnPage() {
     effectiveTopic,
     activePathTitle: activePath?.title ?? '',
     selectedTopic,
+    aiGuidance,
     materials,
     closeEntryQuizModal,
     setError,
@@ -1150,6 +1164,7 @@ export function LearnPage() {
                 isUploading={isUploading}
                 effectiveTopic={effectiveTopic}
                 proficiencyLevel={proficiencyLevel}
+                aiGuidance={aiGuidance}
                 onFilesChange={(files) => {
                   void handleUploadMaterials(files)
                 }}
@@ -1158,9 +1173,15 @@ export function LearnPage() {
                 }}
                 onContinueStepOne={handleContinueSetupStepOne}
                 onContinueStepTwo={handleContinueSetupStepTwo}
+                onContinueStepThree={handleContinueSetupStepThree}
                 onFinishSetup={handleFinishSetup}
                 onBackToStep1={() => setSetupStep(1)}
                 onBackToStep2={() => setSetupStep(2)}
+                onBackToStep3={() => setSetupStep(3)}
+                onAiGuidanceChange={(value) => {
+                  setAiGuidance(value)
+                  setError(null)
+                }}
                 onSelectProficiency={(level) => {
                   setProficiencyLevel(level)
                   setError(null)

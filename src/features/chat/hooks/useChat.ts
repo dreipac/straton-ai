@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
 import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
 import { generateChatTitleWithAi, sendMessage } from '../services/chat.service'
 import {
@@ -54,6 +55,7 @@ function createTemporaryThread(userId: string): ChatThread {
 }
 
 export function useChat(userId: string | undefined, autoRemoveEmptyChats = true) {
+  const { getPrompt } = useSystemPrompts()
   const [threads, setThreads] = useState<ChatThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messagesByThreadId, setMessagesByThreadId] = useState<Record<string, ChatMessage[]>>({})
@@ -404,7 +406,9 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
 
-      const { assistantMessage } = await sendMessage(nextMessages)
+      const { assistantMessage } = await sendMessage(nextMessages, {
+        interactiveQuizPrompt: getPrompt('interactive_quiz'),
+      })
       const storedAssistantMessage = await createChatMessage(
         targetThreadId,
         'assistant',

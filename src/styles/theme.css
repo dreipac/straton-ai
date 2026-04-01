@@ -15,11 +15,12 @@
   --color-link: #334155;
   --color-link-hover: #0f172a;
   --color-error: #fda4af;
-  --interactive-hover-bg: #f8fafc;
-  --interactive-hover-border: #d5deea;
+  /* Hellmodus: deutlicher sichtbar auf weißen Flächen (ohne Mono-Palette) */
+  --interactive-hover-bg: #e2e8f0;
+  --interactive-hover-border: #cbd5e1;
   --interactive-hover-text: #0f172a;
-  --interactive-hover-bg-dark: #f1f5f9;
-  --interactive-hover-border-dark: #d5deea;
+  --interactive-hover-bg-dark: #d8dee8;
+  --interactive-hover-border-dark: #b8c5d4;
   --interactive-hover-text-dark: #0f172a;
 
   --color-success-bg: #ecfdf3;
@@ -56,6 +57,13 @@
   --scrollbar-track: rgba(148, 163, 184, 0.14);
   --scrollbar-thumb: rgba(100, 116, 139, 0.52);
   --scrollbar-thumb-hover: rgba(71, 85, 105, 0.72);
+
+  /* Standard-Eingabefelder (Hellmodus): sehr leicht grauer Ton vs. reines Weiß */
+  --input-field-bg: #f7f8fa;
+  --input-field-text: var(--color-text-app);
+  --input-field-placeholder: var(--color-text-muted);
+  --input-field-border-idle: rgba(15, 23, 42, 0.14);
+  --input-field-shadow-focus: 0 10px 28px rgba(15, 23, 42, 0.1);
 }
 
 :root[data-theme='dark'] {
@@ -115,6 +123,13 @@
   --scrollbar-track: rgba(71, 85, 105, 0.24);
   --scrollbar-thumb: rgba(148, 163, 184, 0.42);
   --scrollbar-thumb-hover: rgba(203, 213, 225, 0.56);
+
+  /* Standard-Eingabefelder (Dunkelmodus) */
+  --input-field-bg: #0a0e14;
+  --input-field-text: var(--color-text-app);
+  --input-field-placeholder: var(--color-text-muted);
+  --input-field-border-idle: rgba(255, 255, 255, 0.11);
+  --input-field-shadow-focus: 0 12px 34px rgba(0, 0, 0, 0.48);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] {
@@ -155,4 +170,10 @@
   --scrollbar-track: rgba(244, 114, 182, 0.16);
   --scrollbar-thumb: rgba(236, 72, 153, 0.44);
   --scrollbar-thumb-hover: rgba(244, 114, 182, 0.62);
+
+  --input-field-bg: rgba(32, 16, 42, 0.88);
+  --input-field-text: #f8effa;
+  --input-field-placeholder: rgba(232, 210, 236, 0.52);
+  --input-field-border-idle: rgba(244, 114, 182, 0.22);
+  --input-field-shadow-focus: 0 14px 40px rgba(18, 6, 28, 0.55);
 }

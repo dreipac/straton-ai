@@ -215,7 +215,8 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                         onClick={() => onSelectMcqOption(activeChapterStep.id, option)}
                         disabled={isEvaluatingChapterStep}
                       >
-                        {option}
+                        <span className="learn-entry-test-option-radio" aria-hidden="true" />
+                        <span className="learn-entry-test-option-text">{option}</span>
                       </button>
                     )
                   })}

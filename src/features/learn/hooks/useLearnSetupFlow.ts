@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
+import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
 import type { ChatMessage } from '../../chat/types'
 import type {
   ChapterBlueprint,
@@ -23,7 +24,7 @@ type UseLearnSetupFlowArgs = {
   setTopic: Dispatch<SetStateAction<string>>
   setSelectedTopic: Dispatch<SetStateAction<string>>
   setTopicSuggestions: Dispatch<SetStateAction<string[]>>
-  setSetupStep: Dispatch<SetStateAction<1 | 2 | 3>>
+  setSetupStep: Dispatch<SetStateAction<1 | 2 | 3 | 4>>
   setHasTriedEntryQuizGeneration: Dispatch<SetStateAction<boolean>>
   setIsEntryQuizLoading: Dispatch<SetStateAction<boolean>>
   setIsEntryPrepClosing: Dispatch<SetStateAction<boolean>>
@@ -44,6 +45,7 @@ type UseLearnSetupFlowArgs = {
 }
 
 export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
+  const { getPrompt } = useSystemPrompts()
   const {
     isUploading,
     isAnalyzingSetupTopic,
@@ -107,12 +109,8 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setError(null)
     setIsAnalyzingSetupTopic(true)
     void sendMessage([userMessage], {
-      systemPrompt: [
-        'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
-        'Lies die Unterlagen und leite ein konkretes Hauptthema ab.',
-        'Antworte nur in genau einer Zeile im Format: THEMA: <Thema>',
-        'Der Titel soll kurz sein (maximal 6 Woerter).',
-      ].join('\n'),
+      interactiveQuizPrompt: getPrompt('interactive_quiz'),
+      systemPrompt: getPrompt('learn_setup_topic'),
     })
       .then(async ({ assistantMessage }) => {
         const raw = assistantMessage.content.trim()
@@ -164,6 +162,15 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setSetupStep(3)
   }, [setError, setSetupStep])
 
+  const handleContinueSetupStepThree = useCallback(() => {
+    if (!proficiencyLevel) {
+      setError('Bitte waehle deine Selbsteinschaetzung aus.')
+      return
+    }
+    setError(null)
+    setSetupStep(4)
+  }, [proficiencyLevel, setError, setSetupStep])
+
   const handleFinishSetup = useCallback(() => {
     if (!proficiencyLevel) {
       setError('Bitte waehle deine Selbsteinschaetzung aus.')
@@ -212,6 +219,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
   return {
     handleContinueSetupStepOne,
     handleContinueSetupStepTwo,
+    handleContinueSetupStepThree,
     handleFinishSetup,
   }
 }

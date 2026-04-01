@@ -945,6 +945,48 @@
   gap: 0.7rem;
 }
 
+.account-settings-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 22px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.account-settings-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-settings-avatar span {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.account-settings-profile-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 1.15rem;
+}
+
+.account-settings-avatar--large {
+  width: 168px;
+  height: 168px;
+  border-radius: 44px;
+}
+
+.account-settings-avatar--large span {
+  font-size: 2.45rem;
+}
+
 .account-settings-panel p {
   margin: 0;
   color: #334155;
@@ -955,10 +997,173 @@
   color: #334155;
 }
 
+.account-settings-input-shell {
+  position: relative;
+  border-radius: 12px;
+}
+
+.account-settings-form input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--input-field-border-idle);
+  background-color: var(--input-field-bg);
+  color: var(--input-field-text);
+  transition:
+    border-color 180ms ease,
+    box-shadow 220ms ease,
+    background-color 180ms ease;
+}
+
+.account-settings-form input::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.account-settings-form input:focus,
+.account-settings-form input:focus-visible {
+  outline: none;
+  border-bottom-color: transparent;
+  background-color: var(--input-field-bg);
+  background-image: none;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.account-settings-input-shell::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  background-image: var(--accent-gradient-line);
+  background-size: calc(100% - 12px) 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  /* Nur Sichtbarkeitsmaske fuer weiche Enden/Kurven, ohne eigene Farbe. */
+  mask-image:
+    radial-gradient(16px 12px at left bottom, transparent 0%, #000 66%, #000 100%),
+    radial-gradient(16px 12px at right bottom, transparent 0%, #000 66%, #000 100%),
+    linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  mask-size:
+    22px 14px,
+    22px 14px,
+    calc(100% - 12px) 1px;
+  mask-position:
+    left bottom,
+    right bottom,
+    center bottom;
+  mask-repeat: no-repeat;
+  -webkit-mask-image:
+    radial-gradient(16px 12px at left bottom, transparent 0%, #000 66%, #000 100%),
+    radial-gradient(16px 12px at right bottom, transparent 0%, #000 66%, #000 100%),
+    linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  -webkit-mask-size:
+    22px 14px,
+    22px 14px,
+    calc(100% - 12px) 1px;
+  -webkit-mask-position:
+    left bottom,
+    right bottom,
+    center bottom;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.account-settings-input-shell:focus-within::after {
+  opacity: 1;
+}
+
 .account-settings-saving {
   margin: 0;
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.account-settings-email-block {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.account-settings-email-block > label {
+  font-size: 0.86rem;
+  color: #334155;
+}
+
+.account-settings-email-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.account-settings-input-shell--email {
+  flex: 1;
+  min-width: min(220px, 100%);
+}
+
+.account-settings-input-shell--email.is-valid-email input {
+  padding-right: 2.5rem;
+}
+
+.account-settings-email-valid-mark {
+  position: absolute;
+  right: 0.72rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* check_2.svg: Stroke → Grün (#22c55e) */
+.account-settings-email-check-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(52%) sepia(62%) saturate(602%) hue-rotate(93deg) brightness(96%)
+    contrast(89%);
+}
+
+.account-settings-email-save {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 44px;
+  padding-left: 1.15rem;
+  padding-right: 1.15rem;
+  white-space: nowrap;
+}
+
+.account-settings-panel p.account-settings-email-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.account-settings-panel p.account-settings-email-success {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #15803d;
+}
+
+.account-settings-panel p.account-settings-email-error {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #b91c1c;
+}
+
+.account-settings-panel p.account-settings-email-pending {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #b45309;
 }
 
 .admin-users-list {
@@ -979,6 +1184,55 @@
   color: #9f1239;
   font-size: 0.84rem;
   border: 1px solid #fecdd3;
+}
+
+.admin-system-prompts-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-system-prompts-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-system-prompt-block {
+  margin: 0;
+}
+
+.admin-system-prompt-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.admin-system-prompt-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.84rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.admin-system-prompt-textarea {
+  width: 100%;
+  min-height: 200px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  resize: vertical;
+}
+
+.admin-system-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
 }
 
 .admin-user-row {
@@ -1036,11 +1290,31 @@
   font-size: 0.82rem;
 }
 
-.settings-overlay .rename-form input,
+.settings-overlay .rename-form input {
+  background: var(--input-field-bg);
+  color: var(--input-field-text);
+  border: none;
+  border-bottom: 1px solid var(--input-field-border-idle);
+}
+
+.settings-overlay .rename-form input::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.settings-overlay .rename-form input:focus-visible {
+  border-bottom-color: transparent;
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
 .settings-overlay .rename-actions button {
   background: var(--color-surface);
   color: var(--color-text-app);
-  border-color: var(--color-border-strong);
+  border: 1px solid var(--color-border-strong);
 }
 
 .settings-overlay .rename-actions button:hover:enabled {
@@ -1395,9 +1669,29 @@
   color: #cbd5e1;
 }
 
+:root[data-theme='dark'] .account-settings-email-block > label {
+  color: #cbd5e1;
+}
+
 :root[data-theme='dark'] .account-settings-panel p,
 :root[data-theme='dark'] .account-settings-saving {
   color: #cbd5e1;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-hint {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-success {
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-error {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-pending {
+  color: #fcd34d;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-modal,
@@ -1453,6 +1747,22 @@
   color: #d1d5db;
 }
 
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-hint {
+  color: #c4b5d0;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-success {
+  color: #86efac;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-error {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-pending {
+  color: #fcd34d;
+}
+
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item:hover:enabled,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item.is-active {
   background: rgba(244, 114, 182, 0.18);
@@ -1475,8 +1785,18 @@
   background: rgba(244, 114, 182, 0.12);
 }
 
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-language-trigger,
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-form input,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-language-trigger {
+  border-color: rgba(249, 168, 212, 0.35);
+  background: rgba(58, 30, 70, 0.5);
+  color: #f8fafc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-form input {
+  border-bottom-color: var(--input-field-border-idle);
+  background: var(--input-field-bg);
+  color: var(--input-field-text);
+}
+
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button {
   border-color: rgba(249, 168, 212, 0.35);
   background: rgba(58, 30, 70, 0.5);

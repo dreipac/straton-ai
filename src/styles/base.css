@@ -92,7 +92,6 @@ a:hover {
   min-height: 100dvh;
 }
 
-input,
 button {
   font: inherit;
   border-radius: 12px;
@@ -100,14 +99,78 @@ button {
   padding: 0.65rem 0.8rem;
   background: var(--color-surface);
   color: var(--color-text-app);
-}
-
-input {
-  width: 100%;
-}
-
-button {
   cursor: pointer;
+}
+
+/* Text-Inputs: nur Bodenlinie; Akzent bei :focus-visible über Verlauf (siehe --accent-gradient-line in :root) */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input) {
+  font: inherit;
+  width: 100%;
+  margin: 0;
+  padding: 0.72rem 0.95rem;
+  border: none;
+  border-radius: 12px 12px 10px 10px;
+  background-color: var(--input-field-bg);
+  background-image: none;
+  background-size: auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  color: var(--input-field-text);
+  border-bottom: 1px solid var(--input-field-border-idle);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input)::placeholder {
+  color: var(--input-field-placeholder);
+  opacity: 1;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):focus,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):focus-visible {
+  outline: none;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):focus-visible {
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  border-bottom-color: transparent;
+  box-shadow: var(--input-field-shadow-focus);
+  caret-color: var(--input-field-text);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 button:hover:enabled {

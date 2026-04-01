@@ -50,8 +50,17 @@ type SettingsModalProps = {
 }
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
-  const { user, profile, isLoading, error, isConfigured, updateAutoRemoveEmptyChats, updateProfileNames, updateLanguage } =
-    useAuth()
+  const {
+    user,
+    profile,
+    isLoading,
+    error,
+    isConfigured,
+    updateAutoRemoveEmptyChats,
+    updateProfileNames,
+    updateLanguage,
+    updateEmail,
+  } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
     const persistedTheme = window.localStorage.getItem('straton-theme')
@@ -95,6 +104,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [isSavingAccount, setIsSavingAccount] = useState(false)
   const [firstNameDraft, setFirstNameDraft] = useState('')
   const [lastNameDraft, setLastNameDraft] = useState('')
+  const [emailDraft, setEmailDraft] = useState('')
+  const [isSavingEmail, setIsSavingEmail] = useState(false)
+  const [emailMessage, setEmailMessage] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
   const lastSavedNamesRef = useRef({ firstName: '', lastName: '' })
 
   const i18n = {
@@ -344,6 +357,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }, [profile?.first_name, profile?.last_name])
 
   useEffect(() => {
+    setEmailDraft(user?.email ?? '')
+    setEmailMessage(null)
+    setEmailError(null)
+  }, [user?.email])
+
+  useEffect(() => {
     const profileLanguage = profile?.language
     if (
       profileLanguage === 'de' ||
@@ -399,6 +418,37 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       window.clearTimeout(timerId)
     }
   }, [activeSection, firstNameDraft, lastNameDraft, updateProfileNames])
+
+  async function handleSaveEmail() {
+    if (!user || !isConfigured) {
+      return
+    }
+
+    setEmailMessage(null)
+    setEmailError(null)
+    const trimmed = emailDraft.trim()
+    const next = trimmed.toLowerCase()
+    const current = (user.email ?? '').toLowerCase()
+    if (next === current) {
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailError('Bitte eine gültige E-Mail-Adresse eingeben.')
+      return
+    }
+
+    try {
+      setIsSavingEmail(true)
+      await updateEmail(trimmed)
+      setEmailMessage(
+        'Änderung angefordert. Bitte den Bestätigungslink in der E-Mail zur neuen Adresse öffnen — erst danach ist die E-Mail aktiv.',
+      )
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'E-Mail konnte nicht geändert werden.')
+    } finally {
+      setIsSavingEmail(false)
+    }
+  }
 
   async function handleToggleAutoRemoveEmptyChats() {
     try {
@@ -539,9 +589,23 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <AccountSettingsSection
               firstNameDraft={firstNameDraft}
               lastNameDraft={lastNameDraft}
+              emailDraft={emailDraft}
+              currentEmail={user?.email ?? ''}
+              pendingNewEmail={user?.new_email ?? null}
+              avatarUrl={profile?.avatar_url ?? null}
               isSavingAccount={isSavingAccount}
+              isSavingEmail={isSavingEmail}
+              emailSaveDisabled={!isConfigured || !user}
+              emailMessage={emailMessage}
+              emailError={emailError}
               onFirstNameChange={setFirstNameDraft}
               onLastNameChange={setLastNameDraft}
+              onEmailChange={(value) => {
+                setEmailDraft(value)
+                setEmailMessage(null)
+                setEmailError(null)
+              }}
+              onSaveEmail={handleSaveEmail}
             />
           ) : null}
         </section>

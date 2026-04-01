@@ -8,7 +8,7 @@ import type { UploadedMaterial } from '../services/learn.persistence'
 import { getMaterialTypeBadge } from '../utils/learnPageHelpers'
 
 export type LearnSetupPanelProps = {
-  setupStep: 1 | 2 | 3
+  setupStep: 1 | 2 | 3 | 4
   isAnalyzingSetupTopic: boolean
   setupAnalysisPercentClamped: number
   setupAnalysisArcRadius: number
@@ -19,13 +19,17 @@ export type LearnSetupPanelProps = {
   isUploading: boolean
   effectiveTopic: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  aiGuidance: string
   onFilesChange: (files: FileList | null) => void
   onRemoveMaterial: (materialId: string) => void
   onContinueStepOne: () => void
   onContinueStepTwo: () => void
+  onContinueStepThree: () => void
   onFinishSetup: () => void
   onBackToStep1: () => void
   onBackToStep2: () => void
+  onBackToStep3: () => void
+  onAiGuidanceChange: (value: string) => void
   onSelectProficiency: (level: 'low' | 'medium' | 'high') => void
 }
 
@@ -42,13 +46,17 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
     isUploading,
     effectiveTopic,
     proficiencyLevel,
+    aiGuidance,
     onFilesChange,
     onRemoveMaterial,
     onContinueStepOne,
     onContinueStepTwo,
+    onContinueStepThree,
     onFinishSetup,
     onBackToStep1,
     onBackToStep2,
+    onBackToStep3,
+    onAiGuidanceChange,
     onSelectProficiency,
   } = props
 
@@ -222,7 +230,36 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
               <SecondaryButton type="button" onClick={onBackToStep2}>
                 Zur\u00FCck
               </SecondaryButton>
-              <PrimaryButton type="button" onClick={onFinishSetup} disabled={!proficiencyLevel}>
+              <PrimaryButton type="button" onClick={onContinueStepThree} disabled={!proficiencyLevel}>
+                Weiter
+              </PrimaryButton>
+            </div>
+          </div>
+        ) : null}
+
+        {setupStep === 4 ? (
+          <div className="learn-setup-step">
+            <label>Optional: Info an die KI</label>
+            <p className="learn-setup-info">
+              Falls du besondere Wünsche hast (z. B. Fokus, Beispiele, Lernstil), kannst du sie hier angeben.
+              Leer lassen = Standard-Verhalten der KI.
+            </p>
+            <textarea
+              className="ui-textarea learn-setup-ai-guidance"
+              rows={5}
+              maxLength={900}
+              placeholder="Beispiel: Fokus auf IPv4-Subnetting mit vielen Rechenbeispielen, wenig Theorie."
+              value={aiGuidance}
+              onChange={(event) => {
+                onAiGuidanceChange(event.currentTarget.value)
+              }}
+            />
+            <p className="learn-muted">{aiGuidance.trim().length}/900 Zeichen</p>
+            <div className="learn-setup-actions">
+              <SecondaryButton type="button" onClick={onBackToStep3}>
+                Zurück
+              </SecondaryButton>
+              <PrimaryButton type="button" onClick={onFinishSetup}>
                 Einrichtung abschliessen
               </PrimaryButton>
             </div>
@@ -235,6 +272,8 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
           <div className={`learn-setup-progress-step ${setupStep >= 2 ? 'is-active' : ''}`}>2</div>
           <div className={`learn-setup-progress-segment ${setupStep >= 3 ? 'is-active' : ''}`} />
           <div className={`learn-setup-progress-step ${setupStep >= 3 ? 'is-active' : ''}`}>3</div>
+          <div className={`learn-setup-progress-segment ${setupStep >= 4 ? 'is-active' : ''}`} />
+          <div className={`learn-setup-progress-step ${setupStep >= 4 ? 'is-active' : ''}`}>4</div>
         </div>
         {setupStep === 1 ? (
           <div className="learn-setup-step-hint" aria-label="Aktueller Schritt: Datei hochladen">

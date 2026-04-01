@@ -17,6 +17,7 @@ import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
+import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
@@ -25,7 +26,7 @@ import { SettingsModal } from './SettingsPage'
 
 export function ChatPage() {
   const MODAL_ANIMATION_MS = 220
-  const { user, profile, logout } = useAuth()
+  const { user, profile, logout, isLoading, completeChatOnboarding } = useAuth()
   const {
     threads,
     activeThreadId,
@@ -40,6 +41,9 @@ export function ChatPage() {
     selectChat,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true)
   const navigate = useNavigate()
+  const showChatTour = Boolean(
+    user && profile && profile.chat_onboarding_completed === false && !isLoading,
+  )
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
   const [isAdminMounted, setIsAdminMounted] = useState(false)
@@ -59,6 +63,8 @@ export function ChatPage() {
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
   const renameCloseTimerRef = useRef<number | null>(null)
+  const newChatTourRef = useRef<HTMLButtonElement | null>(null)
+  const learnTourRef = useRef<HTMLButtonElement | null>(null)
 
   async function handleLogout() {
     await logout()
@@ -111,7 +117,7 @@ export function ChatPage() {
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !showChatTour) {
         setIsMobileSidebarOpen(false)
       }
     }
@@ -120,7 +126,15 @@ export function ChatPage() {
     return () => {
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [])
+  }, [showChatTour])
+
+  useEffect(() => {
+    if (!showChatTour) {
+      return
+    }
+    setIsSidebarCollapsed(false)
+    setIsMobileSidebarOpen(true)
+  }, [showChatTour])
 
   function openSettingsModal() {
     setIsMobileSidebarOpen(false)
@@ -393,7 +407,9 @@ export function ChatPage() {
             {!isSidebarCollapsed ? 'Einstellungen' : null}
           </button>
           <button
+            ref={learnTourRef}
             type="button"
+            className={showChatTour ? 'chat-onboarding-tour-block' : undefined}
             onClick={() => {
               navigate('/learn')
               setIsMobileSidebarOpen(false)
@@ -419,7 +435,9 @@ export function ChatPage() {
             </button>
           ) : null}
           <button
+            ref={newChatTourRef}
             type="button"
+            className={showChatTour ? 'chat-onboarding-tour-block' : undefined}
             onClick={() => {
               void handleCreateNewChat()
             }}
@@ -524,6 +542,9 @@ export function ChatPage() {
         className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
         aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
         onClick={() => {
+          if (showChatTour) {
+            return
+          }
           setIsSidebarCollapsed(false)
           setIsMobileSidebarOpen((prev) => !prev)
         }}
@@ -532,9 +553,23 @@ export function ChatPage() {
       </button>
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
-        onClick={() => setIsMobileSidebarOpen(false)}
+        onClick={() => {
+          if (showChatTour) {
+            return
+          }
+          setIsMobileSidebarOpen(false)
+        }}
         aria-hidden="true"
       />
+
+      {showChatTour ? (
+        <ChatOnboardingTour
+          newChatButtonRef={newChatTourRef}
+          learnButtonRef={learnTourRef}
+          active
+          onComplete={completeChatOnboarding}
+        />
+      ) : null}
 
       {isSettingsMounted ? (
         <ModalShell isOpen={isSettingsVisible}>

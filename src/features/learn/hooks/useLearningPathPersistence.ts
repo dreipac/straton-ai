@@ -17,8 +17,9 @@ export type EditableLearningPathSnapshot = {
   topic: string
   topicSuggestions: string[]
   selectedTopic: string
+  aiGuidance: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
-  setupStep: 1 | 2 | 3
+  setupStep: 1 | 2 | 3 | 4
   isSetupComplete: boolean
   materials: UploadedMaterial[]
   tutorMessages: TutorChatEntry[]

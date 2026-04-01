@@ -7,7 +7,6 @@ import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   CHAPTER_GENERATION_TIMEOUT_MS,
   DEFAULT_CHAPTER_SESSION,
-  LEARN_TUTOR_SYSTEM_PROMPT,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   buildRichFallbackChapterSteps,
   ensureMinimumChapterDepth,
@@ -15,6 +14,8 @@ import {
   parseChapterBlueprintsFromText,
   parseLearningChaptersFromText,
 } from '../utils/learnPageHelpers'
+import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
+import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 
 type UseEntryQuizSubmissionFlowArgs = {
@@ -25,6 +26,7 @@ type UseEntryQuizSubmissionFlowArgs = {
   effectiveTopic: string
   activePathTitle: string
   selectedTopic: string
+  aiGuidance: string
   materials: UploadedMaterial[]
   closeEntryQuizModal: () => void
   setError: Dispatch<SetStateAction<string | null>>
@@ -41,6 +43,7 @@ type UseEntryQuizSubmissionFlowArgs = {
 }
 
 export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs) {
+  const { getPrompt } = useSystemPrompts()
   const {
     entryQuiz,
     isSubmittingEntryQuiz,
@@ -49,6 +52,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     effectiveTopic,
     activePathTitle,
     selectedTopic,
+    aiGuidance,
     materials,
     closeEntryQuizModal,
     setError,
@@ -190,6 +194,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
           content: [
             `Thema: ${effectiveTopic || getDisplayPathTitle(activePathTitle)}`,
             selectedTopic.trim() ? `Schwerpunkt: ${selectedTopic.trim()}` : 'Schwerpunkt: keiner',
+            aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${aiGuidance.trim()}` : 'Zusatzhinweise des Lernenden: keine',
             `Testergebnis: ${score}/${entryQuiz.questions.length}`,
             'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
             'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
@@ -219,7 +224,8 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
           try {
             chapterResponse = await Promise.race([
               sendMessage([chapterRequest], {
-                systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+                interactiveQuizPrompt: getPrompt('interactive_quiz'),
+                systemPrompt: getPrompt('learn_tutor'),
               }),
               new Promise<never>((_, reject) => {
                 window.setTimeout(() => reject(new Error('Kapitelgenerierung dauert zu lange. Bitte erneut versuchen.')), CHAPTER_GENERATION_TIMEOUT_MS)
@@ -239,7 +245,9 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         }
         const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
         const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
-        const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
+        const parsedBlueprints = namespaceChapterStepIds(
+          ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent)),
+        )
         const titlesFromBlueprints = parsedBlueprints.map((chapter) => chapter.title).filter(Boolean)
         const generated = parseLearningChaptersFromText(parsedContent)
         const placeholderTitles = [
@@ -256,11 +264,13 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         const nextBlueprints: ChapterBlueprint[] =
           parsedBlueprints.length > 0
             ? parsedBlueprints
-            : (nextLearningChapters.map((title, index) => ({
-                id: `chapter-${index + 1}`,
-                title,
-                steps: buildRichFallbackChapterSteps(title, index),
-              })) as ChapterBlueprint[])
+            : namespaceChapterStepIds(
+                nextLearningChapters.map((title, index) => ({
+                  id: `chapter-${index + 1}`,
+                  title,
+                  steps: buildRichFallbackChapterSteps(title, index),
+                })) as ChapterBlueprint[],
+              )
 
         window.clearInterval(stageTwoTimerId)
         setPostEntryPrepPercents((prev) => [prev[0] ?? 100, 100])
@@ -293,9 +303,11 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     entryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    getPrompt,
     isSubmittingEntryQuiz,
     materials,
     selectedTopic,
+    aiGuidance,
     setChapterBlueprints,
     setChapterSession,
     setEntryQuizResult,

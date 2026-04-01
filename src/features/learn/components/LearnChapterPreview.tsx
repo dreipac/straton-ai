@@ -127,7 +127,7 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
               </span>
               <span className="learn-entry-test-link-content">
                 <span className="learn-entry-test-link-title">Lernkarten</span>
-                <span className="learn-entry-test-link-meta">Datei oeffnen</span>
+                <span className="learn-entry-test-link-meta">Datei öffnen</span>
               </span>
             </button>
           ) : null}

@@ -3,11 +3,11 @@ import { sendMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
 import { parseInteractiveContentWithFallback } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession, UploadedMaterial } from '../services/learn.persistence'
+import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
   ADAPTIVE_CHAPTER_GENERATED_ID,
   CHAPTER_GENERATION_TIMEOUT_MS,
-  LEARN_TUTOR_SYSTEM_PROMPT,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   buildAdaptiveChallengeFallback,
   buildAdaptiveChapterPlaceholder,
@@ -16,6 +16,7 @@ import {
   getDisplayPathTitle,
   parseChapterBlueprintsFromText,
 } from '../utils/learnPageHelpers'
+import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 
 export type UseAdaptiveChapterGenerationArgs = {
   activePathId: string
@@ -28,6 +29,7 @@ export type UseAdaptiveChapterGenerationArgs = {
 }
 
 export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationArgs) {
+  const { getPrompt } = useSystemPrompts()
   const { activePathId, activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, selectedTopic, materials } =
     args
 
@@ -109,7 +111,8 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
 
       const response = await Promise.race([
         sendMessage([request], {
-          systemPrompt: LEARN_TUTOR_SYSTEM_PROMPT,
+          interactiveQuizPrompt: getPrompt('interactive_quiz'),
+          systemPrompt: getPrompt('learn_tutor'),
         }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => reject(new Error('Adaptive Kapitelgenerierung dauert zu lange.')), CHAPTER_GENERATION_TIMEOUT_MS)
@@ -118,7 +121,10 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
 
       const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
       const parsedContent = parsed.cleanText || response.assistantMessage.content
-      const parsedBlueprints = ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent))
+      const parsedBlueprints = namespaceChapterStepIds(
+        ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent)),
+        { chapterIndexOffset: chapterBlueprints.length },
+      )
       const generatedAdaptive = parsedBlueprints[0] ?? null
 
       if (generatedAdaptive) {
@@ -128,16 +134,24 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           title: generatedAdaptive.title.trim() || 'Schwachstellen-Fokus',
         })
       } else {
-        setAdaptiveChapterBlueprint(buildAdaptiveChallengeFallback(weakQuestions))
+        setAdaptiveChapterBlueprint(
+          namespaceChapterStepIds([buildAdaptiveChallengeFallback(weakQuestions)], {
+            chapterIndexOffset: chapterBlueprints.length,
+          })[0],
+        )
       }
     } catch (err) {
       console.error('Lernbereich: Adaptives Schwachstellen-Kapitel konnte nicht generiert werden', err)
-      setAdaptiveChapterBlueprint(buildAdaptiveChallengeFallback(weakQuestions))
+      setAdaptiveChapterBlueprint(
+        namespaceChapterStepIds([buildAdaptiveChallengeFallback(weakQuestions)], {
+          chapterIndexOffset: chapterBlueprints.length,
+        })[0],
+      )
     } finally {
       setIsGeneratingAdaptiveChapter(false)
       generationInFlightRef.current = false
     }
-  }, [activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, materials, selectedTopic])
+  }, [activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, getPrompt, materials, selectedTopic])
 
   useEffect(() => {
     if (!areBaseChaptersCompleted || adaptiveChapterBlueprint || isGeneratingAdaptiveChapter) {

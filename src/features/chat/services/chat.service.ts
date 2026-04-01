@@ -1,3 +1,4 @@
+import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import { env } from '../../../config/env'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
@@ -17,8 +18,11 @@ type GenerateTopicSuggestionsResult = {
   suggestions: string[]
 }
 
-type SendMessageOptions = {
+export type SendMessageOptions = {
+  /** Zweiter System-Block (z. B. Lerntutor); unter den Basis-Quiz-Regeln. */
   systemPrompt?: string
+  /** Ersetzt den Standard-Basisblock (Straton / Quiz-JSON-Regeln). */
+  interactiveQuizPrompt?: string
 }
 
 type EvaluateQuizAnswerInput = {
@@ -37,24 +41,6 @@ type GatewayMessage = {
 }
 
 const MAX_CHAT_TITLE_LENGTH = 42
-
-const INTERACTIVE_QUIZ_PROMPT = [
-  'Du bist Straton AI.',
-  'Erzeuge ein interaktives Quiz nur dann, wenn der Nutzer es explizit verlangt.',
-  'Als explizite Signale gelten z.B.: "mach ein Quiz", "interaktives Quiz", "Einstiegstest", "Teste mich", "Quiz starten".',
-  'Wenn der Nutzer nicht explizit ein Quiz verlangt, antworte normal ohne Quiz-JSON-Block.',
-  'Format des Blocks (ohne Code-Fences, exakt die Marker verwenden):',
-  '<<<STRATON_QUIZ_JSON>>>',
-  '{"title":"...","questions":[{"id":"q1","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."}]}',
-  '<<<END_STRATON_QUIZ_JSON>>>',
-  'Regeln:',
-  '- Nur bei expliziter Quiz-Anfrage: zuerst kurzer Einleitungstext, danach genau ein Quiz-JSON-Block in derselben Antwort.',
-  '- Ohne explizite Quiz-Anfrage niemals Quiz-JSON ausgeben.',
-  '- Gib mindestens 3 Fragen zur Uebung aus.',
-  '- expectedAnswer kurz und klar halten.',
-  '- acceptableAnswers optional als Liste moeglicher Alternativen.',
-  '- evaluation nur "exact" oder "contains".',
-].join('\n')
 
 function createAssistantMessage(content: string): ChatMessage {
   return {
@@ -99,9 +85,9 @@ async function messageFromFunctionsInvokeFailure(
 }
 
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
-  const combinedSystemPrompt = [INTERACTIVE_QUIZ_PROMPT, options?.systemPrompt?.trim() ?? '']
-    .filter(Boolean)
-    .join('\n\n')
+  const baseQuiz =
+    options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
+  const combinedSystemPrompt = [baseQuiz, options?.systemPrompt?.trim() ?? ''].filter(Boolean).join('\n\n')
 
   return [
     {

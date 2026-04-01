@@ -84,6 +84,18 @@ function parseStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
+function resolveMcqExpectedAnswer(rawExpected: string, options: string[]): string {
+  const expected = rawExpected.trim()
+  if (!expected) {
+    return ''
+  }
+  const index = Number.parseInt(expected, 10)
+  if (Number.isInteger(index) && index >= 0 && index < options.length) {
+    return options[index] ?? expected
+  }
+  return expected
+}
+
 function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
   if (!input || typeof input !== 'object') {
     return null
@@ -156,14 +168,27 @@ function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestio
   const questionType = rawQuestionType === 'mcq' ? 'mcq' : 'text'
   let options = dedupeStrings(rawOptions)
   if (questionType === 'mcq') {
-    options = dedupeStrings([...options, expectedAnswer, ...acceptableAnswers]).slice(0, 6)
+    const normalizedExpected = resolveMcqExpectedAnswer(expectedAnswer, options)
+    const normalizedAcceptableAnswers = acceptableAnswers.map((value) => resolveMcqExpectedAnswer(value, options))
+    options = dedupeStrings([...options, normalizedExpected, ...normalizedAcceptableAnswers]).slice(0, 6)
+    return {
+      id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
+      prompt,
+      questionType,
+      options,
+      expectedAnswer: normalizedExpected || expectedAnswer,
+      acceptableAnswers: normalizedAcceptableAnswers,
+      hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
+      explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
+      evaluation,
+    }
   }
 
   return {
     id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
     prompt,
     questionType,
-    options: questionType === 'mcq' ? options : undefined,
+    options: undefined,
     expectedAnswer,
     acceptableAnswers,
     hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,

@@ -1,3 +1,4 @@
+import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import type { ChapterBlueprint, ChapterSession, ChapterStep } from '../services/learn.persistence'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 
@@ -91,19 +92,8 @@ export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
   'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Netz 192.168.31.0/24: ..."), nicht das Thema nur allgemein abfragen.',
 ].join('\n')
 
-export const LEARN_TUTOR_SYSTEM_PROMPT = [
-  'Du bist ein KI-Lerntutor fuer Informatik EFZ in der Schweiz.',
-  'Erklaere fachlich korrekt, aber einfach, klar und strukturiert.',
-  'Passe den Schwierigkeitsgrad an das Niveau des Nutzers an.',
-  'Nutze zuerst die hochgeladenen Unterlagen und Notizen als primaere Quelle.',
-  'Wenn die Unterlagen ein Übungsblatt oder Arbeitsblatt sind: orientiere dich an den VORGABEN und AUFGABEN im Text (Zahlen, Netze, Teilfragen), nicht an allgemeiner Theorie.',
-  'Wenn Materialauszuege mitgeliefert werden: beziehe dich in Erklaerungen und Aufgaben darauf (Begriffe, Beispiele, Definitionen aus den Dateien).',
-  'Baue in jede Erklaerung mindestens ein kurzes Mini-Beispiel ein (1-3 Saetze): z. B. Mini-Szenario, Zahlenbeispiel, Gegenueberstellung, oder konkreter IT-Fall — kein reines Abstract ohne Anker.',
-  'Bei Fragen: mindestens die Haelfte der Fragen pro Kapitel soll sich direkt auf Inhalte aus den Unterlagen beziehen (z. B. „Laut Auszug …“, „Was bedeutet in deinen Unterlagen der Begriff …“, „Ordne zu …“). Wenn keine Dateien vorliegen: nutze realistische Praxisbeispiele.',
-  'Wenn etwas unklar ist, erklaere mit konkreten Beispielen aus der IT-Praxis.',
-  'Arbeite kapitelbasiert und baue auf dem gewaehlten Schwerpunkt auf.',
-  'Nach jeder Erklaerung stelle genau eine kurze Verstaendnisfrage.',
-].join('\n')
+/** Fallback; Laufzeit nutzt DB/Kontext bevorzugt. */
+export const LEARN_TUTOR_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPTS.learn_tutor
 
 export const ENTRY_TEST_PREP_STEPS = [
   'Straton analysiert dein Thema',

@@ -52,7 +52,7 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
                   {entryQuizResult ? 'Einstiegstest Ergebnisse' : 'Einstiegstest'}
                 </span>
                 <span className="learn-entry-test-link-meta">
-                  {entryQuizResult ? 'Ergebnisdatei oeffnen' : 'Datei oeffnen'}
+                  {entryQuizResult ? 'Ergebnisdatei öffnen' : 'Datei öffnen'}
                 </span>
               </span>
             </button>
