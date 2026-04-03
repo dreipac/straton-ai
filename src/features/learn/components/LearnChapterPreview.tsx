@@ -1,5 +1,7 @@
+import cardsFilled from '../../../assets/icons/cards-filled.svg'
+import cardsOutline from '../../../assets/icons/cards-outline.svg'
 import fileIcon from '../../../assets/icons/file.svg'
-import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
+import filePenOutline from '../../../assets/icons/filePen-outline.svg'
 
 export type LearnChapterPreviewProps = {
   greetingText: string
@@ -26,6 +28,11 @@ export type LearnChapterPreviewProps = {
   onCreateFlashcards: () => void
   hasSavedFlashcards: boolean
   onOpenSavedFlashcards: () => void
+  canCreateWorksheet: boolean
+  isGeneratingWorksheet: boolean
+  onCreateWorksheet: () => void
+  hasSavedWorksheets: boolean
+  onOpenSavedWorksheets: () => void
 }
 
 export function LearnChapterPreview(props: LearnChapterPreviewProps) {
@@ -54,6 +61,11 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
     onCreateFlashcards,
     hasSavedFlashcards,
     onOpenSavedFlashcards,
+    canCreateWorksheet,
+    isGeneratingWorksheet,
+    onCreateWorksheet,
+    hasSavedWorksheets,
+    onOpenSavedWorksheets,
   } = props
 
   const barWidth = Math.max(0, Math.min(100, stepProgressPercent))
@@ -117,28 +129,79 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
           {hasStartedFirstChapter ? 'Weitermachen' : 'Kapitel starten'}
         </button>
       </div>
-      <div className="learn-chapter-preview-section">
-        <p className="learn-chapter-preview-label">Aktionen</p>
-        <div className="learn-chapter-preview-actions">
-          {hasSavedFlashcards ? (
-            <button type="button" className="learn-entry-test-link learn-chapter-preview-flashcards-link" onClick={onOpenSavedFlashcards}>
-              <span className="learn-entry-test-link-icon-wrap" aria-hidden="true">
-                <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
+      <div className="learn-chapter-preview-section learn-chapter-preview-section--actions-block">
+        <div className="learn-chapter-preview-actions-top">
+          <p className="learn-chapter-preview-label learn-chapter-preview-label--actions">Aktionen</p>
+          <div className="learn-chapter-preview-action-pills">
+            <button
+              type="button"
+              className="learn-chapter-preview-pill learn-chapter-preview-pill--cards"
+              disabled={!canCreateFlashcards || isGeneratingFlashcards || isGeneratingWorksheet}
+              onClick={onCreateFlashcards}
+              aria-busy={isGeneratingFlashcards}
+              aria-label={isGeneratingFlashcards ? 'Lernkarten werden erstellt' : 'Lernkarten erstellen'}
+            >
+              <span className="learn-chapter-preview-pill-icon learn-chapter-preview-pill-icon--swap" aria-hidden="true">
+                <img className="learn-chapter-preview-pill-icon-default" src={cardsOutline} alt="" />
+                <img className="learn-chapter-preview-pill-icon-hover" src={cardsFilled} alt="" />
               </span>
-              <span className="learn-entry-test-link-content">
-                <span className="learn-entry-test-link-title">Lernkarten</span>
-                <span className="learn-entry-test-link-meta">Datei öffnen</span>
+              <span className="learn-chapter-preview-pill-label">
+                {isGeneratingFlashcards ? 'Wird erstellt…' : 'Lernkarten erstellen'}
               </span>
             </button>
-          ) : null}
-          <SecondaryButton
-            type="button"
-            disabled={!canCreateFlashcards || isGeneratingFlashcards}
-            onClick={onCreateFlashcards}
-          >
-            {isGeneratingFlashcards ? 'Lernkarten werden erstellt…' : 'Lernkarten erstellen'}
-          </SecondaryButton>
+            <button
+              type="button"
+              className="learn-chapter-preview-pill learn-chapter-preview-pill--worksheet"
+              disabled={!canCreateWorksheet || isGeneratingWorksheet || isGeneratingFlashcards}
+              onClick={onCreateWorksheet}
+              aria-busy={isGeneratingWorksheet}
+              aria-label={isGeneratingWorksheet ? 'Arbeitsblatt wird erstellt' : 'Arbeitsblatt erstellen'}
+            >
+              <span className="learn-chapter-preview-pill-icon" aria-hidden="true">
+                <img src={filePenOutline} alt="" />
+              </span>
+              <span className="learn-chapter-preview-pill-label">
+                {isGeneratingWorksheet ? 'Wird erstellt…' : 'Arbeitsblatt erstellen'}
+              </span>
+            </button>
+          </div>
         </div>
+        {hasSavedFlashcards || hasSavedWorksheets ? (
+          <div className="learn-chapter-preview-actions learn-chapter-preview-actions--saved-files">
+            <div className="learn-chapter-preview-file-grid">
+              {hasSavedFlashcards ? (
+                <button
+                  type="button"
+                  className="learn-entry-test-link learn-chapter-preview-file-chip"
+                  onClick={onOpenSavedFlashcards}
+                  aria-label="Lernkarten öffnen"
+                >
+                  <span className="learn-entry-test-link-icon-wrap" aria-hidden="true">
+                    <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
+                  </span>
+                  <span className="learn-entry-test-link-content learn-chapter-preview-file-chip-text">
+                    <span className="learn-entry-test-link-title">Lernkarten</span>
+                  </span>
+                </button>
+              ) : null}
+              {hasSavedWorksheets ? (
+                <button
+                  type="button"
+                  className="learn-entry-test-link learn-chapter-preview-file-chip"
+                  onClick={onOpenSavedWorksheets}
+                  aria-label="Arbeitsblatt öffnen"
+                >
+                  <span className="learn-entry-test-link-icon-wrap" aria-hidden="true">
+                    <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
+                  </span>
+                  <span className="learn-entry-test-link-content learn-chapter-preview-file-chip-text">
+                    <span className="learn-entry-test-link-title">Arbeitsblatt</span>
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   )

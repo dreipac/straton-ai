@@ -188,6 +188,31 @@
   border: 1px solid rgba(139, 92, 246, 0.32);
 }
 
+.chat-beta-badge-button {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  width: auto !important;
+  min-height: 0 !important;
+  flex: 0 0 auto;
+  text-align: center !important;
+  padding: 0.2rem 0.38rem !important;
+  border-radius: 999px !important;
+  background: rgba(139, 92, 246, 0.16) !important;
+  color: #7c3aed !important;
+  border: 1px solid rgba(139, 92, 246, 0.32) !important;
+}
+
+.chat-beta-badge-button:hover {
+  filter: brightness(0.97);
+}
+
+.chat-sidebar-top .chat-beta-badge-button:hover:enabled {
+  background: rgba(139, 92, 246, 0.22) !important;
+  color: #6d28d9 !important;
+  border-color: rgba(139, 92, 246, 0.42) !important;
+}
+
 .chat-sidebar-top-button-icon {
   --ui-icon-size: 19px;
 }
@@ -472,6 +497,9 @@
 
 .account-meta {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
 }
 
 .account-email {
@@ -479,6 +507,14 @@
   font-size: 0.78rem;
   color: #64748b;
   word-break: break-all;
+}
+
+.account-subscription {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  color: #64748b;
+  word-break: break-word;
 }
 
 
@@ -792,6 +828,7 @@
 
 :root[data-theme='dark'] .account-label,
 :root[data-theme='dark'] .account-email,
+:root[data-theme='dark'] .account-subscription,
 :root[data-theme='dark'] .thread-list-info {
   color: #9ca3af;
 }

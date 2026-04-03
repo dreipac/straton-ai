@@ -64,7 +64,7 @@ export function LearnEntryQuizModal(props: LearnEntryQuizModalProps) {
   }
 
   return (
-    <ModalShell isOpen={isVisible} className="learn-entry-test-overlay">
+    <ModalShell isOpen={isVisible} className="learn-entry-test-overlay" onRequestClose={onClose}>
       <section className="learn-entry-test-modal" role="dialog" aria-modal="true" aria-label="Einstiegstest">
         <header className="learn-entry-test-header">
           <div className="learn-entry-test-header-copy">

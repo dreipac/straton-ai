@@ -102,13 +102,13 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
 
   const [hintPopoverMounted, setHintPopoverMounted] = useState(false)
   const [hintPopoverClosing, setHintPopoverClosing] = useState(false)
+  const [hintPopoverStepId, setHintPopoverStepId] = useState<string | null>(null)
   const hintAnchorRef = useRef<HTMLDivElement>(null)
-  const hintPopoverStateRef = useRef({ mounted: false, closing: false })
-  hintPopoverStateRef.current = { mounted: hintPopoverMounted, closing: hintPopoverClosing }
+  const activeStepId = activeChapterStep?.id ?? null
+  const isHintPopoverOpen = hintPopoverMounted && !hintPopoverClosing && hintPopoverStepId === activeStepId
 
   const requestCloseHintPopover = () => {
-    const { mounted, closing } = hintPopoverStateRef.current
-    if (!mounted || closing) {
+    if (!isHintPopoverOpen || hintPopoverClosing) {
       return
     }
     setHintPopoverClosing(true)
@@ -118,26 +118,21 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
     if (event.target !== event.currentTarget) {
       return
     }
-    if (!hintPopoverStateRef.current.closing) {
+    if (!hintPopoverClosing) {
       return
     }
     setHintPopoverClosing(false)
     setHintPopoverMounted(false)
+    setHintPopoverStepId(null)
   }
 
   useEffect(() => {
-    setHintPopoverMounted(false)
-    setHintPopoverClosing(false)
-  }, [activeChapterStep?.id])
-
-  useEffect(() => {
-    if (!hintPopoverMounted || hintPopoverClosing) {
+    if (!isHintPopoverOpen || hintPopoverClosing) {
       return
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        const { mounted, closing } = hintPopoverStateRef.current
-        if (!mounted || closing) {
+        if (!isHintPopoverOpen || hintPopoverClosing) {
           return
         }
         setHintPopoverClosing(true)
@@ -148,8 +143,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
       if (!el || el.contains(event.target as Node)) {
         return
       }
-      const { mounted, closing } = hintPopoverStateRef.current
-      if (!mounted || closing) {
+      if (!isHintPopoverOpen || hintPopoverClosing) {
         return
       }
       setHintPopoverClosing(true)
@@ -160,7 +154,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('pointerdown', onPointerDown)
     }
-  }, [hintPopoverMounted, hintPopoverClosing])
+  }, [isHintPopoverOpen, hintPopoverClosing])
 
   const questionInfoPanelText =
     activeChapterStep?.type === 'question'
@@ -172,7 +166,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
   }
 
   return (
-    <ModalShell isOpen={isVisible} className="learn-chapter-modal-overlay">
+    <ModalShell isOpen={isVisible} className="learn-chapter-modal-overlay" onRequestClose={onClose}>
       <section className="learn-chapter-modal" role="dialog" aria-modal="true" aria-label="Lernkapitel">
         <header className="learn-chapter-modal-header">
           <div className="learn-chapter-modal-header-copy">
@@ -261,24 +255,23 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                 <div ref={hintAnchorRef} className="learn-chapter-step-info-anchor">
                   <button
                     type="button"
-                    className={`learn-chapter-step-info-button ${hintPopoverMounted && !hintPopoverClosing ? 'is-open' : ''}`}
+                    className={`learn-chapter-step-info-button ${isHintPopoverOpen ? 'is-open' : ''}`}
                     onClick={() => {
-                      if (hintPopoverMounted && !hintPopoverClosing) {
+                      if (isHintPopoverOpen) {
                         requestCloseHintPopover()
                         return
                       }
-                      if (!hintPopoverMounted) {
-                        setHintPopoverMounted(true)
-                        setHintPopoverClosing(false)
-                      }
+                      setHintPopoverStepId(activeStepId)
+                      setHintPopoverMounted(true)
+                      setHintPopoverClosing(false)
                     }}
-                    aria-expanded={hintPopoverMounted && !hintPopoverClosing}
+                    aria-expanded={isHintPopoverOpen}
                     aria-controls="learn-chapter-step-hint-popover"
                     title="Tipp zur Frage"
                   >
                     <img src={infoIcon} alt="" className="learn-chapter-step-info-icon" width={20} height={20} aria-hidden="true" />
                   </button>
-                  {hintPopoverMounted ? (
+                  {hintPopoverMounted && hintPopoverStepId === activeStepId ? (
                     <div
                       id="learn-chapter-step-hint-popover"
                       className={`learn-chapter-hint-popover learn-chapter-hint-popover--above ${hintPopoverClosing ? 'is-closing' : ''}`}

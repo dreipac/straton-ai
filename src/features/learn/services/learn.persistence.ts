@@ -38,6 +38,12 @@ export type LearnFlashcard = {
   answer: string
 }
 
+/** Arbeitsblatt: nur Aufgabenstellungen (Antworten handschriftlich / separat). */
+export type LearnWorksheetItem = {
+  id: string
+  prompt: string
+}
+
 export type ChapterStep =
   | {
       id: string
@@ -100,6 +106,7 @@ export type LearningPathRecord = LearningPathSummary & {
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
   learnFlashcards: LearnFlashcard[]
+  learnWorksheets: LearnWorksheetItem[]
 }
 
 type LearningPathRow = {
@@ -122,6 +129,7 @@ type LearningPathRow = {
   chapter_blueprints: unknown
   chapter_session: unknown
   learn_flashcards: unknown
+  learn_worksheets: unknown
   created_at: string
   updated_at: string
 }
@@ -144,6 +152,7 @@ type LearningPathPatch = Partial<{
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
   learnFlashcards: LearnFlashcard[]
+  learnWorksheets: LearnWorksheetItem[]
 }>
 
 function toReadableError(error: unknown): Error {
@@ -581,6 +590,35 @@ function mapLearnFlashcards(value: unknown): LearnFlashcard[] {
   return out.slice(0, 50)
 }
 
+function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const out: LearnWorksheetItem[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+    const o = entry as Record<string, unknown>
+    const id =
+      typeof o.id === 'string' && o.id.trim()
+        ? o.id.trim()
+        : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `ws-${out.length + 1}`
+    const rawPrompt =
+      typeof o.prompt === 'string'
+        ? o.prompt.trim()
+        : typeof o.question === 'string'
+          ? o.question.trim()
+          : ''
+    if (rawPrompt) {
+      out.push({ id, prompt: rawPrompt })
+    }
+  }
+  return out.slice(0, 50)
+}
+
 function mapProficiencyLevel(value: unknown): '' | 'low' | 'medium' | 'high' {
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
@@ -609,6 +647,7 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
     chapterSession: mapChapterSession(row.chapter_session),
     learnFlashcards: mapLearnFlashcards(row.learn_flashcards),
+    learnWorksheets: mapLearnWorksheets(row.learn_worksheets ?? []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -633,12 +672,13 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
   if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
   if (patch.learnFlashcards !== undefined) row.learn_flashcards = patch.learnFlashcards
+  if (patch.learnWorksheets !== undefined) row.learn_worksheets = patch.learnWorksheets
   return row
 }
 
 function stripNullChars(value: unknown): unknown {
   if (typeof value === 'string') {
-    return value.replace(/\u0000/g, '')
+    return value.split('\0').join('')
   }
   if (Array.isArray(value)) {
     return value.map((entry) => stripNullChars(entry))
@@ -658,7 +698,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
@@ -675,7 +715,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -703,7 +743,7 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 
@@ -725,7 +765,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 

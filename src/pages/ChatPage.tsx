@@ -17,6 +17,7 @@ import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
+import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
@@ -25,8 +26,9 @@ import { AdministratorModal } from './AdminPage'
 import { SettingsModal } from './SettingsPage'
 
 export function ChatPage() {
+  const DEFAULT_NO_PLAN_MAX_TOKENS = 100
   const MODAL_ANIMATION_MS = 220
-  const { user, profile, logout, isLoading, completeChatOnboarding } = useAuth()
+  const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
   const {
     threads,
     activeThreadId,
@@ -58,11 +60,16 @@ export function ChatPage() {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [showBetaNoticeOnFirstLogin, setShowBetaNoticeOnFirstLogin] = useState(true)
+  const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
+  const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
+  const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
   const renameCloseTimerRef = useRef<number | null>(null)
+  const betaNoticeCloseTimerRef = useRef<number | null>(null)
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
   const learnTourRef = useRef<HTMLButtonElement | null>(null)
 
@@ -112,8 +119,38 @@ export function ChatPage() {
       if (renameCloseTimerRef.current) {
         window.clearTimeout(renameCloseTimerRef.current)
       }
+      if (betaNoticeCloseTimerRef.current) {
+        window.clearTimeout(betaNoticeCloseTimerRef.current)
+      }
     }
   }, [])
+
+  useEffect(() => {
+    if (!user) {
+      setShowBetaNoticeOnFirstLogin(true)
+      return
+    }
+
+    let isMounted = true
+    void (async () => {
+      try {
+        const flags = await getAppFeatureFlags()
+        if (!isMounted) {
+          return
+        }
+        setShowBetaNoticeOnFirstLogin(flags.show_beta_notice_on_first_login)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setShowBetaNoticeOnFirstLogin(true)
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [user])
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
@@ -136,7 +173,48 @@ export function ChatPage() {
     setIsMobileSidebarOpen(true)
   }, [showChatTour])
 
+  useEffect(() => {
+    const shouldShowBetaNotice = Boolean(
+      user &&
+        profile &&
+        profile.chat_onboarding_completed &&
+        !profile.beta_notice_seen &&
+        showBetaNoticeOnFirstLogin &&
+        !showChatTour,
+    )
+
+    if (!shouldShowBetaNotice) {
+      return
+    }
+
+    if (betaNoticeCloseTimerRef.current) {
+      window.clearTimeout(betaNoticeCloseTimerRef.current)
+      betaNoticeCloseTimerRef.current = null
+    }
+
+    setBetaNoticeShouldMarkSeen(true)
+    setIsBetaNoticeMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsBetaNoticeVisible(true)
+    })
+  }, [user, profile, showBetaNoticeOnFirstLogin, showChatTour])
+
+  function openBetaNoticeModal(markSeenOnClose: boolean) {
+    if (betaNoticeCloseTimerRef.current) {
+      window.clearTimeout(betaNoticeCloseTimerRef.current)
+      betaNoticeCloseTimerRef.current = null
+    }
+    setBetaNoticeShouldMarkSeen(markSeenOnClose)
+    setIsBetaNoticeMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsBetaNoticeVisible(true)
+    })
+  }
+
   function openSettingsModal() {
+    void refreshProfile().catch(() => {
+      // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
+    })
     setIsMobileSidebarOpen(false)
     if (settingsCloseTimerRef.current) {
       window.clearTimeout(settingsCloseTimerRef.current)
@@ -203,6 +281,20 @@ export function ChatPage() {
     }, MODAL_ANIMATION_MS)
   }
 
+  async function closeBetaNoticeModal() {
+    setIsBetaNoticeVisible(false)
+    try {
+      if (betaNoticeShouldMarkSeen) {
+        await markBetaNoticeSeen()
+      }
+    } finally {
+      betaNoticeCloseTimerRef.current = window.setTimeout(() => {
+        setIsBetaNoticeMounted(false)
+        betaNoticeCloseTimerRef.current = null
+      }, MODAL_ANIMATION_MS)
+    }
+  }
+
   async function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!editingThread) {
@@ -239,6 +331,16 @@ export function ChatPage() {
   const greetingName = profile?.first_name || displayName.split(' ')[0] || 'da'
 
   const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const subscriptionPlanName = profile?.subscription_plans?.name ?? null
+  const hasAssignedPlan = profile?.subscription_plan_id != null
+  const usedTokensToday = profile?.subscription_usages?.used_tokens ?? 0
+  const maxTokensToday = hasAssignedPlan
+    ? (profile?.subscription_plans?.max_tokens ?? null)
+    : DEFAULT_NO_PLAN_MAX_TOKENS
+  const hasTokenLimit = maxTokensToday !== null
+  const tokenLimitReachedByUsage = hasTokenLimit && maxTokensToday !== null && usedTokensToday >= maxTokensToday
+  const tokenLimitReachedByError = hasTokenLimit && (error ?? '').toLowerCase().includes('token limit')
+  const tokenLimitReached = tokenLimitReachedByUsage || tokenLimitReachedByError
   const logoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
 
   if (!user) {
@@ -255,7 +357,13 @@ export function ChatPage() {
                 <div className="chat-brand">
                   <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                   <h2>Straton</h2>
-                  <span className="chat-beta-badge">Beta</span>
+                  <button
+                    type="button"
+                    className="chat-beta-badge chat-beta-badge-button"
+                    onClick={() => openBetaNoticeModal(false)}
+                  >
+                    Beta
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -327,6 +435,7 @@ export function ChatPage() {
               isSending={false}
               error={null}
               greetingName="da"
+              tokenLimitReached={false}
               onSendMessage={async () => {
                 navigate('/login')
               }}
@@ -366,7 +475,13 @@ export function ChatPage() {
               <div className="chat-brand">
                 <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                 <h2>Straton</h2>
-                <span className="chat-beta-badge">Beta</span>
+                <button
+                  type="button"
+                  className="chat-beta-badge chat-beta-badge-button"
+                  onClick={() => openBetaNoticeModal(false)}
+                >
+                  Beta
+                </button>
               </div>
               <button
                 type="button"
@@ -490,10 +605,13 @@ export function ChatPage() {
               )}
               {!isSidebarCollapsed ? (
                 <div className="account-meta">
+                  {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
                   <div className="account-name-row">
                     <p className="account-value">{displayName}</p>
-                    {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
                   </div>
+                  {subscriptionPlanName ? (
+                    <p className="account-subscription">{subscriptionPlanName}</p>
+                  ) : null}
                 </div>
               ) : null}
               {!isSidebarCollapsed ? (
@@ -534,6 +652,7 @@ export function ChatPage() {
           isSending={isSending}
           error={error}
           greetingName={greetingName}
+          tokenLimitReached={tokenLimitReached}
           onSendMessage={submitMessage}
         />
       </section>
@@ -572,12 +691,12 @@ export function ChatPage() {
       ) : null}
 
       {isSettingsMounted ? (
-        <ModalShell isOpen={isSettingsVisible}>
+        <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>
           <SettingsModal onClose={closeSettingsModal} />
         </ModalShell>
       ) : null}
       {isAdminMounted ? (
-        <ModalShell isOpen={isAdminVisible}>
+        <ModalShell isOpen={isAdminVisible} closeOnOverlayClick={false}>
           <AdministratorModal onClose={closeAdminModal} />
         </ModalShell>
       ) : null}
@@ -612,7 +731,7 @@ export function ChatPage() {
         </ContextMenu>
       ) : null}
       {editingThread ? (
-        <ModalShell isOpen={isRenameVisible}>
+        <ModalShell isOpen={isRenameVisible} onRequestClose={closeRenameModal}>
           <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Chat umbenennen">
             <ModalHeader
               title="Chat bearbeiten"
@@ -638,6 +757,36 @@ export function ChatPage() {
                 </button>
               </div>
             </form>
+          </section>
+        </ModalShell>
+      ) : null}
+      {isBetaNoticeMounted ? (
+        <ModalShell isOpen={isBetaNoticeVisible} onRequestClose={() => void closeBetaNoticeModal()}>
+          <section className="rename-modal beta-notice-modal" role="dialog" aria-modal="true" aria-label="Beta Hinweis">
+            <header className="beta-notice-header">
+              <div className="beta-notice-brand">
+                <img className="ui-icon chat-brand-logo beta-notice-logo" src={logoSrc} alt="" aria-hidden="true" />
+                <h2>Straton</h2>
+              </div>
+              <button
+                type="button"
+                className="settings-close-button"
+                onClick={() => void closeBetaNoticeModal()}
+                aria-label="Beta Hinweis schliessen"
+              >
+                <span className="ui-icon settings-close-icon" aria-hidden="true" />
+              </button>
+            </header>
+            <h3 className="beta-notice-title">Beta Version</h3>
+            <p className="beta-notice-text">
+              Du nutzt aktuell eine Beta-Version. Inhalte, Funktionen und Design koennen sich in den naechsten
+              Updates noch aendern. Dein Feedback hilft uns sehr, Straton schneller und besser zu machen.
+            </p>
+            <div className="rename-actions">
+              <PrimaryButton type="button" onClick={() => void closeBetaNoticeModal()}>
+                Verstanden
+              </PrimaryButton>
+            </div>
           </section>
         </ModalShell>
       ) : null}

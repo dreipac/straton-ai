@@ -1,5 +1,6 @@
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
+import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 
 type AccountSettingsSectionProps = {
   firstNameDraft: string
@@ -8,6 +9,17 @@ type AccountSettingsSectionProps = {
   currentEmail: string
   pendingNewEmail: string | null
   avatarUrl: string | null
+  subscriptionPlan: {
+    name: string
+    max_tokens: number | null
+    max_images: number | null
+    max_files: number | null
+  } | null
+  subscriptionUsage: {
+    used_tokens: number
+    used_images: number
+    used_files: number
+  } | null
   isSavingAccount: boolean
   isSavingEmail: boolean
   emailSaveDisabled: boolean
@@ -17,6 +29,7 @@ type AccountSettingsSectionProps = {
   onLastNameChange: (value: string) => void
   onEmailChange: (value: string) => void
   onSaveEmail: () => void
+  onOpenPlansModal: () => void
 }
 
 export function AccountSettingsSection({
@@ -26,6 +39,8 @@ export function AccountSettingsSection({
   currentEmail,
   pendingNewEmail,
   avatarUrl,
+  subscriptionPlan,
+  subscriptionUsage,
   isSavingAccount,
   isSavingEmail,
   emailSaveDisabled,
@@ -35,6 +50,7 @@ export function AccountSettingsSection({
   onLastNameChange,
   onEmailChange,
   onSaveEmail,
+  onOpenPlansModal,
 }: AccountSettingsSectionProps) {
   const avatarFallback = (firstNameDraft.trim()[0] || lastNameDraft.trim()[0] || '?').toUpperCase()
 
@@ -139,6 +155,47 @@ export function AccountSettingsSection({
         <p className="account-settings-email-hint">
           Die E-Mail wird erst nach Klick auf den Bestätigungslink in deinem Postfach geändert (Supabase Auth).
         </p>
+      </div>
+
+      <div className="account-settings-subscription-block">
+        <h3 className="account-settings-subheading">Abonnement</h3>
+        <p className="account-settings-subscription-value" role="status">
+          {subscriptionPlan?.name ?? 'Kein Abo zugewiesen'}
+        </p>
+        {subscriptionPlan ? (
+          <>
+            <p className="account-subscription">
+              Tokens (heute): {subscriptionUsage?.used_tokens ?? 0} /{' '}
+              {subscriptionPlan.max_tokens ?? 'unbegrenzt'}
+            </p>
+            <p className="account-subscription">
+              Bilder (heute): {subscriptionUsage?.used_images ?? 0} /{' '}
+              {subscriptionPlan.max_images ?? 'unbegrenzt'}
+            </p>
+            <p className="account-subscription">
+              Dateien (heute): {subscriptionUsage?.used_files ?? 0} /{' '}
+              {subscriptionPlan.max_files ?? 'unbegrenzt'}
+            </p>
+          </>
+        ) : (
+          <p className="account-settings-subscription-hint">
+            Sobald ein Abo zugewiesen ist, siehst du hier den Verbrauch.
+          </p>
+        )}
+        {subscriptionPlan ? (
+          <p className="account-settings-subscription-hint">
+            Welches Abo dir zusteht, legt ein Administrator fest; du kannst es hier nicht selbst ändern.
+          </p>
+        ) : null}
+        <SecondaryButton
+          type="button"
+          className="account-subscription-button"
+          disabled
+          onClick={onOpenPlansModal}
+        >
+          Abo-Modelle ansehen & kaufen
+        </SecondaryButton>
+        <p className="account-settings-subscription-hint">noch nicht verfügbar.</p>
       </div>
 
       {isSavingAccount ? <p className="account-settings-saving">Speichert Namen...</p> : null}

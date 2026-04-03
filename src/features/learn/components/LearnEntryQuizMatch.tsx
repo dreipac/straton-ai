@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { DragEvent } from 'react'
 
 type LearnEntryQuizMatchProps = {
@@ -51,25 +51,12 @@ function parseAssignment(value: string, n: number): (number | null)[] {
 export function LearnEntryQuizMatch(props: LearnEntryQuizMatchProps) {
   const { questionId, matchLeft, matchRight, value, disabled, onChange } = props
   const n = matchLeft.length
-
-  const [assignments, setAssignments] = useState<(number | null)[]>(() =>
-    Array.from({ length: n }, () => null),
-  )
+  const assignments = useMemo(() => parseAssignment(value, n), [value, n])
 
   const poolOrder = useMemo(() => shuffleIndices(n, `${questionId}-pool`), [n, questionId])
 
-  useEffect(() => {
-    const parsed = parseAssignment(value, n)
-    if (parsed.every((x) => x !== null)) {
-      setAssignments(parsed)
-    } else {
-      setAssignments(Array.from({ length: n }, () => null))
-    }
-  }, [questionId, n, value])
-
   const emit = useCallback(
     (next: (number | null)[]) => {
-      setAssignments(next)
       if (next.every((x) => x !== null)) {
         onChange(next.map((x) => String(x)).join(','))
       } else {

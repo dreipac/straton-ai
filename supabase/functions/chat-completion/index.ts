@@ -49,7 +49,13 @@ function normalizeProvider(value: unknown): Provider {
 
 function normalizeMode(
   value: unknown,
-): 'chat' | 'evaluate_quiz' | 'generate_title' | 'generate_topic_suggestions' | 'generate_flashcards' {
+):
+  | 'chat'
+  | 'evaluate_quiz'
+  | 'generate_title'
+  | 'generate_topic_suggestions'
+  | 'generate_flashcards'
+  | 'generate_worksheet' {
   const v = typeof value === 'string' ? value.trim() : value
   if (v === 'evaluate_quiz') {
     return 'evaluate_quiz'
@@ -62,6 +68,9 @@ function normalizeMode(
   }
   if (v === 'generate_flashcards') {
     return 'generate_flashcards'
+  }
+  if (v === 'generate_worksheet') {
+    return 'generate_worksheet'
   }
   return 'chat'
 }
@@ -333,6 +342,65 @@ type FlashcardPayload = {
   answer: string
 }
 
+type WorksheetPromptPayload = {
+  prompt: string
+}
+
+function stripLeadingMarkdownCodeFence(raw: string): string {
+  let t = raw.trim()
+  if (t.startsWith('```')) {
+    const firstNl = t.indexOf('\n')
+    if (firstNl !== -1) {
+      t = t.slice(firstNl + 1)
+    }
+    const fence = t.lastIndexOf('```')
+    if (fence !== -1) {
+      t = t.slice(0, fence).trim()
+    }
+  }
+  return t
+}
+
+function worksheetPromptFromEntry(o: Record<string, unknown>): string {
+  const keys = ['prompt', 'question', 'task', 'text', 'aufgabe', 'content', 'title'] as const
+  for (const key of keys) {
+    const v = o[key]
+    if (typeof v === 'string' && v.trim()) {
+      return v.trim()
+    }
+  }
+  return ''
+}
+
+function parseWorksheetPromptsFromRaw(raw: string): WorksheetPromptPayload[] {
+  const trimmed = stripLeadingMarkdownCodeFence(raw.trim())
+  const start = trimmed.indexOf('[')
+  const end = trimmed.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const out: WorksheetPromptPayload[] = []
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const o = entry as Record<string, unknown>
+      const prompt = worksheetPromptFromEntry(o)
+      if (prompt) {
+        out.push({ prompt })
+      }
+    }
+    return out.slice(0, 24)
+  } catch {
+    return []
+  }
+}
+
 function parseFlashcardsFromRaw(raw: string): FlashcardPayload[] {
   const trimmed = raw.trim()
   const start = trimmed.indexOf('[')
@@ -400,6 +468,45 @@ async function generateFlashcardsWithAi(
     throw new Error('Lernkarten konnten nicht aus der KI-Antwort gelesen werden.')
   }
   return cards
+}
+
+async function generateWorksheetWithAi(
+  provider: Provider,
+  chapterOutline: string,
+  apiKey: string,
+): Promise<WorksheetPromptPayload[]> {
+  const outline = chapterOutline.trim()
+  if (!outline) {
+    throw new Error('Keine Kapiteldaten fuer Arbeitsblatt.')
+  }
+
+  const worksheetMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterloesung im JSON).',
+        'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+        'Antworte ausschliesslich mit einem JSON-Array, kein Text davor oder danach.',
+        'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Saetzen"}]',
+        'Maximal 14 Aufgaben, auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: `Gespeicherte Kapitelinhalte (Auszug):\n\n${outline.slice(0, 28000)}`,
+    },
+  ]
+
+  const raw =
+    provider === 'anthropic'
+      ? await callAnthropic(worksheetMessages, apiKey)
+      : await callOpenAi(worksheetMessages, apiKey, ['gpt-4o-mini', 'gpt-4o'])
+
+  const items = parseWorksheetPromptsFromRaw(raw)
+  if (items.length === 0) {
+    throw new Error('Arbeitsblatt konnte nicht aus der KI-Antwort gelesen werden.')
+  }
+  return items
 }
 
 async function generateTopicSuggestionsWithAi(
@@ -513,6 +620,15 @@ serve(async (req) => {
       }
       const flashcards = await generateFlashcardsWithAi(provider, outline, apiKey)
       return jsonResponse({ flashcards })
+    }
+
+    if (mode === 'generate_worksheet') {
+      const outline = outlinePreview
+      if (!outline) {
+        return jsonResponse({ error: 'Kein Kapitelkontext fuer Arbeitsblatt uebermittelt.' }, 400)
+      }
+      const prompts = await generateWorksheetWithAi(provider, outline, apiKey)
+      return jsonResponse({ worksheetItems: prompts })
     }
 
     const inputMessages =

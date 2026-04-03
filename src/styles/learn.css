@@ -219,6 +219,156 @@
   color: var(--color-text-app);
 }
 
+.learn-chapter-preview-section--actions-block {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.learn-chapter-preview-actions-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+.learn-chapter-preview-label--actions {
+  flex: 0 0 auto;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.learn-chapter-preview-action-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.38rem;
+  flex: 1 1 auto;
+  min-width: min(100%, 12rem);
+}
+
+/* Kompakte Pill-Buttons (Icon + kurzer Text), an «Aktionen» ausgerichtet */
+.learn-chapter-preview-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  margin: 0;
+  padding: 0.32rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-app);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: 0 2px 6px var(--color-shadow-soft);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.2s ease;
+  max-width: 100%;
+}
+
+.learn-chapter-preview-pill:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-app);
+  background:
+    linear-gradient(
+        color-mix(in srgb, var(--color-surface-elevated) 92%, transparent),
+        color-mix(in srgb, var(--color-surface-elevated) 92%, transparent)
+      )
+      padding-box,
+    var(--accent-gradient) border-box;
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: 0 4px 18px color-mix(in srgb, #0ea5e9 22%, transparent);
+}
+
+.learn-chapter-preview-pill:hover:not(:disabled) .learn-chapter-preview-pill-label {
+  color: transparent;
+  background-image: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.learn-chapter-preview-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.learn-chapter-preview-pill-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 11rem;
+  transition: color 0.18s ease;
+}
+
+.learn-chapter-preview-pill-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.learn-chapter-preview-pill-icon img {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+  display: block;
+  transition: filter 0.18s ease, opacity 0.18s ease;
+}
+
+/* Icons: neutral; bei Hover Akzentton (wie Text-Gradient) */
+:root[data-theme='dark'] .learn-chapter-preview-pill:not(:hover) .learn-chapter-preview-pill-icon img,
+:root[data-theme='dark'] .learn-chapter-preview-pill:disabled .learn-chapter-preview-pill-icon img {
+  filter: brightness(0) invert(0.92);
+}
+
+:root[data-theme='light'] .learn-chapter-preview-pill:not(:hover) .learn-chapter-preview-pill-icon img,
+:root[data-theme='light'] .learn-chapter-preview-pill:disabled .learn-chapter-preview-pill-icon img {
+  filter: none;
+  opacity: 0.9;
+}
+
+.learn-chapter-preview-pill:hover:not(:disabled) .learn-chapter-preview-pill-icon img {
+  filter: brightness(0) saturate(100%) invert(58%) sepia(85%) saturate(1200%) hue-rotate(152deg) brightness(96%) contrast(96%);
+  opacity: 1;
+}
+
+/* Lernkarten: Outline → Filled bei Hover */
+.learn-chapter-preview-pill-icon--swap img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.learn-chapter-preview-pill-icon--swap .learn-chapter-preview-pill-icon-hover {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.learn-chapter-preview-pill--cards:hover:not(:disabled) .learn-chapter-preview-pill-icon--swap .learn-chapter-preview-pill-icon-default {
+  opacity: 0;
+}
+
+.learn-chapter-preview-pill--cards:hover:not(:disabled) .learn-chapter-preview-pill-icon--swap .learn-chapter-preview-pill-icon-hover {
+  opacity: 1;
+}
+
+.learn-chapter-preview-actions--saved-files {
+  margin: 0;
+  padding: 0;
+}
+
 .learn-chapter-preview-title {
   margin: 0;
   font-size: 1.1rem;
@@ -323,11 +473,6 @@
   display: grid;
   gap: 0.65rem;
   justify-items: stretch;
-}
-
-.learn-chapter-preview-flashcards-link {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .learn-flashcards-modal-overlay {
@@ -489,6 +634,94 @@ button.learn-flashcard:active:enabled {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.65rem;
+}
+
+/* Arbeitsblatt: gleicher Modalausschnitt wie Lernkarten — kein heller Kasten, Dark-Mode-Tokens */
+.learn-worksheet-modal-body {
+  background: transparent;
+}
+
+.learn-worksheet-content {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 640px;
+  padding: 0 0.1rem 0.35rem;
+  color: var(--color-text-app);
+}
+
+.learn-worksheet-content-header {
+  text-align: center;
+  padding-bottom: 1rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 85%, transparent);
+}
+
+.learn-worksheet-content-title {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-app);
+}
+
+.learn-worksheet-content-subtitle {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.learn-worksheet-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.35rem;
+}
+
+.learn-worksheet-item {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.learn-worksheet-prompt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.learn-worksheet-num {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  margin-top: 0.12rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+}
+
+.learn-worksheet-prompt {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: clamp(0.94rem, 0.87rem + 0.22vw, 1.04rem);
+  font-weight: 600;
+  line-height: 1.48;
+  color: var(--color-text-app);
+}
+
+/* Nur Mindesthöhe — Farben/Fokus kommen aus ui.css (.ui-textarea) */
+textarea.ui-textarea.learn-worksheet-answer-field {
+  min-height: 5.25rem;
+  margin-top: 0.15rem;
 }
 
 .learn-materials-list {
@@ -1778,6 +2011,56 @@ button.learn-flashcard:active:enabled {
 .learn-entry-test-link-meta {
   font-size: 0.8rem;
   opacity: 0.78;
+}
+
+/* Kapitelvorschau: kompakte Datei-Kacheln (nur Icon + Titel), 2 pro Reihe */
+.learn-chapter-preview-file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.learn-entry-test-link.learn-chapter-preview-file-chip {
+  margin-top: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  padding: 0.4rem 0.5rem;
+  gap: 0.45rem;
+  border-radius: 10px;
+  justify-content: flex-start;
+}
+
+.learn-entry-test-link.learn-chapter-preview-file-chip .learn-entry-test-link-icon-wrap {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.learn-entry-test-link.learn-chapter-preview-file-chip .learn-entry-test-link-icon {
+  --ui-icon-size: 13px;
+}
+
+.learn-chapter-preview-file-chip-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.learn-entry-test-link.learn-chapter-preview-file-chip .learn-entry-test-link-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 360px) {
+  .learn-chapter-preview-file-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .learn-entry-test-modal {

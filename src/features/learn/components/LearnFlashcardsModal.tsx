@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
@@ -15,28 +15,29 @@ export type LearnFlashcardsModalProps = {
 
 export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
   const { isMounted, isVisible, cards, isLoading, error, onClose } = props
-  const [index, setIndex] = useState(0)
-  const [isFlipped, setIsFlipped] = useState(false)
-
-  useEffect(() => {
-    setIndex(0)
-    setIsFlipped(false)
-  }, [cards])
-
-  useEffect(() => {
-    setIsFlipped(false)
-  }, [index])
+  const cardsKey = useMemo(
+    () => cards.map((card) => `${card.question}::${card.answer}`).join('||'),
+    [cards],
+  )
+  const [state, setState] = useState<{ index: number; isFlipped: boolean; cardsKey: string }>({
+    index: 0,
+    isFlipped: false,
+    cardsKey,
+  })
 
   if (!isMounted) {
     return null
   }
 
+  const isSameDeck = state.cardsKey === cardsKey
+  const index = isSameDeck ? state.index : 0
+  const isFlipped = isSameDeck ? state.isFlipped : false
   const card = cards[index]
   const total = cards.length
   const canNavigate = total > 1
 
   return (
-    <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay">
+    <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
       <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Lernkarten">
         <header className="learn-flashcards-modal-header">
           <h2>Lernkarten</h2>
@@ -59,7 +60,13 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
               <button
                 type="button"
                 className={`learn-flashcard ${isFlipped ? 'is-flipped' : ''}`}
-                onClick={() => setIsFlipped((f) => !f)}
+                onClick={() =>
+                  setState((prev) => ({
+                    index,
+                    cardsKey,
+                    isFlipped: prev.cardsKey === cardsKey ? !prev.isFlipped : true,
+                  }))
+                }
                 aria-label={isFlipped ? 'Karte umdrehen zur Frage' : 'Karte umdrehen zur Antwort'}
               >
                 <div className="learn-flashcard-inner">
@@ -78,14 +85,26 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
                   <SecondaryButton
                     type="button"
                     disabled={index <= 0}
-                    onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                    onClick={() =>
+                      setState({
+                        index: Math.max(0, index - 1),
+                        isFlipped: false,
+                        cardsKey,
+                      })
+                    }
                   >
                     Zurück
                   </SecondaryButton>
                   <PrimaryButton
                     type="button"
                     disabled={index >= total - 1}
-                    onClick={() => setIndex((i) => Math.min(total - 1, i + 1))}
+                    onClick={() =>
+                      setState({
+                        index: Math.min(total - 1, index + 1),
+                        isFlipped: false,
+                        cardsKey,
+                      })
+                    }
                   >
                     Weiter
                   </PrimaryButton>

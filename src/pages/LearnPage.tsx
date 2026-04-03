@@ -5,8 +5,9 @@ import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
-import { useSystemPrompts } from '../features/systemPrompts/SystemPromptsContext'
-import { generateLearnFlashcards, sendMessage } from '../features/chat/services/chat.service'
+import { incrementMySubscriptionUsage } from '../features/auth/services/subscription.service'
+import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
+import { generateLearnFlashcards, generateLearnWorksheet, sendMessage } from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
   createLearningPathByUserId,
@@ -15,6 +16,7 @@ import {
   listLearningPathsByUserId,
   type EntryQuizResult,
   type LearnFlashcard,
+  type LearnWorksheetItem,
   type LearningPathRecord,
   type LearningPathSummary,
   type TutorChatEntry,
@@ -47,6 +49,7 @@ import { formatRelevantMaterialContext } from '../features/learn/utils/ragLite'
 import { buildFlashcardSourceFromBlueprints } from '../features/learn/utils/flashcardSourceFromBlueprints'
 import { LearnChapterModal } from '../features/learn/components/LearnChapterModal'
 import { LearnFlashcardsModal } from '../features/learn/components/LearnFlashcardsModal'
+import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheetModal'
 import { LearnConversationSection } from '../features/learn/components/LearnConversationSection'
 import { LearnEntryQuizModal } from '../features/learn/components/LearnEntryQuizModal'
 import { LearnOverviewPanel } from '../features/learn/components/LearnOverviewPanel'
@@ -56,7 +59,7 @@ import { SettingsModal } from './SettingsPage'
 
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
-  const { user, profile, isLoading } = useAuth()
+  const { user, profile, isLoading, refreshProfile } = useAuth()
   const { getPrompt } = useSystemPrompts()
   const navigate = useNavigate()
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -101,6 +104,11 @@ export function LearnPage() {
   const [learnFlashcards, setLearnFlashcards] = useState<LearnFlashcard[]>([])
   const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false)
   const [flashcardsError, setFlashcardsError] = useState<string | null>(null)
+  const [isWorksheetModalMounted, setIsWorksheetModalMounted] = useState(false)
+  const [isWorksheetModalVisible, setIsWorksheetModalVisible] = useState(false)
+  const [learnWorksheets, setLearnWorksheets] = useState<LearnWorksheetItem[]>([])
+  const [isGeneratingWorksheet, setIsGeneratingWorksheet] = useState(false)
+  const [worksheetError, setWorksheetError] = useState<string | null>(null)
   const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
   const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
   const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
@@ -114,6 +122,7 @@ export function LearnPage() {
   const entryQuizCloseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
   const flashcardsModalCloseTimerRef = useRef<number | null>(null)
+  const worksheetModalCloseTimerRef = useRef<number | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const suppressAutosaveRef = useRef(false)
   const activePathIdRef = useRef('')
@@ -175,6 +184,7 @@ export function LearnPage() {
       chapterBlueprints,
       chapterSession,
       learnFlashcards,
+      learnWorksheets,
     }),
     [
       topic,
@@ -193,6 +203,7 @@ export function LearnPage() {
       chapterBlueprints,
       chapterSession,
       learnFlashcards,
+      learnWorksheets,
     ],
   )
 
@@ -236,6 +247,15 @@ export function LearnPage() {
         window.clearTimeout(flashcardsModalCloseTimerRef.current)
         flashcardsModalCloseTimerRef.current = null
       }
+      setIsWorksheetModalVisible(false)
+      setIsWorksheetModalMounted(false)
+      setLearnWorksheets(record.learnWorksheets ?? [])
+      setWorksheetError(null)
+      setIsGeneratingWorksheet(false)
+      if (worksheetModalCloseTimerRef.current) {
+        window.clearTimeout(worksheetModalCloseTimerRef.current)
+        worksheetModalCloseTimerRef.current = null
+      }
       if (entryQuizCloseTimerRef.current) {
         window.clearTimeout(entryQuizCloseTimerRef.current)
         entryQuizCloseTimerRef.current = null
@@ -276,6 +296,7 @@ export function LearnPage() {
     setChapterBlueprints([])
     setChapterSession(DEFAULT_CHAPTER_SESSION)
     setLearnFlashcards([])
+    setLearnWorksheets([])
     setEntryQuizQuestionIndex(0)
     setIsPostEntryPrepLoading(false)
     setPostEntryPrepStepIndex(0)
@@ -299,6 +320,7 @@ export function LearnPage() {
     chapterBlueprints,
     chapterSession,
     learnFlashcards,
+    learnWorksheets,
   }
 
   const { persistActivePath, persistPathInBackground } = useLearningPathPersistence({
@@ -515,6 +537,9 @@ export function LearnPage() {
       }
       if (flashcardsModalCloseTimerRef.current) {
         window.clearTimeout(flashcardsModalCloseTimerRef.current)
+      }
+      if (worksheetModalCloseTimerRef.current) {
+        window.clearTimeout(worksheetModalCloseTimerRef.current)
       }
       if (settingsCloseTimerRef.current) {
         window.clearTimeout(settingsCloseTimerRef.current)
@@ -876,6 +901,7 @@ export function LearnPage() {
     chapterAccuracyPercent,
     displayName,
     avatarFallback,
+    subscriptionPlanName,
     previewChapterTitle,
     previewStepCount,
     previewQuestionCount,
@@ -907,6 +933,15 @@ export function LearnPage() {
     if (effectiveChapterBlueprints.length === 0) {
       return
     }
+    if (!user) {
+      return
+    }
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    setIsWorksheetModalVisible(false)
+    setIsWorksheetModalMounted(false)
     if (flashcardsModalCloseTimerRef.current) {
       window.clearTimeout(flashcardsModalCloseTimerRef.current)
       flashcardsModalCloseTimerRef.current = null
@@ -922,6 +957,14 @@ export function LearnPage() {
       setFlashcardsError('Kein Kapiteltext vorhanden.')
       return
     }
+
+    const maxImages = profile?.subscription_plans?.max_images ?? null
+    const usedImages = profile?.subscription_usages?.used_images ?? 0
+    if (maxImages !== null && usedImages + 1 > maxImages) {
+      setFlashcardsError('Du hast dein Abo-Limit für Bilder (Lernkarten) erreicht.')
+      return
+    }
+
     setIsGeneratingFlashcards(true)
     try {
       const cards = await generateLearnFlashcards(outline)
@@ -936,12 +979,87 @@ export function LearnPage() {
         })
         pathCacheRef.current[pathId] = updated
       }
+
+      await incrementMySubscriptionUsage({ userId: user.id, usedImagesDelta: 1 })
     } catch (e) {
       setFlashcardsError(e instanceof Error ? e.message : 'Lernkarten fehlgeschlagen.')
     } finally {
       setIsGeneratingFlashcards(false)
     }
-  }, [captureEditableState, effectiveChapterBlueprints, learningPaths])
+  }, [
+    captureEditableState,
+    effectiveChapterBlueprints,
+    learningPaths,
+    profile?.subscription_plans?.max_images,
+    profile?.subscription_usages?.used_images,
+    user,
+  ])
+
+  const handleCreateWorksheet = useCallback(async () => {
+    if (effectiveChapterBlueprints.length === 0) {
+      return
+    }
+    if (!user) {
+      return
+    }
+    if (flashcardsModalCloseTimerRef.current) {
+      window.clearTimeout(flashcardsModalCloseTimerRef.current)
+      flashcardsModalCloseTimerRef.current = null
+    }
+    setIsFlashcardsModalVisible(false)
+    setIsFlashcardsModalMounted(false)
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    const outline = buildFlashcardSourceFromBlueprints(effectiveChapterBlueprints)
+    setLearnWorksheets([])
+    setWorksheetError(null)
+    setIsWorksheetModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsWorksheetModalVisible(true)
+    })
+    if (!outline.trim()) {
+      setWorksheetError('Kein Kapiteltext vorhanden.')
+      return
+    }
+
+    const maxImages = profile?.subscription_plans?.max_images ?? null
+    const usedImages = profile?.subscription_usages?.used_images ?? 0
+    if (maxImages !== null && usedImages + 1 > maxImages) {
+      setWorksheetError('Du hast dein Abo-Limit für Bilder (Arbeitsblaetter) erreicht.')
+      return
+    }
+
+    setIsGeneratingWorksheet(true)
+    try {
+      const items = await generateLearnWorksheet(outline)
+      setLearnWorksheets(items)
+      const pathId = activePathIdRef.current
+      if (pathId) {
+        const currentSummary = learningPaths.find((e) => e.id === pathId)
+        const updated = await updateLearningPathById(pathId, {
+          title: getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad'),
+          ...captureEditableState(),
+          learnWorksheets: items,
+        })
+        pathCacheRef.current[pathId] = updated
+      }
+
+      await incrementMySubscriptionUsage({ userId: user.id, usedImagesDelta: 1 })
+    } catch (e) {
+      setWorksheetError(e instanceof Error ? e.message : 'Arbeitsblatt fehlgeschlagen.')
+    } finally {
+      setIsGeneratingWorksheet(false)
+    }
+  }, [
+    captureEditableState,
+    effectiveChapterBlueprints,
+    learningPaths,
+    profile?.subscription_plans?.max_images,
+    profile?.subscription_usages?.used_images,
+    user,
+  ])
 
   if (isLoading) {
     return <main className="learn-loading">Lade Lernbereich...</main>
@@ -971,6 +1089,17 @@ export function LearnPage() {
     if (!fileList || fileList.length === 0) {
       return
     }
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const maxFiles = profile?.subscription_plans?.max_files ?? null
+    const usedFiles = profile?.subscription_usages?.used_files ?? 0
+    if (maxFiles !== null && usedFiles + fileList.length > maxFiles) {
+      setError('Du hast dein Abo-Limit für Dateien erreicht.')
+      return
+    }
 
     setIsUploading(true)
     try {
@@ -988,6 +1117,10 @@ export function LearnPage() {
       }
 
       setMaterials((prev) => [...uploaded, ...prev].slice(0, 8))
+
+      await incrementMySubscriptionUsage({ userId: user.id, usedFilesDelta: files.length })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Dateien konnten nicht verarbeitet werden.')
     } finally {
       setIsUploading(false)
     }
@@ -1024,6 +1157,12 @@ export function LearnPage() {
     if (learnFlashcards.length === 0) {
       return
     }
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    setIsWorksheetModalVisible(false)
+    setIsWorksheetModalMounted(false)
     if (flashcardsModalCloseTimerRef.current) {
       window.clearTimeout(flashcardsModalCloseTimerRef.current)
       flashcardsModalCloseTimerRef.current = null
@@ -1032,6 +1171,35 @@ export function LearnPage() {
     setIsFlashcardsModalMounted(true)
     window.requestAnimationFrame(() => {
       setIsFlashcardsModalVisible(true)
+    })
+  }
+
+  function closeWorksheetModal() {
+    setIsWorksheetModalVisible(false)
+    worksheetModalCloseTimerRef.current = window.setTimeout(() => {
+      setIsWorksheetModalMounted(false)
+      worksheetModalCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
+  function openSavedWorksheetsModal() {
+    if (learnWorksheets.length === 0) {
+      return
+    }
+    if (flashcardsModalCloseTimerRef.current) {
+      window.clearTimeout(flashcardsModalCloseTimerRef.current)
+      flashcardsModalCloseTimerRef.current = null
+    }
+    setIsFlashcardsModalVisible(false)
+    setIsFlashcardsModalMounted(false)
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    setWorksheetError(null)
+    setIsWorksheetModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsWorksheetModalVisible(true)
     })
   }
 
@@ -1078,6 +1246,9 @@ export function LearnPage() {
   }
 
   function openSettingsModal() {
+    void refreshProfile().catch(() => {
+      // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
+    })
     if (settingsCloseTimerRef.current) {
       window.clearTimeout(settingsCloseTimerRef.current)
       settingsCloseTimerRef.current = null
@@ -1117,6 +1288,7 @@ export function LearnPage() {
         profile={profile}
         displayName={displayName}
         avatarFallback={avatarFallback}
+        subscriptionPlanName={subscriptionPlanName}
       />
 
       <section className="chat-main learn-main">
@@ -1216,6 +1388,11 @@ export function LearnPage() {
                   onCreateFlashcards: handleCreateFlashcards,
                   hasSavedFlashcards: learnFlashcards.length > 0,
                   onOpenSavedFlashcards: openSavedFlashcardsModal,
+                  canCreateWorksheet: effectiveChapterBlueprints.length > 0,
+                  isGeneratingWorksheet,
+                  onCreateWorksheet: handleCreateWorksheet,
+                  hasSavedWorksheets: learnWorksheets.length > 0,
+                  onOpenSavedWorksheets: openSavedWorksheetsModal,
                 }}
                 isPostEntryPrepLoading={isPostEntryPrepLoading}
                 postEntryPrepPanel={{
@@ -1335,8 +1512,17 @@ export function LearnPage() {
         error={flashcardsError}
         onClose={closeFlashcardsModal}
       />
+      <LearnWorksheetModal
+        isMounted={isWorksheetModalMounted}
+        isVisible={isWorksheetModalVisible}
+        title={effectiveTopic || 'Lernpfad'}
+        items={learnWorksheets}
+        isLoading={isGeneratingWorksheet}
+        error={worksheetError}
+        onClose={closeWorksheetModal}
+      />
       {isSettingsMounted ? (
-        <ModalShell isOpen={isSettingsVisible}>
+        <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>
           <SettingsModal onClose={closeSettingsModal} />
         </ModalShell>
       ) : null}

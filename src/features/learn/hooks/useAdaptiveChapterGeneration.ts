@@ -3,7 +3,7 @@ import { sendMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
 import { parseInteractiveContentWithFallback } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession, UploadedMaterial } from '../services/learn.persistence'
-import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
+import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
   ADAPTIVE_CHAPTER_GENERATED_ID,

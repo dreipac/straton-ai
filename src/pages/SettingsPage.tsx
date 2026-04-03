@@ -4,17 +4,22 @@ import aiIcon from '../assets/icons/ai.svg'
 import generalIcon from '../assets/icons/general.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import personalizeIcon from '../assets/icons/personalize.svg'
+import sendIcon from '../assets/icons/send.svg'
 import statusIcon from '../assets/icons/status.svg'
+import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
+import { ModalShell } from '../components/ui/modal/ModalShell'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
 import { AiSettingsSection } from '../features/settings/components/AiSettingsSection'
 import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
+import { FeedbackSettingsSection } from '../features/settings/components/FeedbackSettingsSection'
 import { GeneralSettingsSection } from '../features/settings/components/GeneralSettingsSection'
 import { PersonalizeSettingsSection } from '../features/settings/components/PersonalizeSettingsSection'
 import { CHAT_THREADS_REFRESH_EVENT } from '../features/chat/constants/events'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
+import { listVisibleSubscriptionPlans, type VisibleSubscriptionPlan } from '../features/auth/services/subscriptionCatalog.service'
 import {
   ACCENT_STORAGE_KEY,
   applyAccentPalette,
@@ -36,7 +41,7 @@ import {
   MESSAGE_BOX_STORAGE_KEY,
 } from '../features/settings/constants/messageBoxPalettes'
 
-type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'account'
+type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'feedback' | 'account'
 
 type SettingsSection = {
   id: SettingsSectionId
@@ -108,6 +113,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [isSavingEmail, setIsSavingEmail] = useState(false)
   const [emailMessage, setEmailMessage] = useState<string | null>(null)
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [visibleSubscriptionPlans, setVisibleSubscriptionPlans] = useState<VisibleSubscriptionPlan[]>([])
+  const [isLoadingVisibleSubscriptionPlans, setIsLoadingVisibleSubscriptionPlans] = useState(false)
+  const [isPlansModalOpen, setIsPlansModalOpen] = useState(false)
   const lastSavedNamesRef = useRef({ firstName: '', lastName: '' })
 
   const i18n = {
@@ -268,6 +276,34 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       icon: statusIcon,
     },
     {
+      id: 'feedback',
+      label:
+        language === 'en'
+          ? 'Feedback'
+          : language === 'hr'
+            ? 'Povratne informacije'
+            : language === 'it'
+              ? 'Feedback'
+              : language === 'sq'
+                ? 'Feedback'
+                : language === 'es-PE'
+                  ? 'Comentarios'
+                  : 'Feedback',
+      title:
+        language === 'en'
+          ? 'Feedback'
+          : language === 'hr'
+            ? 'Povratne informacije'
+            : language === 'it'
+              ? 'Feedback'
+              : language === 'sq'
+                ? 'Feedback'
+                : language === 'es-PE'
+                  ? 'Comentarios'
+                  : 'Feedback',
+      icon: sendIcon,
+    },
+    {
       id: 'account',
       label:
         language === 'en'
@@ -419,6 +455,34 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }, [activeSection, firstNameDraft, lastNameDraft, updateProfileNames])
 
+  useEffect(() => {
+    if (activeSection !== 'account') {
+      return
+    }
+    let isMounted = true
+    async function loadVisiblePlans() {
+      try {
+        setIsLoadingVisibleSubscriptionPlans(true)
+        const plans = await listVisibleSubscriptionPlans()
+        if (isMounted) {
+          setVisibleSubscriptionPlans(plans)
+        }
+      } catch {
+        if (isMounted) {
+          setVisibleSubscriptionPlans([])
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingVisibleSubscriptionPlans(false)
+        }
+      }
+    }
+    void loadVisiblePlans()
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
   async function handleSaveEmail() {
     if (!user || !isConfigured) {
       return
@@ -506,7 +570,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }
 
   return (
-    <section className="settings-modal" role="dialog" aria-modal="true" aria-label="Einstellungen">
+    <>
+      <section className="settings-modal" role="dialog" aria-modal="true" aria-label="Einstellungen">
       <aside className="settings-sidebar">
         <h2>{i18n.menuTitle}</h2>
         <nav className="settings-menu">
@@ -585,6 +650,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               hasUser={Boolean(user)}
             />
           ) : null}
+          {activeSection === 'feedback' ? (
+            <FeedbackSettingsSection
+              language={language}
+              userEmail={user?.email ?? null}
+              authorFirstName={profile?.first_name ?? null}
+              authorLastName={profile?.last_name ?? null}
+              hasUser={Boolean(user)}
+            />
+          ) : null}
           {activeSection === 'account' ? (
             <AccountSettingsSection
               firstNameDraft={firstNameDraft}
@@ -593,6 +667,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               currentEmail={user?.email ?? ''}
               pendingNewEmail={user?.new_email ?? null}
               avatarUrl={profile?.avatar_url ?? null}
+              subscriptionPlan={profile?.subscription_plans ?? null}
+              subscriptionUsage={profile?.subscription_usages ?? null}
               isSavingAccount={isSavingAccount}
               isSavingEmail={isSavingEmail}
               emailSaveDisabled={!isConfigured || !user}
@@ -606,10 +682,52 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 setEmailError(null)
               }}
               onSaveEmail={handleSaveEmail}
+              onOpenPlansModal={() => setIsPlansModalOpen(true)}
             />
           ) : null}
         </section>
       </div>
-    </section>
+      </section>
+      <ModalShell
+        isOpen={isPlansModalOpen}
+        className="account-subscription-overlay"
+        onRequestClose={() => setIsPlansModalOpen(false)}
+      >
+        <section className="settings-modal account-subscription-modal" role="dialog" aria-modal="true" aria-label="Abo Modelle">
+          <div className="settings-content">
+            <header className="settings-titlebar">
+              <ModalHeader
+                title="Abo-Modelle"
+                headingLevel="h3"
+                onClose={() => setIsPlansModalOpen(false)}
+                closeLabel="Abo-Modelle schliessen"
+              />
+            </header>
+            <section className="settings-body">
+              {isLoadingVisibleSubscriptionPlans ? <p>Lade Abo-Modelle...</p> : null}
+              {!isLoadingVisibleSubscriptionPlans && visibleSubscriptionPlans.length === 0 ? (
+                <p className="account-settings-subscription-hint">Aktuell sind keine Abo-Modelle sichtbar geschaltet.</p>
+              ) : null}
+              {!isLoadingVisibleSubscriptionPlans ? (
+                <div className="account-subscription-plans-grid">
+                  {visibleSubscriptionPlans.map((plan) => (
+                    <article key={plan.id} className="settings-card account-subscription-plan-card">
+                      <h3 className="admin-system-prompt-title">{plan.name}</h3>
+                      <p className="admin-subscriptions-meta">
+                        Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder: {plan.max_images ?? 'unbegrenzt'} · Dateien:{' '}
+                        {plan.max_files ?? 'unbegrenzt'}
+                      </p>
+                      <div className="account-subscription-plan-actions">
+                        <SecondaryButton type="button">Kaufen</SecondaryButton>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </section>
+      </ModalShell>
+    </>
   )
 }

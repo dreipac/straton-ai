@@ -40,6 +40,8 @@ export type LearnWorkspaceDerived = {
   chapterAccuracyPercent: number
   displayName: string
   avatarFallback: string
+  /** Anzeigename des zugewiesenen Abos (Sidebar-Karte) */
+  subscriptionPlanName: string | null
   previewChapterTitle: string
   previewStepCount: number
   previewQuestionCount: number
@@ -121,6 +123,7 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     user?.email ||
     'Nutzer'
   const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const subscriptionPlanName = profile?.subscription_plans?.name ?? null
 
   const previewBlueprint = effectiveChapterBlueprints[0]
   const rawPreviewChapterTitle =
@@ -207,6 +210,7 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     chapterAccuracyPercent,
     displayName,
     avatarFallback,
+    subscriptionPlanName,
     previewChapterTitle,
     previewStepCount,
     previewQuestionCount,

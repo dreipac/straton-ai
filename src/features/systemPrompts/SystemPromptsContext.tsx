@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
+import { useCallback, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import {
   DEFAULT_SYSTEM_PROMPTS,
   type SystemPromptKey,
@@ -6,17 +6,7 @@ import {
 } from '../../config/systemPromptDefaults'
 import { useAuth } from '../auth/context/useAuth'
 import { fetchSystemPromptsFromDb } from './systemPrompts.service'
-
-type SystemPromptsContextValue = {
-  /** Immer vollstaendig gemerged (DB + Defaults) */
-  prompts: Record<SystemPromptKey, string>
-  isLoading: boolean
-  error: string | null
-  refresh: () => Promise<void>
-  getPrompt: (key: SystemPromptKey) => string
-}
-
-const SystemPromptsContext = createContext<SystemPromptsContextValue | undefined>(undefined)
+import { SystemPromptsContext, type SystemPromptsContextValue } from './SystemPromptsContext.shared'
 
 export function SystemPromptsProvider({ children }: PropsWithChildren) {
   const { user } = useAuth()
@@ -66,12 +56,4 @@ export function SystemPromptsProvider({ children }: PropsWithChildren) {
   )
 
   return <SystemPromptsContext.Provider value={value}>{children}</SystemPromptsContext.Provider>
-}
-
-export function useSystemPrompts() {
-  const ctx = useContext(SystemPromptsContext)
-  if (!ctx) {
-    throw new Error('useSystemPrompts muss innerhalb von SystemPromptsProvider verwendet werden.')
-  }
-  return ctx
 }

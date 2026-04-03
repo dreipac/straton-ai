@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
-import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
+import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import type { ChatMessage } from '../../chat/types'
 import type {
   ChapterBlueprint,
@@ -145,6 +145,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
         setIsAnalyzingSetupTopic(false)
       })
   }, [
+    getPrompt,
     isAnalyzingSetupTopic,
     isUploading,
     materials,

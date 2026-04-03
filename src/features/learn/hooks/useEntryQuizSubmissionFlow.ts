@@ -14,7 +14,7 @@ import {
   parseChapterBlueprintsFromText,
   parseLearningChaptersFromText,
 } from '../utils/learnPageHelpers'
-import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
+import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 

@@ -25,6 +25,7 @@ export type LearnPageSidebarProps = {
   profile: ProfileLite
   displayName: string
   avatarFallback: string
+  subscriptionPlanName: string | null
 }
 
 export function LearnPageSidebar(props: LearnPageSidebarProps) {
@@ -41,6 +42,7 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     profile,
     displayName,
     avatarFallback,
+    subscriptionPlanName,
   } = props
 
   return (
@@ -118,10 +120,13 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
               )}
               {!isSidebarCollapsed ? (
                 <div className="account-meta">
+                  {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
                   <div className="account-name-row">
                     <p className="account-value">{displayName}</p>
-                    {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
                   </div>
+                  {subscriptionPlanName ? (
+                    <p className="account-subscription">{subscriptionPlanName}</p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

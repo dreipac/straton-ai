@@ -1,7 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PropsWithChildren,
@@ -18,6 +17,7 @@ import {
   updateAutoRemoveEmptyChatsByUserId,
   updateLanguageByUserId,
   completeChatOnboardingByUserId,
+  markBetaNoticeSeenByUserId,
   updateAuthEmail,
   updateProfileNamesByUserId,
 } from '../services/auth.service'
@@ -191,6 +191,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
     await signOut()
   }
 
+  async function refreshProfile() {
+    if (!user) {
+      setProfile(null)
+      return
+    }
+    try {
+      const nextProfile = await ensureProfileForUserWithSessionRecovery(user.id)
+      if (!isMountedRef.current) {
+        return
+      }
+      setProfile(nextProfile)
+      setError(null)
+    } catch (err) {
+      if (!isMountedRef.current) {
+        return
+      }
+      setError(err instanceof Error ? err.message : 'Profil konnte nicht aktualisiert werden.')
+    }
+  }
+
   async function updateAutoRemoveEmptyChats(enabled: boolean) {
     if (!user) {
       return
@@ -245,23 +265,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      profile,
-      isLoading,
-      error,
-      isConfigured,
-      signIn,
-      logout,
-      updateAutoRemoveEmptyChats,
-      updateProfileNames,
-      updateLanguage,
-      updateEmail,
-      completeChatOnboarding,
-    }),
-    [user, profile, isLoading, error, isConfigured],
-  )
+  async function markBetaNoticeSeen() {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await markBetaNoticeSeenByUserId(user.id)
+    setProfile(nextProfile)
+  }
+
+  const value: AuthContextValue = {
+    user,
+    profile,
+    isLoading,
+    error,
+    isConfigured,
+    signIn,
+    logout,
+    refreshProfile,
+    updateAutoRemoveEmptyChats,
+    updateProfileNames,
+    updateLanguage,
+    updateEmail,
+    completeChatOnboarding,
+    markBetaNoticeSeen,
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

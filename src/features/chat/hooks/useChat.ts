@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSystemPrompts } from '../../systemPrompts/SystemPromptsContext'
+import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
 import { generateChatTitleWithAi, sendMessage } from '../services/chat.service'
 import {

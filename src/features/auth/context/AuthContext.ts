@@ -10,12 +10,15 @@ export type AuthContextValue = {
   isConfigured: boolean
   signIn: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshProfile: () => Promise<void>
   updateAutoRemoveEmptyChats: (enabled: boolean) => Promise<void>
   updateProfileNames: (firstName: string, lastName: string) => Promise<void>
   updateLanguage: (language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE') => Promise<void>
   updateEmail: (email: string) => Promise<void>
   /** Chat-Einstiegs-Tour als abgeschlossen in Supabase speichern */
   completeChatOnboarding: () => Promise<void>
+  /** Beta-Hinweis als gesehen markieren */
+  markBetaNoticeSeen: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)

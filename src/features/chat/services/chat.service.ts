@@ -2,7 +2,7 @@ import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import { env } from '../../../config/env'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
-import type { LearnFlashcard } from '../../learn/services/learn.persistence'
+import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
 import type { ChatMessage } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 
@@ -233,7 +233,7 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
   return { suggestions }
 }
 
-export type { LearnFlashcard } from '../../learn/services/learn.persistence'
+export type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
 
 function mockFlashcardsFromOutline(outline: string): LearnFlashcard[] {
   const topic = outline.split('\n').find((l) => l.startsWith('### '))?.replace(/^###\s+/, '').slice(0, 48) || 'Thema'
@@ -299,6 +299,117 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
   }
 
   return cards.slice(0, 20)
+}
+
+/** Extrahiert Aufgaben aus der Edge-Response (toleriert alte Deploys und abweichende JSON-Keys). */
+function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] {
+  if (!data || typeof data !== 'object') {
+    return []
+  }
+  const root = data as Record<string, unknown>
+
+  const promptFromObject = (o: Record<string, unknown>): string => {
+    const keys = ['prompt', 'question', 'task', 'text', 'aufgabe', 'content', 'title'] as const
+    for (const key of keys) {
+      const v = o[key]
+      if (typeof v === 'string' && v.trim()) {
+        return v.trim()
+      }
+    }
+    return ''
+  }
+
+  const fromArray = (arr: unknown): LearnWorksheetItem[] => {
+    if (!Array.isArray(arr)) {
+      return []
+    }
+    const out: LearnWorksheetItem[] = []
+    for (const entry of arr) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const prompt = promptFromObject(entry as Record<string, unknown>)
+      if (prompt) {
+        out.push({ id: crypto.randomUUID(), prompt })
+      }
+    }
+    return out
+  }
+
+  let items = fromArray(root.worksheetItems)
+  if (items.length === 0) {
+    items = fromArray(root.items)
+  }
+  if (items.length === 0) {
+    items = fromArray(root.tasks)
+  }
+  /** Ältere/kaputte Edge-Route: Request mit Kapiteltext landet im Lernkarten-Zweig und liefert nur «flashcards». */
+  if (items.length === 0 && Array.isArray(root.flashcards)) {
+    const fromCards: LearnWorksheetItem[] = []
+    for (const entry of root.flashcards) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const o = entry as Record<string, unknown>
+      const q = typeof o.question === 'string' ? o.question.trim() : ''
+      if (q) {
+        fromCards.push({ id: crypto.randomUUID(), prompt: q })
+      }
+    }
+    items = fromCards
+  }
+
+  return items.slice(0, 20)
+}
+
+function mockWorksheetFromOutline(outline: string): LearnWorksheetItem[] {
+  const topic = outline.split('\n').find((l) => l.startsWith('### '))?.replace(/^###\s+/, '').slice(0, 48) || 'Thema'
+  return [
+    {
+      id: 'w1',
+      prompt: `Erkläre in eigenen Worten einen zentralen Begriff aus «${topic}».`,
+    },
+    {
+      id: 'w2',
+      prompt: 'Im Mock-Modus gibt es keine KI. Bitte OpenAI in .env aktivieren für echte Arbeitsblatt-Aufgaben.',
+    },
+  ]
+}
+
+export async function generateLearnWorksheet(chapterOutline: string): Promise<LearnWorksheetItem[]> {
+  const trimmed = chapterOutline.trim()
+  if (!trimmed) {
+    throw new Error('Keine Kapiteldaten fuer Arbeitsblatt vorhanden.')
+  }
+
+  if (env.aiProvider !== 'openai') {
+    return mockWorksheetFromOutline(trimmed)
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      mode: 'generate_worksheet',
+      provider: 'openai',
+      payload: {
+        chapterOutline: trimmed,
+      },
+    },
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const items = parseWorksheetItemsFromInvokeData(data)
+
+  if (items.length === 0) {
+    throw new Error(
+      'Keine Aufgaben von der KI erhalten. Häufig: Edge-Function «chat-completion» ist nicht mit dem Modus «generate_worksheet» deployt — bitte deployen oder erneut versuchen.',
+    )
+  }
+
+  return items
 }
 
 export async function evaluateQuizAnswerWithAi(

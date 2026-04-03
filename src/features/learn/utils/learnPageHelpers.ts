@@ -204,7 +204,7 @@ export function looksLikeJsonSyntaxGarbage(title: string): boolean {
   if (/^```/.test(t)) {
     return true
   }
-  if (/^[`\[\]{}\s'",:]+$/.test(t)) {
+  if (/^[`[\]{}\s'",:]+$/.test(t)) {
     return true
   }
   if (/^["']?id["']?\s*:/i.test(t)) {

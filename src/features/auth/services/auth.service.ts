@@ -68,6 +68,76 @@ async function resolveCurrentSession(): Promise<Session | null> {
   return null
 }
 
+const PROFILE_SELECT =
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+
+type ProfileRow = {
+  first_name: string | null
+  last_name: string | null
+  avatar_url: string | null
+  auto_remove_empty_chats: boolean
+  is_superadmin: boolean
+  language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
+  chat_onboarding_completed: boolean
+  beta_notice_seen: boolean
+  subscription_plan_id: string | null
+  subscription_plans:
+    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
+    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }[]
+    | null
+  subscription_usages:
+    | { used_tokens: number; used_images: number; used_files: number; last_reset_date: string | null }
+    | { used_tokens: number; used_images: number; used_files: number; last_reset_date: string | null }[]
+    | null
+}
+
+function currentUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function mapProfileRow(data: ProfileRow | null): UserProfile | null {
+  if (!data) {
+    return null
+  }
+  const sp = data.subscription_plans
+  const plan =
+    sp == null
+      ? null
+      : Array.isArray(sp)
+        ? (sp[0] ?? null)
+        : sp
+  const su = data.subscription_usages
+  const rawUsage =
+    su == null ? null : Array.isArray(su) ? (su[0] ?? null) : su
+  const usage =
+    rawUsage && rawUsage.last_reset_date !== currentUtcDateString()
+      ? {
+          used_tokens: 0,
+          used_images: 0,
+          used_files: 0,
+        }
+      : rawUsage
+        ? {
+            used_tokens: rawUsage.used_tokens,
+            used_images: rawUsage.used_images,
+            used_files: rawUsage.used_files,
+          }
+        : null
+  return {
+    first_name: data.first_name,
+    last_name: data.last_name,
+    avatar_url: data.avatar_url,
+    auto_remove_empty_chats: data.auto_remove_empty_chats,
+    is_superadmin: data.is_superadmin,
+    language: data.language,
+    chat_onboarding_completed: data.chat_onboarding_completed,
+    beta_notice_seen: data.beta_notice_seen,
+    subscription_plan_id: data.subscription_plan_id,
+    subscription_plans: plan,
+    subscription_usages: usage,
+  }
+}
+
 export type UserProfile = {
   first_name: string | null
   last_name: string | null
@@ -77,6 +147,13 @@ export type UserProfile = {
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
   /** false = Chat-Einstiegs-Tour (Neuer Chat, Lernpfade) noch anzeigen */
   chat_onboarding_completed: boolean
+  /** false = Beta-Hinweis nach erster Tour noch nicht bestaetigt */
+  beta_notice_seen: boolean
+  subscription_plan_id: string | null
+  subscription_plans:
+    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
+    | null
+  subscription_usages: { used_tokens: number; used_images: number; used_files: number } | null
 }
 
 /**
@@ -167,9 +244,7 @@ export async function getProfileByUserId(userId: string): Promise<UserProfile | 
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('profiles')
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .eq('id', userId)
     .maybeSingle()
 
@@ -177,7 +252,7 @@ export async function getProfileByUserId(userId: string): Promise<UserProfile | 
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function updateAutoRemoveEmptyChatsByUserId(
@@ -189,16 +264,14 @@ export async function updateAutoRemoveEmptyChatsByUserId(
     .from('profiles')
     .update({ auto_remove_empty_chats: enabled })
     .eq('id', userId)
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .single()
 
   if (error) {
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function updateProfileNamesByUserId(
@@ -214,16 +287,14 @@ export async function updateProfileNamesByUserId(
       last_name: lastName.trim() || null,
     })
     .eq('id', userId)
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .single()
 
   if (error) {
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function ensureProfileForUser(userId: string): Promise<UserProfile | null> {
@@ -248,16 +319,14 @@ export async function updateSuperadminByUserId(
     .from('profiles')
     .update({ is_superadmin: enabled })
     .eq('id', userId)
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .single()
 
   if (error) {
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function completeChatOnboardingByUserId(userId: string): Promise<UserProfile | null> {
@@ -266,16 +335,30 @@ export async function completeChatOnboardingByUserId(userId: string): Promise<Us
     .from('profiles')
     .update({ chat_onboarding_completed: true })
     .eq('id', userId)
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .single()
 
   if (error) {
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
+}
+
+export async function markBetaNoticeSeenByUserId(userId: string): Promise<UserProfile | null> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ beta_notice_seen: true })
+    .eq('id', userId)
+    .select(PROFILE_SELECT)
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function updateLanguageByUserId(
@@ -287,14 +370,12 @@ export async function updateLanguageByUserId(
     .from('profiles')
     .update({ language })
     .eq('id', userId)
-    .select(
-      'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed',
-    )
+    .select(PROFILE_SELECT)
     .single()
 
   if (error) {
     throw error
   }
 
-  return data
+  return mapProfileRow(data as ProfileRow)
 }
