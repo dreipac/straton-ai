@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
 import editIcon from '../assets/icons/edit.svg'
@@ -78,6 +85,12 @@ export function ChatPage() {
   const betaNoticeCloseTimerRef = useRef<number | null>(null)
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
   const learnTourRef = useRef<HTMLButtonElement | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressThreadClickRef = useRef(false)
+
+  const LONG_PRESS_MS = 520
+  const LONG_PRESS_MOVE_CANCEL_PX = 14
 
   async function handleLogout() {
     await logout()
@@ -85,7 +98,7 @@ export function ChatPage() {
   }
 
   useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
+    function handleOutsidePointer(event: MouseEvent | TouchEvent) {
       if (!openMenuThreadId && !isProfileMenuOpen) {
         return
       }
@@ -108,9 +121,11 @@ export function ChatPage() {
       }
     }
 
-    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('mousedown', handleOutsidePointer)
+    document.addEventListener('touchstart', handleOutsidePointer, { passive: true })
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('mousedown', handleOutsidePointer)
+      document.removeEventListener('touchstart', handleOutsidePointer)
     }
   }, [openMenuThreadId, isProfileMenuOpen])
 
@@ -127,6 +142,9 @@ export function ChatPage() {
       }
       if (betaNoticeCloseTimerRef.current) {
         window.clearTimeout(betaNoticeCloseTimerRef.current)
+      }
+      if (longPressTimerRef.current) {
+        window.clearTimeout(longPressTimerRef.current)
       }
     }
   }, [])
@@ -319,14 +337,62 @@ export function ChatPage() {
     setIsMobileSidebarOpen(false)
   }
 
+  function openThreadContextMenuAt(threadId: string, clientX: number, clientY: number) {
+    const margin = 8
+    const menuW = 168
+    const menuH = 96
+    const x = Math.max(margin, Math.min(clientX, window.innerWidth - menuW - margin))
+    const y = Math.max(margin, Math.min(clientY, window.innerHeight - menuH - margin))
+    setOpenMenuThreadId(threadId)
+    setContextMenuPosition({ x, y })
+  }
+
   function openThreadContextMenu(event: ReactMouseEvent, threadId: string) {
     event.preventDefault()
     event.stopPropagation()
-    setOpenMenuThreadId(threadId)
-    setContextMenuPosition({
-      x: event.clientX,
-      y: event.clientY,
-    })
+    openThreadContextMenuAt(threadId, event.clientX, event.clientY)
+  }
+
+  function handleThreadLongPressTouchStart(threadId: string, event: ReactTouchEvent) {
+    if (event.touches.length !== 1) {
+      return
+    }
+    const touch = event.touches[0]
+    longPressStartRef.current = { x: touch.clientX, y: touch.clientY }
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null
+      suppressThreadClickRef.current = true
+      openThreadContextMenuAt(threadId, touch.clientX, touch.clientY)
+      hapticLightImpact()
+    }, LONG_PRESS_MS)
+  }
+
+  function handleThreadLongPressTouchMove(event: ReactTouchEvent) {
+    if (!longPressStartRef.current || longPressTimerRef.current === null) {
+      return
+    }
+    if (event.touches.length === 0) {
+      return
+    }
+    const touch = event.touches[0]
+    const dx = Math.abs(touch.clientX - longPressStartRef.current.x)
+    const dy = Math.abs(touch.clientY - longPressStartRef.current.y)
+    if (dx > LONG_PRESS_MOVE_CANCEL_PX || dy > LONG_PRESS_MOVE_CANCEL_PX) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+      longPressStartRef.current = null
+    }
+  }
+
+  function handleThreadLongPressTouchEnd() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    longPressStartRef.current = null
   }
 
   const displayName = getUserDisplayName(user, profile)
@@ -598,10 +664,18 @@ export function ChatPage() {
                   openMenuThreadId === thread.id ? 'has-open-menu' : ''
                 } ${thread.isTemporary ? 'is-temporary' : ''} ${thread.isRemoving ? 'is-removing' : ''}`}
                 onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
+                onTouchStart={(event) => handleThreadLongPressTouchStart(thread.id, event)}
+                onTouchMove={handleThreadLongPressTouchMove}
+                onTouchEnd={handleThreadLongPressTouchEnd}
+                onTouchCancel={handleThreadLongPressTouchEnd}
               >
                 <div
                   className={`chat-thread-item ${thread.id === activeThreadId ? 'is-active' : ''}`}
                   onClick={() => {
+                    if (suppressThreadClickRef.current) {
+                      suppressThreadClickRef.current = false
+                      return
+                    }
                     selectChat(thread.id)
                     setOpenMenuThreadId(null)
                     setContextMenuPosition(null)
