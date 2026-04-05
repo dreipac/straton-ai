@@ -1,17 +1,20 @@
 import type { User } from '@supabase/supabase-js'
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type PropsWithChildren,
 } from 'react'
 import { hasSupabaseConfig } from '../../../config/env'
+import { applyUiSettingsToDocument } from '../../settings/uiSettings'
 import { AuthContext, type AuthContextValue } from './AuthContext'
 import {
   ensureProfileForUserWithSessionRecovery,
   getCurrentSession,
   getUserFromSession,
   onAuthStateChange,
+  replaceUiSettingsByUserId,
   signInWithEmailPassword,
   signOut,
   updateAutoRemoveEmptyChatsByUserId,
@@ -20,6 +23,7 @@ import {
   markBetaNoticeSeenByUserId,
   updateAuthEmail,
   updateProfileNamesByUserId,
+  type UiSettingsV1,
 } from '../services/auth.service'
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -181,6 +185,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [profile?.language])
 
+  useEffect(() => {
+    if (!user || !profile) {
+      return
+    }
+    applyUiSettingsToDocument(profile.ui_settings)
+  }, [user?.id, JSON.stringify(profile?.ui_settings)])
+
   async function signIn(email: string, password: string) {
     setError(null)
     await signInWithEmailPassword(email, password)
@@ -275,6 +286,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  const updateUiSettings = useCallback(async (settings: UiSettingsV1) => {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await replaceUiSettingsByUserId(user.id, settings)
+    if (!isMountedRef.current) {
+      return
+    }
+    setProfile(nextProfile)
+  }, [user])
+
   const value: AuthContextValue = {
     user,
     profile,
@@ -290,6 +314,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     updateEmail,
     completeChatOnboarding,
     markBetaNoticeSeen,
+    updateUiSettings,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

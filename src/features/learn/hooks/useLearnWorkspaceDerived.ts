@@ -1,5 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../auth/services/auth.service'
+import { getAvatarFallbackLetter, getUserDisplayName } from '../../auth/utils/userDisplay'
 import type { InteractiveQuizPayload, InteractiveQuizQuestion } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession, ChapterStep } from '../services/learn.persistence'
 import { sanitizeChapterTitleForUi } from '../utils/learnPageHelpers'
@@ -117,12 +118,8 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
       ? Math.round((totalCorrectChapterQuestions / totalAnsweredChapterQuestions) * 100)
       : 0
 
-  const displayName =
-    [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim() ||
-    profile?.first_name ||
-    user?.email ||
-    'Nutzer'
-  const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const displayName = getUserDisplayName(user, profile)
+  const avatarFallback = getAvatarFallbackLetter(user, profile)
   const subscriptionPlanName = profile?.subscription_plans?.name ?? null
 
   const previewBlueprint = effectiveChapterBlueprints[0]

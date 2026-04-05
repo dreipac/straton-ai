@@ -118,10 +118,18 @@
 .learn-shell .chat-thread-item {
   justify-content: flex-start;
   text-align: left;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .learn-shell .chat-thread-title {
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
 }
 
 .learn-sidebar-account-combined {

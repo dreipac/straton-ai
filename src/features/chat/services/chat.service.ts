@@ -1,4 +1,8 @@
 import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
+import {
+  getAssistantEmojiStyleInstruction,
+  getAssistantMarkdownFormattingInstruction,
+} from '../constants/chatAssistantStyle'
 import { env } from '../../../config/env'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
@@ -87,7 +91,14 @@ async function messageFromFunctionsInvokeFailure(
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
-  const combinedSystemPrompt = [baseQuiz, options?.systemPrompt?.trim() ?? ''].filter(Boolean).join('\n\n')
+  const combinedSystemPrompt = [
+    baseQuiz,
+    options?.systemPrompt?.trim() ?? '',
+    getAssistantMarkdownFormattingInstruction(),
+    getAssistantEmojiStyleInstruction(),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   return [
     {

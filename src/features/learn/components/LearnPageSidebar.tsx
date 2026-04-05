@@ -4,6 +4,7 @@ import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import statusIcon from '../../../assets/icons/status.svg'
 import type { LearningPathSummary } from '../services/learn.persistence'
 import { getDisplayPathTitle } from '../utils/learnPageHelpers'
+import { hapticLightImpact } from '../../../utils/haptics'
 
 type ProfileLite = {
   avatar_url?: string | null
@@ -57,7 +58,12 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
             type="button"
             className="sidebar-toggle-button"
             aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
-            onClick={onToggleSidebar}
+            onClick={() => {
+              if (isSidebarCollapsed) {
+                hapticLightImpact()
+              }
+              onToggleSidebar()
+            }}
           >
             <img className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon" src={sidebarIcon} alt="" aria-hidden="true" />
           </button>

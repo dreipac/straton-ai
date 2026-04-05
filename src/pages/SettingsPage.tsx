@@ -17,6 +17,11 @@ import { FeedbackSettingsSection } from '../features/settings/components/Feedbac
 import { GeneralSettingsSection } from '../features/settings/components/GeneralSettingsSection'
 import { PersonalizeSettingsSection } from '../features/settings/components/PersonalizeSettingsSection'
 import { CHAT_THREADS_REFRESH_EVENT } from '../features/chat/constants/events'
+import {
+  readAssistantEmojisEnabled,
+  writeAssistantEmojisEnabled,
+} from '../features/chat/constants/chatAssistantStyle'
+import type { UiSettingsV1 } from '../features/settings/uiSettings'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
 import { listVisibleSubscriptionPlans, type VisibleSubscriptionPlan } from '../features/auth/services/subscriptionCatalog.service'
@@ -65,6 +70,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     updateProfileNames,
     updateLanguage,
     updateEmail,
+    updateUiSettings,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
@@ -102,6 +108,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [learnPathTitleColorMode, setLearnPathTitleColorMode] = useState<LearnPathTitleColorMode>(() =>
     readPersistedLearnPathTitleColorMode(),
   )
+  const [assistantEmojisEnabled, setAssistantEmojisEnabled] = useState(() => readAssistantEmojisEnabled())
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
   const [chatCleanupInfo, setChatCleanupInfo] = useState<string | null>(null)
@@ -117,6 +124,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [isLoadingVisibleSubscriptionPlans, setIsLoadingVisibleSubscriptionPlans] = useState(false)
   const [isPlansModalOpen, setIsPlansModalOpen] = useState(false)
   const lastSavedNamesRef = useRef({ firstName: '', lastName: '' })
+  const [uiSettingsHydrated, setUiSettingsHydrated] = useState(false)
+  const uiHydratedForUserIdRef = useRef<string | null>(null)
+  const skipNextUiPersistRef = useRef(false)
 
   const i18n = {
     menuTitle:
@@ -334,6 +344,68 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   ]
 
   useEffect(() => {
+    if (!user || !profile) {
+      setUiSettingsHydrated(false)
+      uiHydratedForUserIdRef.current = null
+      return
+    }
+    if (uiHydratedForUserIdRef.current === user.id) {
+      return
+    }
+    uiHydratedForUserIdRef.current = user.id
+    const s = profile.ui_settings
+    skipNextUiPersistRef.current = true
+    setThemeMode(s.theme)
+    setSidebarScale(s.sidebarScale)
+    setAccentPaletteId(applyAccentPalette(s.accentPaletteId))
+    setHoverPaletteId(applyHoverPalette(s.hoverPaletteId))
+    setMessageBoxPaletteId(applyMessageBoxPalette(s.messageBoxPaletteId))
+    setLearnPathTitleColorMode(s.learnPathTitleColorMode)
+    setAssistantEmojisEnabled(s.assistantEmojis)
+    setUiSettingsHydrated(true)
+  }, [user, profile])
+
+  useEffect(() => {
+    if (!user || !uiSettingsHydrated) {
+      return
+    }
+    if (skipNextUiPersistRef.current) {
+      skipNextUiPersistRef.current = false
+      return
+    }
+    const snapshot: UiSettingsV1 = {
+      theme: themeMode,
+      sidebarScale,
+      accentPaletteId,
+      hoverPaletteId,
+      messageBoxPaletteId,
+      learnPathTitleColorMode,
+      assistantEmojis: assistantEmojisEnabled,
+    }
+    const timerId = window.setTimeout(() => {
+      void updateUiSettings(snapshot)
+    }, 450)
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [
+    user,
+    uiSettingsHydrated,
+    themeMode,
+    sidebarScale,
+    accentPaletteId,
+    hoverPaletteId,
+    messageBoxPaletteId,
+    learnPathTitleColorMode,
+    assistantEmojisEnabled,
+    updateUiSettings,
+  ])
+
+  useEffect(() => {
+    writeAssistantEmojisEnabled(assistantEmojisEnabled)
+  }, [assistantEmojisEnabled])
+
+  useEffect(() => {
     const baseTheme = themeMode === 'light' ? 'light' : 'dark'
     document.documentElement.dataset.theme = baseTheme
     document.documentElement.dataset.themeVariant = themeMode === 'pink-glass' ? 'pink-glass' : ''
@@ -514,6 +586,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }
 
+  function handleToggleAssistantEmojis() {
+    setAssistantEmojisEnabled((v) => !v)
+  }
+
   async function handleToggleAutoRemoveEmptyChats() {
     try {
       setIsUpdatingChatSetting(true)
@@ -632,6 +708,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           ) : null}
           {activeSection === 'chat' ? (
             <ChatSettingsSection
+              language={language}
+              assistantEmojisEnabled={assistantEmojisEnabled}
+              onToggleAssistantEmojis={handleToggleAssistantEmojis}
               autoRemoveEmptyChats={autoRemoveEmptyChats}
               isUpdatingChatSetting={isUpdatingChatSetting}
               isCleaningEmptyChats={isCleaningEmptyChats}

@@ -1,12 +1,23 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
 import fileIcon from '../../../assets/icons/file.svg'
 import sendIcon from '../../../assets/icons/send.svg'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
+import { renderInlineMarkdown } from '../utils/markdownInline'
+import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../../learn/utils/documentParser'
 
 type ChatWindowProps = {
+  /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
+  threadKey: string | null
   messages: ChatMessage[]
   isSending: boolean
   error: string | null
@@ -29,6 +40,7 @@ type QuizAnswerState = {
 }
 
 export function ChatWindow({
+  threadKey,
   messages,
   isSending,
   error,
@@ -42,47 +54,15 @@ export function ChatWindow({
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isAttachingFiles, setIsAttachingFiles] = useState(false)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
-  const wasSendingRef = useRef(isSending)
-
-  function renderInlineMarkdown(content: string): ReactNode[] {
-    const fragments: ReactNode[] = []
-    let cursor = 0
-    let keyIndex = 0
-
-    while (cursor < content.length) {
-      const start = content.indexOf('**', cursor)
-      if (start === -1) {
-        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
-        break
-      }
-
-      const end = content.indexOf('**', start + 2)
-      if (end === -1) {
-        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
-        break
-      }
-
-      if (start > cursor) {
-        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor, start)}</span>)
-      }
-
-      const boldText = content.slice(start + 2, end)
-      if (boldText) {
-        fragments.push(<strong key={`bold-${keyIndex++}`}>{boldText}</strong>)
-      } else {
-        fragments.push(<span key={`plain-${keyIndex++}`}>****</span>)
-      }
-
-      cursor = end + 2
-    }
-
-    return fragments
-  }
+  /** Zuletzt bekannte Listenlänge (für „genau eine neue Nachricht“ = Stream). */
+  const prevMessageCountRef = useRef(0)
+  /** Laufende Schreib-Animation: darf nicht vom „Sofort“-Zweig überschrieben werden. */
+  const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     return () => {
@@ -91,47 +71,116 @@ export function ChatWindow({
     }
   }, [])
 
+  const MAX_INPUT_HEIGHT_PX = 220
+
+  function adjustComposeHeight() {
+    const el = inputRef.current
+    if (!el) {
+      return
+    }
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT_PX)}px`
+  }
+
+  useLayoutEffect(() => {
+    adjustComposeHeight()
+  }, [draft])
+
+  /** Thread gewechselt: Historie sofort voll anzeigen, Stream-Refs zurücksetzen. */
+  useLayoutEffect(() => {
+    const assistantIds = new Set(messages.filter((m) => m.role === 'assistant').map((m) => m.id))
+    animatedAssistantIdsRef.current = assistantIds
+    streamingAssistantIdsRef.current = new Set()
+    setAnimatedAssistantContent({})
+    prevMessageCountRef.current = messages.length
+    // messages gehören zum gleichen Render wie threadKey; bei jeder messages-Änderung würden wir fälschlich zurücksetzen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nur Thread-Wechsel
+  }, [threadKey])
+
+  /** Kein Volltext vor dem ersten Paint bei neu angehängter Assistenten-Nachricht. */
+  useLayoutEffect(() => {
+    const latest = messages[messages.length - 1]
+    const appendedOne = messages.length === prevMessageCountRef.current + 1
+    if (
+      !latest ||
+      latest.role !== 'assistant' ||
+      !appendedOne ||
+      animatedAssistantIdsRef.current.has(latest.id)
+    ) {
+      return
+    }
+    setAnimatedAssistantContent((prev) => ({ ...prev, [latest.id]: '' }))
+  }, [messages])
+
   useEffect(() => {
+    animationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+    animationTimersRef.current = []
+
     const latestMessage = messages[messages.length - 1]
-    const shouldAnimateLatestAssistant =
-      wasSendingRef.current &&
-      !isSending &&
-      latestMessage?.role === 'assistant' &&
+    const appendedAssistant =
+      Boolean(latestMessage) &&
+      latestMessage.role === 'assistant' &&
+      messages.length === prevMessageCountRef.current + 1 &&
       !animatedAssistantIdsRef.current.has(latestMessage.id)
+
+    const shouldStreamLatest = appendedAssistant
+
+    const rafChainIds: number[] = []
+    let streamingStarted = false
+    let streamingIdForCleanup: string | null = null
+
+    const cancelRafChain = () => {
+      rafChainIds.forEach((id) => cancelAnimationFrame(id))
+      rafChainIds.length = 0
+    }
 
     for (const message of messages) {
       if (message.role !== 'assistant') {
         continue
       }
 
-      const alreadyHandled = animatedAssistantIdsRef.current.has(message.id)
-      if (alreadyHandled) {
+      if (animatedAssistantIdsRef.current.has(message.id)) {
         continue
       }
 
-      if (shouldAnimateLatestAssistant && latestMessage?.id === message.id) {
-        const fullContent = message.content
-        const stepSize = Math.max(1, Math.ceil(fullContent.length / 90))
-        let cursor = 0
+      if (streamingAssistantIdsRef.current.has(message.id)) {
+        continue
+      }
 
-        const run = () => {
-          cursor = Math.min(cursor + stepSize, fullContent.length)
+      if (shouldStreamLatest && latestMessage?.id === message.id) {
+        const fullContent = message.content
+        streamingStarted = true
+        streamingIdForCleanup = message.id
+        streamingAssistantIdsRef.current.add(message.id)
+
+        const charsPerSecond = 52
+        const durationMs = Math.min(3400, Math.max(280, (fullContent.length / charsPerSecond) * 1000))
+        const start = performance.now()
+        const targetLen = messages.length
+
+        const tick = (now: number) => {
+          const elapsed = now - start
+          const t = Math.min(1, elapsed / durationMs)
+          const eased = 1 - (1 - t) ** 3
+          const len = Math.floor(eased * fullContent.length)
+          const slice = fullContent.slice(0, len)
           setAnimatedAssistantContent((prev) => ({
             ...prev,
-            [message.id]: fullContent.slice(0, cursor),
+            [message.id]: slice,
           }))
 
-          if (cursor < fullContent.length) {
-            const timerId = window.setTimeout(run, 18)
-            animationTimersRef.current.push(timerId)
-            return
+          if (t < 1) {
+            const nextId = requestAnimationFrame(tick)
+            rafChainIds.push(nextId)
+          } else {
+            streamingAssistantIdsRef.current.delete(message.id)
+            animatedAssistantIdsRef.current.add(message.id)
+            prevMessageCountRef.current = targetLen
           }
-
-          animatedAssistantIdsRef.current.add(message.id)
         }
 
-        const startTimerId = window.setTimeout(run, 0)
-        animationTimersRef.current.push(startTimerId)
+        const firstId = requestAnimationFrame(tick)
+        rafChainIds.push(firstId)
         continue
       }
 
@@ -142,8 +191,17 @@ export function ChatWindow({
       animatedAssistantIdsRef.current.add(message.id)
     }
 
-    wasSendingRef.current = isSending
-  }, [isSending, messages])
+    if (!streamingStarted) {
+      prevMessageCountRef.current = messages.length
+    }
+
+    return () => {
+      cancelRafChain()
+      if (streamingIdForCleanup && streamingAssistantIdsRef.current.has(streamingIdForCleanup)) {
+        streamingAssistantIdsRef.current.delete(streamingIdForCleanup)
+      }
+    }
+  }, [messages])
 
   function getQuizAnswerKey(messageId: string, questionId: string) {
     return `${messageId}::${questionId}`
@@ -231,6 +289,21 @@ export function ChatWindow({
     setDraft('')
     setPendingAttachments([])
     await onSendMessage(content)
+  }
+
+  function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return
+    }
+    event.preventDefault()
+    const form = event.currentTarget.form
+    if (!form || tokenLimitReached || isSending || isAttachingFiles) {
+      return
+    }
+    if (!draft.trim() && pendingAttachments.length === 0) {
+      return
+    }
+    form.requestSubmit()
   }
 
   async function handleAttachFiles(fileList: FileList | null) {
@@ -324,14 +397,17 @@ export function ChatWindow({
                 </div>
               ) : null}
               <div className="chat-input-field">
-                <input
+                <textarea
                   ref={inputRef}
                   className="chat-input"
-                  type="text"
+                  rows={1}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleComposeKeyDown}
                   placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
                   disabled={isSending || isAttachingFiles || tokenLimitReached}
+                  aria-multiline="true"
+                  autoComplete="off"
                 />
               </div>
             </div>
@@ -345,7 +421,7 @@ export function ChatWindow({
             </button>
           </form>
           <p className="chat-input-hint">
-            Straton kann Fehler machen, überprüfe wichtige Informationen
+            Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
           </p>
         </div>
       </section>
@@ -370,14 +446,24 @@ export function ChatWindow({
             : isAssistant
               ? animatedContent
               : message.content
+          const isStreamingAssistant =
+            isAssistant &&
+            !hasInteractiveQuiz &&
+            animatedContent.length < message.content.length
 
           return (
             <article
               key={message.id}
-              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}
+              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}`}
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
-              {displayContent ? <p>{renderInlineMarkdown(displayContent)}</p> : null}
+              {displayContent ? (
+                isAssistant ? (
+                  <div className="chat-message-body chat-message-body--rich">{renderAssistantRichContent(displayContent)}</div>
+                ) : (
+                  <p>{renderInlineMarkdown(displayContent)}</p>
+                )
+              ) : null}
 
               {hasInteractiveQuiz ? (
                 <section className="interactive-quiz-block" aria-label="Interaktive Pruefungsfragen">
@@ -487,14 +573,17 @@ export function ChatWindow({
             </div>
           ) : null}
           <div className="chat-input-field">
-            <input
+            <textarea
               ref={inputRef}
               className="chat-input"
-              type="text"
+              rows={1}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleComposeKeyDown}
               placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
               disabled={isSending || isAttachingFiles || tokenLimitReached}
+              aria-multiline="true"
+              autoComplete="off"
             />
           </div>
         </div>
@@ -506,7 +595,7 @@ export function ChatWindow({
         </button>
       </form>
       <p className="chat-input-hint">
-        Straton kann Fehler machen, überprüfe wichtige Informationen
+        Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
       </p>
     </section>
   )

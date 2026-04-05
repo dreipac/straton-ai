@@ -1,5 +1,7 @@
-import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
+import type { AuthChangeEvent, PostgrestError, Session, User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import { extractProfileNamesFromAuthUser } from '../utils/userDisplay'
+import { parseUiSettings, type UiSettingsV1 } from '../../settings/uiSettings'
 
 let sessionResolveInFlight: Promise<Session | null> | null = null
 
@@ -69,7 +71,37 @@ async function resolveCurrentSession(): Promise<Session | null> {
 }
 
 const PROFILE_SELECT =
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+
+/** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
+const PROFILE_SELECT_COMPAT =
   'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+
+function isMissingUiSettingsColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
+  return msg.includes('ui_settings')
+}
+
+async function updateProfileReturningNoUiSettingsPatch(
+  userId: string,
+  patch: Record<string, unknown>,
+): Promise<{ data: ProfileRow | null; error: PostgrestError | null }> {
+  const supabase = getSupabaseClient()
+  let r = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT).single()
+  if (!r.error) {
+    return r
+  }
+  if (!isMissingUiSettingsColumnError(r.error)) {
+    return r
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'ui_settings')) {
+    return r
+  }
+  return supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT_COMPAT).single()
+}
 
 type ProfileRow = {
   first_name: string | null
@@ -80,6 +112,7 @@ type ProfileRow = {
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
   chat_onboarding_completed: boolean
   beta_notice_seen: boolean
+  ui_settings: unknown | null
   subscription_plan_id: string | null
   subscription_plans:
     | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
@@ -132,6 +165,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     language: data.language,
     chat_onboarding_completed: data.chat_onboarding_completed,
     beta_notice_seen: data.beta_notice_seen,
+    ui_settings: parseUiSettings(data.ui_settings ?? {}),
     subscription_plan_id: data.subscription_plan_id,
     subscription_plans: plan,
     subscription_usages: usage,
@@ -149,6 +183,8 @@ export type UserProfile = {
   chat_onboarding_completed: boolean
   /** false = Beta-Hinweis nach erster Tour noch nicht bestaetigt */
   beta_notice_seen: boolean
+  /** Oberflächen-Einstellungen (Theme, Paletten, Emoji, …), aus Spalte ui_settings */
+  ui_settings: UiSettingsV1
   subscription_plan_id: string | null
   subscription_plans:
     | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
@@ -242,11 +278,14 @@ export function getUserFromSession(session: Session | null): User | null {
 
 export async function getProfileByUserId(userId: string): Promise<UserProfile | null> {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select(PROFILE_SELECT)
-    .eq('id', userId)
-    .maybeSingle()
+  let { data, error } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', userId).maybeSingle()
+  if (error && isMissingUiSettingsColumnError(error)) {
+    ;({ data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_COMPAT)
+      .eq('id', userId)
+      .maybeSingle())
+  }
 
   if (error) {
     throw error
@@ -259,13 +298,9 @@ export async function updateAutoRemoveEmptyChatsByUserId(
   userId: string,
   enabled: boolean,
 ): Promise<UserProfile | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ auto_remove_empty_chats: enabled })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single()
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    auto_remove_empty_chats: enabled,
+  })
 
   if (error) {
     throw error
@@ -279,22 +314,25 @@ export async function updateProfileNamesByUserId(
   firstName: string,
   lastName: string,
 ): Promise<UserProfile | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({
-      first_name: firstName.trim() || null,
-      last_name: lastName.trim() || null,
-    })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single()
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    first_name: firstName.trim() || null,
+    last_name: lastName.trim() || null,
+  })
 
   if (error) {
     throw error
   }
 
   return mapProfileRow(data as ProfileRow)
+}
+
+function isProfileNameEmpty(profile: UserProfile | null): boolean {
+  if (!profile) {
+    return true
+  }
+  const f = profile.first_name?.trim() ?? ''
+  const l = profile.last_name?.trim() ?? ''
+  return f === '' && l === ''
 }
 
 export async function ensureProfileForUser(userId: string): Promise<UserProfile | null> {
@@ -307,20 +345,39 @@ export async function ensureProfileForUser(userId: string): Promise<UserProfile 
     throw error
   }
 
-  return getProfileByUserId(userId)
+  let profile = await getProfileByUserId(userId)
+  if (!isProfileNameEmpty(profile)) {
+    return profile
+  }
+
+  const { data: authData } = await supabase.auth.getUser()
+  const authUser = authData?.user
+  if (!authUser || authUser.id !== userId) {
+    return profile
+  }
+
+  const { firstName, lastName } = extractProfileNamesFromAuthUser(authUser)
+  if (!firstName && !lastName) {
+    return profile
+  }
+
+  const { data, error: updateError } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    first_name: firstName,
+    last_name: lastName,
+  })
+
+  if (updateError || !data) {
+    return profile
+  }
+
+  return mapProfileRow(data as ProfileRow)
 }
 
 export async function updateSuperadminByUserId(
   userId: string,
   enabled: boolean,
 ): Promise<UserProfile | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ is_superadmin: enabled })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single()
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, { is_superadmin: enabled })
 
   if (error) {
     throw error
@@ -330,13 +387,9 @@ export async function updateSuperadminByUserId(
 }
 
 export async function completeChatOnboardingByUserId(userId: string): Promise<UserProfile | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ chat_onboarding_completed: true })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single()
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    chat_onboarding_completed: true,
+  })
 
   if (error) {
     throw error
@@ -346,13 +399,7 @@ export async function completeChatOnboardingByUserId(userId: string): Promise<Us
 }
 
 export async function markBetaNoticeSeenByUserId(userId: string): Promise<UserProfile | null> {
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ beta_notice_seen: true })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single()
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, { beta_notice_seen: true })
 
   if (error) {
     throw error
@@ -365,10 +412,23 @@ export async function updateLanguageByUserId(
   userId: string,
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE',
 ): Promise<UserProfile | null> {
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, { language })
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
+export async function replaceUiSettingsByUserId(
+  userId: string,
+  settings: UiSettingsV1,
+): Promise<UserProfile | null> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('profiles')
-    .update({ language })
+    .update({ ui_settings: settings })
     .eq('id', userId)
     .select(PROFILE_SELECT)
     .single()
@@ -379,3 +439,5 @@ export async function updateLanguageByUserId(
 
   return mapProfileRow(data as ProfileRow)
 }
+
+export type { UiSettingsV1 }

@@ -1,6 +1,11 @@
 import cleanIcon from '../../../assets/icons/clean.svg'
 
+type SettingsLanguage = 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
+
 type ChatSettingsSectionProps = {
+  language: SettingsLanguage
+  assistantEmojisEnabled: boolean
+  onToggleAssistantEmojis: () => void
   autoRemoveEmptyChats: boolean
   isUpdatingChatSetting: boolean
   isCleaningEmptyChats: boolean
@@ -10,7 +15,45 @@ type ChatSettingsSectionProps = {
   onCleanupEmptyChats: () => Promise<void>
 }
 
+function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: string } {
+  switch (language) {
+    case 'en':
+      return {
+        title: 'Emojis in AI replies',
+        body: 'The assistant may use occasional, context-appropriate emojis.',
+      }
+    case 'hr':
+      return {
+        title: 'Emoji u odgovorima AI-a',
+        body: 'Asistent povremeno koristi prikladne emoji.',
+      }
+    case 'it':
+      return {
+        title: 'Emoji nelle risposte IA',
+        body: "L'assistente può usare di tanto in tanto emoji pertinenti al contesto.",
+      }
+    case 'sq':
+      return {
+        title: 'Emoji në përgjigjet e IA',
+        body: 'Asistenti mund të përdorë herë pas here emoji të përshtatshme me kontekstin.',
+      }
+    case 'es-PE':
+      return {
+        title: 'Emojis en respuestas de IA',
+        body: 'El asistente puede usar de vez en cuando emojis acordes al contexto.',
+      }
+    default:
+      return {
+        title: 'Emoji in KI-Antworten',
+        body: 'Die KI kann in Antworten gelegentlich passende Emoji verwenden.',
+      }
+  }
+}
+
 export function ChatSettingsSection({
+  language,
+  assistantEmojisEnabled,
+  onToggleAssistantEmojis,
   autoRemoveEmptyChats,
   isUpdatingChatSetting,
   isCleaningEmptyChats,
@@ -19,8 +62,32 @@ export function ChatSettingsSection({
   onToggleAutoRemoveEmptyChats,
   onCleanupEmptyChats,
 }: ChatSettingsSectionProps) {
+  const emojiLabels = assistantEmojiCopy(language)
+
   return (
     <section className="chat-settings-panel">
+      <div className="chat-setting-row">
+        <div className="chat-setting-copy">
+          <h3>{emojiLabels.title}</h3>
+          <p>{emojiLabels.body}</p>
+        </div>
+        <button
+          type="button"
+          className={`ios-switch ${assistantEmojisEnabled ? 'is-on' : ''}`}
+          aria-label={
+            language === 'en'
+              ? 'Toggle emojis in AI replies'
+              : 'Emoji in KI-Antworten umschalten'
+          }
+          aria-pressed={assistantEmojisEnabled}
+          onClick={onToggleAssistantEmojis}
+        >
+          <span className="ios-switch-track" aria-hidden="true">
+            <span className="ios-switch-thumb" />
+          </span>
+        </button>
+      </div>
+      <div className="chat-setting-divider" />
       <div className="chat-setting-row">
         <div className="chat-setting-copy">
           <h3>Auto löschen von leeren Chats</h3>

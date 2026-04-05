@@ -17,11 +17,17 @@ import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { useAuth } from '../features/auth/context/useAuth'
+import {
+  getAvatarFallbackLetter,
+  getGreetingFirstName,
+  getUserDisplayName,
+} from '../features/auth/utils/userDisplay'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
+import { hapticLightImpact } from '../utils/haptics'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal } from './SettingsPage'
 
@@ -323,14 +329,9 @@ export function ChatPage() {
     })
   }
 
-  const displayName =
-    [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
-    profile?.first_name ||
-    user?.email ||
-    'Unbekannter Nutzer'
-  const greetingName = profile?.first_name || displayName.split(' ')[0] || 'da'
-
-  const avatarFallback = (profile?.first_name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
+  const displayName = getUserDisplayName(user, profile)
+  const greetingName = getGreetingFirstName(user, profile)
+  const avatarFallback = getAvatarFallbackLetter(user, profile)
   const subscriptionPlanName = profile?.subscription_plans?.name ?? null
   const hasAssignedPlan = profile?.subscription_plan_id != null
   const usedTokensToday = profile?.subscription_usages?.used_tokens ?? 0
@@ -369,7 +370,14 @@ export function ChatPage() {
                   type="button"
                   className="sidebar-toggle-button"
                   aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
-                  onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                  onClick={() =>
+                    setIsSidebarCollapsed((prev) => {
+                      if (prev) {
+                        hapticLightImpact()
+                      }
+                      return !prev
+                    })
+                  }
                 >
                   <img
                     className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon"
@@ -385,7 +393,10 @@ export function ChatPage() {
                 type="button"
                 className="sidebar-logo-button"
                 aria-label="Sidebar ausfahren"
-                onClick={() => setIsSidebarCollapsed(false)}
+                onClick={() => {
+                  hapticLightImpact()
+                  setIsSidebarCollapsed(false)
+                }}
               >
                 <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
               </button>
@@ -431,6 +442,7 @@ export function ChatPage() {
               Du bist im Gastmodus. Melde dich an, um Chats zu speichern und deine Einstellungen zu synchronisieren.
             </p>
             <ChatWindow
+              threadKey={null}
               messages={[]}
               isSending={false}
               error={null}
@@ -448,7 +460,13 @@ export function ChatPage() {
           aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
           onClick={() => {
             setIsSidebarCollapsed(false)
-            setIsMobileSidebarOpen((prev) => !prev)
+            setIsMobileSidebarOpen((prev) => {
+              const next = !prev
+              if (!prev && next) {
+                hapticLightImpact()
+              }
+              return next
+            })
           }}
         >
           <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />
@@ -488,7 +506,12 @@ export function ChatPage() {
                 className="sidebar-toggle-button"
                 aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
                 onClick={() => {
-                  setIsSidebarCollapsed((prev) => !prev)
+                  setIsSidebarCollapsed((prev) => {
+                    if (prev) {
+                      hapticLightImpact()
+                    }
+                    return !prev
+                  })
                   setOpenMenuThreadId(null)
                   setContextMenuPosition(null)
                   setIsProfileMenuOpen(false)
@@ -504,6 +527,7 @@ export function ChatPage() {
               className="sidebar-logo-button"
               aria-label="Sidebar ausfahren"
               onClick={() => {
+                hapticLightImpact()
                 setIsSidebarCollapsed(false)
                 setOpenMenuThreadId(null)
                 setContextMenuPosition(null)
@@ -648,6 +672,7 @@ export function ChatPage() {
 
       <section className="chat-main">
         <ChatWindow
+          threadKey={activeThreadId}
           messages={messages}
           isSending={isSending}
           error={error}
@@ -665,7 +690,13 @@ export function ChatPage() {
             return
           }
           setIsSidebarCollapsed(false)
-          setIsMobileSidebarOpen((prev) => !prev)
+          setIsMobileSidebarOpen((prev) => {
+            const next = !prev
+            if (!prev && next) {
+              hapticLightImpact()
+            }
+            return next
+          })
         }}
       >
         <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />

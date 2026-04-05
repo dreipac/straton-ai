@@ -1,3 +1,4 @@
+import { readAssistantEmojisEnabled } from '../../features/chat/constants/chatAssistantStyle'
 import type { ChatMessage } from '../../features/chat/types'
 
 const cannedResponses = [
@@ -21,5 +22,6 @@ export async function getMockAssistantReply(messages: ChatMessage[]) {
     return fallback
   }
 
-  return `Mock-Antwort: "${latestUserMessage.content.trim()}"\n\n${fallback}`
+  const body = `Mock-Antwort: "${latestUserMessage.content.trim()}"\n\n${fallback}`
+  return readAssistantEmojisEnabled() ? `${body}\n\n(Demo mit Emoji ✨)` : body
 }

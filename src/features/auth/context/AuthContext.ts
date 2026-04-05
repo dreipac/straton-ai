@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import { createContext } from 'react'
-import type { UserProfile } from '../services/auth.service'
+import type { UiSettingsV1, UserProfile } from '../services/auth.service'
 
 export type AuthContextValue = {
   user: User | null
@@ -19,6 +19,8 @@ export type AuthContextValue = {
   completeChatOnboarding: () => Promise<void>
   /** Beta-Hinweis als gesehen markieren */
   markBetaNoticeSeen: () => Promise<void>
+  /** Oberflächen-Einstellungen (Theme, Paletten, …) in profiles.ui_settings speichern */
+  updateUiSettings: (settings: UiSettingsV1) => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
