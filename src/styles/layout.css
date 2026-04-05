@@ -238,6 +238,12 @@
   position: relative;
   z-index: 0;
   min-width: 0;
+  /* Kein Text-Markieren / kein iOS-Kontextmenü beim Langdrücken — Kontextmenü der App soll greifen */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-thread-row.is-temporary {
@@ -284,6 +290,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   display: block;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .chat-thread-item.is-active {
