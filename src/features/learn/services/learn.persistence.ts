@@ -72,6 +72,12 @@ export type ChapterStep =
       bullets?: string[]
     }
 
+/** Schritt ohne id (Vorlagen, z. B. vor namespaceChapterStepIds). Union-sicher — nicht `Omit<ChapterStep,'id'>`. */
+export type ChapterStepWithoutId =
+  | Omit<Extract<ChapterStep, { type: 'explanation' }>, 'id'>
+  | Omit<Extract<ChapterStep, { type: 'question' }>, 'id'>
+  | Omit<Extract<ChapterStep, { type: 'recap' }>, 'id'>
+
 export type ChapterBlueprint = {
   id: string
   title: string

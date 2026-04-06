@@ -1,5 +1,10 @@
 import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
-import type { ChapterBlueprint, ChapterSession, ChapterStep } from '../services/learn.persistence'
+import type {
+  ChapterBlueprint,
+  ChapterSession,
+  ChapterStep,
+  ChapterStepWithoutId,
+} from '../services/learn.persistence'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 
 export function getDisplayPathTitle(title: string) {
@@ -427,7 +432,7 @@ export function isPlaceholderChapterTitle(title: string): boolean {
  * Fach- und titelneutrale Schritte (Lernstrategie / Pruefungsvorgehen), damit keine Meta-Fragen
  * zum Kapitelnamen entstehen — dieselben Texte traten vorher in buildRichFallbackChapterSteps auf.
  */
-function neutralPadStepTemplates(): Omit<ChapterStep, 'id'>[] {
+function neutralPadStepTemplates(): ChapterStepWithoutId[] {
   return [
     {
       type: 'explanation',
@@ -473,7 +478,7 @@ function neutralPadStepTemplates(): Omit<ChapterStep, 'id'>[] {
   ]
 }
 
-function assignStepIds(steps: Omit<ChapterStep, 'id'>[], chapterIndex: number, idPrefix: string): ChapterStep[] {
+function assignStepIds(steps: ChapterStepWithoutId[], _chapterIndex: number, idPrefix: string): ChapterStep[] {
   return steps.map((step, i) => ({
     ...step,
     id: `${idPrefix}-${i}`,
@@ -484,7 +489,7 @@ function assignStepIds(steps: Omit<ChapterStep, 'id'>[], chapterIndex: number, i
 export function buildRichFallbackChapterSteps(title: string, chapterIndex: number): ChapterStep[] {
   const label = isPlaceholderChapterTitle(title) ? 'diesem Lernabschnitt' : title.trim()
   const templates = neutralPadStepTemplates()
-  const withIntro: Omit<ChapterStep, 'id'>[] = [
+  const withIntro: ChapterStepWithoutId[] = [
     {
       type: 'explanation',
       title: `Kapitel ${chapterIndex + 1}`,
