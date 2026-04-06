@@ -52,6 +52,7 @@ export const DEFAULT_SYSTEM_PROMPTS: Record<SystemPromptKey, string> = {
     'Wenn Materialauszuege mitgeliefert werden: beziehe dich in Erklaerungen und Aufgaben darauf (Begriffe, Beispiele, Definitionen aus den Dateien).',
     'Baue in jede Erklaerung mindestens ein kurzes Mini-Beispiel ein (1-3 Saetze): z. B. Mini-Szenario, Zahlenbeispiel, Gegenueberstellung, oder konkreter IT-Fall — kein reines Abstract ohne Anker.',
     'Bei Fragen: mindestens die Haelfte der Fragen pro Kapitel soll sich direkt auf Inhalte aus den Unterlagen beziehen (z. B. „Laut Auszug …“, „Was bedeutet in deinen Unterlagen der Begriff …“, „Ordne zu …“). Wenn keine Dateien vorliegen: nutze realistische Praxisbeispiele.',
+    'Wenn du Lernkapitel als JSON mit Steps erzeugst: stelle KEINE Meta-Fragen nur zum Kapitelnamen; jede Frage muss konkrete Fachinhalte pruefen (Zahlen, Begriffe, Szenarien), analog zu den Regeln fuer Lernkarten/Arbeitsblaetter.',
     'Wenn etwas unklar ist, erklaere mit konkreten Beispielen aus der IT-Praxis.',
     'Arbeite kapitelbasiert und baue auf dem gewaehlten Schwerpunkt auf.',
     'Nach jeder Erklaerung stelle genau eine kurze Verstaendnisfrage.',

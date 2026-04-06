@@ -190,7 +190,27 @@ async function callOpenAi(messages: InputMessage[], apiKey: string, models?: str
   throw new Error('OpenAI hat keine Antwort geliefert.')
 }
 
-async function callAnthropic(messages: InputMessage[], apiKey: string): Promise<string> {
+/**
+ * Lernpfad: Claude Sonnet (per Secret ANTHROPIC_MODEL überschreibbar).
+ * Default: claude-sonnet-4-6 (ältere IDs wie claude-3-5-sonnet-20241022 sind bei Anthropic retired → oft HTTP 404).
+ */
+function anthropicLearnModel(): string {
+  const fromEnv = Deno.env.get('ANTHROPIC_MODEL')?.trim()
+  return fromEnv || 'claude-sonnet-4-6'
+}
+
+type AnthropicCallOptions = {
+  maxTokens?: number
+  model?: string
+}
+
+async function callAnthropic(
+  messages: InputMessage[],
+  apiKey: string,
+  options?: AnthropicCallOptions,
+): Promise<string> {
+  const model = options?.model ?? anthropicLearnModel()
+  const max_tokens = options?.maxTokens ?? 4096
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -199,8 +219,8 @@ async function callAnthropic(messages: InputMessage[], apiKey: string): Promise<
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-haiku-latest',
-      max_tokens: 512,
+      model,
+      max_tokens,
       messages: messages
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .map((message) => ({
@@ -214,7 +234,14 @@ async function callAnthropic(messages: InputMessage[], apiKey: string): Promise<
   })
 
   if (!response.ok) {
-    throw new Error(`Anthropic Anfrage fehlgeschlagen (${response.status}).`)
+    const errBody = await response.text().catch(() => '')
+    const hint =
+      response.status === 404
+        ? ' (Modell-ID unbekannt/retired? Secret ANTHROPIC_MODEL prüfen oder Edge Function deployen.)'
+        : ''
+    throw new Error(
+      `Anthropic Anfrage fehlgeschlagen (${response.status}).${hint}${errBody ? ` ${errBody.slice(0, 400)}` : ''}`,
+    )
   }
 
   const data = (await response.json()) as {
@@ -261,7 +288,7 @@ async function evaluateQuizWithAi(
 
   const raw =
     provider === 'anthropic'
-      ? await callAnthropic(evaluationMessages, apiKey)
+      ? await callAnthropic(evaluationMessages, apiKey, { maxTokens: 512 })
       : await callOpenAi(evaluationMessages, apiKey)
 
   return parseQuizEvaluationResult(raw)
@@ -306,7 +333,7 @@ async function generateTitleWithAi(
 
   const raw =
     provider === 'anthropic'
-      ? await callAnthropic(titleMessages, apiKey)
+      ? await callAnthropic(titleMessages, apiKey, { maxTokens: 256 })
       : await callOpenAi(titleMessages, apiKey)
 
   const cleaned = sanitizeGeneratedTitle(raw)
@@ -460,7 +487,7 @@ async function generateFlashcardsWithAi(
 
   const raw =
     provider === 'anthropic'
-      ? await callAnthropic(flashcardMessages, apiKey)
+      ? await callAnthropic(flashcardMessages, apiKey, { maxTokens: 4096 })
       : await callOpenAi(flashcardMessages, apiKey, ['gpt-4o-mini', 'gpt-4o'])
 
   const cards = parseFlashcardsFromRaw(raw)
@@ -499,7 +526,7 @@ async function generateWorksheetWithAi(
 
   const raw =
     provider === 'anthropic'
-      ? await callAnthropic(worksheetMessages, apiKey)
+      ? await callAnthropic(worksheetMessages, apiKey, { maxTokens: 4096 })
       : await callOpenAi(worksheetMessages, apiKey, ['gpt-4o-mini', 'gpt-4o'])
 
   const items = parseWorksheetPromptsFromRaw(raw)
@@ -531,7 +558,7 @@ async function generateTopicSuggestionsWithAi(
 
   const raw =
     provider === 'anthropic'
-      ? await callAnthropic(suggestionMessages, apiKey)
+      ? await callAnthropic(suggestionMessages, apiKey, { maxTokens: 1024 })
       : await callOpenAi(suggestionMessages, apiKey)
 
   const suggestions = sanitizeTopicSuggestions(raw)
@@ -668,7 +695,7 @@ serve(async (req) => {
 
     const assistantContent =
       provider === 'anthropic'
-        ? await callAnthropic(messages, apiKey)
+        ? await callAnthropic(messages, apiKey, { maxTokens: 8192 })
         : await callOpenAi(messages, apiKey)
 
     return jsonResponse({

@@ -1,4 +1,5 @@
--- Nutzer ohne zugewiesenes Abo erhalten ein hartes Tageslimit von 100 Tokens.
+-- RETURNS TABLE (used_tokens, ...) kollidiert mit Spaltennamen subscription_usages:
+-- "column reference used_tokens is ambiguous" — Qualifizierung mit Tabellen-Alias.
 
 create or replace function public.user_increment_subscription_usage(
   p_user_id uuid,
@@ -109,77 +110,5 @@ begin
   select u.used_tokens, u.used_images, u.used_files
   from public.subscription_usages u
   where u.user_id = p_user_id;
-end;
-$$;
-
-create or replace function public.subscription_guard_chat_messages_before_insert()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  actor_uid uuid;
-  actor_is_superadmin boolean;
-  owner_user_id uuid;
-  plan_id uuid;
-  max_tokens integer;
-  used_tokens integer;
-  msg_tokens integer;
-begin
-  if auth.role() = 'service_role' then
-    return new;
-  end if;
-
-  actor_uid := auth.uid();
-  if actor_uid is null then
-    raise exception 'Unauthorized token quota check.';
-  end if;
-
-  select t.user_id into owner_user_id
-  from public.chat_threads t
-  where t.id = new.thread_id;
-
-  if owner_user_id is null then
-    raise exception 'Chat thread not found.';
-  end if;
-  if owner_user_id != actor_uid then
-    raise exception 'Unauthorized token quota check.';
-  end if;
-
-  select coalesce(is_superadmin, false) into actor_is_superadmin
-  from public.profiles where id = actor_uid;
-
-  if actor_is_superadmin then
-    return new;
-  end if;
-
-  perform public.subscription_usage_reset_if_new_day(actor_uid);
-
-  select subscription_plan_id into plan_id
-  from public.profiles where id = actor_uid;
-
-  if plan_id is null then
-    max_tokens := 100;
-  else
-    select sp.max_tokens into max_tokens
-    from public.subscription_plans sp
-    where sp.id = plan_id;
-  end if;
-
-  if max_tokens is null then
-    return new;
-  end if;
-
-  select coalesce(u.used_tokens, 0) into used_tokens
-  from public.subscription_usages u
-  where u.user_id = actor_uid;
-
-  msg_tokens := public.estimate_tokens_from_text(new.content);
-  if used_tokens + msg_tokens > max_tokens then
-    raise exception 'Token Limit Ueberschritten.';
-  end if;
-
-  return new;
 end;
 $$;

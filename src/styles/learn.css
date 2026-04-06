@@ -2278,6 +2278,21 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   line-height: 1.35;
   max-width: 100%;
   transition: border-color 140ms ease, background-color 140ms ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.learn-entry-test-match-card--pool.is-tap-picked {
+  outline: 2px solid color-mix(in srgb, var(--interactive-active-border) 85%, transparent);
+  outline-offset: 2px;
+  border-color: var(--interactive-active-border);
+  background: color-mix(in srgb, var(--interactive-active-bg) 22%, var(--color-surface));
+}
+
+.learn-entry-test-match-drop.is-tap-target {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--interactive-active-border) 70%, var(--color-border));
 }
 
 .learn-entry-test-match-card:active {

@@ -6,6 +6,7 @@ import type { ChapterBlueprint, ChapterSession, EntryQuizResult, TutorChatEntry,
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   CHAPTER_GENERATION_TIMEOUT_MS,
+  CHAPTER_LEARNING_FIDELITY_RULES,
   DEFAULT_CHAPTER_SESSION,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   buildRichFallbackChapterSteps,
@@ -202,6 +203,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             'Erklaerungs-Steps (type explanation): im Feld "content" immer 2-5 Saetze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" koennen 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
             'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (mcq/text) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
             WORKSHEET_EXERCISE_FIDELITY_RULES,
+            CHAPTER_LEARNING_FIDELITY_RULES,
             'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
             'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
@@ -226,6 +228,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
               sendMessage([chapterRequest], {
                 interactiveQuizPrompt: getPrompt('interactive_quiz'),
                 systemPrompt: getPrompt('learn_tutor'),
+                useLearnPathModel: true,
               }),
               new Promise<never>((_, reject) => {
                 window.setTimeout(() => reject(new Error('Kapitelgenerierung dauert zu lange. Bitte erneut versuchen.')), CHAPTER_GENERATION_TIMEOUT_MS)

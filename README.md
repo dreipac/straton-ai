@@ -23,8 +23,8 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_AI_PROVIDER=openai
 ```
 
-- `VITE_AI_PROVIDER=openai` nutzt die Supabase Edge Function als Gateway (empfohlen).
-- Optional: `VITE_AI_PROVIDER=mock` startet den Chat komplett ohne externen Provider.
+- `VITE_AI_PROVIDER=openai` (oder `anthropic`) aktiviert die **Edge Function**: **Hauptchat** nutzt OpenAI, **Lernpfad** (Learn-Bereich) **Claude Sonnet**. Dafür in Supabase beide Secrets setzen: `OPENAI_API_KEY` und `ANTHROPIC_API_KEY`.
+- `VITE_AI_PROVIDER=mock` startet ohne externe KI.
 
 ## Projektstruktur
 
@@ -69,9 +69,7 @@ src/
 ## KI-Keys vorbereiten (empfohlen)
 
 1. In Supabase zu **Project Settings -> Edge Functions -> Secrets** gehen.
-2. Secrets setzen:
-   - `OPENAI_API_KEY=...`
-   - `ANTHROPIC_API_KEY=...` (optional)
-3. Sicherstellen, dass in `.env` `VITE_AI_PROVIDER=openai` gesetzt ist.
+2. Für den üblichen Betrieb **beide** Secrets setzen: `OPENAI_API_KEY` (Chat) und `ANTHROPIC_API_KEY` (Lernpfad / Claude Sonnet). Optional: Secret `ANTHROPIC_MODEL` in der Edge Function (Standard im Code: `claude-sonnet-4-6`; ältere Sonnet-IDs sind oft deaktiviert).
+3. In `.env` `VITE_AI_PROVIDER=openai` (oder `anthropic`, gleiche Bedeutung) — nicht `mock`.
 4. Edge Function `chat-completion` deployen (oder lokal neu starten).
 5. Chat verwenden - die Keys laufen serverseitig ueber Supabase Edge Functions.

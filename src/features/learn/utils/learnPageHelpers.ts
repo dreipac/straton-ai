@@ -92,6 +92,19 @@ export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
   'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Netz 192.168.31.0/24: ..."), nicht das Thema nur allgemein abfragen.',
 ].join('\n')
 
+/**
+ * Zusatzregeln fuer JSON-Lernkapitel (Steps): Modelle neigen sonst zu Meta-Fragen nur zum Kapitelnamen.
+ */
+export const CHAPTER_LEARNING_FIDELITY_RULES = [
+  'KAPITEL-INHALT (nicht nur Titel):',
+  'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. Broadcast ermitteln, Praefixlaenge, konkrete Rechnung) — der Titel ist nur die Ueberschrift, nicht der einzige Lerninhalt.',
+  'VERBOTEN bei question-Steps (prompt): Fragen, die nur den Kapiteltitel, "dieses Kapitel" oder "das Thema von Kapitel X" abfragen ohne Fachinhalt (z. B. "Worueber handelt dieses Kapitel?", "Was ist das Hauptthema?", "Nenne den Namen des Kapitels").',
+  'PFLICHT bei jeder Frage: Der prompt enthaelt pruefbare Details — Begriffe, Zahlen, IP/CIDR, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem Fachgebiet. Mindestens zwei konkrete Anker (z. B. konkrete Adresse, "/24", "Subnetzmaske 255.255.255.0").',
+  'Erklaerungs-Steps: Felder "content" und "bullets" liefern echte Erklaerung (Definition, Schrittfolge, Rechnung, Beispiel). VERBOTEN: nur Floskeln wie "In diesem Kapitel lernst du ..." ohne technische Substanz.',
+  'Mindestens die Haelfte der Fragen pro Kapitel bezieht sich auf die Materialauszuege und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind.',
+  'Jede Frage soll so formuliert sein, dass sie auch ohne Kenntnis des Kapiteltitels verstaendlich und beantwortbar ist (inhaltlich, nicht metakognitiv).',
+].join('\n')
+
 /** Fallback; Laufzeit nutzt DB/Kontext bevorzugt. */
 export const LEARN_TUTOR_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPTS.learn_tutor
 
@@ -105,7 +118,8 @@ export const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Kapitel 
 export const ENTRY_QUIZ_MIN_QUESTIONS = 5
 export const ENTRY_QUIZ_MIN_MCQ = 2
 export const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
-export const CHAPTER_GENERATION_TIMEOUT_MS = 90000
+/** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
+export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
 export const CHAPTER_GENERATION_MAX_ATTEMPTS = 2
 export const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
 export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
@@ -394,51 +408,110 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
   }
 }
 
-export function buildRichFallbackChapterSteps(title: string, chapterIndex: number): ChapterStep[] {
+/** Platzhalter-Titel aus der Kapitelgenerierung — nicht in Fragen einbetten. */
+export function isPlaceholderChapterTitle(title: string): boolean {
+  const t = title.trim().toLowerCase()
+  if (!t) {
+    return true
+  }
+  return (
+    t.includes('schwaechere bereiche') ||
+    t.includes('einstiegstest') ||
+    t.includes('praxis-transfer') ||
+    (t.includes('grundlagen') && t.includes('festigen')) ||
+    t.includes('deinem thema')
+  )
+}
+
+/**
+ * Fach- und titelneutrale Schritte (Lernstrategie / Pruefungsvorgehen), damit keine Meta-Fragen
+ * zum Kapitelnamen entstehen — dieselben Texte traten vorher in buildRichFallbackChapterSteps auf.
+ */
+function neutralPadStepTemplates(): Omit<ChapterStep, 'id'>[] {
   return [
     {
-      id: `c${chapterIndex + 1}-intro`,
       type: 'explanation',
-      title: `Kapitel ${chapterIndex + 1}: ${title}`,
-      content: `Dieses Kapitel vertieft das Thema "${title}" praxisnah und strukturiert.`,
-      bullets: ['Kernbegriffe verstehen', 'Praxisbezug herstellen', 'Wissen sichern'],
+      title: 'Kurz aktivieren',
+      content:
+        'Bevor du weitergehst: gutes Lernen haengt weniger vom Kapitelnamen ab als davon, ob du Begriffe aktiv abrufst und in kleinen Schritten uebst.',
+      bullets: ['Kurz in eigenen Worten erklaeren', 'Beispiel suchen', 'Fehler als Hinweis nutzen'],
     },
     {
-      id: `c${chapterIndex + 1}-q1`,
       type: 'question',
       questionType: 'mcq',
-      prompt: `Welche Aussage trifft im Kontext von "${title}" am ehesten zu?`,
+      prompt:
+        'Was ist eine bewaehrte Strategie, um neues Fachwissen dauerhaft zu sichern — unabhaengig vom aktuellen Kapiteltitel?',
       options: [
-        'Es geht primaer um oberflaechliche Theorie ohne Anwendung.',
-        'Es verbindet Grundlagen mit praktischer Umsetzung.',
-        'Es ist nur fuer Experten relevant.',
-        'Es hat keinen Bezug zum Lernziel.',
+        'Nur den Text einmal lesen und nie wiederholen.',
+        'Aktiv abfragen, kurz erklaeren und in kleinen Schritten ueben.',
+        'Alles am Vorabend auswendig lernen.',
+        'Auf Wiederholung komplett verzichten.',
       ],
-      expectedAnswer: 'Es verbindet Grundlagen mit praktischer Umsetzung.',
-      acceptableAnswers: ['grundlagen mit praktischer umsetzung'],
+      expectedAnswer: 'Aktiv abfragen, kurz erklaeren und in kleinen Schritten ueben.',
+      acceptableAnswers: ['aktiv abfragen', 'kleinen schritten'],
       evaluation: 'contains',
-      hint: 'Achte auf den Zusammenhang zwischen Theorie und Praxis.',
-      explanation: 'Das Kapitel verknuepft Grundlagen mit konkreten Anwendungen.',
+      hint: 'Denke an aktives Abrufen statt passiven Lesens.',
+      explanation: 'Spaced repetition und aktives Erklaeren festigen Wissen nachweislich besser.',
     },
     {
-      id: `c${chapterIndex + 1}-q2`,
       type: 'question',
       questionType: 'text',
-      prompt: `Nenne in 1-2 Saetzen, warum "${title}" fuer dein Lernziel wichtig ist.`,
-      expectedAnswer: `${title} ist wichtig, weil es zentrale Konzepte erklaert und auf praktische Aufgaben vorbereitet.`,
-      acceptableAnswers: ['zentrale konzepte', 'praktische aufgaben', 'lernziel'],
+      prompt:
+        'Du steckst bei einer Aufgabe fest. Beschreibe in einem Satz einen sinnvollen naechsten Schritt (ohne den Kapiteltitel zu nennen).',
+      expectedAnswer: 'Hinweis lesen, Problem in Teilschritte zerlegen, erneut versuchen.',
+      acceptableAnswers: ['teilschritte', 'hinweis', 'zerlegen', 'erneut'],
       evaluation: 'contains',
-      hint: 'Verbinde Relevanz und Anwendung.',
-      explanation: 'Eine gute Antwort nennt Nutzen fuer Verstaendnis und Praxis.',
+      hint: 'Kleinere Schritte und Nutzung von Hilfen sind typisch sinnvoll.',
+      explanation: 'Strukturiert vorgehen reduziert Blockaden.',
     },
     {
-      id: `c${chapterIndex + 1}-recap`,
       type: 'recap',
-      title: 'Kapitel-Zusammenfassung',
-      content: `Du hast die wichtigsten Punkte zu "${title}" bearbeitet und gefestigt.`,
-      bullets: ['Kernaussagen wiederholt', 'Transfer vorbereitet', 'Naechster Schritt klar'],
+      title: 'Mini-Check',
+      content: 'Du hast kurze, inhaltsneutrale Uebungen bearbeitet. Im eigentlichen Kapitel geht es um Fachinhalte aus deinen Unterlagen und dem Test.',
+      bullets: ['Strategie geuebt', 'Weiter mit fachlichen Schritten'],
     },
   ]
+}
+
+function assignStepIds(steps: Omit<ChapterStep, 'id'>[], chapterIndex: number, idPrefix: string): ChapterStep[] {
+  return steps.map((step, i) => ({
+    ...step,
+    id: `${idPrefix}-${i}`,
+  })) as ChapterStep[]
+}
+
+/** Voller Ersatz nur wenn wirklich keine Schritte vorhanden (z. B. leeres Parse-Ergebnis). */
+export function buildRichFallbackChapterSteps(title: string, chapterIndex: number): ChapterStep[] {
+  const label = isPlaceholderChapterTitle(title) ? 'diesem Lernabschnitt' : title.trim()
+  const templates = neutralPadStepTemplates()
+  const withIntro: Omit<ChapterStep, 'id'>[] = [
+    {
+      type: 'explanation',
+      title: `Kapitel ${chapterIndex + 1}`,
+      content: isPlaceholderChapterTitle(title)
+        ? 'Die automatische Kapitelerstellung hat hier wenig Inhalt geliefert. Die folgenden Schritte sind bewusst fachneutral (Lernstrategie), bis echte Inhalte nachgeneriert werden.'
+        : `Dieser Block ergaenzt "${label}" mit kurzen, allgemeinen Uebungen. Fachliche Fragen kommen aus den vorherigen KI-Schritten oder deinen Unterlagen.`,
+      bullets: ['Keine Meta-Fragen zum Kapitelnamen', 'Fokus auf Vorgehen und Verstaendnis'],
+    },
+    ...templates,
+  ]
+  return assignStepIds(withIntro, chapterIndex, `c${chapterIndex + 1}-fb`)
+}
+
+/**
+ * Fehlende Schritte auffuellen, ohne bereits generierte KI-Schritte zu verwerfen.
+ */
+function buildPaddingSteps(chapterIndex: number, existingCount: number, needed: number): ChapterStep[] {
+  const pool = neutralPadStepTemplates()
+  const out: ChapterStep[] = []
+  for (let i = 0; i < needed; i += 1) {
+    const tmpl = pool[i % pool.length]!
+    out.push({
+      ...tmpl,
+      id: `c${chapterIndex + 1}-pad-${existingCount + i}`,
+    } as ChapterStep)
+  }
+  return out
 }
 
 export function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): ChapterBlueprint[] {
@@ -446,11 +519,16 @@ export function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): Chapt
     if (chapter.steps.length >= 4) {
       return chapter
     }
-
-    const fallback = buildRichFallbackChapterSteps(chapter.title, chapterIndex)
+    if (chapter.steps.length === 0) {
+      return {
+        ...chapter,
+        steps: buildRichFallbackChapterSteps(chapter.title, chapterIndex),
+      }
+    }
+    const needed = 4 - chapter.steps.length
     return {
       ...chapter,
-      steps: fallback,
+      steps: [...chapter.steps, ...buildPaddingSteps(chapterIndex, chapter.steps.length, needed)],
     }
   })
 }

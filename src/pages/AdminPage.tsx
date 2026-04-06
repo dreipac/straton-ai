@@ -975,15 +975,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </p>
                 <ul className="settings-list">
                   <li>
-                    <strong>OPENAI_API_KEY</strong>
+                    <strong>OPENAI_API_KEY</strong> — Hauptchat (z. B. GPT-5 mini)
                   </li>
                   <li>
-                    <strong>ANTHROPIC_API_KEY</strong> (optional)
+                    <strong>ANTHROPIC_API_KEY</strong> — Lernpfad / Learn-Bereich (Claude Sonnet)
+                  </li>
+                  <li>
+                    Optional: <strong>ANTHROPIC_MODEL</strong> — anderes Claude-Modell (Sonnet-Standard im Code)
                   </li>
                 </ul>
                 <p>
                   Danach die Function <strong>chat-completion</strong> neu deployen. Das Frontend braucht keine
-                  Provider-Secrets.
+                  API-Keys; <code>VITE_AI_PROVIDER</code> nur <code>mock</code> vs. Gateway.
                 </p>
               </div>
             </article>

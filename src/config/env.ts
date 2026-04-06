@@ -1,4 +1,4 @@
-type AiProvider = 'mock' | 'openai'
+type AiProvider = 'mock' | 'openai' | 'anthropic'
 
 type AppEnv = {
   supabaseUrl: string
@@ -12,8 +12,12 @@ function getAiProvider(): AiProvider {
   if (envFromVite.VITE_AI_PROVIDER === 'mock') {
     return 'mock'
   }
+  if (envFromVite.VITE_AI_PROVIDER === 'anthropic') {
+    // Legacy-Wert: aktiviert wie «openai» den Gateway-Modus (Chat + Lernpfad werden serverseitig getrennt).
+    return 'anthropic'
+  }
 
-  // Default to OpenAI gateway via Supabase Edge Function.
+  // Default: Gateway (Hauptchat OpenAI, Lernpfad Claude Sonnet — siehe chat.service + Edge Function).
   return 'openai'
 }
 

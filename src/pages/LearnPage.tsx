@@ -742,6 +742,7 @@ export function LearnPage() {
           const result = await sendMessage([quizRequestMessage], {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             systemPrompt: getPrompt('learn_tutor'),
+            useLearnPathModel: true,
           })
           if (activePathIdRef.current !== activePathIdAtStart) {
             return
@@ -1116,9 +1117,8 @@ export function LearnPage() {
         })
       }
 
-      setMaterials((prev) => [...uploaded, ...prev].slice(0, 8))
-
       await incrementMySubscriptionUsage({ userId: user.id, usedFilesDelta: files.length })
+      setMaterials((prev) => [...uploaded, ...prev].slice(0, 8))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Dateien konnten nicht verarbeitet werden.')
     } finally {
@@ -1423,8 +1423,14 @@ export function LearnPage() {
                 }}
                 entryQuizFallbackError={error}
                 onRetryEntryQuizGeneration={() => {
-                  setHasTriedEntryQuizGeneration(false)
                   setError(null)
+                  // Kapitelgenerierung nach abgeschlossenem Einstiegstest fehlgeschlagen: entryQuiz ist gesetzt —
+                  // der initiale useEffect (nur bei !entryQuiz) startet nicht erneut.
+                  if (entryQuiz && entryQuizResult) {
+                    void handleSubmitEntryQuiz()
+                    return
+                  }
+                  setHasTriedEntryQuizGeneration(false)
                 }}
                 entryQuizResult={entryQuizResult}
                 entryTestDurationLabel={entryTestDurationLabel}

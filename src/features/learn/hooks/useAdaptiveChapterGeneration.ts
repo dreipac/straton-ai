@@ -8,6 +8,7 @@ import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
   ADAPTIVE_CHAPTER_GENERATED_ID,
   CHAPTER_GENERATION_TIMEOUT_MS,
+  CHAPTER_LEARNING_FIDELITY_RULES,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   buildAdaptiveChallengeFallback,
   buildAdaptiveChapterPlaceholder,
@@ -98,6 +99,7 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           'Fokussiere auf erkannte Schwachstellen aus den falsch beantworteten Fragen.',
           'Nutze vorhandene Unterlagen als primaere Quelle: mindestens die Haelfte der Fragen soll Inhalte aus den Materialauszuegen aufgreifen (Begriffe, Zusammenhaenge, Zuordnungen).',
           WORKSHEET_EXERCISE_FIDELITY_RULES,
+          CHAPTER_LEARNING_FIDELITY_RULES,
           `Thema: ${selectedTopic || effectiveTopic || 'Informatik Grundlagen'}`,
           `Schwachstellen aus bisherigem Lernverlauf:\n${weaknessSummary}`,
           adaptiveMaterialContext
@@ -113,6 +115,7 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
         sendMessage([request], {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           systemPrompt: getPrompt('learn_tutor'),
+          useLearnPathModel: true,
         }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => reject(new Error('Adaptive Kapitelgenerierung dauert zu lange.')), CHAPTER_GENERATION_TIMEOUT_MS)

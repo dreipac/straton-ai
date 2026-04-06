@@ -27,6 +27,10 @@ export type SendMessageOptions = {
   systemPrompt?: string
   /** Ersetzt den Standard-Basisblock (Straton / Quiz-JSON-Regeln). */
   interactiveQuizPrompt?: string
+  /**
+   * Lernpfad / Learn-UI: Antwort über Claude Sonnet (Edge). Ohne Flag: OpenAI für den Hauptchat.
+   */
+  useLearnPathModel?: boolean
 }
 
 type EvaluateQuizAnswerInput = {
@@ -112,12 +116,26 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   ]
 }
 
+/** Echter KI-Call (nicht Mock). Chat = OpenAI, Lernpfad = Claude Sonnet (siehe Edge Function). */
+function usesGatewayAi(): boolean {
+  return env.aiProvider !== 'mock'
+}
+
+function providerForMainChat(): 'openai' {
+  return 'openai'
+}
+
+function providerForLearnPath(): 'anthropic' {
+  return 'anthropic'
+}
+
 async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {
-  if (env.aiProvider === 'openai') {
+  if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
+    const provider = options?.useLearnPathModel ? providerForLearnPath() : providerForMainChat()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
-        provider: 'openai',
+        provider,
         messages: buildGatewayMessages(messages, options),
       },
     })
@@ -169,7 +187,7 @@ function sanitizeChatTitle(raw: string): string {
 }
 
 export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {
-  if (env.aiProvider !== 'openai') {
+  if (!usesGatewayAi()) {
     return { title: fallbackChatTitle(messages) }
   }
 
@@ -177,7 +195,7 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       mode: 'generate_title',
-      provider: 'openai',
+      provider: providerForMainChat(),
       payload: {
         messages: messages.map((message) => ({
           role: message.role,
@@ -205,7 +223,7 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
     return { suggestions: [] }
   }
 
-  if (env.aiProvider !== 'openai') {
+  if (!usesGatewayAi()) {
     return {
       suggestions: [
         `${normalizedTopic} Grundlagen`,
@@ -219,7 +237,7 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       mode: 'generate_topic_suggestions',
-      provider: 'openai',
+      provider: providerForLearnPath(),
       payload: {
         topic: normalizedTopic,
       },
@@ -268,7 +286,7 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
     throw new Error('Keine Kapiteldaten fuer Lernkarten vorhanden.')
   }
 
-  if (env.aiProvider !== 'openai') {
+  if (!usesGatewayAi()) {
     return mockFlashcardsFromOutline(trimmed)
   }
 
@@ -276,7 +294,7 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       mode: 'generate_flashcards',
-      provider: 'openai',
+      provider: providerForLearnPath(),
       payload: {
         chapterOutline: trimmed,
       },
@@ -393,7 +411,7 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
     throw new Error('Keine Kapiteldaten fuer Arbeitsblatt vorhanden.')
   }
 
-  if (env.aiProvider !== 'openai') {
+  if (!usesGatewayAi()) {
     return mockWorksheetFromOutline(trimmed)
   }
 
@@ -401,7 +419,7 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       mode: 'generate_worksheet',
-      provider: 'openai',
+      provider: providerForLearnPath(),
       payload: {
         chapterOutline: trimmed,
       },
@@ -438,7 +456,7 @@ export async function evaluateQuizAnswerWithAi(
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }
 
-  if (env.aiProvider !== 'openai') {
+  if (!usesGatewayAi()) {
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }
 
@@ -446,7 +464,7 @@ export async function evaluateQuizAnswerWithAi(
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       mode: 'evaluate_quiz',
-      provider: 'openai',
+      provider: providerForLearnPath(),
       payload: {
         question: input.question.prompt,
         expectedAnswer: input.question.expectedAnswer,
