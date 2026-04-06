@@ -15,6 +15,7 @@ type ChatMessageRow = {
   role: ChatRole
   content: string
   created_at: string
+  metadata?: unknown
 }
 
 function mapThread(row: ChatThreadRow): ChatThread {
@@ -27,6 +28,25 @@ function mapThread(row: ChatThreadRow): ChatThread {
   }
 }
 
+function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
+  if (!raw || typeof raw !== 'object') {
+    return undefined
+  }
+  const o = raw as Record<string, unknown>
+  const ex = o.excelExport
+  if (!ex || typeof ex !== 'object') {
+    return undefined
+  }
+  const e = ex as Record<string, unknown>
+  const bucket = typeof e.bucket === 'string' ? e.bucket : ''
+  const path = typeof e.path === 'string' ? e.path : ''
+  const fileName = typeof e.fileName === 'string' ? e.fileName : ''
+  if (!bucket || !path || !fileName) {
+    return undefined
+  }
+  return { excelExport: { bucket, path, fileName } }
+}
+
 function mapMessage(row: ChatMessageRow): ChatMessage {
   return {
     id: row.id,
@@ -34,6 +54,7 @@ function mapMessage(row: ChatMessageRow): ChatMessage {
     role: row.role,
     content: row.content,
     createdAt: row.created_at,
+    metadata: mapMessageMetadata(row.metadata),
   }
 }
 
@@ -60,7 +81,7 @@ export async function listMessagesByThreadIds(threadIds: string[]): Promise<Chat
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('chat_messages')
-    .select('id, thread_id, role, content, created_at')
+    .select('id, thread_id, role, content, created_at, metadata')
     .in('thread_id', threadIds)
     .order('created_at', { ascending: true })
 
@@ -120,7 +141,7 @@ export async function createChatMessage(
       role,
       content,
     })
-    .select('id, thread_id, role, content, created_at')
+    .select('id, thread_id, role, content, created_at, metadata')
     .single()
 
   if (error) {

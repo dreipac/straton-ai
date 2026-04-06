@@ -610,6 +610,8 @@ serve(async (req) => {
       provider?: unknown
       messages?: unknown
       payload?: { messages?: unknown; topic?: unknown } | unknown
+      /** Optional: max. Ausgabe-Tokens (v. a. Anthropic Chat / Excel-Spec). */
+      maxTokens?: unknown
     }
     let mode = normalizeMode(body.mode)
     const outlinePreview = chapterOutlineFromBody(body.payload)
@@ -693,9 +695,15 @@ serve(async (req) => {
       return jsonResponse({ title })
     }
 
+    const rawMax = body.maxTokens
+    const chatMaxTokens =
+      typeof rawMax === 'number' && Number.isFinite(rawMax) && rawMax >= 64
+        ? Math.min(16384, Math.floor(rawMax))
+        : undefined
+
     const assistantContent =
       provider === 'anthropic'
-        ? await callAnthropic(messages, apiKey, { maxTokens: 8192 })
+        ? await callAnthropic(messages, apiKey, { maxTokens: chatMaxTokens ?? 8192 })
         : await callOpenAi(messages, apiKey)
 
     return jsonResponse({

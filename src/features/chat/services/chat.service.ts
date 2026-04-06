@@ -7,7 +7,11 @@ import { env } from '../../../config/env'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
-import type { ChatMessage } from '../types'
+import {
+  buildExcelSpecSonnetSystemPrompt,
+  EXCEL_CHAT_SHORT_REPLY_HINT,
+} from '../constants/excelExportPrompt'
+import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 
 type SendMessageResult = {
@@ -31,6 +35,11 @@ export type SendMessageOptions = {
    * Lernpfad / Learn-UI: Antwort über Claude Sonnet (Edge). Ohne Flag: OpenAI für den Hauptchat.
    */
   useLearnPathModel?: boolean
+  /**
+   * Nutzer hat Excel/XLSX angefragt: OpenAI bekommt kurzen Hinweis, kein Excel-JSON.
+   * Spezifikation laeuft separat ueber {@link generateExcelSpecWithSonnet}.
+   */
+  userRequestedExcel?: boolean
 }
 
 type EvaluateQuizAnswerInput = {
@@ -95,9 +104,11 @@ async function messageFromFunctionsInvokeFailure(
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
+  const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
+    excelChatHint,
     getAssistantMarkdownFormattingInstruction(),
     getAssistantEmojiStyleInstruction(),
   ]
@@ -117,8 +128,77 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
 }
 
 /** Echter KI-Call (nicht Mock). Chat = OpenAI, Lernpfad = Claude Sonnet (siehe Edge Function). */
-function usesGatewayAi(): boolean {
+export function usesGatewayAi(): boolean {
   return env.aiProvider !== 'mock'
+}
+
+export async function generateExcelFromSpec(input: {
+  messageId: string
+  threadId: string
+  spec: unknown
+}): Promise<{ excelExport: ChatMessageExcelExport; displayContent: string }> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('generate-excel-from-spec', {
+    body: input,
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const payload = data as { excelExport?: unknown; displayContent?: unknown; error?: unknown } | undefined
+  if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+    throw new Error(payload.error.trim())
+  }
+
+  const excelExport = payload?.excelExport as Record<string, unknown> | undefined
+  const displayContent = payload?.displayContent
+  if (!excelExport || typeof displayContent !== 'string') {
+    throw new Error('Excel-Export konnte nicht abgeschlossen werden.')
+  }
+  const bucket = typeof excelExport.bucket === 'string' ? excelExport.bucket : ''
+  const path = typeof excelExport.path === 'string' ? excelExport.path : ''
+  const fileName = typeof excelExport.fileName === 'string' ? excelExport.fileName : ''
+  if (!bucket || !path || !fileName) {
+    throw new Error('Ungueltige Excel-Antwort.')
+  }
+
+  return {
+    excelExport: { bucket, path, fileName },
+    displayContent,
+  }
+}
+
+/** Begrenzt Sonnet-Ausgabe fuer Excel-Spec (Kosten). Edge `chat-completion` wertet `maxTokens` aus. */
+const EXCEL_SPEC_MAX_OUTPUT_TOKENS = 8192
+
+/**
+ * Nur Claude Sonnet: maschinenlesbarer Excel-Block (Marker + JSON).
+ * Eingabe absichtlich nur Nutzeranfrage — kein Chat-Verlauf (Input-Tokens sparen).
+ */
+export async function generateExcelSpecWithSonnet(userRequest: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      provider: 'anthropic',
+      messages: [
+        { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
+        { role: 'user', content: userRequest.trim() },
+      ],
+      maxTokens: EXCEL_SPEC_MAX_OUTPUT_TOKENS,
+    },
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const content = data?.assistantMessage?.content
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('Claude hat keine Excel-Spezifikation geliefert.')
+  }
+
+  return content.trim()
 }
 
 function providerForMainChat(): 'openai' {

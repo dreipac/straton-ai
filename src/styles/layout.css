@@ -214,7 +214,34 @@
 }
 
 .chat-sidebar-top-button-icon {
-  --ui-icon-size: 19px;
+  --ui-icon-size: 22px;
+}
+
+/* Neuer Chat: Form aus newMessage.svg, Fuellung = aktuelle Akzentpalette */
+.chat-sidebar-top-button-icon.chat-sidebar-new-chat-icon {
+  display: inline-block;
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  flex-shrink: 0;
+  vertical-align: middle;
+  background-image: var(--accent-gradient);
+  background-size: 150% 150%;
+  background-position: 42% 38%;
+  -webkit-mask-image: url('../assets/icons/newMessage.svg');
+  mask-image: url('../assets/icons/newMessage.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.chat-sidebar-top button.chat-sidebar-new-chat-button:hover:enabled .chat-sidebar-new-chat-label {
+  color: transparent;
+  background-image: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 .chat-thread-list {
@@ -588,7 +615,7 @@
 }
 
 .sidebar-toggle-icon {
-  --ui-icon-size: 24px;
+  --ui-icon-size: 27px;
 }
 
 .mobile-sidebar-pill {
@@ -712,7 +739,7 @@
   }
 
   .mobile-sidebar-pill-icon {
-    --ui-icon-size: 22px;
+    --ui-icon-size: 25px;
   }
 
   .mobile-sidebar-pill.is-open {
@@ -861,7 +888,11 @@
 }
 
 :root[data-sidebar-scale='75'] .chat-sidebar-top-button-icon {
-  --ui-icon-size: 16px;
+  --ui-icon-size: 18px;
+}
+
+:root[data-sidebar-scale='75'] .sidebar-toggle-icon {
+  --ui-icon-size: 22px;
 }
 
 :root[data-sidebar-scale='75'] .chat-thread-list {

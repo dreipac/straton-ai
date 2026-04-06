@@ -51,15 +51,25 @@
   color: #64748b;
 }
 
+/* Volle Breite scrollen → Scrollbar am rechten Fensterrand; Inhalt darin zentriert. */
 .chat-messages {
+  min-height: 0;
+  width: 100%;
+  justify-self: stretch;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  padding: 1.1rem 0 0;
+}
+
+.chat-messages-inner {
   display: grid;
   gap: 0.75rem;
-  min-height: 0;
-  overflow-y: auto;
   width: min(980px, 100%);
-  justify-self: center;
-  padding: 1.1rem 1.25rem 0;
+  margin: 0 auto;
+  padding: 0 1.25rem;
   align-content: start;
+  box-sizing: border-box;
 }
 
 .chat-empty-compose {
@@ -122,10 +132,115 @@
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
 }
 
+@keyframes chat-message-latest-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message--latest {
+  animation: chat-message-latest-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Senden-Button: during.svg während KI-Antwort */
+.chat-send-icon--during {
+  animation: chat-send-during-pulse 0.85s ease-in-out infinite alternate;
+}
+
+@keyframes chat-send-during-pulse {
+  from {
+    opacity: 0.82;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.chat-message--pending {
+  opacity: 0.96;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.65rem;
+  row-gap: 0.35rem;
+}
+
+.chat-pending-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  min-height: 1.35rem;
+}
+
+.chat-pending-loader-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #64748b 85%, #3b82f6);
+  animation: chat-pending-dot 1.05s ease-in-out infinite both;
+}
+
+.chat-pending-loader-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.chat-pending-loader-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes chat-pending-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.92);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+:root[data-theme='dark'] .chat-pending-loader-dot {
+  background: color-mix(in srgb, #94a3b8 75%, #60a5fa);
+}
+
+:root[data-theme='dark'] .chat-send-icon--during {
+  filter: invert(1) brightness(1.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-messages {
+    scroll-behavior: auto;
+  }
+
+  .chat-message--latest {
+    animation: none;
+  }
+
+  .chat-send-icon--during {
+    animation: none;
+  }
+
+  .chat-pending-loader-dot {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
 .chat-message.is-user {
   justify-self: end;
   background: var(--chat-user-bubble-bg);
-  border-color: var(--chat-user-bubble-border);
+  border: none;
+  box-shadow: none;
   border-radius: 18px;
   display: flex;
   align-items: flex-start;
@@ -165,6 +280,57 @@
 }
 :root[data-theme='dark'] .chat-message-author {
   color: #94a3b8;
+}
+
+.chat-excel-fallback-text {
+  margin: 0.35rem 0 0;
+  font-size: 0.95rem;
+  color: #64748b;
+}
+
+:root[data-theme='dark'] .chat-excel-fallback-text {
+  color: #94a3b8;
+}
+
+.chat-excel-download {
+  margin-top: 0.65rem;
+}
+
+.chat-excel-download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 90%, #3b82f6);
+  background: color-mix(in srgb, #ffffff 92%, #3b82f6);
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-excel-download-button:hover:enabled {
+  background: color-mix(in srgb, #ffffff 85%, #3b82f6);
+  border-color: color-mix(in srgb, #3b82f6 35%, #94a3b8);
+}
+
+.chat-excel-download-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+:root[data-theme='dark'] .chat-excel-download-button {
+  background: color-mix(in srgb, #1e293b 88%, #3b82f6);
+  color: #f1f5f9;
+  border-color: #334155;
+}
+
+:root[data-theme='dark'] .chat-excel-download-button:hover:enabled {
+  background: color-mix(in srgb, #1e293b 78%, #3b82f6);
 }
 
 .chat-message p strong {
@@ -513,6 +679,26 @@
   transform: scaleX(1);
 }
 
+.chat-input-row.is-sending {
+  opacity: 0.96;
+  transition:
+    opacity 0.28s ease,
+    box-shadow 0.28s ease,
+    border-color 0.28s ease;
+}
+
+.chat-input-row.is-sending:focus-within {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-row.is-sending {
+    opacity: 1;
+  }
+}
+
 .chat-input-row textarea.chat-input {
   border: none;
   background: transparent;
@@ -733,8 +919,14 @@
   outline-offset: 1px;
 }
 
-.chat-send-icon {
-  --ui-icon-size: 18px;
+/* Anhang-Button: gleiche Icon-Größe wie Senden */
+.chat-input-row--stacked .chat-attach-button .chat-send-icon {
+  --ui-icon-size: 26px;
+}
+
+/* Senden: grösseres Icon im Kreis-Button */
+.chat-input-row--stacked > button[type='submit'] .chat-send-icon {
+  --ui-icon-size: 26px;
 }
 
 @media (max-width: 860px) {
@@ -797,8 +989,12 @@
   }
 
   .chat-messages {
+    padding: 0;
+  }
+
+  .chat-messages-inner {
     width: 100%;
-    padding: 0 0.15rem;
+    padding: 0 0.65rem;
     gap: 0.62rem;
   }
 
@@ -862,7 +1058,8 @@
 
 :root[data-theme='dark'] .chat-message.is-user {
   background: var(--chat-user-bubble-bg-dark);
-  border-color: var(--chat-user-bubble-border-dark);
+  border: none;
+  box-shadow: none;
 }
 
 :root[data-theme='dark'] .chat-message.is-user p {

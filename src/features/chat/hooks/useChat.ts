@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
-import { generateChatTitleWithAi, sendMessage } from '../services/chat.service'
+import {
+  hasExcelSpecMarkers,
+  normalizeExcelSpecForExport,
+  parseExcelSpecFromContent,
+} from '../excel/excelSpec'
+import { userWantsExcelExport } from '../constants/excelExportPrompt'
+import {
+  generateChatTitleWithAi,
+  generateExcelFromSpec,
+  generateExcelSpecWithSonnet,
+  sendMessage,
+  usesGatewayAi,
+} from '../services/chat.service'
 import {
   createChatMessage,
   createChatThread,
@@ -406,18 +418,68 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
 
+      const wantsExcel = userWantsExcelExport(trimmed)
       const { assistantMessage } = await sendMessage(nextMessages, {
         interactiveQuizPrompt: getPrompt('interactive_quiz'),
+        userRequestedExcel: wantsExcel,
       })
+
+      let finalAssistantContent = assistantMessage.content
+      if (usesGatewayAi() && wantsExcel) {
+        try {
+          const specBlock = await generateExcelSpecWithSonnet(trimmed)
+          finalAssistantContent = `${finalAssistantContent.trim()}\n\n${specBlock.trim()}`
+        } catch (specErr) {
+          setError(
+            specErr instanceof Error
+              ? specErr.message
+              : 'Excel-Spezifikation (Claude) ist fehlgeschlagen.',
+          )
+        }
+      }
+
       const storedAssistantMessage = await createChatMessage(
         targetThreadId,
         'assistant',
-        assistantMessage.content,
+        finalAssistantContent,
       )
+
+      let mergedAssistantMessage = storedAssistantMessage
+      const excelSpecParsed = parseExcelSpecFromContent(finalAssistantContent)
+      const excelSpecUnreadable =
+        usesGatewayAi() &&
+        wantsExcel &&
+        hasExcelSpecMarkers(finalAssistantContent) &&
+        !excelSpecParsed.spec
+
+      if (excelSpecUnreadable) {
+        setError(
+          'Die Excel-Vorgabe in der Antwort konnte nicht gelesen werden (Schema/JSON). Bitte erneut versuchen oder eine kuerzere Tabelle anfragen.',
+        )
+      }
+
+      if (excelSpecParsed.spec && usesGatewayAi()) {
+        try {
+          const excelResult = await generateExcelFromSpec({
+            messageId: storedAssistantMessage.id,
+            threadId: targetThreadId,
+            spec: normalizeExcelSpecForExport(excelSpecParsed.spec),
+          })
+          mergedAssistantMessage = {
+            ...storedAssistantMessage,
+            content: excelResult.displayContent,
+            metadata: { excelExport: excelResult.excelExport },
+          }
+        } catch (excelErr) {
+          setError(
+            excelErr instanceof Error ? excelErr.message : 'Excel-Datei konnte nicht erzeugt werden.',
+          )
+        }
+      }
 
       setMessagesByThreadId((prev) => ({
         ...prev,
-        [targetThreadId]: [...(prev[targetThreadId] ?? []), storedAssistantMessage],
+        [targetThreadId]: [...(prev[targetThreadId] ?? []), mergedAssistantMessage],
       }))
 
       await touchChatThread(targetThreadId)
@@ -440,10 +502,10 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
             const { title } = await generateChatTitleWithAi([
               ...nextMessages,
               {
-                id: storedAssistantMessage.id,
+                id: mergedAssistantMessage.id,
                 role: 'assistant',
-                content: storedAssistantMessage.content,
-                createdAt: storedAssistantMessage.createdAt,
+                content: mergedAssistantMessage.content,
+                createdAt: mergedAssistantMessage.createdAt,
               },
             ])
 

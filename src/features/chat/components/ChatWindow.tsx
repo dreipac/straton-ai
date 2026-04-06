@@ -6,9 +6,13 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
+import attachmentIcon from '../../../assets/icons/attachment.svg'
+import duringIcon from '../../../assets/icons/during.svg'
 import fileIcon from '../../../assets/icons/file.svg'
 import sendIcon from '../../../assets/icons/send.svg'
+import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
+import { stripExcelSpecBlock } from '../excel/excelSpec'
 import type { ChatMessage } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
@@ -51,18 +55,57 @@ export function ChatWindow({
   const [draft, setDraft] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const isEmptyState = messages.length === 0
+  const showAssistantPendingLoader =
+    isSending &&
+    messages.length > 0 &&
+    messages[messages.length - 1]?.role === 'user'
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isAttachingFiles, setIsAttachingFiles] = useState(false)
+  const [excelDownloadBusyId, setExcelDownloadBusyId] = useState<string | null>(null)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
   /** Zuletzt bekannte Listenlänge (für „genau eine neue Nachricht“ = Stream). */
   const prevMessageCountRef = useRef(0)
   /** Laufende Schreib-Animation: darf nicht vom „Sofort“-Zweig überschrieben werden. */
   const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+  const prevThreadKeyForScrollRef = useRef<string | null>(threadKey)
+
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const isAssistantReplyStillAnimating = (() => {
+    if (!lastMessage || lastMessage.role !== 'assistant') return false
+    const parsed = parseInteractiveContentWithFallback(lastMessage.content)
+    if (parsed?.quiz) return false
+    if (lastMessage.metadata?.excelExport) return false
+    const animated = animatedAssistantContent[lastMessage.id] ?? lastMessage.content
+    return animated.length < lastMessage.content.length
+  })()
+  const showDuringSendIcon = isSending || isAssistantReplyStillAnimating
+
+  const lastMessageFingerprint =
+    messages.length > 0
+      ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content.length}`
+      : ''
+
+  /** Sanft zum Ende der Liste scrollen (neue Nachricht, längere Antwort, Sende-Ende). */
+  useEffect(() => {
+    const el = messagesScrollRef.current
+    const switchedThread = prevThreadKeyForScrollRef.current !== threadKey
+    prevThreadKeyForScrollRef.current = threadKey
+    if (!el || messages.length === 0) {
+      return
+    }
+    requestAnimationFrame(() => {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: switchedThread ? 'auto' : 'smooth',
+      })
+    })
+  }, [threadKey, lastMessageFingerprint, isSending, messages.length])
 
   useEffect(() => {
     return () => {
@@ -148,7 +191,8 @@ export function ChatWindow({
       }
 
       if (shouldStreamLatest && latestMessage?.id === message.id) {
-        const fullContent = message.content
+        /** Roh-Präfix zeigt sonst Marker/JSON, bevor END im String liegt — strip vor Animation. */
+        const fullContent = stripExcelSpecBlock(message.content)
         streamingStarted = true
         streamingIdForCleanup = message.id
         streamingAssistantIdsRef.current.add(message.id)
@@ -202,6 +246,38 @@ export function ChatWindow({
       }
     }
   }, [messages])
+
+  async function downloadExcelExport(message: ChatMessage) {
+    const ex = message.metadata?.excelExport
+    if (!ex) {
+      return
+    }
+    setExcelDownloadBusyId(message.id)
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.storage.from(ex.bucket).createSignedUrl(ex.path, 3600)
+      if (error || !data?.signedUrl) {
+        throw new Error(error?.message ?? 'Download-Link konnte nicht erstellt werden.')
+      }
+      const res = await fetch(data.signedUrl)
+      if (!res.ok) {
+        throw new Error('Datei konnte nicht geladen werden.')
+      }
+      const blob = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = ex.fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setExcelDownloadBusyId(null)
+    }
+  }
 
   function getQuizAnswerKey(messageId: string, questionId: string) {
     return `${messageId}::${questionId}`
@@ -351,7 +427,10 @@ export function ChatWindow({
         <div className="chat-empty-compose">
           <h2 className="chat-empty-title">Wie kann ich dir heute helfen, {greetingName}?</h2>
           {error ? <p className="error-text">{error}</p> : null}
-          <form className="chat-input-row is-centered chat-input-row--stacked" onSubmit={handleSubmit}>
+          <form
+            className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+            onSubmit={handleSubmit}
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -368,7 +447,7 @@ export function ChatWindow({
               aria-label="Datei anhängen"
               onClick={() => fileInputRef.current?.click()}
             >
-              <img className="ui-icon chat-send-icon" src={fileIcon} alt="" aria-hidden="true" />
+              <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
             </button>
             <div className="chat-input-compose">
               {pendingAttachments.length > 0 ? (
@@ -416,8 +495,14 @@ export function ChatWindow({
               disabled={
                 tokenLimitReached || isSending || isAttachingFiles || (!draft.trim() && pendingAttachments.length === 0)
               }
+              aria-busy={showDuringSendIcon}
             >
-              <img className="ui-icon chat-send-icon" src={sendIcon} alt="" aria-hidden="true" />
+              <img
+                className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
+                src={showDuringSendIcon ? duringIcon : sendIcon}
+                alt=""
+                aria-hidden="true"
+              />
             </button>
           </form>
           <p className="chat-input-hint">
@@ -435,26 +520,35 @@ export function ChatWindow({
           Dein Token-Limit fuer heute ist erreicht. Du kannst morgen wieder schreiben.
         </p>
       ) : null}
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesScrollRef}>
+        <div className="chat-messages-inner">
         {messages.map((message) => {
           const isAssistant = message.role === 'assistant'
           const parsed = isAssistant ? parseInteractiveContentWithFallback(message.content) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = animatedAssistantContent[message.id] ?? message.content
-          const displayContent = hasInteractiveQuiz
-            ? parsed?.cleanText || ''
-            : isAssistant
-              ? animatedContent
-              : message.content
+          /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
+          const baseAssistantForDisplay = message.metadata?.excelExport ? message.content : animatedContent
+          const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
+          /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
+          const displayContent = isAssistant
+            ? stripExcelSpecBlock(rawAssistantDisplay)
+            : message.content
+          const showExcelFallbackText =
+            isAssistant &&
+            Boolean(message.metadata?.excelExport) &&
+            !String(displayContent ?? '').trim()
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
+            !message.metadata?.excelExport &&
             animatedContent.length < message.content.length
+          const isLatestMessage = message.id === messages[messages.length - 1]?.id
 
           return (
             <article
               key={message.id}
-              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}`}
+              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}`}
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
               {displayContent ? (
@@ -463,6 +557,26 @@ export function ChatWindow({
                 ) : (
                   <p>{renderInlineMarkdown(displayContent)}</p>
                 )
+              ) : null}
+              {showExcelFallbackText ? (
+                <p className="chat-message-body chat-excel-fallback-text">
+                  Die Excel-Datei ist bereit — nutze den Download-Button unten.
+                </p>
+              ) : null}
+
+              {message.metadata?.excelExport ? (
+                <div className="chat-excel-download">
+                  <button
+                    type="button"
+                    className="chat-excel-download-button"
+                    disabled={excelDownloadBusyId === message.id}
+                    onClick={() => {
+                      void downloadExcelExport(message)
+                    }}
+                  >
+                    {excelDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Excel herunterladen'}
+                  </button>
+                </div>
               ) : null}
 
               {hasInteractiveQuiz ? (
@@ -523,11 +637,29 @@ export function ChatWindow({
             </article>
           )
         })}
+          {showAssistantPendingLoader ? (
+            <div
+              className="chat-message is-assistant chat-message--pending"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <strong className="chat-message-author">Straton AI</strong>
+              <div className="chat-pending-loader" role="status">
+                <span className="chat-pending-loader-dot" />
+                <span className="chat-pending-loader-dot" />
+                <span className="chat-pending-loader-dot" />
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      <form className="chat-input-row chat-input-row--stacked" onSubmit={handleSubmit}>
+      <form
+        className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+        onSubmit={handleSubmit}
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -544,7 +676,7 @@ export function ChatWindow({
           aria-label="Datei anhängen"
           onClick={() => fileInputRef.current?.click()}
         >
-          <img className="ui-icon chat-send-icon" src={fileIcon} alt="" aria-hidden="true" />
+          <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
         </button>
         <div className="chat-input-compose">
           {pendingAttachments.length > 0 ? (
@@ -590,8 +722,14 @@ export function ChatWindow({
         <button
           type="submit"
           disabled={tokenLimitReached || isSending || isAttachingFiles || (!draft.trim() && pendingAttachments.length === 0)}
+          aria-busy={showDuringSendIcon}
         >
-          <img className="ui-icon chat-send-icon" src={sendIcon} alt="" aria-hidden="true" />
+          <img
+            className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
+            src={showDuringSendIcon ? duringIcon : sendIcon}
+            alt=""
+            aria-hidden="true"
+          />
         </button>
       </form>
       <p className="chat-input-hint">

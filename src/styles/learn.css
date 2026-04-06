@@ -64,8 +64,8 @@
 
 .learn-new-path-icon {
   display: inline-block;
-  width: 19px;
-  height: 19px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
   background-image: var(--accent-gradient);
   -webkit-mask-image: url('../assets/icons/newMessage.svg');
@@ -1114,7 +1114,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
 
 .learn-conversation-message.is-user {
   background: var(--chat-user-bubble-bg);
-  border-color: var(--chat-user-bubble-border);
+  border: none;
 }
 
 .learn-conversation-message p {
@@ -1183,7 +1183,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
 
 .learn-chat-bubble.is-user {
   background: var(--chat-user-bubble-bg);
-  border-color: var(--chat-user-bubble-border);
+  border: none;
 }
 
 .learn-chat-bubble.is-user p {

@@ -11,9 +11,8 @@ import deleteIcon from '../assets/icons/delete.svg'
 import editIcon from '../assets/icons/edit.svg'
 import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
-import newMessageIcon from '../assets/icons/newMessage.svg'
 import accountIcon from '../assets/icons/account.svg'
-import aiIcon from '../assets/icons/ai.svg'
+import learnIcon from '../assets/icons/learn.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
@@ -467,13 +466,18 @@ export function ChatPage() {
                 <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
               </button>
             ) : null}
+            <button
+              type="button"
+              className="chat-sidebar-new-chat-button"
+              aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
+              onClick={() => navigate('/login')}
+            >
+              <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon" aria-hidden="true" />
+              {!isSidebarCollapsed ? <span className="chat-sidebar-new-chat-label">Neuer Chat</span> : null}
+            </button>
             <button type="button" onClick={() => navigate('/login')} aria-label={isSidebarCollapsed ? 'Anmelden' : undefined}>
               <img className="ui-icon chat-sidebar-top-button-icon" src={loginIcon} alt="" aria-hidden="true" />
               {!isSidebarCollapsed ? 'Anmelden' : null}
-            </button>
-            <button type="button" aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined} onClick={() => navigate('/login')}>
-              <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
-              {!isSidebarCollapsed ? 'Neuer Chat' : null}
             </button>
           </div>
 
@@ -604,6 +608,18 @@ export function ChatPage() {
             </button>
           ) : null}
           <button
+            ref={newChatTourRef}
+            type="button"
+            className={`chat-sidebar-new-chat-button${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+            onClick={() => {
+              void handleCreateNewChat()
+            }}
+            aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
+          >
+            <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon" aria-hidden="true" />
+            {!isSidebarCollapsed ? <span className="chat-sidebar-new-chat-label">Neuer Chat</span> : null}
+          </button>
+          <button
             type="button"
             onClick={openSettingsModal}
             aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
@@ -619,12 +635,12 @@ export function ChatPage() {
               navigate('/learn')
               setIsMobileSidebarOpen(false)
             }}
-            aria-label={isSidebarCollapsed ? 'KI Lehrer' : undefined}
+            aria-label={isSidebarCollapsed ? 'Lernpfade' : undefined}
           >
-            <img className="ui-icon chat-sidebar-top-button-icon" src={aiIcon} alt="" aria-hidden="true" />
+            <img className="ui-icon chat-sidebar-top-button-icon" src={learnIcon} alt="" aria-hidden="true" />
             {!isSidebarCollapsed ? (
               <>
-                KI Lehrer
+                Lernpfade
                 <span className="chat-dev-badge">In Entwicklung</span>
               </>
             ) : null}
@@ -639,18 +655,6 @@ export function ChatPage() {
               {!isSidebarCollapsed ? 'Administrator' : null}
             </button>
           ) : null}
-          <button
-            ref={newChatTourRef}
-            type="button"
-            className={showChatTour ? 'chat-onboarding-tour-block' : undefined}
-            onClick={() => {
-              void handleCreateNewChat()
-            }}
-            aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
-          >
-            <img className="ui-icon chat-sidebar-top-button-icon" src={newMessageIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'Neuer Chat' : null}
-          </button>
         </div>
 
         {!isSidebarCollapsed ? (

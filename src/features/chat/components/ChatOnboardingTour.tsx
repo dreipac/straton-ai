@@ -18,7 +18,7 @@ const STEPS = [
   },
   {
     title: 'Lernpfade',
-    body: 'Über „KI Lehrer“ kommst du zu deinen Lernpfaden, Materialien und Übungen.',
+    body: 'Hier öffnest du den Lernbereich mit Materialien, Übungen und deinen Lernpfaden.',
     action: 'Fertig',
   },
 ] as const
