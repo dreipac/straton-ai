@@ -622,6 +622,11 @@
 .chat-panel {
   --chat-input-radius: 38px;
   --chat-chip-radius: 16px;
+  /* Composer: Anhang + Senden (Light) — gleiche Fläche wie .chat-input-row button, Icons bleiben über --icon-filter lesbar */
+  --chat-composer-action-bg: #f1f5f9;
+  --chat-composer-action-bg-hover: #e8eef5;
+  --chat-composer-action-border: #d0dae8;
+  --chat-composer-action-border-hover: #c5d0e0;
 }
 
 .chat-input-row {
@@ -766,10 +771,16 @@
 
 .chat-attach-button {
   flex-shrink: 0;
-  border: none !important;
-  background: #223042 !important;
-  color: #e8eef8 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--chat-composer-action-border) !important;
+  background: var(--chat-composer-action-bg) !important;
+  color: #334155 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.chat-attach-button:hover:enabled {
+  border-color: var(--chat-composer-action-border-hover) !important;
+  background: var(--chat-composer-action-bg-hover) !important;
+  color: var(--interactive-hover-text) !important;
 }
 
 .chat-input-row--stacked {
@@ -777,6 +788,7 @@
   flex-wrap: wrap;
   gap: 0.42rem;
   align-items: flex-end;
+  padding: 0.5rem 0.6rem 0.55rem;
 }
 
 .chat-input-compose {
@@ -815,10 +827,10 @@
   border-radius: 50%;
   order: 2;
   margin-right: auto;
-  margin-left: 0.35rem;
+  margin-left: 0.15rem;
 }
 
-/* Kreis-Button (Senden) */
+/* Kreis-Button (Senden) — Light: gleiche Lesbarkeit wie Anhang (kein dunkler Kreis unter --icon-filter) */
 .chat-input-row--stacked > button[type='submit'] {
   width: 44px;
   height: 44px;
@@ -826,19 +838,44 @@
   min-height: 44px;
   border-radius: 50%;
   order: 3;
-  margin-right: 0.35rem;
+  margin-right: 0.15rem;
+  border: 1px solid var(--chat-composer-action-border);
+  background: var(--chat-composer-action-bg);
+  color: #334155;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-:root[data-theme='dark'] .chat-input-row--stacked .chat-attach-button {
+.chat-input-row--stacked > button[type='submit']:hover:enabled {
+  border-color: var(--chat-composer-action-border-hover);
+  background: var(--chat-composer-action-bg-hover);
+  color: var(--interactive-hover-text);
+}
+
+:root[data-theme='dark'] .chat-attach-button {
   border: none !important;
   background: #1a2433 !important;
   color: #edf3ff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-:root[data-theme='dark'] .chat-input-row--stacked .chat-attach-button:hover:enabled {
+:root[data-theme='dark'] .chat-attach-button:hover:enabled {
   border: none !important;
   background: #243246 !important;
   color: #ffffff !important;
+}
+
+/* Wie Anhang: kein sichtbarer Kreisrand (1px #3b4351 wirkte im Dark zu hell) */
+:root[data-theme='dark'] .chat-input-row--stacked > button[type='submit'] {
+  border: none !important;
+  background: #202732;
+  color: #e2e8f0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:hover:enabled {
+  border: none !important;
+  background: var(--interactive-hover-bg);
+  color: var(--interactive-hover-text);
 }
 
 .chat-attachment-chips {
@@ -1035,6 +1072,18 @@
     min-height: 40px;
   }
 
+  .chat-input-row--stacked {
+    padding: 0.45rem 0.5rem 0.52rem;
+  }
+
+  .chat-input-row--stacked .chat-attach-button,
+  .chat-input-row--stacked > button[type='submit'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .chat-input-hint {
     font-size: 0.74rem;
     padding: 0 0.2rem;
@@ -1194,13 +1243,21 @@
   color: #fde68a;
 }
 
+/* Light: deaktiviert = ausgegraut, nicht dunkler Kreis (sonst wirkt Senden «immer dunkel») */
 .chat-input-row button:disabled,
 .chat-input-row .chat-attach-button:disabled,
 .chat-input-row--stacked > button[type='submit']:disabled {
-  background: #334155 !important;
-  color: #cbd5e1 !important;
+  background: #e8edf4 !important;
+  color: #94a3b8 !important;
+  border-color: #d0d7e2 !important;
+  box-shadow: none !important;
   opacity: 1;
   cursor: not-allowed;
+}
+
+.chat-input-row--stacked > button[type='submit']:disabled .chat-send-icon,
+.chat-input-row .chat-attach-button:disabled .chat-send-icon {
+  opacity: 0.55;
 }
 
 :root[data-theme='dark'] .chat-input-row button:disabled,
@@ -1209,6 +1266,10 @@
   background: #111827 !important;
   color: #94a3b8 !important;
   opacity: 1;
+}
+
+:root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:disabled {
+  border: none !important;
 }
 
 :root[data-theme='dark'] .chat-input-row {
