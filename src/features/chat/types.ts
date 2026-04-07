@@ -14,6 +14,8 @@ export type ChatMessage = {
   createdAt: string
   metadata?: {
     excelExport?: ChatMessageExcelExport
+    /** Laufender OpenAI-SSE-Stream: UI blendet Text live ein (ohne Schreib-Animation). */
+    liveStream?: boolean
   }
 }
 

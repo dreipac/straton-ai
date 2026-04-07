@@ -18,12 +18,14 @@ import {
   createSubscriptionPlan,
   deleteSubscriptionPlan,
   deploySubscriptionAssignmentDrafts,
+  listAdminAiTokenUsageSummary,
   listAdminUsers,
   listSubscriptionAssignmentDrafts,
   listSubscriptionPlans,
   listSubscriptionPlanShowcaseSlots,
   saveSubscriptionAssignmentDraft,
   saveSubscriptionPlanShowcaseSlots,
+  type AdminAiTokenUsageRow,
   type AdminUser,
   type SubscriptionAssignmentDraftRow,
   type SubscriptionPlanRow,
@@ -33,6 +35,10 @@ import {
   adminSetBetaNoticeEnabled,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
+import {
+  estimateAiTokenCostsUsd,
+  formatUsdEstimate,
+} from '../features/auth/utils/aiModelPricing'
 import {
   deleteUserFeedbackById,
   listUserFeedbackForAdmin,
@@ -57,6 +63,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
 type AdminSectionId =
   | 'overview'
   | 'users'
+  | 'tokenUsage'
   | 'subscriptions'
   | 'deployment'
   | 'roles'
@@ -74,6 +81,7 @@ type AdminSection = {
 const sections: AdminSection[] = [
   { id: 'overview', label: 'Uebersicht', title: 'Administrator Uebersicht', icon: generalIcon },
   { id: 'users', label: 'Nutzer', title: 'Nutzerverwaltung', icon: accountIcon },
+  { id: 'tokenUsage', label: 'KI-Tokens', title: 'KI Token-Verbrauch', icon: aiIcon },
   { id: 'subscriptions', label: 'Abonnements', title: 'Abonnements verwalten', icon: cardsOutlineIcon },
   { id: 'deployment', label: 'Deployment', title: 'Abo-Entwuerfe deployen', icon: sendIcon },
   { id: 'roles', label: 'Rollen', title: 'Rollen und Rechte', icon: accountIcon },
@@ -120,11 +128,136 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
+  const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
+  const [isLoadingTokenUsage, setIsLoadingTokenUsage] = useState(false)
+  const [tokenUsageError, setTokenUsageError] = useState<string | null>(null)
+  const [tokenUsageFilterOpen, setTokenUsageFilterOpen] = useState(false)
+  const [tokenUsageFilterUserId, setTokenUsageFilterUserId] = useState('')
+  const [tokenUsageFilterModel, setTokenUsageFilterModel] = useState('')
+  const [tokenUsageFilterEmail, setTokenUsageFilterEmail] = useState('')
+  const [tokenUsageFilterCostMin, setTokenUsageFilterCostMin] = useState('')
+  const [tokenUsageFilterCostMax, setTokenUsageFilterCostMax] = useState('')
 
   const activeSectionConfig = useMemo(
     () => sections.find((section) => section.id === activeSection) ?? sections[0],
     [activeSection],
   )
+
+  const tokenUsageUserOptions = useMemo(() => {
+    const byId = new Map<string, AdminAiTokenUsageRow>()
+    for (const row of tokenUsageRows) {
+      if (!byId.has(row.user_id)) {
+        byId.set(row.user_id, row)
+      }
+    }
+    return [...byId.values()].sort((a, b) => {
+      const na = [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email?.trim() || a.user_id
+      const nb = [b.first_name, b.last_name].filter(Boolean).join(' ').trim() || b.email?.trim() || b.user_id
+      return na.localeCompare(nb, 'de')
+    })
+  }, [tokenUsageRows])
+
+  const tokenUsageModelOptions = useMemo(() => {
+    const ids = new Set<string>()
+    for (const row of tokenUsageRows) {
+      if (row.model) {
+        ids.add(row.model)
+      }
+    }
+    return [...ids].sort((a, b) => a.localeCompare(b, 'de'))
+  }, [tokenUsageRows])
+
+  const tokenUsageFiltersActive = useMemo(() => {
+    return Boolean(
+      tokenUsageFilterUserId ||
+        tokenUsageFilterModel ||
+        tokenUsageFilterEmail.trim() ||
+        tokenUsageFilterCostMin.trim() ||
+        tokenUsageFilterCostMax.trim(),
+    )
+  }, [
+    tokenUsageFilterUserId,
+    tokenUsageFilterModel,
+    tokenUsageFilterEmail,
+    tokenUsageFilterCostMin,
+    tokenUsageFilterCostMax,
+  ])
+
+  const tokenUsageFilteredRows = useMemo(() => {
+    const emailQ = tokenUsageFilterEmail.trim().toLowerCase()
+    const rawMin = tokenUsageFilterCostMin.trim().replace(',', '.')
+    const rawMax = tokenUsageFilterCostMax.trim().replace(',', '.')
+    const costMin = rawMin === '' ? Number.NaN : Number.parseFloat(rawMin)
+    const costMax = rawMax === '' ? Number.NaN : Number.parseFloat(rawMax)
+    const hasCostMin = Number.isFinite(costMin)
+    const hasCostMax = Number.isFinite(costMax)
+
+    return tokenUsageRows.filter((row) => {
+      if (tokenUsageFilterUserId && row.user_id !== tokenUsageFilterUserId) {
+        return false
+      }
+      if (tokenUsageFilterModel && row.model !== tokenUsageFilterModel) {
+        return false
+      }
+      if (emailQ && !(row.email ?? '').toLowerCase().includes(emailQ)) {
+        return false
+      }
+      if (hasCostMin || hasCostMax) {
+        const c = estimateAiTokenCostsUsd(row.provider, row.model, row.input_tokens, row.output_tokens)
+        if (!c.known) {
+          return false
+        }
+        if (hasCostMin && c.totalUsd < costMin) {
+          return false
+        }
+        if (hasCostMax && c.totalUsd > costMax) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [
+    tokenUsageRows,
+    tokenUsageFilterUserId,
+    tokenUsageFilterModel,
+    tokenUsageFilterEmail,
+    tokenUsageFilterCostMin,
+    tokenUsageFilterCostMax,
+  ])
+
+  const tokenUsageTotals = useMemo(() => {
+    let input = 0
+    let output = 0
+    for (const row of tokenUsageFilteredRows) {
+      input += row.input_tokens
+      output += row.output_tokens
+    }
+    return { input, output, total: input + output }
+  }, [tokenUsageFilteredRows])
+
+  const tokenUsageCostTotals = useMemo(() => {
+    let inputUsd = 0
+    let outputUsd = 0
+    let hasUnknownModel = false
+    let hasKnownModel = false
+    for (const row of tokenUsageFilteredRows) {
+      const c = estimateAiTokenCostsUsd(row.provider, row.model, row.input_tokens, row.output_tokens)
+      if (!c.known) {
+        hasUnknownModel = true
+        continue
+      }
+      hasKnownModel = true
+      inputUsd += c.inputUsd
+      outputUsd += c.outputUsd
+    }
+    return {
+      inputUsd,
+      outputUsd,
+      totalUsd: inputUsd + outputUsd,
+      hasUnknownModel,
+      hasKnownModel,
+    }
+  }, [tokenUsageFilteredRows])
 
   useEffect(() => {
     let isMounted = true
@@ -274,6 +407,40 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
 
     void loadDrafts()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'tokenUsage') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadTokenUsage() {
+      try {
+        setIsLoadingTokenUsage(true)
+        setTokenUsageError(null)
+        const rows = await listAdminAiTokenUsageSummary()
+        if (isMounted) {
+          setTokenUsageRows(rows)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setTokenUsageError(getErrorMessage(err, 'Token-Statistik konnte nicht geladen werden.'))
+          setTokenUsageRows([])
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingTokenUsage(false)
+        }
+      }
+    }
+
+    void loadTokenUsage()
 
     return () => {
       isMounted = false
@@ -576,6 +743,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return getUserLabel(user)
   }
 
+  function formatTokenUsagePerson(row: AdminAiTokenUsageRow): string {
+    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    if (name) {
+      return name
+    }
+    return row.email?.trim() || row.user_id
+  }
+
+  function formatTokenInt(n: number): string {
+    return n.toLocaleString('de-CH')
+  }
+
   function getSelectedPlanForUser(user: AdminUser): string {
     const localDraftSelection = selectedDraftPlanByUser[user.id]
     if (localDraftSelection !== undefined) {
@@ -712,6 +891,263 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <p className="admin-user-empty">Keine Nutzer gefunden.</p>
                   ) : null}
                 </div>
+              ) : null}
+            </div>
+          ) : null}
+          {activeSection === 'tokenUsage' ? (
+            <div className="admin-users-panel">
+              <p className="admin-users-warning">
+                Summe aller von der Edge Function <strong>chat-completion</strong> gemeldeten API-Tokens (OpenAI /
+                Anthropic), gruppiert nach Nutzer und Modell. Darunter: geschaetzte Kosten in{' '}
+                <strong>USD</strong> (Listenpreise laut OpenAI/Anthropic Standard-Tarif, Abruf 2026; ohne Gewaehr).
+                Voraussetzung: Migration <code>ai_token_usage</code> und Secret{' '}
+                <code>SUPABASE_SERVICE_ROLE_KEY</code> fuer die Function.
+              </p>
+              {tokenUsageError ? <p className="error-text">{tokenUsageError}</p> : null}
+              {isLoadingTokenUsage ? <p>Lade Token-Statistik…</p> : null}
+              {!isLoadingTokenUsage && !tokenUsageError ? (
+                <>
+                  {tokenUsageRows.length === 0 ? (
+                    <p className="admin-user-empty">
+                      Noch keine Eintraege. Nach Migration und KI-Nutzung erscheinen hier Werte.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="admin-token-toolbar">
+                        <SecondaryButton
+                          type="button"
+                          onClick={() => setTokenUsageFilterOpen((open) => !open)}
+                          aria-expanded={tokenUsageFilterOpen}
+                          aria-controls="admin-token-filters-panel"
+                        >
+                          {tokenUsageFilterOpen ? 'Filter ausblenden' : 'Filter'}
+                        </SecondaryButton>
+                        {tokenUsageFiltersActive ? (
+                          <span className="admin-token-filter-active-badge" aria-live="polite">
+                            Filter aktiv
+                          </span>
+                        ) : null}
+                      </div>
+                      {tokenUsageFilterOpen ? (
+                        <div
+                          id="admin-token-filters-panel"
+                          className="admin-token-filters-panel"
+                          role="region"
+                          aria-label="Token-Statistik filtern"
+                        >
+                          <div className="admin-token-filters-grid">
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-user">
+                              Nutzer
+                            </label>
+                            <select
+                              id="admin-token-filter-user"
+                              className="admin-subscriptions-name-input admin-token-filter-select"
+                              value={tokenUsageFilterUserId}
+                              onChange={(e) => setTokenUsageFilterUserId(e.target.value)}
+                            >
+                              <option value="">Alle Nutzer</option>
+                              {tokenUsageUserOptions.map((row) => (
+                                <option key={row.user_id} value={row.user_id}>
+                                  {formatTokenUsagePerson(row)}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-model">
+                              Modell
+                            </label>
+                            <select
+                              id="admin-token-filter-model"
+                              className="admin-subscriptions-name-input admin-token-filter-select"
+                              value={tokenUsageFilterModel}
+                              onChange={(e) => setTokenUsageFilterModel(e.target.value)}
+                            >
+                              <option value="">Alle Modelle</option>
+                              {tokenUsageModelOptions.map((id) => (
+                                <option key={id} value={id}>
+                                  {id}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-email">
+                              E-Mail (enthält)
+                            </label>
+                            <input
+                              id="admin-token-filter-email"
+                              type="search"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. @firma.ch"
+                              value={tokenUsageFilterEmail}
+                              onChange={(e) => setTokenUsageFilterEmail(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-cost-min">
+                              Kosten gesamt min. (USD)
+                            </label>
+                            <input
+                              id="admin-token-filter-cost-min"
+                              type="text"
+                              inputMode="decimal"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. 0.01"
+                              value={tokenUsageFilterCostMin}
+                              onChange={(e) => setTokenUsageFilterCostMin(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-cost-max">
+                              Kosten gesamt max. (USD)
+                            </label>
+                            <input
+                              id="admin-token-filter-cost-max"
+                              type="text"
+                              inputMode="decimal"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. 1.50"
+                              value={tokenUsageFilterCostMax}
+                              onChange={(e) => setTokenUsageFilterCostMax(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </div>
+                          <p className="admin-token-filter-hint">
+                            Kostenfilter beziehen sich auf die geschaetzte Summe pro Zeile (Input+Output). Zeilen ohne
+                            bekannten Tarif werden bei gesetztem Min./Max.-Kostenfilter ausgeblendet.
+                          </p>
+                          <SecondaryButton
+                            type="button"
+                            className="admin-token-filter-reset"
+                            onClick={() => {
+                              setTokenUsageFilterUserId('')
+                              setTokenUsageFilterModel('')
+                              setTokenUsageFilterEmail('')
+                              setTokenUsageFilterCostMin('')
+                              setTokenUsageFilterCostMax('')
+                            }}
+                          >
+                            Filter zuruecksetzen
+                          </SecondaryButton>
+                        </div>
+                      ) : null}
+                      {tokenUsageFilteredRows.length === 0 ? (
+                        <p className="admin-user-empty">Keine Zeilen fuer die aktuellen Filter.</p>
+                      ) : (
+                        <>
+                      <table className="admin-token-usage-table" aria-label="KI Token Verbrauch">
+                        <thead>
+                          <tr>
+                            <th scope="col">Nutzer</th>
+                            <th scope="col">E-Mail</th>
+                            <th scope="col">Provider</th>
+                            <th scope="col">Modell</th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Input
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Output
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Summe
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tokenUsageFilteredRows.map((row) => {
+                            const sum = row.input_tokens + row.output_tokens
+                            const key = `${row.user_id}-${row.provider}-${row.model}`
+                            const cost = estimateAiTokenCostsUsd(
+                              row.provider,
+                              row.model,
+                              row.input_tokens,
+                              row.output_tokens,
+                            )
+                            return (
+                              <tr key={key}>
+                                <td>{formatTokenUsagePerson(row)}</td>
+                                <td>{row.email ?? '—'}</td>
+                                <td>{row.provider}</td>
+                                <td>
+                                  <code className="admin-token-model">{row.model}</code>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.inputUsd, cost.known)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(row.output_tokens)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.outputUsd, cost.known)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(sum)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.totalUsd, cost.known)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="admin-token-usage-foot">
+                            <td colSpan={4}>
+                              <strong>
+                                {tokenUsageFiltersActive ? 'Gesamt (gefiltert)' : 'Gesamt (alle Nutzer)'}
+                              </strong>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.input)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.inputUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.output)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.outputUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.total)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.totalUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      {tokenUsageCostTotals.hasUnknownModel ? (
+                        <p className="admin-token-cost-footnote">
+                          Kosten-Summen in der Fusszeile zaehlen nur Zeilen mit bekanntem Modelltarif (OpenAI/Anthropic
+                          in <code>aiModelPricing.ts</code>).
+                        </p>
+                      ) : null}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
               ) : null}
             </div>
           ) : null}
@@ -979,6 +1415,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   </li>
                   <li>
                     <strong>ANTHROPIC_API_KEY</strong> — Lernpfad / Learn-Bereich (Claude Sonnet)
+                  </li>
+                  <li>
+                    <strong>SUPABASE_SERVICE_ROLE_KEY</strong> — fuer <strong>chat-completion</strong>: schreibt
+                    Token-Statistik in <code>ai_token_usage</code> (Admin-Menue «KI-Tokens»)
                   </li>
                   <li>
                     Optional: <strong>ANTHROPIC_MODEL</strong> — anderes Claude-Modell (Sonnet-Standard im Code)

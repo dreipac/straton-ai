@@ -1263,6 +1263,119 @@
   gap: 0.4rem;
 }
 
+.admin-token-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+}
+
+.admin-token-usage-table th,
+.admin-token-usage-table td {
+  padding: 0.42rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+
+.admin-token-usage-table thead th {
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.admin-token-usage-num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-token-metric-value,
+.admin-token-metric-cost {
+  display: block;
+}
+
+.admin-token-metric-cost {
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-cost-footnote {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-model {
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.admin-token-usage-foot td {
+  border-bottom: none;
+  padding-top: 0.65rem;
+}
+
+.admin-token-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.admin-token-filter-active-badge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-accent-strong, #0f766e);
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.admin-token-filters-panel {
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-token-filters-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 0.4rem 0.65rem;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .admin-token-filters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-token-filter-select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.admin-token-filter-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.35;
+}
+
+.admin-token-filter-reset {
+  justify-self: start;
+}
+
 .admin-feedback-panel {
   display: grid;
   gap: 0.4rem;
@@ -1969,6 +2082,20 @@
   background: rgba(190, 24, 93, 0.16);
   color: #fecdd3;
   border-color: rgba(244, 114, 182, 0.35);
+}
+
+:root[data-theme='dark'] .admin-token-filters-panel {
+  background: rgba(15, 23, 42, 0.55);
+  border-color: #2a303a;
+}
+
+:root[data-theme='dark'] .admin-token-filter-active-badge {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.14);
+}
+
+:root[data-theme='dark'] .admin-token-filter-hint {
+  color: #94a3b8;
 }
 
 :root[data-theme='dark'] .account-settings-form label {

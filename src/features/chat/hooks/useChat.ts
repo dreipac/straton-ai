@@ -12,6 +12,7 @@ import {
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
   sendMessage,
+  sendMessageStreaming,
   usesGatewayAi,
 } from '../services/chat.service'
 import {
@@ -419,12 +420,52 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
       })
 
       const wantsExcel = userWantsExcelExport(trimmed)
-      const { assistantMessage } = await sendMessage(nextMessages, {
-        interactiveQuizPrompt: getPrompt('interactive_quiz'),
-        userRequestedExcel: wantsExcel,
-      })
+      let streamAssistantId: string | null = null
+      let finalAssistantContent: string
 
-      let finalAssistantContent = assistantMessage.content
+      if (usesGatewayAi()) {
+        const streamingMessageId = crypto.randomUUID()
+        streamAssistantId = streamingMessageId
+        const streamCreatedAt = new Date().toISOString()
+        const streamingPlaceholder: ChatMessage = {
+          id: streamingMessageId,
+          role: 'assistant',
+          content: '',
+          createdAt: streamCreatedAt,
+          metadata: { liveStream: true },
+        }
+        setMessagesByThreadId((prev) => ({
+          ...prev,
+          [targetThreadId]: [...(prev[targetThreadId] ?? []), streamingPlaceholder],
+        }))
+
+        try {
+          finalAssistantContent = await sendMessageStreaming(nextMessages, {
+            interactiveQuizPrompt: getPrompt('interactive_quiz'),
+            userRequestedExcel: wantsExcel,
+            onDelta: (full) => {
+              setMessagesByThreadId((prev) => ({
+                ...prev,
+                [targetThreadId]: (prev[targetThreadId] ?? []).map((m) =>
+                  m.id === streamingMessageId ? { ...m, content: full } : m,
+                ),
+              }))
+            },
+          })
+        } catch (streamErr) {
+          setMessagesByThreadId((prev) => ({
+            ...prev,
+            [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
+          }))
+          throw streamErr
+        }
+      } else {
+        const { assistantMessage } = await sendMessage(nextMessages, {
+          interactiveQuizPrompt: getPrompt('interactive_quiz'),
+          userRequestedExcel: wantsExcel,
+        })
+        finalAssistantContent = assistantMessage.content
+      }
       if (usesGatewayAi() && wantsExcel) {
         try {
           const specBlock = await generateExcelSpecWithSonnet(trimmed)
@@ -477,10 +518,19 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         }
       }
 
-      setMessagesByThreadId((prev) => ({
-        ...prev,
-        [targetThreadId]: [...(prev[targetThreadId] ?? []), mergedAssistantMessage],
-      }))
+      setMessagesByThreadId((prev) => {
+        const list = prev[targetThreadId] ?? []
+        if (streamAssistantId) {
+          return {
+            ...prev,
+            [targetThreadId]: list.map((m) => (m.id === streamAssistantId ? mergedAssistantMessage : m)),
+          }
+        }
+        return {
+          ...prev,
+          [targetThreadId]: [...list, mergedAssistantMessage],
+        }
+      })
 
       await touchChatThread(targetThreadId)
 

@@ -3,12 +3,25 @@ import type { ChatMessage } from '../types'
 export const STRATON_EXCEL_SPEC_START = '<<<STRATON_EXCEL_SPEC_JSON>>>'
 export const STRATON_EXCEL_SPEC_END = '<<<END_STRATON_EXCEL_SPEC_JSON>>>'
 
+export type ExcelChartSpec = {
+  type: 'column' | 'bar' | 'line'
+  title?: string
+  seriesName?: string
+  /** Daten liegen auf anderem Blatt (exakter name wie in sheets[].name) */
+  sourceSheet?: string
+  categoriesRange: string
+  valuesRange: string
+  anchorCol?: number
+  anchorRow?: number
+}
+
 export type ExcelSpecV1 = {
   version: 1
   fileName: string
   sheets: Array<{
     name: string
     rows: unknown[][]
+    charts?: ExcelChartSpec[]
   }>
 }
 

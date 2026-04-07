@@ -10,7 +10,9 @@ import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/le
 import {
   buildExcelSpecSonnetSystemPrompt,
   EXCEL_CHAT_SHORT_REPLY_HINT,
+  EXCEL_SPEC_CACHE_EPOCH,
 } from '../constants/excelExportPrompt'
+import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
 import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 
@@ -177,28 +179,36 @@ const EXCEL_SPEC_MAX_OUTPUT_TOKENS = 8192
  * Eingabe absichtlich nur Nutzeranfrage — kein Chat-Verlauf (Input-Tokens sparen).
  */
 export async function generateExcelSpecWithSonnet(userRequest: string): Promise<string> {
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      provider: 'anthropic',
-      messages: [
-        { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
-        { role: 'user', content: userRequest.trim() },
-      ],
-      maxTokens: EXCEL_SPEC_MAX_OUTPUT_TOKENS,
+  const trimmed = userRequest.trim()
+  return getOrSetCachedResponse(
+    'excel-spec',
+    [EXCEL_SPEC_CACHE_EPOCH, trimmed],
+    AI_CACHE_TTL.excelSpec,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          provider: 'anthropic',
+          messages: [
+            { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
+            { role: 'user', content: trimmed },
+          ],
+          maxTokens: EXCEL_SPEC_MAX_OUTPUT_TOKENS,
+        },
+      })
+
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
+
+      const content = data?.assistantMessage?.content
+      if (typeof content !== 'string' || !content.trim()) {
+        throw new Error('Claude hat keine Excel-Spezifikation geliefert.')
+      }
+
+      return content.trim()
     },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const content = data?.assistantMessage?.content
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('Claude hat keine Excel-Spezifikation geliefert.')
-  }
-
-  return content.trim()
+  )
 }
 
 function providerForMainChat(): 'openai' {
@@ -245,6 +255,178 @@ export async function sendMessage(
   }
 }
 
+export type SendMessageStreamingOptions = SendMessageOptions & {
+  onDelta: (accumulatedText: string) => void
+}
+
+type StreamSsePayload =
+  | { type: 'delta'; t: string }
+  | { type: 'done'; model?: string; inputTokens?: number; outputTokens?: number }
+  | { type: 'error'; message?: string }
+
+async function consumeChatCompletionSse(
+  response: Response,
+  onDelta: (accumulated: string) => void,
+): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('Streaming-Antwort konnte nicht gelesen werden.')
+  }
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let full = ''
+  let streamError: string | null = null
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      buffer += decoder.decode(value, { stream: true })
+      for (;;) {
+        const sep = buffer.indexOf('\n\n')
+        if (sep === -1) {
+          break
+        }
+        const block = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        for (const line of block.split('\n')) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('data:')) {
+            continue
+          }
+          const raw = trimmed.slice(5).trim()
+          if (!raw) {
+            continue
+          }
+          let payload: StreamSsePayload
+          try {
+            payload = JSON.parse(raw) as StreamSsePayload
+          } catch {
+            continue
+          }
+          if (payload.type === 'delta' && typeof payload.t === 'string' && payload.t.length > 0) {
+            full += payload.t
+            onDelta(full)
+          } else if (payload.type === 'error') {
+            streamError = typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim() : 'Stream-Fehler'
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (streamError) {
+    throw new Error(streamError)
+  }
+  const trimmed = full.trim()
+  if (!trimmed) {
+    throw new Error('Der KI-Provider hat keine gueltige Antwort geliefert.')
+  }
+  return trimmed
+}
+
+/**
+ * Hauptchat: echtes SSE-Streaming (OpenAI) über die Edge Function.
+ * Lernpfad (`useLearnPathModel`) fällt auf nicht-streaming JSON zurück.
+ */
+export async function sendMessageStreaming(
+  messages: ChatMessage[],
+  options: SendMessageStreamingOptions,
+): Promise<string> {
+  const onDelta = options.onDelta
+
+  if (!usesGatewayAi()) {
+    const text = await getMockAssistantReply(messages)
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new Error('Der KI-Provider hat keine gueltige Antwort geliefert.')
+    }
+    const step = Math.max(4, Math.ceil(text.length / 20))
+    for (let i = step; i < text.length; i += step) {
+      onDelta(text.slice(0, i))
+    }
+    onDelta(text)
+    return text.trim()
+  }
+
+  if (options.useLearnPathModel) {
+    const content = await getAssistantReply(messages, options)
+    onDelta(content)
+    return content.trim()
+  }
+
+  const supabase = getSupabaseClient()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) {
+    throw new Error('Nicht angemeldet oder Sitzung abgelaufen.')
+  }
+
+  const baseUrl = env.supabaseUrl.replace(/\/$/, '')
+  const url = `${baseUrl}/functions/v1/chat-completion`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: env.supabaseAnonKey,
+    },
+    body: JSON.stringify({
+      provider: providerForMainChat(),
+      messages: buildGatewayMessages(messages, options),
+      stream: true,
+    }),
+  })
+
+  const ct = res.headers.get('content-type') ?? ''
+  if (!res.ok) {
+    let msg = `OpenAI Anfrage fehlgeschlagen (${res.status}).`
+    try {
+      const t = await res.text()
+      if (t) {
+        try {
+          const j = JSON.parse(t) as { error?: unknown }
+          if (typeof j.error === 'string' && j.error.trim()) {
+            msg = j.error.trim()
+          }
+        } catch {
+          if (t.length < 600) {
+            msg = t.trim()
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+
+  if (!ct.includes('text/event-stream')) {
+    const t = await res.text()
+    let fromJson = ''
+    try {
+      const j = JSON.parse(t) as { error?: unknown }
+      if (typeof j.error === 'string' && j.error.trim()) {
+        fromJson = j.error.trim()
+      }
+    } catch {
+      /* kein JSON */
+    }
+    throw new Error(
+      fromJson ||
+        t.trim().slice(0, 400) ||
+        'Streaming nicht unterstuetzt — Edge Function «chat-completion» deployen.',
+    )
+  }
+
+  return consumeChatCompletionSse(res, onDelta)
+}
+
 function fallbackChatTitle(messages: ChatMessage[]): string {
   const firstUser = messages.find((message) => message.role === 'user')?.content?.trim() ?? ''
   if (!firstUser) {
@@ -271,30 +453,44 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
     return { title: fallbackChatTitle(messages) }
   }
 
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      mode: 'generate_title',
-      provider: providerForMainChat(),
-      payload: {
-        messages: messages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
-      },
+  const titleKey = JSON.stringify(
+    messages.map((message) => ({
+      role: message.role,
+      content: message.content ?? '',
+    })),
+  )
+
+  return getOrSetCachedResponse(
+    'chat-title',
+    [titleKey],
+    AI_CACHE_TTL.chatTitle,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          mode: 'generate_title',
+          provider: providerForMainChat(),
+          payload: {
+            messages: messages.map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+          },
+        },
+      })
+
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
+
+      const title = sanitizeChatTitle(String(data?.title ?? ''))
+      if (!title) {
+        return { title: fallbackChatTitle(messages) }
+      }
+
+      return { title }
     },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const title = sanitizeChatTitle(String(data?.title ?? ''))
-  if (!title) {
-    return { title: fallbackChatTitle(messages) }
-  }
-
-  return { title }
+  )
 }
 
 export async function generateTopicSuggestionsWithAi(topic: string): Promise<GenerateTopicSuggestionsResult> {
@@ -313,33 +509,40 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
     }
   }
 
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      mode: 'generate_topic_suggestions',
-      provider: providerForLearnPath(),
-      payload: {
-        topic: normalizedTopic,
-      },
+  return getOrSetCachedResponse(
+    'topic-suggestions',
+    [normalizedTopic],
+    AI_CACHE_TTL.topicSuggestions,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          mode: 'generate_topic_suggestions',
+          provider: providerForLearnPath(),
+          payload: {
+            topic: normalizedTopic,
+          },
+        },
+      })
+
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
+
+      const rawSuggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
+      const suggestions = rawSuggestions
+        .filter((entry: unknown): entry is string => typeof entry === 'string')
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+        .slice(0, 5)
+
+      if (suggestions.length === 0) {
+        return { suggestions: [`${normalizedTopic} Grundlagen`] }
+      }
+
+      return { suggestions }
     },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const rawSuggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
-  const suggestions = rawSuggestions
-    .filter((entry: unknown): entry is string => typeof entry === 'string')
-    .map((entry: string) => entry.trim())
-    .filter(Boolean)
-    .slice(0, 5)
-
-  if (suggestions.length === 0) {
-    return { suggestions: [`${normalizedTopic} Grundlagen`] }
-  }
-
-  return { suggestions }
+  )
 }
 
 export type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
@@ -370,44 +573,51 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
     return mockFlashcardsFromOutline(trimmed)
   }
 
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      mode: 'generate_flashcards',
-      provider: providerForLearnPath(),
-      payload: {
-        chapterOutline: trimmed,
-      },
-    },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const raw = Array.isArray(data?.flashcards) ? data.flashcards : []
-  const cards: LearnFlashcard[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') {
-      continue
-    }
-    const o = entry as { question?: unknown; answer?: unknown }
-    const question = typeof o.question === 'string' ? o.question.trim() : ''
-    const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
-    if (question && answer) {
-      cards.push({
-        id: crypto.randomUUID(),
-        question,
-        answer,
+  return getOrSetCachedResponse(
+    'learn-flashcards',
+    [trimmed],
+    AI_CACHE_TTL.learnFlashcards,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          mode: 'generate_flashcards',
+          provider: providerForLearnPath(),
+          payload: {
+            chapterOutline: trimmed,
+          },
+        },
       })
-    }
-  }
 
-  if (cards.length === 0) {
-    throw new Error('Keine Lernkarten von der KI erhalten.')
-  }
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
 
-  return cards.slice(0, 20)
+      const raw = Array.isArray(data?.flashcards) ? data.flashcards : []
+      const cards: LearnFlashcard[] = []
+      for (const entry of raw) {
+        if (!entry || typeof entry !== 'object') {
+          continue
+        }
+        const o = entry as { question?: unknown; answer?: unknown }
+        const question = typeof o.question === 'string' ? o.question.trim() : ''
+        const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+        if (question && answer) {
+          cards.push({
+            id: crypto.randomUUID(),
+            question,
+            answer,
+          })
+        }
+      }
+
+      if (cards.length === 0) {
+        throw new Error('Keine Lernkarten von der KI erhalten.')
+      }
+
+      return cards.slice(0, 20)
+    },
+  )
 }
 
 /** Extrahiert Aufgaben aus der Edge-Response (toleriert alte Deploys und abweichende JSON-Keys). */
@@ -495,30 +705,37 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
     return mockWorksheetFromOutline(trimmed)
   }
 
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      mode: 'generate_worksheet',
-      provider: providerForLearnPath(),
-      payload: {
-        chapterOutline: trimmed,
-      },
+  return getOrSetCachedResponse(
+    'learn-worksheet',
+    [trimmed],
+    AI_CACHE_TTL.learnWorksheet,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          mode: 'generate_worksheet',
+          provider: providerForLearnPath(),
+          payload: {
+            chapterOutline: trimmed,
+          },
+        },
+      })
+
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
+
+      const items = parseWorksheetItemsFromInvokeData(data)
+
+      if (items.length === 0) {
+        throw new Error(
+          'Keine Aufgaben von der KI erhalten. Häufig: Edge-Function «chat-completion» ist nicht mit dem Modus «generate_worksheet» deployt — bitte deployen oder erneut versuchen.',
+        )
+      }
+
+      return items
     },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const items = parseWorksheetItemsFromInvokeData(data)
-
-  if (items.length === 0) {
-    throw new Error(
-      'Keine Aufgaben von der KI erhalten. Häufig: Edge-Function «chat-completion» ist nicht mit dem Modus «generate_worksheet» deployt — bitte deployen oder erneut versuchen.',
-    )
-  }
-
-  return items
+  )
 }
 
 export async function evaluateQuizAnswerWithAi(
@@ -540,36 +757,51 @@ export async function evaluateQuizAnswerWithAi(
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }
 
-  const supabase = getSupabaseClient()
-  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-    body: {
-      mode: 'evaluate_quiz',
-      provider: providerForLearnPath(),
-      payload: {
-        question: input.question.prompt,
-        expectedAnswer: input.question.expectedAnswer,
-        acceptableAnswers: input.question.acceptableAnswers,
-        userAnswer: trimmedAnswer,
-      },
+  const acceptable = input.question.acceptableAnswers ?? []
+  const evalKey = [
+    input.question.prompt,
+    input.question.expectedAnswer,
+    JSON.stringify(acceptable),
+    trimmedAnswer,
+  ]
+
+  return getOrSetCachedResponse(
+    'quiz-eval',
+    evalKey,
+    AI_CACHE_TTL.quizEval,
+    async () => {
+      const supabase = getSupabaseClient()
+      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+        body: {
+          mode: 'evaluate_quiz',
+          provider: providerForLearnPath(),
+          payload: {
+            question: input.question.prompt,
+            expectedAnswer: input.question.expectedAnswer,
+            acceptableAnswers: input.question.acceptableAnswers,
+            userAnswer: trimmedAnswer,
+          },
+        },
+      })
+
+      if (error) {
+        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      }
+
+      const evaluation = data?.evaluation as { isCorrect?: unknown; feedback?: unknown } | undefined
+      if (!evaluation) {
+        throw new Error('Keine Bewertungsdaten von der KI erhalten.')
+      }
+
+      return {
+        isCorrect: evaluation.isCorrect === true,
+        feedback:
+          typeof evaluation.feedback === 'string' && evaluation.feedback.trim()
+            ? evaluation.feedback.trim()
+            : evaluation.isCorrect === true
+              ? 'Richtig.'
+              : 'Nicht ganz korrekt.',
+      }
     },
-  })
-
-  if (error) {
-    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
-  }
-
-  const evaluation = data?.evaluation as { isCorrect?: unknown; feedback?: unknown } | undefined
-  if (!evaluation) {
-    throw new Error('Keine Bewertungsdaten von der KI erhalten.')
-  }
-
-  return {
-    isCorrect: evaluation.isCorrect === true,
-    feedback:
-      typeof evaluation.feedback === 'string' && evaluation.feedback.trim()
-        ? evaluation.feedback.trim()
-        : evaluation.isCorrect === true
-          ? 'Richtig.'
-          : 'Nicht ganz korrekt.',
-  }
+  )
 }

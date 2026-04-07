@@ -78,6 +78,7 @@ export function ChatWindow({
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
   const isAssistantReplyStillAnimating = (() => {
     if (!lastMessage || lastMessage.role !== 'assistant') return false
+    if (lastMessage.metadata?.liveStream) return false
     const parsed = parseInteractiveContentWithFallback(lastMessage.content)
     if (parsed?.quiz) return false
     if (lastMessage.metadata?.excelExport) return false
@@ -152,6 +153,9 @@ export function ChatWindow({
     ) {
       return
     }
+    if (latest.metadata?.liveStream) {
+      return
+    }
     setAnimatedAssistantContent((prev) => ({ ...prev, [latest.id]: '' }))
   }, [messages])
 
@@ -182,6 +186,14 @@ export function ChatWindow({
         continue
       }
 
+      if (message.metadata?.liveStream) {
+        setAnimatedAssistantContent((prev) => ({
+          ...prev,
+          [message.id]: stripExcelSpecBlock(message.content),
+        }))
+        continue
+      }
+
       if (animatedAssistantIdsRef.current.has(message.id)) {
         continue
       }
@@ -197,8 +209,9 @@ export function ChatWindow({
         streamingIdForCleanup = message.id
         streamingAssistantIdsRef.current.add(message.id)
 
-        const charsPerSecond = 52
-        const durationMs = Math.min(3400, Math.max(280, (fullContent.length / charsPerSecond) * 1000))
+        /** Nach API-Wartezeit: nur kurzes Einblenden — alte Werte wirkten wie zusaetzliche Ladezeit. */
+        const charsPerSecond = 320
+        const durationMs = Math.min(900, Math.max(120, (fullContent.length / charsPerSecond) * 1000))
         const start = performance.now()
         const targetLen = messages.length
 
@@ -528,7 +541,11 @@ export function ChatWindow({
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = animatedAssistantContent[message.id] ?? message.content
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
-          const baseAssistantForDisplay = message.metadata?.excelExport ? message.content : animatedContent
+          const baseAssistantForDisplay = message.metadata?.liveStream
+            ? stripExcelSpecBlock(message.content)
+            : message.metadata?.excelExport
+              ? message.content
+              : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
           const displayContent = isAssistant
@@ -542,7 +559,8 @@ export function ChatWindow({
             isAssistant &&
             !hasInteractiveQuiz &&
             !message.metadata?.excelExport &&
-            animatedContent.length < message.content.length
+            (Boolean(message.metadata?.liveStream) ||
+              animatedContent.length < message.content.length)
           const isLatestMessage = message.id === messages[messages.length - 1]?.id
 
           return (

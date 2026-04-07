@@ -3,6 +3,10 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 // @ts-expect-error - Deno URL import
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8'
 import ExcelJS from 'npm:exceljs@4.4.0'
+import {
+  injectChartsIntoXlsx,
+  type ChartInjectSpec,
+} from './chartInject.ts'
 
 declare const Deno: {
   env: { get(name: string): string | undefined }
@@ -25,6 +29,7 @@ type CellSpec =
 type SheetSpec = {
   name: string
   rows: unknown
+  charts?: ChartInjectSpec[]
 }
 
 type ExcelSpecV1 = {
@@ -110,6 +115,47 @@ function coerceCellSpec(raw: unknown): CellSpec | null {
   return null
 }
 
+function isSimpleA1Range(s: string): boolean {
+  const compact = s.replace(/\s+/g, '').trim()
+  return /^(\$?[A-Za-z]{1,3}\$?\d{1,7})(:(\$?[A-Za-z]{1,3}\$?\d{1,7}))?$/i.test(compact)
+}
+
+/**
+ * KI liefert oft "Diagramme!A5:A9", "=B5:B9" oder falsche Keys — fuer Charts brauchen wir nur den A1-Teil.
+ */
+function normalizeChartRangeInput(raw: unknown): string | null {
+  if (typeof raw !== 'string') {
+    return null
+  }
+  let s = raw.trim()
+  if (!s) {
+    return null
+  }
+  if (s.startsWith('=')) {
+    s = s.slice(1).trim()
+  }
+  const bang = s.lastIndexOf('!')
+  if (bang >= 0) {
+    s = s.slice(bang + 1).trim()
+  }
+  s = s.replace(/\s+/g, '')
+  if (!isSimpleA1Range(s)) {
+    return null
+  }
+  return s
+}
+
+function pickChartRangeField(obj: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = obj[k]
+    const n = normalizeChartRangeInput(v)
+    if (n) {
+      return n
+    }
+  }
+  return null
+}
+
 function parseSpec(raw: unknown): ExcelSpecV1 {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Spec ist kein Objekt.')
@@ -145,7 +191,94 @@ function parseSpec(raw: unknown): ExcelSpecV1 {
     if (sh.rows.length > MAX_ROWS_PER_SHEET) {
       throw new Error(`Maximal ${MAX_ROWS_PER_SHEET} Zeilen pro Blatt.`)
     }
-    sheets.push({ name, rows: sh.rows })
+
+    let charts: ChartInjectSpec[] | undefined
+    if (sh.charts !== undefined && sh.charts !== null) {
+      if (!Array.isArray(sh.charts)) {
+        throw new Error('charts muss ein Array sein.')
+      }
+      if (sh.charts.length > 8) {
+        throw new Error('Maximal 8 Diagramme pro Blatt.')
+      }
+      const parsedCharts: ChartInjectSpec[] = []
+      for (const rawCh of sh.charts) {
+        if (!rawCh || typeof rawCh !== 'object') {
+          throw new Error('Ungueltiges Diagramm-Objekt.')
+        }
+        const c = rawCh as Record<string, unknown>
+        const t = typeof c.type === 'string' ? c.type.trim().toLowerCase() : ''
+        if (t !== 'column' && t !== 'bar' && t !== 'line') {
+          throw new Error('Diagramm type muss column, bar oder line sein.')
+        }
+        const categoriesRange = pickChartRangeField(c, [
+          'categoriesRange',
+          'categoryRange',
+          'categories_range',
+          'category_range',
+          'xRange',
+          'x_range',
+          'labelsRange',
+          'labels_range',
+          'catRange',
+          'cat_range',
+        ])
+        const valuesRange = pickChartRangeField(c, [
+          'valuesRange',
+          'valueRange',
+          'values_range',
+          'value_range',
+          'yRange',
+          'y_range',
+          'dataRange',
+          'data_range',
+          'valRange',
+          'val_range',
+        ])
+        if (!categoriesRange || !valuesRange) {
+          throw new Error(
+            'Jedes Diagramm braucht categoriesRange und valuesRange als A1-Bereich (z.B. A5:A9 und B5:B9). Optional mit Blatt: Diagramme!A5:A9.',
+          )
+        }
+        const title = typeof c.title === 'string' ? c.title : undefined
+        const seriesName = typeof c.seriesName === 'string' ? c.seriesName : undefined
+        let anchorCol: number | undefined
+        let anchorRow: number | undefined
+        if (
+          typeof c.anchorCol === 'number' &&
+          Number.isFinite(c.anchorCol) &&
+          c.anchorCol >= 0 &&
+          c.anchorCol < 200
+        ) {
+          anchorCol = Math.floor(c.anchorCol)
+        }
+        if (
+          typeof c.anchorRow === 'number' &&
+          Number.isFinite(c.anchorRow) &&
+          c.anchorRow >= 0 &&
+          c.anchorRow < 100_000
+        ) {
+          anchorRow = Math.floor(c.anchorRow)
+        }
+        const rawSource = c.sourceSheet ?? c.dataSheet ?? c.rangeSheet ?? c.source_sheet
+        let sourceSheet: string | undefined
+        if (typeof rawSource === 'string' && rawSource.trim()) {
+          sourceSheet = rawSource.trim().slice(0, 31)
+        }
+        parsedCharts.push({
+          type: t as ChartInjectSpec['type'],
+          title,
+          seriesName,
+          sourceSheet,
+          categoriesRange,
+          valuesRange,
+          anchorCol,
+          anchorRow,
+        })
+      }
+      charts = parsedCharts
+    }
+
+    sheets.push({ name, rows: sh.rows, charts })
   }
 
   return { version: 1, fileName, sheets }
@@ -211,12 +344,24 @@ function convertGermanExcelFormulaToEnUsForOoxml(innerNoLeadingEquals: string): 
     { de: 'MITTELWERTWENN', en: 'AVERAGEIF' },
     { de: 'ZÄHLENWENNS', en: 'COUNTIFS' },
     { de: 'ZÄHLENWENN', en: 'COUNTIF' },
+    { de: 'BEREICH.VERSCHIEBEN', en: 'OFFSET' },
+    { de: 'WENNFEHLER', en: 'IFERROR' },
+    { de: 'WENNFEHL', en: 'IFERROR' },
+    { de: 'VERGLEICH', en: 'MATCH' },
+    { de: 'INDIREKT', en: 'INDIRECT' },
+    { de: 'XVERWEIS', en: 'XLOOKUP' },
+    { de: 'SVERWEIS', en: 'VLOOKUP' },
+    { de: 'WVERWEIS', en: 'HLOOKUP' },
+    { de: 'FILTERN', en: 'FILTER' },
+    { de: 'EINDEUTIG', en: 'UNIQUE' },
+    { de: 'SORTIEREN', en: 'SORT' },
+    { de: 'FOLGE', en: 'SEQUENCE' },
+    { de: 'MTRANS', en: 'TRANSPOSE' },
     { de: 'SUMME', en: 'SUM' },
     { de: 'MITTELWERT', en: 'AVERAGE' },
     { de: 'ANZAHL2', en: 'COUNTA' },
     { de: 'ANZAHL', en: 'COUNT' },
-    { de: 'SVERWEIS', en: 'VLOOKUP' },
-    { de: 'WVERWEIS', en: 'HLOOKUP' },
+    { de: 'PRODUKT', en: 'PRODUCT' },
     { de: 'WENN', en: 'IF' },
     { de: 'WAHR', en: 'TRUE' },
     { de: 'FALSCH', en: 'FALSE' },
@@ -227,6 +372,7 @@ function convertGermanExcelFormulaToEnUsForOoxml(innerNoLeadingEquals: string): 
     { de: 'ABS', en: 'ABS' },
     { de: 'MAX', en: 'MAX' },
     { de: 'MIN', en: 'MIN' },
+    { de: 'NV', en: 'NA' },
     { de: 'WURZEL', en: 'SQRT' },
     { de: 'POTENZ', en: 'POWER' },
     { de: 'VERKETTEN', en: 'CONCAT' },
@@ -236,6 +382,16 @@ function convertGermanExcelFormulaToEnUsForOoxml(innerNoLeadingEquals: string): 
     { de: 'LÄNGE', en: 'LEN' },
     { de: 'GROSS', en: 'UPPER' },
     { de: 'KLEIN', en: 'LOWER' },
+    { de: 'HEUTE', en: 'TODAY' },
+    { de: 'JETZT', en: 'NOW' },
+    { de: 'ZEILE', en: 'ROW' },
+    { de: 'SPALTE', en: 'COLUMN' },
+    { de: 'ISTLEER', en: 'ISBLANK' },
+    { de: 'ISTZAHL', en: 'ISNUMBER' },
+    { de: 'ISTTEXT', en: 'ISTEXT' },
+    { de: 'GANZZAHL', en: 'INT' },
+    { de: 'REST', en: 'MOD' },
+    { de: 'ZUFALLSZAHL', en: 'RAND' },
   ]
 
   let s = innerNoLeadingEquals
@@ -315,7 +471,12 @@ async function buildWorkbook(spec: ExcelSpecV1): Promise<Uint8Array> {
     })
   }
   const buf = await wb.xlsx.writeBuffer()
-  return new Uint8Array(buf)
+  const raw = new Uint8Array(buf)
+  const sheetsForCharts = spec.sheets.map((s) => ({
+    name: sanitizeSheetName(s.name),
+    charts: s.charts,
+  }))
+  return await injectChartsIntoXlsx(raw, sheetsForCharts)
 }
 
 serve(async (req) => {

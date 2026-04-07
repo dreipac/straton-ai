@@ -33,6 +33,49 @@ export type SubscriptionPlanShowcaseSlotRow = {
   plan_id: string | null
 }
 
+export type AdminAiTokenUsageRow = {
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  input_tokens: number
+  output_tokens: number
+}
+
+function toSafeInt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value))
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+  }
+  return 0
+}
+
+export async function listAdminAiTokenUsageSummary(): Promise<AdminAiTokenUsageRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_summary')
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+  }))
+}
+
 export async function listAdminUsers(): Promise<AdminUser[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('list_admin_profiles')
