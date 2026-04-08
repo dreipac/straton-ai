@@ -115,51 +115,6 @@ export function ChatWindow({
     }
   }, [])
 
-  /**
-   * PWA/Tastatur:
-   * - `--chat-keyboard-inset`: unterer Bereich, der von der Tastatur verdeckt wird → Composer nach oben.
-   * - Leerer Chat: `--chat-vv-height` + `data-chat-empty-vv`, damit kein Body-Scroll / keine Extrascrollbar.
-   */
-  useLayoutEffect(() => {
-    const root = document.documentElement
-    const vv = window.visualViewport
-    if (!vv) {
-      return
-    }
-    function syncVisualViewport() {
-      const v = window.visualViewport
-      if (!v) {
-        return
-      }
-      const h = Math.round(v.height)
-      const inset = Math.max(0, Math.round(window.innerHeight - v.offsetTop - v.height))
-      root.style.setProperty('--chat-keyboard-inset', `${inset}px`)
-
-      if (isEmptyState) {
-        root.style.setProperty('--chat-vv-height', `${h}px`)
-        root.setAttribute('data-chat-empty-vv', '')
-        if (window.scrollY !== 0 || window.scrollX !== 0) {
-          window.scrollTo(0, 0)
-        }
-      } else {
-        root.removeAttribute('data-chat-empty-vv')
-        root.style.removeProperty('--chat-vv-height')
-      }
-    }
-    syncVisualViewport()
-    vv.addEventListener('resize', syncVisualViewport)
-    vv.addEventListener('scroll', syncVisualViewport)
-    window.addEventListener('resize', syncVisualViewport)
-    return () => {
-      vv.removeEventListener('resize', syncVisualViewport)
-      vv.removeEventListener('scroll', syncVisualViewport)
-      window.removeEventListener('resize', syncVisualViewport)
-      root.removeAttribute('data-chat-empty-vv')
-      root.style.removeProperty('--chat-vv-height')
-      root.style.removeProperty('--chat-keyboard-inset')
-    }
-  }, [isEmptyState])
-
   const MAX_INPUT_HEIGHT_PX = 220
 
   function adjustComposeHeight() {
@@ -483,19 +438,16 @@ export function ChatWindow({
           </p>
         ) : null}
         <div className="chat-empty-compose">
-          <div className="chat-empty-lead">
-            <h2 className="chat-empty-title">
-              Wie kann ich{' '}
-              <br className="chat-empty-title-line-break" />
-              dir heute helfen, {greetingName}?
-            </h2>
-            {error ? <p className="error-text">{error}</p> : null}
-          </div>
-          <div className="chat-empty-composer-stack">
-            <form
-              className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
-              onSubmit={handleSubmit}
-            >
+          <h2 className="chat-empty-title">
+            Wie kann ich
+            <br />
+            dir heute helfen, {greetingName}?
+          </h2>
+          {error ? <p className="error-text">{error}</p> : null}
+          <form
+            className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+            onSubmit={handleSubmit}
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -570,10 +522,9 @@ export function ChatWindow({
               />
             </button>
           </form>
-            <p className="chat-input-hint">
-              Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
-            </p>
-          </div>
+          <p className="chat-input-hint">
+            Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
+          </p>
         </div>
       </section>
     )
