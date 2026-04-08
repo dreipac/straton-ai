@@ -46,7 +46,7 @@ import {
   MESSAGE_BOX_STORAGE_KEY,
 } from '../features/settings/constants/messageBoxPalettes'
 
-type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'feedback' | 'account'
+export type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'feedback' | 'account'
 
 type SettingsSection = {
   id: SettingsSectionId
@@ -57,9 +57,11 @@ type SettingsSection = {
 
 type SettingsModalProps = {
   onClose: () => void
+  /** Beim Öffnen (z. B. aus Mobile-Profil-Sheet) direkt diese Sektion anzeigen. */
+  initialSection?: SettingsSectionId
 }
 
-export function SettingsModal({ onClose }: SettingsModalProps) {
+export function SettingsModal({ onClose, initialSection = 'general' }: SettingsModalProps) {
   const {
     user,
     profile,
@@ -72,7 +74,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     updateEmail,
     updateUiSettings,
   } = useAuth()
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
+
+  useEffect(() => {
+    setActiveSection(initialSection)
+  }, [initialSection])
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
     const persistedTheme = window.localStorage.getItem('straton-theme')
     return persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'

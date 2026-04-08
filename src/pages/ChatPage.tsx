@@ -20,6 +20,10 @@ import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ActionBottomSheet } from '../components/ui/bottom-sheet/ActionBottomSheet'
 import {
+  ProfileFullSheet,
+  type ProfileFullSheetHandle,
+} from '../components/ui/bottom-sheet/ProfileFullSheet'
+import {
   RenameBottomSheet,
   type RenameBottomSheetHandle,
 } from '../components/ui/bottom-sheet/RenameBottomSheet'
@@ -41,7 +45,21 @@ import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { isMobileViewport } from '../utils/mobile'
 import { AdministratorModal } from './AdminPage'
-import { SettingsModal } from './SettingsPage'
+import { SettingsModal, type SettingsSectionId } from './SettingsPage'
+
+/** Gleicher Breakpoint wie `layout.css` Mobile-Sidebar (`max-width: 860px`). */
+const COMPACT_MOBILE_SIDEBAR_MAX_PX = 860
+
+/** Menüpunkt-Labels wie in den Desktop-Einstellungen (DE), Reihenfolge: Konto zuerst. */
+const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[] = [
+  { id: 'account', label: 'Konto' },
+  { id: 'general', label: 'Allgemein' },
+  { id: 'chat', label: 'Chat Einstellungen' },
+  { id: 'personalize', label: 'Personalisieren' },
+  { id: 'ai', label: 'KI Provider' },
+  { id: 'status', label: 'Status' },
+  { id: 'feedback', label: 'Feedback' },
+]
 
 export function ChatPage() {
   const DEFAULT_NO_PLAN_MAX_TOKENS = 100
@@ -66,6 +84,7 @@ export function ChatPage() {
   )
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('general')
   const [isAdminMounted, setIsAdminMounted] = useState(false)
   const [isAdminVisible, setIsAdminVisible] = useState(false)
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
@@ -83,10 +102,12 @@ export function ChatPage() {
   const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
   const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
+  const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
   const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
+  const profileFullSheetRef = useRef<ProfileFullSheetHandle | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
   const renameCloseTimerRef = useRef<number | null>(null)
@@ -103,6 +124,17 @@ export function ChatPage() {
   async function handleLogout() {
     await logout()
     navigate('/login', { replace: true })
+  }
+
+  function toggleCompactProfileSheet() {
+    if (!isCompactMobileSidebarLayout) {
+      return
+    }
+    if (isProfileMenuOpen) {
+      profileFullSheetRef.current?.requestClose()
+    } else {
+      setIsProfileMenuOpen(true)
+    }
   }
 
   useEffect(() => {
@@ -127,7 +159,14 @@ export function ChatPage() {
       }
 
       if (!isInsideProfileMenu && isProfileMenuOpen) {
-        setIsProfileMenuOpen(false)
+        if (isCompactMobileSidebarLayout) {
+          const insideSheet = profileFullSheetRef.current?.containsNode(target) ?? false
+          if (!insideSheet) {
+            profileFullSheetRef.current?.requestClose()
+          }
+        } else {
+          setIsProfileMenuOpen(false)
+        }
       }
     }
 
@@ -137,7 +176,17 @@ export function ChatPage() {
       document.removeEventListener('mousedown', handleOutsidePointer)
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
-  }, [openMenuThreadId, isProfileMenuOpen])
+  }, [openMenuThreadId, isProfileMenuOpen, isCompactMobileSidebarLayout])
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)
+    function syncCompactSidebarLayout() {
+      setIsCompactMobileSidebarLayout(mq.matches)
+    }
+    syncCompactSidebarLayout()
+    mq.addEventListener('change', syncCompactSidebarLayout)
+    return () => mq.removeEventListener('change', syncCompactSidebarLayout)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -251,7 +300,9 @@ export function ChatPage() {
     })
   }
 
-  function openSettingsModal() {
+  function openSettingsModal(section: SettingsSectionId = 'general') {
+    setSettingsInitialSection(section)
+    setIsProfileMenuOpen(false)
     void refreshProfile().catch(() => {
       // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
     })
@@ -276,6 +327,7 @@ export function ChatPage() {
   }
 
   function openAdminModal() {
+    setIsProfileMenuOpen(false)
     setIsMobileSidebarOpen(false)
     if (adminCloseTimerRef.current) {
       window.clearTimeout(adminCloseTimerRef.current)
@@ -515,7 +567,7 @@ export function ChatPage() {
             ) : null}
             <button
               type="button"
-              className="chat-sidebar-new-chat-button"
+              className="chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar"
               aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
               onClick={() => navigate('/login')}
             >
@@ -528,12 +580,25 @@ export function ChatPage() {
             </button>
           </div>
 
-          {!isSidebarCollapsed ? (
-            <div className="chat-thread-list">
-              <p className="thread-list-info">Chats</p>
-              <p className="thread-list-info">Melde dich an, um deine Chats in der Sidebar zu sehen.</p>
+          <div className="chat-sidebar-list-wrap">
+            {!isSidebarCollapsed ? (
+              <div className="chat-thread-list">
+                <p className="thread-list-info">Chats</p>
+                <p className="thread-list-info">Melde dich an, um deine Chats in der Sidebar zu sehen.</p>
+              </div>
+            ) : null}
+            <div className="chat-sidebar-footer-dock chat-sidebar-footer-dock--fab-only">
+              <button
+                type="button"
+                className="mobile-new-chat-fab"
+                aria-label="Neuer Chat"
+                onClick={() => navigate('/login')}
+              >
+                <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon" aria-hidden="true" />
+                <span className="mobile-new-chat-fab-label">Chat</span>
+              </button>
             </div>
-          ) : null}
+          </div>
         </aside>
 
         <section className="chat-main chat-main-guest">
@@ -653,9 +718,11 @@ export function ChatPage() {
             </button>
           ) : null}
           <button
-            ref={newChatTourRef}
+            ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
             type="button"
-            className={`chat-sidebar-new-chat-button${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+            className={`chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar${
+              showChatTour ? ' chat-onboarding-tour-block' : ''
+            }`}
             onClick={() => {
               void handleCreateNewChat()
             }}
@@ -666,7 +733,7 @@ export function ChatPage() {
           </button>
           <button
             type="button"
-            onClick={openSettingsModal}
+            onClick={() => openSettingsModal()}
             aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
           >
             <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
@@ -702,11 +769,12 @@ export function ChatPage() {
           ) : null}
         </div>
 
-        {!isSidebarCollapsed ? (
-          <div className="chat-thread-list">
-            <p className="thread-list-info">Chats</p>
-            {isBootstrapping ? <p className="thread-list-info">Lade Chats...</p> : null}
-            {threads.map((thread) => (
+        <div className="chat-sidebar-list-wrap">
+          {!isSidebarCollapsed ? (
+            <div className="chat-thread-list">
+              <p className="thread-list-info">Chats</p>
+              {isBootstrapping ? <p className="thread-list-info">Lade Chats...</p> : null}
+              {threads.map((thread) => (
               <div
                 key={thread.id}
                 className={`chat-thread-row ${thread.id === activeThreadId ? 'is-active' : ''} ${
@@ -735,43 +803,67 @@ export function ChatPage() {
                 </div>
               </div>
             ))}
-            {!isBootstrapping && threads.length === 0 ? (
-              <p className="thread-list-info">Noch keine Chats vorhanden.</p>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="chat-sidebar-bottom">
-          <div className="account-profile-row">
-            <div className="account-profile chat-sidebar-profile-card">
-              {profile?.avatar_url ? (
-                <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
-              ) : (
-                <div className="account-avatar-fallback">{avatarFallback}</div>
-              )}
-              {!isSidebarCollapsed ? (
-                <div className="account-meta">
-                  {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
-                  <div className="account-name-row">
-                    <p className="account-value">{displayName}</p>
-                  </div>
-                  {subscriptionPlanName ? (
-                    <p className="account-subscription">{subscriptionPlanName}</p>
-                  ) : null}
-                </div>
+              {!isBootstrapping && threads.length === 0 ? (
+                <p className="thread-list-info">Noch keine Chats vorhanden.</p>
               ) : null}
-              {!isSidebarCollapsed ? (
-                <div ref={profileMenuRef} className="account-menu-anchor">
-                  <button
-                    type="button"
-                    className="account-menu-trigger"
-                    aria-label="Profil Aktionen"
-                    onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                  >
-                    <img className="ui-icon account-menu-icon" src={triangleIcon} alt="" aria-hidden="true" />
-                  </button>
+            </div>
+          ) : null}
 
-                  {isProfileMenuOpen ? (
+          <div className="chat-sidebar-footer-dock">
+            <div className="chat-sidebar-bottom">
+              <div className="account-profile-row">
+                <div
+                  ref={profileMenuRef}
+                  className={`account-profile chat-sidebar-profile-card${isCompactMobileSidebarLayout ? ' chat-sidebar-profile-badge' : ''}`}
+                  role={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 'button' : undefined}
+                  tabIndex={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 0 : undefined}
+                  onClick={
+                    isCompactMobileSidebarLayout && !isSidebarCollapsed ? () => toggleCompactProfileSheet() : undefined
+                  }
+                  onKeyDown={
+                    isCompactMobileSidebarLayout && !isSidebarCollapsed
+                      ? (event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            toggleCompactProfileSheet()
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  {profile?.avatar_url ? (
+                    <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+                  ) : (
+                    <div className="account-avatar-fallback">{avatarFallback}</div>
+                  )}
+                  {!isSidebarCollapsed ? (
+                    <div className="account-meta">
+                      {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
+                        <span className="account-admin-badge">Admin</span>
+                      ) : null}
+                      <div className="account-name-row">
+                        <p className="account-value">
+                          {isCompactMobileSidebarLayout ? greetingName : displayName}
+                        </p>
+                      </div>
+                      {subscriptionPlanName ? (
+                        <p className="account-subscription">{subscriptionPlanName}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {!isSidebarCollapsed && !isCompactMobileSidebarLayout ? (
+                    <div className="account-menu-anchor">
+                      <button
+                        type="button"
+                        className="account-menu-trigger"
+                        aria-label="Profil Aktionen"
+                        onClick={() => setIsProfileMenuOpen((prev) => !prev)}
+                      >
+                        <img className="ui-icon account-menu-icon" src={triangleIcon} alt="" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+                  {!isSidebarCollapsed && isProfileMenuOpen && !isCompactMobileSidebarLayout ? (
                     <ContextMenu className="account-thread-menu">
                       <MenuItem
                         iconSrc={logoutIcon}
@@ -786,8 +878,18 @@ export function ChatPage() {
                     </ContextMenu>
                   ) : null}
                 </div>
-              ) : null}
+              </div>
             </div>
+            <button
+              type="button"
+              ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
+              className={`mobile-new-chat-fab${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+              aria-label="Neuer Chat"
+              onClick={() => void handleCreateNewChat()}
+            >
+              <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon" aria-hidden="true" />
+              <span className="mobile-new-chat-fab-label">Chat</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -843,9 +945,93 @@ export function ChatPage() {
         />
       ) : null}
 
+      {isCompactMobileSidebarLayout && isProfileMenuOpen ? (
+        <ProfileFullSheet
+          ref={profileFullSheetRef}
+          open={isProfileMenuOpen}
+          onClose={() => setIsProfileMenuOpen(false)}
+        >
+          <div className="profile-full-sheet-hero">
+            {profile?.avatar_url ? (
+              <img className="profile-full-sheet-avatar" src={profile.avatar_url} alt="Profilbild" />
+            ) : (
+              <div className="profile-full-sheet-avatar-fallback" aria-hidden="true">
+                {avatarFallback}
+              </div>
+            )}
+            <p className="profile-full-sheet-name">{displayName}</p>
+            {subscriptionPlanName ? <p className="profile-full-sheet-plan">{subscriptionPlanName}</p> : null}
+            {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+          </div>
+          <nav className="profile-full-sheet-nav" aria-label="Einstellungen">
+            {PROFILE_SETTINGS_SHEET_SECTIONS.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                className="profile-full-sheet-row"
+                onClick={() => {
+                  setIsProfileMenuOpen(false)
+                  openSettingsModal(id)
+                }}
+              >
+                <span className="profile-full-sheet-row-label">{label}</span>
+                <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`profile-full-sheet-row${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+              onClick={() => {
+                setIsProfileMenuOpen(false)
+                navigate('/learn')
+                setIsMobileSidebarOpen(false)
+              }}
+            >
+              <span className="profile-full-sheet-row-label">
+                Lernpfade
+                <span className="chat-dev-badge">In Entwicklung</span>
+              </span>
+              <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                ›
+              </span>
+            </button>
+            {profile?.is_superadmin ? (
+              <button
+                type="button"
+                className="profile-full-sheet-row"
+                onClick={() => {
+                  setIsProfileMenuOpen(false)
+                  openAdminModal()
+                }}
+              >
+                <span className="profile-full-sheet-row-label">Administrator</span>
+                <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="profile-full-sheet-row is-danger"
+              onClick={async () => {
+                setIsProfileMenuOpen(false)
+                await handleLogout()
+              }}
+            >
+              <span className="profile-full-sheet-row-label">Logout</span>
+              <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                ›
+              </span>
+            </button>
+          </nav>
+        </ProfileFullSheet>
+      ) : null}
+
       {isSettingsMounted ? (
         <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>
-          <SettingsModal onClose={closeSettingsModal} />
+          <SettingsModal onClose={closeSettingsModal} initialSection={settingsInitialSection} />
         </ModalShell>
       ) : null}
       {isAdminMounted ? (
