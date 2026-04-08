@@ -18,6 +18,7 @@ import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
+import { ActionBottomSheet } from '../components/ui/bottom-sheet/ActionBottomSheet'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
@@ -34,6 +35,7 @@ import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
+import { isMobileViewport } from '../utils/mobile'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal } from './SettingsPage'
 
@@ -66,6 +68,7 @@ export function ChatPage() {
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
     null,
   )
+  const [threadMenuVariant, setThreadMenuVariant] = useState<'none' | 'context' | 'sheet'>('none')
   const [editingThread, setEditingThread] = useState<ChatThread | null>(null)
   const [isRenameVisible, setIsRenameVisible] = useState(false)
   const [renameDraft, setRenameDraft] = useState('')
@@ -77,6 +80,7 @@ export function ChatPage() {
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
   const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
+  const threadSheetRef = useRef<HTMLDivElement | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
@@ -108,11 +112,13 @@ export function ChatPage() {
       }
 
       const isInsideThreadMenu = menuWrapperRef.current?.contains(target) ?? false
+      const isInsideThreadSheet = threadSheetRef.current?.contains(target) ?? false
       const isInsideProfileMenu = profileMenuRef.current?.contains(target) ?? false
 
-      if (!isInsideThreadMenu && openMenuThreadId) {
+      if (!isInsideThreadMenu && !isInsideThreadSheet && openMenuThreadId) {
         setOpenMenuThreadId(null)
         setContextMenuPosition(null)
+        setThreadMenuVariant('none')
       }
 
       if (!isInsideProfileMenu && isProfileMenuOpen) {
@@ -177,8 +183,14 @@ export function ChatPage() {
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !showChatTour) {
-        setIsMobileSidebarOpen(false)
+      if (event.key !== 'Escape' || showChatTour) {
+        return
+      }
+      setIsMobileSidebarOpen(false)
+      if (openMenuThreadId) {
+        setOpenMenuThreadId(null)
+        setContextMenuPosition(null)
+        setThreadMenuVariant('none')
       }
     }
 
@@ -186,7 +198,7 @@ export function ChatPage() {
     return () => {
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [showChatTour])
+  }, [showChatTour, openMenuThreadId])
 
   useEffect(() => {
     if (!showChatTour) {
@@ -292,8 +304,7 @@ export function ChatPage() {
     window.requestAnimationFrame(() => {
       setIsRenameVisible(true)
     })
-    setOpenMenuThreadId(null)
-    setContextMenuPosition(null)
+    closeThreadActionMenu()
   }
 
   function closeRenameModal() {
@@ -330,19 +341,30 @@ export function ChatPage() {
 
   async function handleCreateNewChat() {
     await createNewChat()
-    setOpenMenuThreadId(null)
-    setContextMenuPosition(null)
+    closeThreadActionMenu()
     setIsProfileMenuOpen(false)
     setIsMobileSidebarOpen(false)
   }
 
+  function closeThreadActionMenu() {
+    setOpenMenuThreadId(null)
+    setContextMenuPosition(null)
+    setThreadMenuVariant('none')
+  }
+
   function openThreadContextMenuAt(threadId: string, clientX: number, clientY: number) {
+    setOpenMenuThreadId(threadId)
+    if (isMobileViewport()) {
+      setThreadMenuVariant('sheet')
+      setContextMenuPosition(null)
+      return
+    }
+    setThreadMenuVariant('context')
     const margin = 8
     const menuW = 168
     const menuH = 96
     const x = Math.max(margin, Math.min(clientX, window.innerWidth - menuW - margin))
     const y = Math.max(margin, Math.min(clientY, window.innerHeight - menuH - margin))
-    setOpenMenuThreadId(threadId)
     setContextMenuPosition({ x, y })
   }
 
@@ -582,8 +604,7 @@ export function ChatPage() {
                     }
                     return !prev
                   })
-                  setOpenMenuThreadId(null)
-                  setContextMenuPosition(null)
+                  closeThreadActionMenu()
                   setIsProfileMenuOpen(false)
                 }}
               >
@@ -599,8 +620,7 @@ export function ChatPage() {
               onClick={() => {
                 hapticLightImpact()
                 setIsSidebarCollapsed(false)
-                setOpenMenuThreadId(null)
-                setContextMenuPosition(null)
+                closeThreadActionMenu()
                 setIsProfileMenuOpen(false)
               }}
             >
@@ -681,8 +701,7 @@ export function ChatPage() {
                       return
                     }
                     selectChat(thread.id)
-                    setOpenMenuThreadId(null)
-                    setContextMenuPosition(null)
+                    closeThreadActionMenu()
                     setIsMobileSidebarOpen(false)
                   }}
                   onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
@@ -809,7 +828,42 @@ export function ChatPage() {
           <AdministratorModal onClose={closeAdminModal} />
         </ModalShell>
       ) : null}
-      {openMenuThreadId && contextMenuPosition ? (
+      {threadMenuVariant === 'sheet' && openMenuThreadId ? (
+        <ActionBottomSheet
+          ref={threadSheetRef}
+          open
+          ariaLabel="Chat-Aktionen"
+          title={threads.find((t) => t.id === openMenuThreadId)?.title}
+          onClose={closeThreadActionMenu}
+          actions={[
+            {
+              id: 'edit',
+              label: 'Bearbeiten',
+              iconSrc: editIcon,
+              onClick: () => {
+                const targetThread = threads.find((thread) => thread.id === openMenuThreadId)
+                if (targetThread) {
+                  openRenameModal(targetThread)
+                }
+              },
+            },
+            {
+              id: 'delete',
+              label: 'Löschen',
+              iconSrc: deleteIcon,
+              variant: 'danger',
+              onClick: async () => {
+                const id = openMenuThreadId
+                closeThreadActionMenu()
+                if (id) {
+                  await deleteChat(id)
+                }
+              },
+            },
+          ]}
+        />
+      ) : null}
+      {threadMenuVariant === 'context' && openMenuThreadId && contextMenuPosition ? (
         <ContextMenu
           ref={menuWrapperRef}
           className="thread-menu-context-global"
@@ -830,9 +884,11 @@ export function ChatPage() {
             iconSrc={deleteIcon}
             danger
             onClick={async () => {
-              await deleteChat(openMenuThreadId)
-              setOpenMenuThreadId(null)
-              setContextMenuPosition(null)
+              const id = openMenuThreadId
+              closeThreadActionMenu()
+              if (id) {
+                await deleteChat(id)
+              }
             }}
           >
             Löschen

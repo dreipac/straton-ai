@@ -29,6 +29,7 @@ import './styles/chat.css'
 import './styles/learn.css'
 import './styles/settings.css'
 import './styles/auth.css'
+import './styles/mobile.css'
 
 const persistedTheme = window.localStorage.getItem('straton-theme')
 const initialThemeMode =
