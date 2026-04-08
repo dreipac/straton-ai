@@ -297,7 +297,6 @@ export function ChatPage() {
   }
 
   function openRenameModal(thread: ChatThread) {
-    setIsMobileSidebarOpen(false)
     if (renameCloseTimerRef.current) {
       window.clearTimeout(renameCloseTimerRef.current)
       renameCloseTimerRef.current = null
