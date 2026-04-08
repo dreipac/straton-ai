@@ -629,6 +629,7 @@
 @media (max-width: 860px) {
   .chat-app-shell {
     --mobile-sidebar-width: min(86vw, 340px);
+    --mobile-sidebar-transition-ms: 520ms;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     min-height: 100vh;
@@ -649,26 +650,26 @@
     border-bottom: none;
     grid-template-rows: auto auto auto;
     box-shadow: none;
-    transform: translateX(-108%);
+    transform: translate3d(-108%, 0, 0);
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition:
-      transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 320ms ease,
-      visibility 0ms linear 360ms;
+      transform var(--mobile-sidebar-transition-ms) cubic-bezier(0.25, 0.82, 0.3, 1),
+      opacity calc(var(--mobile-sidebar-transition-ms) * 0.92) ease,
+      visibility 0ms linear var(--mobile-sidebar-transition-ms);
     z-index: 70;
   }
 
   .chat-app-shell.is-mobile-sidebar-open .chat-sidebar {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
     box-shadow: 16px 0 44px rgba(15, 23, 42, 0.24);
     transition:
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 220ms ease,
+      transform var(--mobile-sidebar-transition-ms) cubic-bezier(0.25, 0.82, 0.3, 1),
+      opacity calc(var(--mobile-sidebar-transition-ms) * 0.88) ease,
       visibility 0ms linear 0ms;
   }
 
@@ -732,10 +733,10 @@
     z-index: 80;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    transform: translate3d(0, 0, 0);
     transition:
-      left 340ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 200ms ease,
-      box-shadow 220ms ease;
+      transform var(--mobile-sidebar-transition-ms) cubic-bezier(0.25, 0.82, 0.3, 1),
+      box-shadow calc(var(--mobile-sidebar-transition-ms) * 0.85) ease;
   }
 
   .mobile-sidebar-pill-icon {
@@ -745,7 +746,7 @@
   .mobile-sidebar-pill.is-open {
     background: var(--color-surface-elevated);
     border-color: var(--color-border);
-    left: calc(var(--mobile-sidebar-width) + 0.55rem);
+    transform: translate3d(calc(var(--mobile-sidebar-width) - 0.2rem), 0, 0);
   }
 
   .mobile-sidebar-pill:hover:enabled,
@@ -767,7 +768,7 @@
     background: rgba(2, 6, 23, 0.35);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 300ms ease;
+    transition: opacity var(--mobile-sidebar-transition-ms) ease;
     z-index: 65;
   }
 
