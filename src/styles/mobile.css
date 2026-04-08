@@ -243,6 +243,12 @@
   min-height: 0;
 }
 
+.rename-bottom-sheet-panel-outer {
+  width: 100%;
+  flex-shrink: 0;
+  transition: transform 0.12s ease-out;
+}
+
 .rename-bottom-sheet-root.is-shown .rename-bottom-sheet-backdrop {
   opacity: 1;
 }

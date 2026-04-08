@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
 } from 'react'
 import { PrimaryButton } from '../buttons/PrimaryButton'
@@ -57,6 +58,11 @@ export const RenameBottomSheet = forwardRef<RenameBottomSheetHandle, RenameBotto
     const exitTimerRef = useRef<number | null>(null)
 
     const [isShown, setIsShown] = useState(false)
+    /** Tastatur / Visual Viewport: Panel nach oben, Hoehe an sichtbaren Bereich. */
+    const [vvAdjust, setVvAdjust] = useState<{ liftPx: number; maxHeightPx: number | null }>({
+      liftPx: 0,
+      maxHeightPx: null,
+    })
 
     const sheetExitMs = useMemo(() => {
       if (typeof window === 'undefined') {
@@ -96,6 +102,57 @@ export const RenameBottomSheet = forwardRef<RenameBottomSheetHandle, RenameBotto
       return () => cancelAnimationFrame(id)
     }, [])
 
+    useLayoutEffect(() => {
+      if (!open) {
+        return
+      }
+      const vp = window.visualViewport
+      if (!vp) {
+        return
+      }
+
+      function syncVisualViewport() {
+        const v = window.visualViewport
+        if (!v) {
+          return
+        }
+        const innerH = window.innerHeight
+        const overlap = Math.max(0, innerH - v.offsetTop - v.height)
+        const visibleH = v.height
+        const margin = 12
+        const defaultMaxPx = innerH * 0.7
+        const keyboardLikely = overlap > 12 || visibleH < innerH * 0.76
+        const maxPx = keyboardLikely
+          ? Math.max(200, visibleH - margin)
+          : Math.max(200, Math.min(defaultMaxPx, visibleH - margin))
+
+        setVvAdjust({ liftPx: overlap, maxHeightPx: maxPx })
+      }
+
+      const raf = requestAnimationFrame(() => syncVisualViewport())
+      vp.addEventListener('resize', syncVisualViewport)
+      vp.addEventListener('scroll', syncVisualViewport)
+      return () => {
+        cancelAnimationFrame(raf)
+        vp.removeEventListener('resize', syncVisualViewport)
+        vp.removeEventListener('scroll', syncVisualViewport)
+      }
+    }, [open])
+
+    useEffect(() => {
+      if (!open) {
+        return
+      }
+      const prevHtmlOverflow = document.documentElement.style.overflow
+      const prevBodyOverflow = document.body.style.overflow
+      document.documentElement.style.overflow = 'hidden'
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.documentElement.style.overflow = prevHtmlOverflow
+        document.body.style.overflow = prevBodyOverflow
+      }
+    }, [open])
+
     useEffect(() => {
       return () => {
         if (exitTimerRef.current !== null) {
@@ -127,7 +184,7 @@ export const RenameBottomSheet = forwardRef<RenameBottomSheetHandle, RenameBotto
         if (!el) {
           return
         }
-        el.focus()
+        el.focus({ preventScroll: true })
         el.select()
       }, 280)
       return () => window.clearTimeout(t)
@@ -136,6 +193,16 @@ export const RenameBottomSheet = forwardRef<RenameBottomSheetHandle, RenameBotto
     if (!open) {
       return null
     }
+
+    const outerStyle: CSSProperties =
+      vvAdjust.liftPx > 0
+        ? { transform: `translate3d(0, -${vvAdjust.liftPx}px, 0)` }
+        : {}
+
+    const panelStyle: CSSProperties =
+      vvAdjust.maxHeightPx != null
+        ? { maxHeight: vvAdjust.maxHeightPx, minHeight: 'auto' }
+        : {}
 
     return (
       <div
@@ -149,51 +216,54 @@ export const RenameBottomSheet = forwardRef<RenameBottomSheetHandle, RenameBotto
             requestClose()
           }}
         />
-        <div
-          ref={panelRef}
-          className="rename-bottom-sheet-panel"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="rename-bottom-sheet-handle" aria-hidden="true" />
-          <div className="rename-bottom-sheet-header">
-            <h3 id={titleId} className="rename-bottom-sheet-heading">
-              {heading}
-            </h3>
-            <button
-              type="button"
-              className="rename-bottom-sheet-close"
-              onClick={() => requestClose()}
-              aria-label="Schliessen"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
+        <div className="rename-bottom-sheet-panel-outer" style={outerStyle}>
+          <div
+            ref={panelRef}
+            className="rename-bottom-sheet-panel"
+            style={panelStyle}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rename-bottom-sheet-handle" aria-hidden="true" />
+            <div className="rename-bottom-sheet-header">
+              <h3 id={titleId} className="rename-bottom-sheet-heading">
+                {heading}
+              </h3>
+              <button
+                type="button"
+                className="rename-bottom-sheet-close"
+                onClick={() => requestClose()}
+                aria-label="Schliessen"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <form className="rename-bottom-sheet-form" onSubmit={onSubmit}>
+              <label className="rename-bottom-sheet-label" htmlFor={inputId}>
+                {inputLabel}
+              </label>
+              <input
+                ref={inputRef}
+                id={inputId}
+                className="rename-bottom-sheet-input"
+                type="text"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                autoComplete="off"
+                enterKeyHint="done"
+              />
+              <PrimaryButton
+                type="submit"
+                className="rename-bottom-sheet-save"
+                disabled={!value.trim()}
+              >
+                {saveLabel}
+              </PrimaryButton>
+            </form>
           </div>
-          <form className="rename-bottom-sheet-form" onSubmit={onSubmit}>
-            <label className="rename-bottom-sheet-label" htmlFor={inputId}>
-              {inputLabel}
-            </label>
-            <input
-              ref={inputRef}
-              id={inputId}
-              className="rename-bottom-sheet-input"
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder={placeholder}
-              autoComplete="off"
-              enterKeyHint="done"
-            />
-            <PrimaryButton
-              type="submit"
-              className="rename-bottom-sheet-save"
-              disabled={!value.trim()}
-            >
-              {saveLabel}
-            </PrimaryButton>
-          </form>
         </div>
       </div>
     )
