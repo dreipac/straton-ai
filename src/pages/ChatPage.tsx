@@ -19,6 +19,10 @@ import triangleIcon from '../assets/icons/triangle.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ActionBottomSheet } from '../components/ui/bottom-sheet/ActionBottomSheet'
+import {
+  RenameBottomSheet,
+  type RenameBottomSheetHandle,
+} from '../components/ui/bottom-sheet/RenameBottomSheet'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
@@ -81,6 +85,7 @@ export function ChatPage() {
   const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
+  const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
@@ -300,14 +305,31 @@ export function ChatPage() {
 
     setEditingThread(thread)
     setRenameDraft(thread.title)
-    setIsRenameVisible(false)
-    window.requestAnimationFrame(() => {
-      setIsRenameVisible(true)
-    })
+    if (isMobileViewport()) {
+      setIsRenameVisible(false)
+    } else {
+      setIsRenameVisible(false)
+      window.requestAnimationFrame(() => {
+        setIsRenameVisible(true)
+      })
+    }
     closeThreadActionMenu()
   }
 
+  function handleRenameSheetClosed() {
+    if (renameCloseTimerRef.current) {
+      window.clearTimeout(renameCloseTimerRef.current)
+      renameCloseTimerRef.current = null
+    }
+    setEditingThread(null)
+    setIsRenameVisible(false)
+  }
+
   function closeRenameModal() {
+    if (isMobileViewport()) {
+      renameSheetRef.current?.requestClose()
+      return
+    }
     setIsRenameVisible(false)
     renameCloseTimerRef.current = window.setTimeout(() => {
       setEditingThread(null)
@@ -336,7 +358,11 @@ export function ChatPage() {
     }
 
     await renameChat(editingThread.id, renameDraft)
-    closeRenameModal()
+    if (isMobileViewport()) {
+      renameSheetRef.current?.requestClose()
+    } else {
+      closeRenameModal()
+    }
   }
 
   async function handleCreateNewChat() {
@@ -895,7 +921,20 @@ export function ChatPage() {
           </MenuItem>
         </ContextMenu>
       ) : null}
-      {editingThread ? (
+      {editingThread && isMobileViewport() ? (
+        <RenameBottomSheet
+          ref={renameSheetRef}
+          open
+          onClose={handleRenameSheetClosed}
+          heading="Chat bearbeiten"
+          inputLabel="Chat-Name"
+          inputId="chat-title-input"
+          value={renameDraft}
+          onChange={setRenameDraft}
+          placeholder="Neuer Chatname"
+          onSubmit={handleRenameSubmit}
+        />
+      ) : editingThread ? (
         <ModalShell isOpen={isRenameVisible} onRequestClose={closeRenameModal}>
           <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Chat umbenennen">
             <ModalHeader

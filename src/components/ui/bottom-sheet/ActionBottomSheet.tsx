@@ -115,17 +115,13 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
     return () => window.clearTimeout(t)
   }, [open, isShown])
 
-  function handleActionPointerDown(event: PointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0 && event.pointerType === 'mouse') {
-      return
-    }
+  const startActionBreath = useCallback((btn: HTMLButtonElement) => {
     if (
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ) {
       return
     }
-    const btn = event.currentTarget
     if (btn.classList.contains('is-pressing')) {
       return
     }
@@ -138,6 +134,13 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
       btn.removeEventListener('animationend', onAnimEnd)
     }
     btn.addEventListener('animationend', onAnimEnd)
+  }, [])
+
+  function handleActionPointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 && event.pointerType === 'mouse') {
+      return
+    }
+    startActionBreath(event.currentTarget)
   }
 
   if (!open) {
@@ -179,7 +182,10 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
               type="button"
               className={`action-bottom-sheet-action${action.variant === 'danger' ? ' is-danger' : ''}`}
               onPointerDown={handleActionPointerDown}
-              onClick={() => {
+              onClick={(e) => {
+                if (e.detail === 0) {
+                  startActionBreath(e.currentTarget)
+                }
                 action.onClick()
               }}
             >

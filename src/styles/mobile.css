@@ -1,6 +1,6 @@
 /**
  * Globale Mobile-/PWA-Basis — Breakpoint wie `utils/mobile.ts` (768px).
- * Komponenten: `ActionBottomSheet`, Sidebar-Overlay (layout.css).
+ * Komponenten: `ActionBottomSheet`, `RenameBottomSheet`, Sidebar-Overlay (layout.css).
  */
 :root {
   --straton-mobile-max: 768px;
@@ -9,6 +9,8 @@
   --straton-bottom-sheet-z: 95;
   --straton-safe-bottom: env(safe-area-inset-bottom, 0px);
   --straton-sheet-exit-ms: 440ms;
+  --straton-rename-sheet-height: 70vh;
+  --straton-rename-sheet-z: 96;
 }
 
 @media (max-width: 768px) {
@@ -104,8 +106,8 @@
   width: 100%;
   min-height: 52px;
   padding: 0.85rem 1.25rem;
-  border-radius: 14px;
-  border: 1px solid var(--color-border-default, #e2e8f0);
+  border-radius: 1.5rem;
+  border: none;
   background: var(--color-surface-soft, #f8fafc);
   font-size: 1.05rem;
   font-weight: 600;
@@ -113,27 +115,26 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 
 .action-bottom-sheet-action.is-danger {
-  border-color: rgba(220, 38, 38, 0.35);
   background: rgba(254, 226, 226, 0.55);
   color: #b91c1c;
 }
 
-/** Kurzer «Atem»-Impuls beim Druecken (iOS-artig), nur transform */
+/**
+ * Beim Tippen: langsam groesser, danach direkt aber ebenso langsam wieder kleiner (nur transform).
+ * timing-function pro Segment, damit weder Auf- noch Abgang «ruckelt».
+ */
 @keyframes actionSheetButtonBreath {
   0% {
     transform: scale(1);
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1);
   }
-  38% {
-    transform: scale(1.06);
-  }
-  72% {
-    transform: scale(0.985);
+  47% {
+    transform: scale(1.1);
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1);
   }
   100% {
     transform: scale(1);
@@ -141,7 +142,7 @@
 }
 
 .action-bottom-sheet-action.is-pressing {
-  animation: actionSheetButtonBreath 0.48s cubic-bezier(0.28, 0.84, 0.42, 1.05) forwards;
+  animation: actionSheetButtonBreath 1.2s forwards;
 }
 
 .action-bottom-sheet-action-icon {
@@ -178,7 +179,6 @@
 
 :root[data-theme='dark'] .action-bottom-sheet-action {
   background: linear-gradient(180deg, rgba(36, 52, 71, 0.95) 0%, rgba(30, 41, 59, 0.92) 100%);
-  border-color: rgba(59, 130, 246, 0.22);
   color: #f1f5f9;
 }
 
@@ -189,7 +189,6 @@
 
 :root[data-theme='dark'] .action-bottom-sheet-action.is-danger {
   background: linear-gradient(180deg, rgba(80, 30, 30, 0.75) 0%, rgba(55, 22, 22, 0.82) 100%);
-  border-color: rgba(248, 113, 113, 0.42);
   color: #fecaca;
 }
 
@@ -205,8 +204,182 @@
     0 0 0 1px rgba(244, 114, 182, 0.12);
 }
 
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-action {
-  border-color: rgba(244, 114, 182, 0.22);
+/* —— Rename Bottom Sheet (Mobile Chat umbenennen, ~70vh) —— */
+
+.rename-bottom-sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--straton-rename-sheet-z);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: auto;
+}
+
+.rename-bottom-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  opacity: 0;
+  transition: opacity var(--straton-sheet-exit-ms) ease-out;
+}
+
+.rename-bottom-sheet-panel {
+  position: relative;
+  width: 100%;
+  max-height: var(--straton-rename-sheet-height);
+  min-height: min(var(--straton-rename-sheet-height), 220px);
+  padding: 0.5rem 1rem calc(1rem + var(--straton-safe-bottom));
+  border-radius: var(--straton-bottom-sheet-radius) var(--straton-bottom-sheet-radius) 0 0;
+  background: var(--color-surface-elevated, #fff);
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
+  transform: translate3d(0, 100%, 0);
+  opacity: 0.96;
+  transition:
+    transform var(--straton-sheet-exit-ms) cubic-bezier(0.36, 0.66, 0.04, 1),
+    opacity calc(var(--straton-sheet-exit-ms) * 0.9) ease-out;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.rename-bottom-sheet-root.is-shown .rename-bottom-sheet-backdrop {
+  opacity: 1;
+}
+
+.rename-bottom-sheet-root.is-shown .rename-bottom-sheet-panel {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+}
+
+.rename-bottom-sheet-handle {
+  width: 36px;
+  height: 4px;
+  margin: 0.15rem auto 0.5rem;
+  border-radius: 999px;
+  background: var(--color-border-subtle, #cbd5e1);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.rename-bottom-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+  flex-shrink: 0;
+}
+
+.rename-bottom-sheet-heading {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #0f172a);
+  line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+}
+
+.rename-bottom-sheet-close {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rename-bottom-sheet-close:active {
+  opacity: 0.7;
+}
+
+.rename-bottom-sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.rename-bottom-sheet-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-secondary, #475569);
+}
+
+.rename-bottom-sheet-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 0.65rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-default, #e2e8f0);
+  background: var(--color-surface-soft, #f8fafc);
+  color: var(--color-text-primary, #0f172a);
+  font-size: 16px;
+  outline: none;
+}
+
+.rename-bottom-sheet-input:focus-visible {
+  border-color: var(--color-accent, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.rename-bottom-sheet-save {
+  width: 100%;
+  margin-top: 0.25rem;
+  min-height: 52px;
+  justify-content: center;
+  border-radius: 1.5rem !important;
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-panel {
+  background: #1a2332;
+  box-shadow:
+    0 -8px 32px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(148, 163, 184, 0.08);
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-handle {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-heading {
+  color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-label {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-input {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.65);
+  color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .rename-bottom-sheet-close {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-panel {
+  background: rgba(24, 18, 32, 0.94);
+  box-shadow:
+    0 -12px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(244, 114, 182, 0.12);
 }
 
 @media (prefers-reduced-motion: reduce) {
