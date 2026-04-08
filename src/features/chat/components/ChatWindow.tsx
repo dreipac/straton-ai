@@ -73,7 +73,6 @@ export function ChatWindow({
   /** Laufende Schreib-Animation: darf nicht vom „Sofort“-Zweig überschrieben werden. */
   const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
-  const emptyPanelRef = useRef<HTMLElement | null>(null)
   const prevThreadKeyForScrollRef = useRef<string | null>(threadKey)
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
@@ -116,9 +115,15 @@ export function ChatWindow({
     }
   }, [])
 
-  /** PWA/Mobile: sichtbare Höhe = visualViewport → Panel schrumpft mit Tastatur, Eingabe bleibt nutzbar. */
+  /**
+   * PWA/Tastatur: Höhe auf `html` setzen, damit html/body/#root nicht grösser als der sichtbare Bereich sind
+   * (sonst Scrollbalken + Scrollen beim Fokus). Nur bei leerem Chat aktiv.
+   */
   useLayoutEffect(() => {
+    const root = document.documentElement
     if (!isEmptyState) {
+      root.removeAttribute('data-chat-empty-vv')
+      root.style.removeProperty('--chat-vv-height')
       return
     }
     const vv = window.visualViewport
@@ -127,11 +132,15 @@ export function ChatWindow({
     }
     function syncViewportHeight() {
       const v = window.visualViewport
-      const p = emptyPanelRef.current
-      if (!v || !p) {
+      if (!v) {
         return
       }
-      p.style.setProperty('--chat-vv-height', `${Math.round(v.height)}px`)
+      const h = Math.round(v.height)
+      root.style.setProperty('--chat-vv-height', `${h}px`)
+      root.setAttribute('data-chat-empty-vv', '')
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0)
+      }
     }
     syncViewportHeight()
     vv.addEventListener('resize', syncViewportHeight)
@@ -141,7 +150,8 @@ export function ChatWindow({
       vv.removeEventListener('resize', syncViewportHeight)
       vv.removeEventListener('scroll', syncViewportHeight)
       window.removeEventListener('resize', syncViewportHeight)
-      emptyPanelRef.current?.style.removeProperty('--chat-vv-height')
+      root.removeAttribute('data-chat-empty-vv')
+      root.style.removeProperty('--chat-vv-height')
     }
   }, [isEmptyState])
 
@@ -461,10 +471,7 @@ export function ChatWindow({
 
   if (isEmptyState) {
     return (
-      <section
-        ref={emptyPanelRef}
-        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}
-      >
+      <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
         {tokenLimitReached ? (
           <p className="chat-limit-banner" role="alert">
             Dein Token-Limit fuer heute ist erreicht. Du kannst morgen wieder schreiben.
