@@ -116,42 +116,47 @@ export function ChatWindow({
   }, [])
 
   /**
-   * PWA/Tastatur: Höhe auf `html` setzen, damit html/body/#root nicht grösser als der sichtbare Bereich sind
-   * (sonst Scrollbalken + Scrollen beim Fokus). Nur bei leerem Chat aktiv.
+   * PWA/Tastatur:
+   * - `--chat-keyboard-inset`: unterer Bereich, der von der Tastatur verdeckt wird → Composer nach oben.
+   * - Leerer Chat: `--chat-vv-height` + `data-chat-empty-vv`, damit kein Body-Scroll / keine Extrascrollbar.
    */
   useLayoutEffect(() => {
     const root = document.documentElement
-    if (!isEmptyState) {
-      root.removeAttribute('data-chat-empty-vv')
-      root.style.removeProperty('--chat-vv-height')
-      return
-    }
     const vv = window.visualViewport
     if (!vv) {
       return
     }
-    function syncViewportHeight() {
+    function syncVisualViewport() {
       const v = window.visualViewport
       if (!v) {
         return
       }
       const h = Math.round(v.height)
-      root.style.setProperty('--chat-vv-height', `${h}px`)
-      root.setAttribute('data-chat-empty-vv', '')
-      if (window.scrollY !== 0 || window.scrollX !== 0) {
-        window.scrollTo(0, 0)
+      const inset = Math.max(0, Math.round(window.innerHeight - v.offsetTop - v.height))
+      root.style.setProperty('--chat-keyboard-inset', `${inset}px`)
+
+      if (isEmptyState) {
+        root.style.setProperty('--chat-vv-height', `${h}px`)
+        root.setAttribute('data-chat-empty-vv', '')
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+          window.scrollTo(0, 0)
+        }
+      } else {
+        root.removeAttribute('data-chat-empty-vv')
+        root.style.removeProperty('--chat-vv-height')
       }
     }
-    syncViewportHeight()
-    vv.addEventListener('resize', syncViewportHeight)
-    vv.addEventListener('scroll', syncViewportHeight)
-    window.addEventListener('resize', syncViewportHeight)
+    syncVisualViewport()
+    vv.addEventListener('resize', syncVisualViewport)
+    vv.addEventListener('scroll', syncVisualViewport)
+    window.addEventListener('resize', syncVisualViewport)
     return () => {
-      vv.removeEventListener('resize', syncViewportHeight)
-      vv.removeEventListener('scroll', syncViewportHeight)
-      window.removeEventListener('resize', syncViewportHeight)
+      vv.removeEventListener('resize', syncVisualViewport)
+      vv.removeEventListener('scroll', syncVisualViewport)
+      window.removeEventListener('resize', syncVisualViewport)
       root.removeAttribute('data-chat-empty-vv')
       root.style.removeProperty('--chat-vv-height')
+      root.style.removeProperty('--chat-keyboard-inset')
     }
   }, [isEmptyState])
 
