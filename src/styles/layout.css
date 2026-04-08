@@ -936,7 +936,7 @@
   }
 
   .chat-main-guest {
-    padding: 0.9rem 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
+    padding: calc(0.9rem + env(safe-area-inset-top, 0px)) 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
   }
 
   .guest-chat-header {

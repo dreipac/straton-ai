@@ -970,7 +970,7 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    padding: 0 0.65rem calc(0.6rem + env(safe-area-inset-bottom));
+    padding: env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom));
   }
 
   .chat-panel.is-empty {
