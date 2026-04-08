@@ -152,6 +152,17 @@ export const ACCENT_PALETTES: AccentPalette[] = [
 
 export const DEFAULT_ACCENT_PALETTE_ID = ACCENT_PALETTES[0].id
 
+/**
+ * FAB «Chat» unter der Sidebar: Icon + Text auf `--accent-gradient`.
+ * Sehr helle Verläufe → dunkle Schrift für Kontrast, sonst weiss.
+ */
+export const ACCENT_FAB_FOREGROUND: Record<string, string> = {
+  frost: '#0f172a',
+  peach: '#0f172a',
+  neon: '#0f172a',
+  lime: '#0f172a',
+}
+
 export function getAccentPaletteById(accentId: string | null | undefined): AccentPalette {
   return ACCENT_PALETTES.find((palette) => palette.id === accentId) ?? ACCENT_PALETTES[0]
 }
@@ -161,5 +172,9 @@ export function applyAccentPalette(accentId: string | null | undefined) {
   document.documentElement.dataset.accent = palette.id
   document.documentElement.style.setProperty('--accent-gradient', palette.gradient)
   document.documentElement.style.setProperty('--accent-gradient-line', palette.lineGradient)
+  document.documentElement.style.setProperty(
+    '--accent-fab-fg',
+    ACCENT_FAB_FOREGROUND[palette.id] ?? '#ffffff',
+  )
   return palette.id
 }

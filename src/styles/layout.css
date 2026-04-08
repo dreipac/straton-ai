@@ -699,21 +699,34 @@
   }
 
   .chat-sidebar-top {
-    padding-bottom: 0.45rem;
+    padding-bottom: 0.5rem;
   }
 
   .chat-sidebar-top .chat-brand-logo {
-    --ui-icon-size: 40px;
+    --ui-icon-size: 46px;
   }
 
   .chat-sidebar-top .chat-brand h2 {
-    font-size: 1.02rem;
+    font-size: 1.14rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .chat-sidebar-top .chat-sidebar-top-button-icon {
+    --ui-icon-size: 27px;
   }
 
   .chat-sidebar-top button {
-    min-height: 40px;
-    padding: 0.4rem 0.38rem;
-    border-radius: 10px;
+    min-height: 48px;
+    padding: 0.52rem 0.5rem;
+    border-radius: 12px;
+    font-size: 1.05rem;
+    gap: 0.52rem;
+  }
+
+  .chat-sidebar-top .chat-dev-badge {
+    font-size: 0.72rem;
+    padding: 0.28rem 0.46rem;
   }
 
   .chat-thread-item {
@@ -813,22 +826,24 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.38rem;
+    gap: 0.42rem;
     position: relative;
     right: auto;
     bottom: auto;
     width: auto;
-    height: 2.75rem;
-    min-width: 2.75rem;
-    padding: 0 0.72rem 0 0.58rem;
+    height: 2.85rem;
+    min-width: 2.85rem;
+    padding: 0 0.78rem 0 0.62rem;
     flex-shrink: 0;
     z-index: auto;
-    border: 1px solid var(--color-border);
+    border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 999px;
-    background: var(--color-surface-elevated);
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
     box-shadow:
-      0 4px 14px rgba(15, 23, 42, 0.12),
-      0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+      0 6px 18px rgba(15, 23, 42, 0.2),
+      0 0 0 1px rgba(255, 255, 255, 0.12) inset;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
@@ -842,16 +857,22 @@
   }
 
   .mobile-new-chat-fab-icon {
-    --ui-icon-size: 22px;
+    --ui-icon-size: 23px;
     flex-shrink: 0;
   }
 
+  /* Chat-Icon: gleiche Farbe wie Label (weiss oder dunkel je Akzent) */
+  .mobile-new-chat-fab .chat-sidebar-new-chat-icon {
+    background-image: none !important;
+    background-color: var(--accent-fab-fg, #ffffff) !important;
+  }
+
   .mobile-new-chat-fab-label {
-    font-size: 0.84rem;
+    font-size: 0.88rem;
     font-weight: 600;
     line-height: 1;
     letter-spacing: -0.02em;
-    color: var(--color-text, #0f172a);
+    color: var(--accent-fab-fg, #ffffff);
     white-space: nowrap;
   }
 
@@ -1137,15 +1158,21 @@
   }
 
   :root[data-theme='dark'] .mobile-new-chat-fab {
-    background: #252b38;
-    border-color: #3b4454;
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
+    border-color: rgba(255, 255, 255, 0.22);
     box-shadow:
-      0 4px 16px rgba(0, 0, 0, 0.35),
-      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+      0 8px 22px rgba(0, 0, 0, 0.38),
+      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   }
 
   :root[data-theme='dark'] .mobile-new-chat-fab-label {
-    color: #e5e7eb;
+    color: var(--accent-fab-fg, #ffffff);
+  }
+
+  :root[data-theme='dark'] .mobile-new-chat-fab .chat-sidebar-new-chat-icon {
+    background-color: var(--accent-fab-fg, #ffffff) !important;
   }
 
   :root[data-theme='dark'] .chat-sidebar-profile-badge.chat-sidebar-profile-card {
