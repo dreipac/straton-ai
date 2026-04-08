@@ -73,6 +73,7 @@ export function ChatWindow({
   /** Laufende Schreib-Animation: darf nicht vom „Sofort“-Zweig überschrieben werden. */
   const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+  const emptyPanelRef = useRef<HTMLElement | null>(null)
   const prevThreadKeyForScrollRef = useRef<string | null>(threadKey)
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
@@ -114,6 +115,35 @@ export function ChatWindow({
       animationTimersRef.current = []
     }
   }, [])
+
+  /** PWA/Mobile: sichtbare Höhe = visualViewport → Panel schrumpft mit Tastatur, Eingabe bleibt nutzbar. */
+  useLayoutEffect(() => {
+    if (!isEmptyState) {
+      return
+    }
+    const vv = window.visualViewport
+    if (!vv) {
+      return
+    }
+    function syncViewportHeight() {
+      const v = window.visualViewport
+      const p = emptyPanelRef.current
+      if (!v || !p) {
+        return
+      }
+      p.style.setProperty('--chat-vv-height', `${Math.round(v.height)}px`)
+    }
+    syncViewportHeight()
+    vv.addEventListener('resize', syncViewportHeight)
+    vv.addEventListener('scroll', syncViewportHeight)
+    window.addEventListener('resize', syncViewportHeight)
+    return () => {
+      vv.removeEventListener('resize', syncViewportHeight)
+      vv.removeEventListener('scroll', syncViewportHeight)
+      window.removeEventListener('resize', syncViewportHeight)
+      emptyPanelRef.current?.style.removeProperty('--chat-vv-height')
+    }
+  }, [isEmptyState])
 
   const MAX_INPUT_HEIGHT_PX = 220
 
@@ -431,19 +461,29 @@ export function ChatWindow({
 
   if (isEmptyState) {
     return (
-      <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
+      <section
+        ref={emptyPanelRef}
+        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}
+      >
         {tokenLimitReached ? (
           <p className="chat-limit-banner" role="alert">
             Dein Token-Limit fuer heute ist erreicht. Du kannst morgen wieder schreiben.
           </p>
         ) : null}
         <div className="chat-empty-compose">
-          <h2 className="chat-empty-title">Wie kann ich dir heute helfen, {greetingName}?</h2>
-          {error ? <p className="error-text">{error}</p> : null}
-          <form
-            className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
-            onSubmit={handleSubmit}
-          >
+          <div className="chat-empty-lead">
+            <h2 className="chat-empty-title">
+              Wie kann ich{' '}
+              <br className="chat-empty-title-line-break" />
+              dir heute helfen, {greetingName}?
+            </h2>
+            {error ? <p className="error-text">{error}</p> : null}
+          </div>
+          <div className="chat-empty-composer-stack">
+            <form
+              className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+              onSubmit={handleSubmit}
+            >
             <input
               ref={fileInputRef}
               type="file"
@@ -518,9 +558,10 @@ export function ChatWindow({
               />
             </button>
           </form>
-          <p className="chat-input-hint">
-            Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
-          </p>
+            <p className="chat-input-hint">
+              Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
+            </p>
+          </div>
         </div>
       </section>
     )

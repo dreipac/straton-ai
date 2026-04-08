@@ -59,9 +59,14 @@ type SettingsModalProps = {
   onClose: () => void
   /** Beim Öffnen (z. B. aus Mobile-Profil-Sheet) direkt diese Sektion anzeigen. */
   initialSection?: SettingsSectionId
+  /**
+   * `modal`: Desktop-Overlay (settings-modal).
+   * `sheet`: Nur Inhalt fürs ProfileFullSheet — gleiche Sheet-Seite wie Profil, kein zweites Overlay.
+   */
+  variant?: 'modal' | 'sheet'
 }
 
-export function SettingsModal({ onClose, initialSection = 'general' }: SettingsModalProps) {
+export function SettingsModal({ onClose, initialSection = 'general', variant = 'modal' }: SettingsModalProps) {
   const {
     user,
     profile,
@@ -75,10 +80,16 @@ export function SettingsModal({ onClose, initialSection = 'general' }: SettingsM
     updateUiSettings,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
-
-  useEffect(() => {
-    setActiveSection(initialSection)
-  }, [initialSection])
+  const [isNarrowSettings, setIsNarrowSettings] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)').matches : false,
+  )
+  const [mobileStack, setMobileStack] = useState<'menu' | 'detail'>(() => {
+    if (typeof window === 'undefined') {
+      return 'menu'
+    }
+    const narrow = window.matchMedia('(max-width: 860px)').matches
+    return narrow && initialSection !== 'general' ? 'detail' : 'menu'
+  })
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
     const persistedTheme = window.localStorage.getItem('straton-theme')
     return persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'
@@ -134,6 +145,29 @@ export function SettingsModal({ onClose, initialSection = 'general' }: SettingsM
   const uiHydratedForUserIdRef = useRef<string | null>(null)
   const skipNextUiPersistRef = useRef(false)
 
+  useEffect(() => {
+    setActiveSection(initialSection)
+  }, [initialSection])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 860px)')
+    const apply = () => {
+      setIsNarrowSettings(mq.matches)
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => {
+      mq.removeEventListener('change', apply)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isNarrowSettings && variant !== 'sheet') {
+      return
+    }
+    setMobileStack(initialSection !== 'general' ? 'detail' : 'menu')
+  }, [initialSection, isNarrowSettings, variant])
+
   const i18n = {
     menuTitle:
       language === 'en'
@@ -159,6 +193,30 @@ export function SettingsModal({ onClose, initialSection = 'general' }: SettingsM
               : language === 'es-PE'
                 ? 'Cerrar ajustes'
           : 'Einstellungen schliessen',
+    settingsScreenTitle:
+      language === 'en'
+        ? 'Settings'
+        : language === 'hr'
+          ? 'Postavke'
+          : language === 'it'
+            ? 'Impostazioni'
+            : language === 'sq'
+              ? 'Cilësimet'
+              : language === 'es-PE'
+                ? 'Ajustes'
+                : 'Einstellungen',
+    backLabel:
+      language === 'en'
+        ? 'Back'
+        : language === 'hr'
+          ? 'Natrag'
+          : language === 'it'
+            ? 'Indietro'
+            : language === 'sq'
+              ? 'Mbrapa'
+              : language === 'es-PE'
+                ? 'Atrás'
+                : 'Zurück',
   }
 
   const sections: SettingsSection[] = [
@@ -651,128 +709,190 @@ export function SettingsModal({ onClose, initialSection = 'general' }: SettingsM
     }
   }
 
+  function handleMobileSettingsBack() {
+    setMobileStack('menu')
+  }
+
+  const layoutNarrow = variant === 'sheet' || isNarrowSettings
+
+  const settingsSidebar = (
+    <aside
+      className="settings-sidebar"
+      aria-hidden={layoutNarrow && mobileStack === 'detail' ? true : undefined}
+    >
+      {layoutNarrow ? (
+        <div className="settings-sidebar-mobile-header">
+          <h2 className="settings-sidebar-mobile-heading">{i18n.settingsScreenTitle}</h2>
+          {mobileStack === 'menu' && variant !== 'sheet' ? (
+            <button type="button" className="settings-close-button" onClick={onClose} aria-label={i18n.closeLabel}>
+              <span className="ui-icon settings-close-icon" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <h2>{i18n.menuTitle}</h2>
+      )}
+      <nav className="settings-menu">
+        {sections.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={`settings-menu-item ${activeSection === section.id ? 'is-active' : ''}`}
+            onClick={() => {
+              setActiveSection(section.id)
+              if (layoutNarrow) {
+                setMobileStack('detail')
+              }
+            }}
+          >
+            {section.icon ? (
+              <img className="ui-icon settings-menu-icon" src={section.icon} alt="" aria-hidden="true" />
+            ) : null}
+            {section.label}
+          </button>
+        ))}
+      </nav>
+    </aside>
+  )
+
+  const settingsMain = (
+    <div className="settings-content">
+      <header className="settings-titlebar">
+        <ModalHeader
+          title={activeSectionConfig.title}
+          headingLevel="h1"
+          onClose={onClose}
+          closeLabel={i18n.closeLabel}
+          onBack={layoutNarrow && mobileStack === 'detail' ? handleMobileSettingsBack : undefined}
+          backLabel={i18n.backLabel}
+          showCloseButton={variant !== 'sheet'}
+        />
+        {languageFeedback ? (
+          <div className="settings-save-indicator" role="status" aria-live="polite">
+            <span className="settings-save-indicator-spinner" aria-hidden="true" />
+            <span>Sprache gespeichert</span>
+          </div>
+        ) : null}
+      </header>
+
+      <section className="settings-body">
+        {activeSection === 'general' ? (
+          <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
+        ) : null}
+        {activeSection === 'ai' ? (
+          <AiSettingsSection />
+        ) : null}
+        {activeSection === 'personalize' ? (
+          <PersonalizeSettingsSection
+            themeMode={themeMode}
+            sidebarScale={sidebarScale}
+            accentPaletteId={accentPaletteId}
+            hoverPaletteId={hoverPaletteId}
+            messageBoxPaletteId={messageBoxPaletteId}
+            learnPathTitleColorMode={learnPathTitleColorMode}
+            onChangeThemeMode={setThemeMode}
+            onChangeSidebarScale={setSidebarScale}
+            onChangeAccentPalette={setAccentPaletteId}
+            onChangeHoverPalette={setHoverPaletteId}
+            onChangeMessageBoxPalette={setMessageBoxPaletteId}
+            onChangeLearnPathTitleColorMode={setLearnPathTitleColorMode}
+          />
+        ) : null}
+        {activeSection === 'chat' ? (
+          <ChatSettingsSection
+            language={language}
+            assistantEmojisEnabled={assistantEmojisEnabled}
+            onToggleAssistantEmojis={handleToggleAssistantEmojis}
+            autoRemoveEmptyChats={autoRemoveEmptyChats}
+            isUpdatingChatSetting={isUpdatingChatSetting}
+            isCleaningEmptyChats={isCleaningEmptyChats}
+            chatCleanupInfo={chatCleanupInfo}
+            disableCleanup={!user}
+            onToggleAutoRemoveEmptyChats={handleToggleAutoRemoveEmptyChats}
+            onCleanupEmptyChats={handleCleanupEmptyChats}
+          />
+        ) : null}
+        {activeSection === 'status' ? (
+          <ErrorStatusSettingsSection
+            language={language}
+            isConfigured={isConfigured}
+            isAuthLoading={isLoading}
+            appError={error}
+            hasUser={Boolean(user)}
+          />
+        ) : null}
+        {activeSection === 'feedback' ? (
+          <FeedbackSettingsSection
+            language={language}
+            userEmail={user?.email ?? null}
+            authorFirstName={profile?.first_name ?? null}
+            authorLastName={profile?.last_name ?? null}
+            hasUser={Boolean(user)}
+          />
+        ) : null}
+        {activeSection === 'account' ? (
+          <AccountSettingsSection
+            firstNameDraft={firstNameDraft}
+            lastNameDraft={lastNameDraft}
+            emailDraft={emailDraft}
+            currentEmail={user?.email ?? ''}
+            pendingNewEmail={user?.new_email ?? null}
+            avatarUrl={profile?.avatar_url ?? null}
+            subscriptionPlan={profile?.subscription_plans ?? null}
+            subscriptionUsage={profile?.subscription_usages ?? null}
+            isSavingAccount={isSavingAccount}
+            isSavingEmail={isSavingEmail}
+            emailSaveDisabled={!isConfigured || !user}
+            emailMessage={emailMessage}
+            emailError={emailError}
+            onFirstNameChange={setFirstNameDraft}
+            onLastNameChange={setLastNameDraft}
+            onEmailChange={(value) => {
+              setEmailDraft(value)
+              setEmailMessage(null)
+              setEmailError(null)
+            }}
+            onSaveEmail={handleSaveEmail}
+            onOpenPlansModal={() => setIsPlansModalOpen(true)}
+          />
+        ) : null}
+      </section>
+    </div>
+  )
+
   return (
     <>
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-label="Einstellungen">
-      <aside className="settings-sidebar">
-        <h2>{i18n.menuTitle}</h2>
-        <nav className="settings-menu">
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              className={`settings-menu-item ${activeSection === section.id ? 'is-active' : ''}`}
-              onClick={() => setActiveSection(section.id)}
+      {variant === 'sheet' ? (
+        <div className="settings-sheet-embed settings-modal settings-modal--mobile-nav settings-modal--sheet-embed">
+          <div
+            className={`settings-mobile-slide-track ${mobileStack === 'detail' ? 'is-showing-detail' : ''}`}
+          >
+            {settingsSidebar}
+            {settingsMain}
+          </div>
+        </div>
+      ) : (
+        <section
+          className={`settings-modal${layoutNarrow ? ' settings-modal--mobile-nav' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Einstellungen"
+        >
+          {layoutNarrow ? (
+            <div
+              className={`settings-mobile-slide-track ${mobileStack === 'detail' ? 'is-showing-detail' : ''}`}
             >
-              {section.icon ? (
-                <img className="ui-icon settings-menu-icon" src={section.icon} alt="" aria-hidden="true" />
-              ) : null}
-              {section.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      <div className="settings-content">
-        <header className="settings-titlebar">
-          <ModalHeader
-            title={activeSectionConfig.title}
-            headingLevel="h1"
-            onClose={onClose}
-            closeLabel={i18n.closeLabel}
-          />
-          {languageFeedback ? (
-            <div className="settings-save-indicator" role="status" aria-live="polite">
-              <span className="settings-save-indicator-spinner" aria-hidden="true" />
-              <span>Sprache gespeichert</span>
+              {settingsSidebar}
+              {settingsMain}
             </div>
-          ) : null}
-        </header>
-
-        <section className="settings-body">
-          {activeSection === 'general' ? (
-            <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
-          ) : null}
-          {activeSection === 'ai' ? (
-            <AiSettingsSection />
-          ) : null}
-          {activeSection === 'personalize' ? (
-            <PersonalizeSettingsSection
-              themeMode={themeMode}
-              sidebarScale={sidebarScale}
-              accentPaletteId={accentPaletteId}
-              hoverPaletteId={hoverPaletteId}
-              messageBoxPaletteId={messageBoxPaletteId}
-              learnPathTitleColorMode={learnPathTitleColorMode}
-              onChangeThemeMode={setThemeMode}
-              onChangeSidebarScale={setSidebarScale}
-              onChangeAccentPalette={setAccentPaletteId}
-              onChangeHoverPalette={setHoverPaletteId}
-              onChangeMessageBoxPalette={setMessageBoxPaletteId}
-              onChangeLearnPathTitleColorMode={setLearnPathTitleColorMode}
-            />
-          ) : null}
-          {activeSection === 'chat' ? (
-            <ChatSettingsSection
-              language={language}
-              assistantEmojisEnabled={assistantEmojisEnabled}
-              onToggleAssistantEmojis={handleToggleAssistantEmojis}
-              autoRemoveEmptyChats={autoRemoveEmptyChats}
-              isUpdatingChatSetting={isUpdatingChatSetting}
-              isCleaningEmptyChats={isCleaningEmptyChats}
-              chatCleanupInfo={chatCleanupInfo}
-              disableCleanup={!user}
-              onToggleAutoRemoveEmptyChats={handleToggleAutoRemoveEmptyChats}
-              onCleanupEmptyChats={handleCleanupEmptyChats}
-            />
-          ) : null}
-          {activeSection === 'status' ? (
-            <ErrorStatusSettingsSection
-              language={language}
-              isConfigured={isConfigured}
-              isAuthLoading={isLoading}
-              appError={error}
-              hasUser={Boolean(user)}
-            />
-          ) : null}
-          {activeSection === 'feedback' ? (
-            <FeedbackSettingsSection
-              language={language}
-              userEmail={user?.email ?? null}
-              authorFirstName={profile?.first_name ?? null}
-              authorLastName={profile?.last_name ?? null}
-              hasUser={Boolean(user)}
-            />
-          ) : null}
-          {activeSection === 'account' ? (
-            <AccountSettingsSection
-              firstNameDraft={firstNameDraft}
-              lastNameDraft={lastNameDraft}
-              emailDraft={emailDraft}
-              currentEmail={user?.email ?? ''}
-              pendingNewEmail={user?.new_email ?? null}
-              avatarUrl={profile?.avatar_url ?? null}
-              subscriptionPlan={profile?.subscription_plans ?? null}
-              subscriptionUsage={profile?.subscription_usages ?? null}
-              isSavingAccount={isSavingAccount}
-              isSavingEmail={isSavingEmail}
-              emailSaveDisabled={!isConfigured || !user}
-              emailMessage={emailMessage}
-              emailError={emailError}
-              onFirstNameChange={setFirstNameDraft}
-              onLastNameChange={setLastNameDraft}
-              onEmailChange={(value) => {
-                setEmailDraft(value)
-                setEmailMessage(null)
-                setEmailError(null)
-              }}
-              onSaveEmail={handleSaveEmail}
-              onOpenPlansModal={() => setIsPlansModalOpen(true)}
-            />
-          ) : null}
+          ) : (
+            <>
+              {settingsSidebar}
+              {settingsMain}
+            </>
+          )}
         </section>
-      </div>
-      </section>
+      )}
       <ModalShell
         isOpen={isPlansModalOpen}
         className="account-subscription-overlay"

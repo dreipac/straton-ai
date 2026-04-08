@@ -78,6 +78,16 @@
   gap: 0.9rem;
 }
 
+/* Desktop: gleiches Raster wie zuvor (h2, Fehler, Formular, Hinweis) */
+.chat-empty-lead,
+.chat-empty-composer-stack {
+  display: contents;
+}
+
+.chat-empty-title-line-break {
+  display: none;
+}
+
 .chat-empty-title {
   margin: 0;
   text-align: left;
@@ -978,41 +988,97 @@
     align-content: stretch;
     grid-template-rows: 1fr;
     min-height: 0;
+    /* visualViewport-Höhe (JS): Bereich schrumpft mit Tastatur, Seite bleibt fix */
+    height: var(--chat-vv-height, 100dvh);
+    max-height: var(--chat-vv-height, 100dvh);
+    overflow: hidden;
   }
 
   .chat-panel.is-empty .chat-empty-compose {
-    min-height: 100%;
+    min-height: 0;
+    flex: 1;
     height: 100%;
     width: 100%;
     max-width: min(760px, 100%);
     justify-self: center;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    align-content: stretch;
-    gap: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    box-sizing: border-box;
+  }
+
+  .chat-panel.is-empty .chat-empty-lead {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    justify-content: flex-end;
+    align-items: stretch;
+    padding: 0 0.5rem;
+    gap: 0.5rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+  }
+
+  .chat-panel.is-empty .chat-empty-composer-stack {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: 0.45rem;
+    width: 100%;
+    padding: 0 0.5rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .chat-panel.is-empty .chat-empty-composer-stack:has(.chat-input-row:focus-within),
+  .chat-panel.is-empty .chat-empty-composer-stack:has(.chat-attachment-chip) {
+    transform: translateY(-10px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-panel.is-empty .chat-empty-composer-stack {
+      transition: none;
+    }
+
+    .chat-panel.is-empty .chat-empty-composer-stack:has(.chat-input-row:focus-within),
+    .chat-panel.is-empty .chat-empty-composer-stack:has(.chat-attachment-chip) {
+      transform: none;
+    }
   }
 
   .chat-panel.is-empty .chat-empty-title {
-    align-self: end;
     margin-bottom: 0;
-    text-align: center;
+    text-align: left;
+    max-width: 100%;
+    width: 100%;
+    padding: 0 0.35rem;
+    box-sizing: border-box;
   }
 
-  /* Eingabe-Pille vertikal in der freien Mitte (zwischen Titel und Hinweis) */
+  .chat-empty-title-line-break {
+    display: block;
+  }
+
+  /* Eingabe direkt unter dem zentrierten Titel, gleiche Breite wie zuvor */
   .chat-panel.is-empty .chat-input-row.is-centered {
-    align-self: center;
+    align-self: stretch;
     margin-top: 0;
     margin-bottom: 0;
     position: static;
     bottom: auto;
     z-index: auto;
     width: 100%;
+    max-width: 100%;
   }
 
   .chat-panel.is-empty .chat-input-hint {
-    align-self: start;
+    flex-shrink: 0;
+    margin-top: 0;
     text-align: center;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding-bottom: 0;
   }
 
   .chat-panel:not(.is-empty) .chat-input-row {
@@ -1082,6 +1148,175 @@
     height: 44px;
     min-width: 44px;
     min-height: 44px;
+  }
+
+  /*
+   * Leerer Chat: kompakte eine Zeile ohne Fokus; mit Fokus (oder Anhängen) weich auf gestapelte Pille.
+   */
+  .chat-panel.is-empty .chat-input-row--stacked {
+    transition:
+      padding 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      gap 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      min-height 0.28s ease;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked .chat-input-compose,
+  .chat-panel.is-empty .chat-input-row--stacked .chat-input-field,
+  .chat-panel.is-empty .chat-input-row--stacked textarea.chat-input,
+  .chat-panel.is-empty .chat-input-row--stacked .chat-attach-button,
+  .chat-panel.is-empty .chat-input-row--stacked > button[type='submit'] {
+    transition:
+      min-height 0.28s ease,
+      min-width 0.28s ease,
+      width 0.28s ease,
+      height 0.28s ease,
+      padding 0.28s ease,
+      flex-basis 0.28s ease;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked .chat-attach-button .chat-send-icon,
+  .chat-panel.is-empty .chat-input-row--stacked > button[type='submit'] .chat-send-icon {
+    transition: transform 0.28s ease;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip)) {
+    flex-wrap: nowrap;
+    align-items: center;
+    align-content: center;
+    padding: 0.26rem 0.4rem;
+    gap: 0.32rem;
+    min-height: 42px;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    .chat-input-compose {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    flex-basis: auto;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    .chat-attach-button {
+    order: 1;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    margin-right: 0;
+    margin-left: 0;
+    align-self: center;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    > button[type='submit'] {
+    order: 3;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    align-self: center;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    textarea.chat-input {
+    min-height: 36px;
+    max-height: 42px;
+    padding-top: 0.38rem;
+    padding-bottom: 0.38rem;
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    .chat-attach-button
+    .chat-send-icon {
+    --ui-icon-size: 20px;
+  }
+
+  .chat-panel.is-empty
+    .chat-input-row--stacked:not(:focus-within):not(:has(.chat-attachment-chip))
+    > button[type='submit']
+    .chat-send-icon {
+    --ui-icon-size: 20px;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within,
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) {
+    flex-wrap: wrap;
+    align-items: flex-end;
+    padding: 0.45rem 0.5rem 0.52rem;
+    gap: 0.42rem;
+    min-height: 0;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within .chat-input-compose,
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) .chat-input-compose {
+    order: 1;
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within .chat-attach-button,
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) .chat-attach-button {
+    order: 2;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    margin-right: auto;
+    margin-left: 0.15rem;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within > button[type='submit'],
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) > button[type='submit'] {
+    order: 3;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within textarea.chat-input,
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) textarea.chat-input {
+    min-height: 48px;
+    max-height: 220px;
+    padding-top: 0.72rem;
+    padding-bottom: 0.72rem;
+    font-size: 17px;
+    line-height: 1.45;
+  }
+
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within .chat-attach-button .chat-send-icon,
+  .chat-panel.is-empty .chat-input-row--stacked:focus-within > button[type='submit'] .chat-send-icon,
+  .chat-panel.is-empty .chat-input-row--stacked:has(.chat-attachment-chip) .chat-attach-button .chat-send-icon,
+  .chat-panel.is-empty
+    .chat-input-row--stacked:has(.chat-attachment-chip)
+    > button[type='submit']
+    .chat-send-icon {
+    --ui-icon-size: 26px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-panel.is-empty .chat-input-row--stacked,
+    .chat-panel.is-empty .chat-input-row--stacked .chat-input-compose,
+    .chat-panel.is-empty .chat-input-row--stacked .chat-input-field,
+    .chat-panel.is-empty .chat-input-row--stacked textarea.chat-input,
+    .chat-panel.is-empty .chat-input-row--stacked .chat-attach-button,
+    .chat-panel.is-empty .chat-input-row--stacked > button[type='submit'] {
+      transition: none;
+    }
   }
 
   .chat-input-hint {

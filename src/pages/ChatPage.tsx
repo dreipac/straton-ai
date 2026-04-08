@@ -96,6 +96,8 @@ export function ChatPage() {
   const [isRenameVisible, setIsRenameVisible] = useState(false)
   const [renameDraft, setRenameDraft] = useState('')
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
+  /** Nur Compact-Mobile: gleiches ProfileFullSheet, Inhalt Profil-Liste oder Einstellungen */
+  const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [showBetaNoticeOnFirstLogin, setShowBetaNoticeOnFirstLogin] = useState(true)
@@ -130,16 +132,17 @@ export function ChatPage() {
     if (!isCompactMobileSidebarLayout) {
       return
     }
-    if (isProfileMenuOpen) {
+    if (mobileSheetMode !== 'closed') {
       profileFullSheetRef.current?.requestClose()
     } else {
-      setIsProfileMenuOpen(true)
+      setMobileSheetMode('profile')
     }
   }
 
   useEffect(() => {
     function handleOutsidePointer(event: MouseEvent | TouchEvent) {
-      if (!openMenuThreadId && !isProfileMenuOpen) {
+      const compactSheetOpen = isCompactMobileSidebarLayout && mobileSheetMode !== 'closed'
+      if (!openMenuThreadId && !isProfileMenuOpen && !compactSheetOpen) {
         return
       }
 
@@ -158,7 +161,7 @@ export function ChatPage() {
         setThreadMenuVariant('none')
       }
 
-      if (!isInsideProfileMenu && isProfileMenuOpen) {
+      if (!isInsideProfileMenu && (isProfileMenuOpen || compactSheetOpen)) {
         if (isCompactMobileSidebarLayout) {
           const insideSheet = profileFullSheetRef.current?.containsNode(target) ?? false
           if (!insideSheet) {
@@ -176,7 +179,7 @@ export function ChatPage() {
       document.removeEventListener('mousedown', handleOutsidePointer)
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
-  }, [openMenuThreadId, isProfileMenuOpen, isCompactMobileSidebarLayout])
+  }, [openMenuThreadId, isProfileMenuOpen, isCompactMobileSidebarLayout, mobileSheetMode])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)
@@ -302,7 +305,6 @@ export function ChatPage() {
 
   function openSettingsModal(section: SettingsSectionId = 'general') {
     setSettingsInitialSection(section)
-    setIsProfileMenuOpen(false)
     void refreshProfile().catch(() => {
       // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
     })
@@ -312,6 +314,12 @@ export function ChatPage() {
       settingsCloseTimerRef.current = null
     }
 
+    if (isCompactMobileSidebarLayout) {
+      setMobileSheetMode('settings')
+      return
+    }
+
+    setIsProfileMenuOpen(false)
     setIsSettingsMounted(true)
     window.requestAnimationFrame(() => {
       setIsSettingsVisible(true)
@@ -319,6 +327,10 @@ export function ChatPage() {
   }
 
   function closeSettingsModal() {
+    if (isCompactMobileSidebarLayout) {
+      profileFullSheetRef.current?.requestClose()
+      return
+    }
     setIsSettingsVisible(false)
     settingsCloseTimerRef.current = window.setTimeout(() => {
       setIsSettingsMounted(false)
@@ -328,6 +340,9 @@ export function ChatPage() {
 
   function openAdminModal() {
     setIsProfileMenuOpen(false)
+    if (isCompactMobileSidebarLayout) {
+      profileFullSheetRef.current?.requestClose()
+    }
     setIsMobileSidebarOpen(false)
     if (adminCloseTimerRef.current) {
       window.clearTimeout(adminCloseTimerRef.current)
@@ -420,6 +435,9 @@ export function ChatPage() {
     await createNewChat()
     closeThreadActionMenu()
     setIsProfileMenuOpen(false)
+    if (isCompactMobileSidebarLayout) {
+      profileFullSheetRef.current?.requestClose()
+    }
     setIsMobileSidebarOpen(false)
   }
 
@@ -427,6 +445,27 @@ export function ChatPage() {
     setOpenMenuThreadId(null)
     setContextMenuPosition(null)
     setThreadMenuVariant('none')
+  }
+
+  function handleSidebarHeaderToggleClick() {
+    if (isCompactMobileSidebarLayout) {
+      if (showChatTour) {
+        return
+      }
+      setIsMobileSidebarOpen(false)
+      closeThreadActionMenu()
+      setIsProfileMenuOpen(false)
+      profileFullSheetRef.current?.requestClose()
+      return
+    }
+    setIsSidebarCollapsed((prev) => {
+      if (prev) {
+        hapticLightImpact()
+      }
+      return !prev
+    })
+    closeThreadActionMenu()
+    setIsProfileMenuOpen(false)
   }
 
   function openThreadContextMenuAt(threadId: string, clientX: number, clientY: number) {
@@ -533,15 +572,10 @@ export function ChatPage() {
                 <button
                   type="button"
                   className="sidebar-toggle-button"
-                  aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
-                  onClick={() =>
-                    setIsSidebarCollapsed((prev) => {
-                      if (prev) {
-                        hapticLightImpact()
-                      }
-                      return !prev
-                    })
+                  aria-label={
+                    isCompactMobileSidebarLayout ? 'Sidebar schliessen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
                   }
+                  onClick={handleSidebarHeaderToggleClick}
                 >
                   <img
                     className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon"
@@ -686,17 +720,10 @@ export function ChatPage() {
               <button
                 type="button"
                 className="sidebar-toggle-button"
-                aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
-                onClick={() => {
-                  setIsSidebarCollapsed((prev) => {
-                    if (prev) {
-                      hapticLightImpact()
-                    }
-                    return !prev
-                  })
-                  closeThreadActionMenu()
-                  setIsProfileMenuOpen(false)
-                }}
+                aria-label={
+                  isCompactMobileSidebarLayout ? 'Sidebar schliessen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
+                }
+                onClick={handleSidebarHeaderToggleClick}
               >
                 <img className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon" src={sidebarIcon} alt="" aria-hidden="true" />
               </button>
@@ -712,6 +739,7 @@ export function ChatPage() {
                 setIsSidebarCollapsed(false)
                 closeThreadActionMenu()
                 setIsProfileMenuOpen(false)
+                profileFullSheetRef.current?.requestClose()
               }}
             >
               <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
@@ -945,93 +973,102 @@ export function ChatPage() {
         />
       ) : null}
 
-      {isCompactMobileSidebarLayout && isProfileMenuOpen ? (
+      {isCompactMobileSidebarLayout && mobileSheetMode !== 'closed' ? (
         <ProfileFullSheet
           ref={profileFullSheetRef}
-          open={isProfileMenuOpen}
-          onClose={() => setIsProfileMenuOpen(false)}
+          open
+          onClose={() => {
+            setMobileSheetMode('closed')
+          }}
         >
-          <div className="profile-full-sheet-hero">
-            {profile?.avatar_url ? (
-              <img className="profile-full-sheet-avatar" src={profile.avatar_url} alt="Profilbild" />
-            ) : (
-              <div className="profile-full-sheet-avatar-fallback" aria-hidden="true">
-                {avatarFallback}
+          {mobileSheetMode === 'profile' ? (
+            <>
+              <div className="profile-full-sheet-hero">
+                {profile?.avatar_url ? (
+                  <img className="profile-full-sheet-avatar" src={profile.avatar_url} alt="Profilbild" />
+                ) : (
+                  <div className="profile-full-sheet-avatar-fallback" aria-hidden="true">
+                    {avatarFallback}
+                  </div>
+                )}
+                <p className="profile-full-sheet-name">{displayName}</p>
+                {subscriptionPlanName ? <p className="profile-full-sheet-plan">{subscriptionPlanName}</p> : null}
+                {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
               </div>
-            )}
-            <p className="profile-full-sheet-name">{displayName}</p>
-            {subscriptionPlanName ? <p className="profile-full-sheet-plan">{subscriptionPlanName}</p> : null}
-            {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
-          </div>
-          <nav className="profile-full-sheet-nav" aria-label="Einstellungen">
-            {PROFILE_SETTINGS_SHEET_SECTIONS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                className="profile-full-sheet-row"
-                onClick={() => {
-                  setIsProfileMenuOpen(false)
-                  openSettingsModal(id)
-                }}
-              >
-                <span className="profile-full-sheet-row-label">{label}</span>
-                <span className="profile-full-sheet-row-chevron" aria-hidden="true">
-                  ›
-                </span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`profile-full-sheet-row${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
-              onClick={() => {
-                setIsProfileMenuOpen(false)
-                navigate('/learn')
-                setIsMobileSidebarOpen(false)
-              }}
-            >
-              <span className="profile-full-sheet-row-label">
-                Lernpfade
-                <span className="chat-dev-badge">In Entwicklung</span>
-              </span>
-              <span className="profile-full-sheet-row-chevron" aria-hidden="true">
-                ›
-              </span>
-            </button>
-            {profile?.is_superadmin ? (
-              <button
-                type="button"
-                className="profile-full-sheet-row"
-                onClick={() => {
-                  setIsProfileMenuOpen(false)
-                  openAdminModal()
-                }}
-              >
-                <span className="profile-full-sheet-row-label">Administrator</span>
-                <span className="profile-full-sheet-row-chevron" aria-hidden="true">
-                  ›
-                </span>
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="profile-full-sheet-row is-danger"
-              onClick={async () => {
-                setIsProfileMenuOpen(false)
-                await handleLogout()
-              }}
-            >
-              <span className="profile-full-sheet-row-label">Logout</span>
-              <span className="profile-full-sheet-row-chevron" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          </nav>
+              <nav className="profile-full-sheet-nav" aria-label="Einstellungen">
+                {PROFILE_SETTINGS_SHEET_SECTIONS.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className="profile-full-sheet-row"
+                    onClick={() => {
+                      openSettingsModal(id)
+                    }}
+                  >
+                    <span className="profile-full-sheet-row-label">{label}</span>
+                    <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                      ›
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={`profile-full-sheet-row${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+                  onClick={() => {
+                    setMobileSheetMode('closed')
+                    navigate('/learn')
+                    setIsMobileSidebarOpen(false)
+                  }}
+                >
+                  <span className="profile-full-sheet-row-label">
+                    Lernpfade
+                    <span className="chat-dev-badge">In Entwicklung</span>
+                  </span>
+                  <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+                {profile?.is_superadmin ? (
+                  <button
+                    type="button"
+                    className="profile-full-sheet-row"
+                    onClick={() => {
+                      openAdminModal()
+                    }}
+                  >
+                    <span className="profile-full-sheet-row-label">Administrator</span>
+                    <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                      ›
+                    </span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="profile-full-sheet-row is-danger"
+                  onClick={async () => {
+                    await handleLogout()
+                  }}
+                >
+                  <span className="profile-full-sheet-row-label">Logout</span>
+                  <span className="profile-full-sheet-row-chevron" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+              </nav>
+            </>
+          ) : (
+            <SettingsModal
+              variant="sheet"
+              onClose={closeSettingsModal}
+              initialSection={settingsInitialSection}
+            />
+          )}
         </ProfileFullSheet>
       ) : null}
 
-      {isSettingsMounted ? (
+      {isSettingsMounted && !isCompactMobileSidebarLayout ? (
         <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>
-          <SettingsModal onClose={closeSettingsModal} initialSection={settingsInitialSection} />
+          <SettingsModal variant="modal" onClose={closeSettingsModal} initialSection={settingsInitialSection} />
         </ModalShell>
       ) : null}
       {isAdminMounted ? (

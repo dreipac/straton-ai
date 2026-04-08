@@ -52,15 +52,21 @@
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+  max-width: 100%;
 }
 
 .chat-brand h2 {
   margin: 0;
   padding-left: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-brand-logo {
   --ui-icon-size: 50px;
+  flex-shrink: 0;
 }
 
 .chat-brand-logo-collapsed {
@@ -73,10 +79,14 @@
 }
 
 .chat-sidebar-header-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.45rem;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .chat-sidebar-top .sidebar-toggle-button-inline {
@@ -98,6 +108,7 @@
 .sidebar-toggle-button {
   width: 30px;
   min-width: 30px;
+  max-width: 30px;
   height: 30px;
   border-radius: 9px;
   border: 1px solid transparent;
@@ -106,6 +117,8 @@
   align-items: center;
   justify-content: center;
   padding: 0;
+  flex-shrink: 0;
+  justify-self: end;
   transition: transform 180ms ease;
 }
 
@@ -132,6 +145,7 @@
 .chat-sidebar-top .sidebar-toggle-button {
   width: 30px;
   min-width: 30px;
+  max-width: 30px;
   min-height: 30px;
   text-align: center;
   padding: 0;
@@ -688,8 +702,26 @@
       visibility 0ms linear 0ms;
   }
 
-  .chat-sidebar .sidebar-toggle-button {
-    display: none;
+  /* Zuklapp-Icon in der Sidebar (oben rechts); schwebende Pill nur wenn Leiste zu */
+  .chat-app-shell.is-mobile-sidebar-open .mobile-sidebar-pill {
+    display: none !important;
+  }
+
+  .chat-sidebar-top .sidebar-toggle-button {
+    display: inline-flex;
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-elevated);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  }
+
+  .chat-sidebar-top .sidebar-toggle-icon {
+    --ui-icon-size: 25px;
   }
 
   .chat-app-shell .chat-sidebar.is-collapsed {
