@@ -1,3 +1,4 @@
+import { useState, type DragEvent } from 'react'
 import deleteIcon from '../../../assets/icons/delete.svg'
 import fileIcon from '../../../assets/icons/file.svg'
 import setupPng from '../../../assets/png/setup.png'
@@ -60,6 +61,42 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
     onSelectProficiency,
   } = props
 
+  const [isFileDragOver, setIsFileDragOver] = useState(false)
+
+  function handleFileDragEnter(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer.types.includes('Files')) {
+      setIsFileDragOver(true)
+    }
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const related = event.relatedTarget as Node | null
+    if (!related || !event.currentTarget.contains(related)) {
+      setIsFileDragOver(false)
+    }
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer.types.includes('Files')) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsFileDragOver(false)
+    const { files } = event.dataTransfer
+    if (files?.length) {
+      onFilesChange(files)
+    }
+  }
+
   return (
     <section className="learn-setup-standalone">
       <div className={`learn-setup-flow ${setupStep === 1 ? 'is-topic-step' : ''}`}>
@@ -106,9 +143,8 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
             ) : (
               <>
                 <p className="learn-setup-info">
-                  Lade zuerst deine Unterlagen hoch (PDF, Word, Tabellen, Text; bei{' '}
-                  <strong>Fotos von Arbeitsblättern</strong> wird Text per OCR erkannt). Danach analysiert die KI die
-                  Inhalte und erkennt automatisch das Thema.
+                  Lade deine Unterlagen hoch. Die KI schlägt dir anschließend ein passendes Thema für deinen Lernpfad
+                  vor.
                 </p>
                 <div className="learn-file-upload-block">
                   <input
@@ -122,47 +158,65 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
                     }}
                   />
                   {materials.length === 0 ? (
-                    <label htmlFor="learn-files-input" className="learn-file-upload-zone">
-                      <span className="learn-file-upload-zone-inner">
-                        <strong className="learn-file-upload-title">Dateien hochladen</strong>
-                        <span className="learn-file-upload-hint">Klicke in das Feld oder w\u00E4hle Dateien aus</span>
-                      </span>
-                    </label>
-                  ) : (
-                    <div className="learn-file-upload-after-list">
-                      <div className="learn-materials-list">
-                        {materials.map((material) => {
-                          const typeBadge = getMaterialTypeBadge(material.name)
-                          return (
-                            <div key={material.id} className="learn-material-item">
-                              <div className="learn-material-main">
-                                <img className="ui-icon learn-material-file-icon" src={fileIcon} alt="" aria-hidden="true" />
-                                <div className="learn-material-copy">
-                                  <div className="learn-material-title-row">
-                                    <p className="learn-material-name">{material.name}</p>
-                                    <span className={`learn-material-type-badge learn-material-type-badge--${typeBadge.variant}`}>
-                                      {typeBadge.label}
-                                    </span>
-                                  </div>
-                                  <p className="learn-muted learn-material-meta">{Math.round(material.size / 1024)} KB</p>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="learn-material-remove-button"
-                                onClick={() => onRemoveMaterial(material.id)}
-                                aria-label={`${material.name} entfernen`}
-                              >
-                                <img className="ui-icon learn-material-remove-icon" src={deleteIcon} alt="" aria-hidden="true" />
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <label htmlFor="learn-files-input" className="learn-file-upload-add-more">
-                        <span className="learn-file-upload-add-more-icon" aria-hidden="true" />
-                        <span className="learn-file-upload-add-more-label">Weitere Dateien hinzuf\u00FCgen</span>
+                    <div
+                      className={`learn-file-upload-drop-target${isFileDragOver ? ' is-drag-over' : ''}`}
+                      onDragEnter={handleFileDragEnter}
+                      onDragLeave={handleFileDragLeave}
+                      onDragOver={handleFileDragOver}
+                      onDrop={handleFileDrop}
+                    >
+                      <label htmlFor="learn-files-input" className="learn-file-upload-zone">
+                        <span className="learn-file-upload-zone-inner">
+                          <strong className="learn-file-upload-title">Unterlagen hochladen</strong>
+                          <span className="learn-file-upload-hint">
+                            Dateien auswählen oder per Drag-and-drop in dieses Feld ziehen (mehrere Dateien möglich)
+                          </span>
+                        </span>
                       </label>
+                    </div>
+                  ) : (
+                    <div
+                      className={`learn-file-upload-drop-target learn-file-upload-after-drop${isFileDragOver ? ' is-drag-over' : ''}`}
+                      onDragEnter={handleFileDragEnter}
+                      onDragLeave={handleFileDragLeave}
+                      onDragOver={handleFileDragOver}
+                      onDrop={handleFileDrop}
+                    >
+                      <div className="learn-file-upload-after-list">
+                        <div className="learn-materials-list">
+                          {materials.map((material) => {
+                            const typeBadge = getMaterialTypeBadge(material.name)
+                            return (
+                              <div key={material.id} className="learn-material-item">
+                                <div className="learn-material-main">
+                                  <img className="ui-icon learn-material-file-icon" src={fileIcon} alt="" aria-hidden="true" />
+                                  <div className="learn-material-copy">
+                                    <div className="learn-material-title-row">
+                                      <p className="learn-material-name">{material.name}</p>
+                                      <span className={`learn-material-type-badge learn-material-type-badge--${typeBadge.variant}`}>
+                                        {typeBadge.label}
+                                      </span>
+                                    </div>
+                                    <p className="learn-muted learn-material-meta">{Math.round(material.size / 1024)} KB</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="learn-material-remove-button"
+                                  onClick={() => onRemoveMaterial(material.id)}
+                                  aria-label={`${material.name} entfernen`}
+                                >
+                                  <img className="ui-icon learn-material-remove-icon" src={deleteIcon} alt="" aria-hidden="true" />
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <label htmlFor="learn-files-input" className="learn-file-upload-add-more">
+                          <span className="learn-file-upload-add-more-icon" aria-hidden="true" />
+                          <span className="learn-file-upload-add-more-label">Weitere Dateien hinzufügen</span>
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -190,7 +244,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
             </div>
             <div className="learn-setup-actions">
               <SecondaryButton type="button" onClick={onBackToStep1}>
-                Zur\u00FCck
+                Zurück
               </SecondaryButton>
               <PrimaryButton type="button" onClick={onContinueStepTwo}>
                 Weiter
@@ -228,7 +282,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
             </div>
             <div className="learn-setup-actions">
               <SecondaryButton type="button" onClick={onBackToStep2}>
-                Zur\u00FCck
+                Zurück
               </SecondaryButton>
               <PrimaryButton type="button" onClick={onContinueStepThree} disabled={!proficiencyLevel}>
                 Weiter

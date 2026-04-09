@@ -117,7 +117,7 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
             <div className="learn-chapter-preview-box">
               <p>Dauer: ca. {estimatedMinutes} Minuten</p>
               <p>
-                {learningBlocksCount} Lernbl\u00F6cke \u00B7 {questionCount} Interaktive Fragen
+                {learningBlocksCount} Lernblöcke · {questionCount} Interaktive Fragen
               </p>
               <p>{recommendation}</p>
             </div>

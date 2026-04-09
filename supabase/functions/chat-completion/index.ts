@@ -513,8 +513,8 @@ async function handleOpenAiChatStream(
 }
 
 /**
- * Lernpfad: Claude Sonnet (per Secret ANTHROPIC_MODEL überschreibbar).
- * Default: claude-sonnet-4-6 (ältere IDs wie claude-3-5-sonnet-20241022 sind bei Anthropic retired → oft HTTP 404).
+ * Anthropic-Calls (wenn `provider: anthropic`): Sonnet (per Secret ANTHROPIC_MODEL überschreibbar).
+ * Lernpfad nutzt im Client jetzt `provider: openai` + GPT-5 mini; dieser Pfad bleibt für explizite Claude-Requests.
  */
 function anthropicLearnModel(): string {
   const fromEnv = Deno.env.get('ANTHROPIC_MODEL')?.trim()

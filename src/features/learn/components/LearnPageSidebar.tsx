@@ -46,27 +46,32 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     subscriptionPlanName,
   } = props
 
+  const logoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
+
+  const expandFromCollapsed = () => {
+    hapticLightImpact()
+    onToggleSidebar()
+  }
+
   return (
     <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       <div className="chat-sidebar-top">
         <div className="chat-sidebar-header-row">
-          <div className="chat-brand">
-            <img className="ui-icon chat-brand-logo" src={`${import.meta.env.BASE_URL}assets/logo/Straton.png`} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? <h2>Lernbereich</h2> : null}
-          </div>
-          <button
-            type="button"
-            className="sidebar-toggle-button"
-            aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
-            onClick={() => {
-              if (isSidebarCollapsed) {
-                hapticLightImpact()
-              }
-              onToggleSidebar()
-            }}
-          >
-            <img className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon" src={sidebarIcon} alt="" aria-hidden="true" />
-          </button>
+          {isSidebarCollapsed ? (
+            <button type="button" className="sidebar-logo-button" aria-label="Sidebar ausfahren" onClick={expandFromCollapsed}>
+              <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
+            </button>
+          ) : (
+            <>
+              <div className="chat-brand">
+                <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
+                <h2>Lernbereich</h2>
+              </div>
+              <button type="button" className="sidebar-toggle-button" aria-label="Sidebar einklappen" onClick={() => onToggleSidebar()}>
+                <img className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+              </button>
+            </>
+          )}
         </div>
         <button
           type="button"
@@ -101,22 +106,18 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
           ))}
         </div>
       ) : null}
+
       <div className="chat-sidebar-bottom">
-        <div className="learn-sidebar-account-combined">
-          <button
-            type="button"
-            className="learn-mode-switch-button"
-            onClick={onNavigateToChat}
-            aria-label={isSidebarCollapsed ? 'Zum Standardmodus wechseln' : undefined}
-          >
-            <img className="ui-icon chat-sidebar-top-button-icon" src={statusIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? (
+        <div className={`learn-sidebar-account-combined${isSidebarCollapsed ? ' learn-sidebar-account-combined--profile-only' : ''}`}>
+          {!isSidebarCollapsed ? (
+            <button type="button" className="learn-mode-switch-button" onClick={onNavigateToChat}>
+              <img className="ui-icon chat-sidebar-top-button-icon" src={statusIcon} alt="" aria-hidden="true" />
               <span className="learn-mode-switch-copy">
                 <span className="learn-mode-switch-title">Standardmodus</span>
                 <span className="learn-mode-switch-subtitle">Bereich wechseln</span>
               </span>
-            ) : null}
-          </button>
+            </button>
+          ) : null}
           <div className="account-profile-row">
             <div className="account-profile chat-sidebar-profile-card">
               {profile?.avatar_url ? (
@@ -130,9 +131,7 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
                   <div className="account-name-row">
                     <p className="account-value">{displayName}</p>
                   </div>
-                  {subscriptionPlanName ? (
-                    <p className="account-subscription">{subscriptionPlanName}</p>
-                  ) : null}
+                  {subscriptionPlanName ? <p className="account-subscription">{subscriptionPlanName}</p> : null}
                 </div>
               ) : null}
             </div>

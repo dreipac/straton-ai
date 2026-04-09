@@ -148,6 +148,31 @@
   border-top: 1px solid var(--color-border);
 }
 
+.learn-shell .learn-sidebar-account-combined--profile-only {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.42rem 0.35rem;
+  gap: 0;
+}
+
+.learn-shell .learn-sidebar-account-combined--profile-only .account-profile-row {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border-top: none;
+}
+
+.learn-shell .learn-sidebar-account-combined--profile-only .account-profile.chat-sidebar-profile-card {
+  justify-content: center;
+  width: auto;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .learn-sidebar-profile-card {
   width: 100%;
   border: 0;
@@ -160,18 +185,18 @@
   border-top: none;
 }
 
-.chat-sidebar.is-collapsed .learn-sidebar-account-combined {
+.learn-shell .chat-sidebar.is-collapsed .chat-sidebar-header-row {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.chat-sidebar.is-collapsed .learn-sidebar-account-combined:not(.learn-sidebar-account-combined--profile-only) {
   padding: 0.35rem;
 }
 
-.chat-sidebar.is-collapsed .learn-sidebar-account-combined .account-profile-row {
+.chat-sidebar.is-collapsed .learn-sidebar-account-combined:not(.learn-sidebar-account-combined--profile-only) .account-profile-row {
   border-top: none;
   padding-top: 0;
-}
-
-.chat-sidebar.is-collapsed .learn-mode-switch-button {
-  justify-content: center;
-  padding: 0.4rem;
 }
 
 .learn-loading {
@@ -1344,6 +1369,28 @@ textarea.ui-textarea.learn-worksheet-answer-field {
 .learn-file-upload-zone:focus-within {
   border-color: var(--interactive-hover-border);
   background: color-mix(in srgb, var(--interactive-hover-bg) 14%, var(--color-surface-elevated));
+}
+
+.learn-file-upload-drop-target {
+  border-radius: clamp(12px, 0.5vw + 10px, 16px);
+}
+
+.learn-file-upload-drop-target.is-drag-over .learn-file-upload-zone {
+  border-color: var(--interactive-hover-border);
+  background: color-mix(in srgb, var(--interactive-hover-bg) 22%, var(--color-surface-elevated));
+}
+
+.learn-file-upload-after-drop {
+  padding: 0.35rem;
+  border-radius: clamp(12px, 0.5vw + 10px, 16px);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.learn-file-upload-after-drop.is-drag-over {
+  background: color-mix(in srgb, var(--interactive-hover-bg) 12%, var(--color-surface-elevated));
+  box-shadow: inset 0 0 0 2px var(--interactive-hover-border);
 }
 
 .learn-file-upload-zone-inner {

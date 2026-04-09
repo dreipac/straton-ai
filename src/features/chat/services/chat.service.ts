@@ -34,7 +34,7 @@ export type SendMessageOptions = {
   /** Ersetzt den Standard-Basisblock (Straton / Quiz-JSON-Regeln). */
   interactiveQuizPrompt?: string
   /**
-   * Lernpfad / Learn-UI: Antwort über Claude Sonnet (Edge). Ohne Flag: OpenAI für den Hauptchat.
+   * Lernpfad / Learn-UI: Antwort über OpenAI GPT-5 mini (Edge). Ohne Flag: OpenAI für den Hauptchat.
    */
   useLearnPathModel?: boolean
   /**
@@ -129,7 +129,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   ]
 }
 
-/** Echter KI-Call (nicht Mock). Chat = OpenAI, Lernpfad = Claude Sonnet (siehe Edge Function). */
+/** Echter KI-Call (nicht Mock). Chat und Lernpfad = OpenAI (Lernpfad: GPT-5 mini über Edge, siehe chat-completion). */
 export function usesGatewayAi(): boolean {
   return env.aiProvider !== 'mock'
 }
@@ -215,8 +215,9 @@ function providerForMainChat(): 'openai' {
   return 'openai'
 }
 
-function providerForLearnPath(): 'anthropic' {
-  return 'anthropic'
+/** Lernpfad (Setup, Kapitel, Karten, Arbeitsblatt, Quiz-Bewertung, …): OpenAI GPT-5 mini über Edge `callOpenAi`. */
+function providerForLearnPath(): 'openai' {
+  return 'openai'
 }
 
 async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {

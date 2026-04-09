@@ -23,7 +23,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_AI_PROVIDER=openai
 ```
 
-- `VITE_AI_PROVIDER=openai` (oder `anthropic`) aktiviert die **Edge Function**: **Hauptchat** nutzt OpenAI, **Lernpfad** (Learn-Bereich) **Claude Sonnet**. Dafür in Supabase beide Secrets setzen: `OPENAI_API_KEY` und `ANTHROPIC_API_KEY`.
+- `VITE_AI_PROVIDER=openai` (oder `anthropic`) aktiviert die **Edge Function**: **Hauptchat** und **Lernpfad** nutzen **OpenAI** (Standardmodell in der Edge: **GPT-5 mini**, mit Fallback). In Supabase mindestens **`OPENAI_API_KEY`** setzen. **`ANTHROPIC_API_KEY`** ist nur nötig, falls du Features nutzt, die explizit Claude aufrufen (z. B. Excel-Spezifikation im Chat).
 - `VITE_AI_PROVIDER=mock` startet ohne externe KI.
 
 ## Projektstruktur

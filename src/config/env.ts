@@ -13,11 +13,11 @@ function getAiProvider(): AiProvider {
     return 'mock'
   }
   if (envFromVite.VITE_AI_PROVIDER === 'anthropic') {
-    // Legacy-Wert: aktiviert wie «openai» den Gateway-Modus (Chat + Lernpfad werden serverseitig getrennt).
+    // Legacy-Wert: aktiviert wie «openai» den Gateway-Modus (Edge Function; Provider pro Request).
     return 'anthropic'
   }
 
-  // Default: Gateway (Hauptchat OpenAI, Lernpfad Claude Sonnet — siehe chat.service + Edge Function).
+  // Default: Gateway (Hauptchat + Lernpfad über OpenAI GPT-5 mini — siehe chat.service + Edge Function).
   return 'openai'
 }
 
