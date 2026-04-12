@@ -9,6 +9,11 @@ export type AdminUser = {
   created_at: string
   subscription_plan_id: string | null
   subscription_plan_name: string | null
+  /** false, wenn in auth.users vorhanden, aber noch keine Zeile in public.profiles */
+  has_profile: boolean
+  /** null = noch nie angemeldet; nach erster Anmeldung gesetzt */
+  last_sign_in_at: string | null
+  must_change_password_on_first_login: boolean
 }
 
 export type SubscriptionPlanRow = {
@@ -44,6 +49,20 @@ export type AdminAiTokenUsageRow = {
   output_tokens: number
 }
 
+/** Neueste Zeile aus `ai_token_usage` pro Nutzer (exakter Modell-String der API). */
+export type AdminUserLastAiUsageRow = {
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  mode: string
+  input_tokens: number
+  output_tokens: number
+  last_used_at: string
+}
+
 function toSafeInt(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value))
@@ -76,6 +95,29 @@ export async function listAdminAiTokenUsageSummary(): Promise<AdminAiTokenUsageR
   }))
 }
 
+export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_user_last_ai_usage')
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    last_used_at: typeof row.last_used_at === 'string' ? row.last_used_at : String(row.last_used_at ?? ''),
+  }))
+}
+
 export async function listAdminUsers(): Promise<AdminUser[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('list_admin_profiles')
@@ -84,7 +126,63 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
     throw error
   }
 
-  return (data ?? []) as AdminUser[]
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    is_superadmin: Boolean(row.is_superadmin),
+    created_at: typeof row.created_at === 'string' ? row.created_at : '',
+    subscription_plan_id: typeof row.subscription_plan_id === 'string' ? row.subscription_plan_id : null,
+    subscription_plan_name: typeof row.subscription_plan_name === 'string' ? row.subscription_plan_name : null,
+    has_profile: row.has_profile !== false,
+    last_sign_in_at:
+      row.last_sign_in_at === null || row.last_sign_in_at === undefined
+        ? null
+        : String(row.last_sign_in_at),
+    must_change_password_on_first_login: row.must_change_password_on_first_login === true,
+  }))
+}
+
+export async function adminSetMustChangePasswordOnFirstLogin(
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_must_change_password_on_first_login', {
+    p_user_id: userId,
+    p_enabled: enabled,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetUserProfileNames(
+  userId: string,
+  firstName: string,
+  lastName: string,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_user_profile_names', {
+    p_user_id: userId,
+    p_first_name: firstName,
+    p_last_name: lastName,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeleteUser(userId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_delete_user', {
+    p_user_id: userId,
+  })
+  if (error) {
+    throw error
+  }
 }
 
 export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {

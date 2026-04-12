@@ -15,10 +15,14 @@ import {
   type SystemPromptKey,
 } from '../config/systemPromptDefaults'
 import {
+  adminDeleteUser,
+  adminSetMustChangePasswordOnFirstLogin,
+  adminSetUserProfileNames,
   createSubscriptionPlan,
   deleteSubscriptionPlan,
   deploySubscriptionAssignmentDrafts,
   listAdminAiTokenUsageSummary,
+  listAdminUserLastAiUsage,
   listAdminUsers,
   listSubscriptionAssignmentDrafts,
   listSubscriptionPlans,
@@ -26,6 +30,7 @@ import {
   saveSubscriptionAssignmentDraft,
   saveSubscriptionPlanShowcaseSlots,
   type AdminAiTokenUsageRow,
+  type AdminUserLastAiUsageRow,
   type AdminUser,
   type SubscriptionAssignmentDraftRow,
   type SubscriptionPlanRow,
@@ -44,6 +49,7 @@ import {
   listUserFeedbackForAdmin,
   type UserFeedbackRow,
 } from '../features/feedback/services/feedback.persistence'
+import { useAuth } from '../features/auth/context/useAuth'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
 import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
 
@@ -95,6 +101,7 @@ type AdministratorModalProps = {
 }
 
 export function AdministratorModal({ onClose }: AdministratorModalProps) {
+  const { user: currentAuthUser } = useAuth()
   const [activeSection, setActiveSection] = useState<AdminSectionId>('overview')
   const { prompts, refresh, isLoading: promptsContextLoading } = useSystemPrompts()
   const [promptDrafts, setPromptDrafts] = useState<Record<SystemPromptKey, string>>(() => ({
@@ -120,15 +127,24 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
   const [assigningUserId, setAssigningUserId] = useState<string | null>(null)
+  const [userProfileNameDrafts, setUserProfileNameDrafts] = useState<
+    Record<string, { first: string; last: string }>
+  >({})
+  const [savingProfileNamesUserId, setSavingProfileNamesUserId] = useState<string | null>(null)
+  const [savingMustPwUserId, setSavingMustPwUserId] = useState<string | null>(null)
   const [subscriptionDrafts, setSubscriptionDrafts] = useState<Record<string, SubscriptionAssignmentDraftRow>>({})
   const [selectedDraftPlanByUser, setSelectedDraftPlanByUser] = useState<Record<string, string | null>>({})
   const [confirmDraftUserId, setConfirmDraftUserId] = useState<string | null>(null)
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null)
+  const [deleteUserEmailConfirm, setDeleteUserEmailConfirm] = useState('')
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
   const [isDeployingDrafts, setIsDeployingDrafts] = useState(false)
   const [showcaseSlots, setShowcaseSlots] = useState<Record<1 | 2 | 3, string>>({ 1: '', 2: '', 3: '' })
   const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
   const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
+  const [lastAiUsageRows, setLastAiUsageRows] = useState<AdminUserLastAiUsageRow[]>([])
   const [isLoadingTokenUsage, setIsLoadingTokenUsage] = useState(false)
   const [tokenUsageError, setTokenUsageError] = useState<string | null>(null)
   const [tokenUsageFilterOpen, setTokenUsageFilterOpen] = useState(false)
@@ -142,6 +158,22 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     () => sections.find((section) => section.id === activeSection) ?? sections[0],
     [activeSection],
   )
+
+  const deleteTargetUser = useMemo(
+    () => (confirmDeleteUserId ? users.find((u) => u.id === confirmDeleteUserId) ?? null : null),
+    [confirmDeleteUserId, users],
+  )
+  const deleteEmailMatches =
+    Boolean(deleteTargetUser?.email) &&
+    deleteUserEmailConfirm.trim().toLowerCase() === (deleteTargetUser?.email ?? '').trim().toLowerCase()
+
+  const lastAiUsageSorted = useMemo(() => {
+    return [...lastAiUsageRows].sort((a, b) => {
+      const ta = new Date(a.last_used_at).getTime()
+      const tb = new Date(b.last_used_at).getTime()
+      return tb - ta
+    })
+  }, [lastAiUsageRows])
 
   const tokenUsageUserOptions = useMemo(() => {
     const byId = new Map<string, AdminAiTokenUsageRow>()
@@ -315,6 +347,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   }, [activeSection])
 
   useEffect(() => {
+    const next: Record<string, { first: string; last: string }> = {}
+    for (const u of users) {
+      next[u.id] = {
+        first: u.first_name ?? '',
+        last: u.last_name ?? '',
+      }
+    }
+    setUserProfileNameDrafts(next)
+  }, [users])
+
+  useEffect(() => {
     if (activeSection !== 'subscriptions') {
       return
     }
@@ -424,14 +467,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       try {
         setIsLoadingTokenUsage(true)
         setTokenUsageError(null)
-        const rows = await listAdminAiTokenUsageSummary()
+        const [summary, lastByUser] = await Promise.all([
+          listAdminAiTokenUsageSummary(),
+          listAdminUserLastAiUsage(),
+        ])
         if (isMounted) {
-          setTokenUsageRows(rows)
+          setTokenUsageRows(summary)
+          setLastAiUsageRows(lastByUser)
         }
       } catch (err) {
         if (isMounted) {
           setTokenUsageError(getErrorMessage(err, 'Token-Statistik konnte nicht geladen werden.'))
           setTokenUsageRows([])
+          setLastAiUsageRows([])
         }
       } finally {
         if (isMounted) {
@@ -595,6 +643,76 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleDeleteUser(userId: string) {
+    const target = users.find((u) => u.id === userId)
+    const expectedEmail = target?.email?.trim()
+    if (
+      !expectedEmail ||
+      deleteUserEmailConfirm.trim().toLowerCase() !== expectedEmail.toLowerCase()
+    ) {
+      return
+    }
+    setUsersError(null)
+    setDeletingUserId(userId)
+    try {
+      await adminDeleteUser(userId)
+      setConfirmDeleteUserId(null)
+      setDeleteUserEmailConfirm('')
+      setUsers((prev) => prev.filter((u) => u.id !== userId))
+      setSubscriptionDrafts((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+      setSelectedDraftPlanByUser((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+      setUserProfileNameDrafts((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht geloescht werden.'))
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
+  async function handleToggleMustChangePassword(userId: string, enabled: boolean) {
+    setUsersError(null)
+    setSavingMustPwUserId(userId)
+    try {
+      await adminSetMustChangePasswordOnFirstLogin(userId, enabled)
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Einstellung konnte nicht gespeichert werden.'))
+    } finally {
+      setSavingMustPwUserId(null)
+    }
+  }
+
+  async function handleSaveUserProfileNames(userId: string) {
+    const draft = userProfileNameDrafts[userId]
+    if (!draft) {
+      return
+    }
+    setUsersError(null)
+    setSavingProfileNamesUserId(userId)
+    try {
+      await adminSetUserProfileNames(userId, draft.first, draft.last)
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Profil konnte nicht gespeichert werden.'))
+    } finally {
+      setSavingProfileNamesUserId(null)
+    }
+  }
+
   async function handleSaveUserSubscriptionDraft(userId: string, rawPlanId: string) {
     const planId = rawPlanId.trim() === '' ? null : rawPlanId
     setUsersError(null)
@@ -751,6 +869,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return row.email?.trim() || row.user_id
   }
 
+  function formatLastAiPerson(row: AdminUserLastAiUsageRow): string {
+    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    if (name) {
+      return name
+    }
+    return row.email?.trim() || row.user_id
+  }
+
   function formatTokenInt(n: number): string {
     return n.toLocaleString('de-CH')
   }
@@ -840,6 +966,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 Achtung: Aenderungen in diesem Bereich koennen kritische Berechtigungen beeinflussen. Bitte nur mit
                 Vorsicht bearbeiten.
               </p>
+              <p className="admin-users-hint">
+                Alle Auth-Konten erscheinen in der Liste. Vor- und Nachname kannst du fuer die Beta vorbereiten
+                (&quot;Profil speichern&quot; — unabhaengig vom Abo). Das Haekchen &quot;Passwort bei Erstanmeldung
+                aendern&quot; ist nur sichtbar, solange sich der Nutzer noch nie angemeldet hat. Mit &quot;Nutzer
+                loeschen&quot; entfernst du Konto und zugehoerige Daten endgueltig (E-Mail-Bestaetigung im Dialog).
+              </p>
               {usersError ? <p className="error-text">{usersError}</p> : null}
               {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
               {isLoadingUsers ? <p>Lade Nutzer...</p> : null}
@@ -847,9 +979,83 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 <div className="admin-users-list" role="list" aria-label="Nutzerliste">
                   {users.map((user) => (
                     <div key={user.id} className="admin-user-row" role="listitem">
-                      <div className="admin-user-meta">
-                        <p className="admin-user-name">{getUserLabel(user)}</p>
-                        <p className="admin-user-email">{user.email ?? '-'}</p>
+                      <div className="admin-user-left">
+                        <div className="admin-user-meta">
+                          <p className="admin-user-name-line">
+                            <span className="admin-user-name">{getUserLabel(user)}</span>
+                            {!user.has_profile ? (
+                              <span className="account-admin-badge" title="Noch keine Zeile in public.profiles">
+                                Kein Profil
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="admin-user-email">{user.email ?? '-'}</p>
+                        </div>
+                        <div className="admin-user-profile-fields">
+                          <input
+                            type="text"
+                            className="admin-user-profile-input"
+                            aria-label={`Vorname ${getUserLabel(user)}`}
+                            autoComplete="off"
+                            value={userProfileNameDrafts[user.id]?.first ?? ''}
+                            onChange={(event) =>
+                              setUserProfileNameDrafts((prev) => ({
+                                ...prev,
+                                [user.id]: {
+                                  first: event.target.value,
+                                  last: prev[user.id]?.last ?? '',
+                                },
+                              }))
+                            }
+                            disabled={savingProfileNamesUserId === user.id || isDeployingDrafts}
+                            placeholder="Vorname"
+                          />
+                          <input
+                            type="text"
+                            className="admin-user-profile-input"
+                            aria-label={`Nachname ${getUserLabel(user)}`}
+                            autoComplete="off"
+                            value={userProfileNameDrafts[user.id]?.last ?? ''}
+                            onChange={(event) =>
+                              setUserProfileNameDrafts((prev) => ({
+                                ...prev,
+                                [user.id]: {
+                                  first: prev[user.id]?.first ?? '',
+                                  last: event.target.value,
+                                },
+                              }))
+                            }
+                            disabled={savingProfileNamesUserId === user.id || isDeployingDrafts}
+                            placeholder="Nachname"
+                          />
+                          <SecondaryButton
+                            type="button"
+                            disabled={
+                              savingProfileNamesUserId === user.id || isDeployingDrafts || assigningUserId === user.id
+                            }
+                            onClick={() => void handleSaveUserProfileNames(user.id)}
+                          >
+                            {savingProfileNamesUserId === user.id ? 'Speichern…' : 'Profil speichern'}
+                          </SecondaryButton>
+                        </div>
+                        {user.last_sign_in_at == null ? (
+                          <label className="admin-user-must-pw-label">
+                            <input
+                              type="checkbox"
+                              checked={user.must_change_password_on_first_login}
+                              disabled={
+                                savingMustPwUserId === user.id ||
+                                isDeployingDrafts ||
+                                savingProfileNamesUserId === user.id
+                              }
+                              onChange={(event) => {
+                                void handleToggleMustChangePassword(user.id, event.target.checked)
+                              }}
+                            />
+                            <span>Passwort bei Erstanmeldung aendern</span>
+                            {savingMustPwUserId === user.id ? <span aria-hidden="true"> …</span> : null}
+                          </label>
+                        ) : null}
                       </div>
                       <div className="admin-user-actions">
                         <label className="admin-user-subscription-label" htmlFor={`admin-user-sub-${user.id}`}>
@@ -884,6 +1090,23 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         </PrimaryButton>
                         {subscriptionDrafts[user.id] ? <span className="account-admin-badge">Entwurf</span> : null}
                         {user.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                        <SecondaryButton
+                          type="button"
+                          className="admin-user-delete-button"
+                          disabled={
+                            currentAuthUser?.id === user.id ||
+                            deletingUserId === user.id ||
+                            isDeployingDrafts ||
+                            !user.email?.trim()
+                          }
+                          title={!user.email?.trim() ? 'Keine E-Mail — Loeschen nicht moeglich' : undefined}
+                          onClick={() => {
+                            setDeleteUserEmailConfirm('')
+                            setConfirmDeleteUserId(user.id)
+                          }}
+                        >
+                          Nutzer loeschen
+                        </SecondaryButton>
                       </div>
                     </div>
                   ))}
@@ -897,21 +1120,106 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           {activeSection === 'tokenUsage' ? (
             <div className="admin-users-panel">
               <p className="admin-users-warning">
-                Summe aller von der Edge Function <strong>chat-completion</strong> gemeldeten API-Tokens (OpenAI /
-                Anthropic), gruppiert nach Nutzer und Modell. Darunter: geschaetzte Kosten in{' '}
-                <strong>USD</strong> (Listenpreise laut OpenAI/Anthropic Standard-Tarif, Abruf 2026; ohne Gewaehr).
-                Voraussetzung: Migration <code>ai_token_usage</code> und Secret{' '}
+                Daten stammen aus der Tabelle <code>ai_token_usage</code> (von der Edge Function{' '}
+                <strong>chat-completion</strong> geschrieben). Oben: <strong>letzte echte Zeile</strong> pro Nutzer
+                (Modell-String wie in der API-Antwort). Unten: <strong>kumulierte</strong> Token nach Nutzer und
+                Modell. Geschaetzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewaehr). Voraussetzung:
+                Migrationen inkl. <code>ai_token_usage</code> und Secret{' '}
                 <code>SUPABASE_SERVICE_ROLE_KEY</code> fuer die Function.
               </p>
               {tokenUsageError ? <p className="error-text">{tokenUsageError}</p> : null}
               {isLoadingTokenUsage ? <p>Lade Token-Statistik…</p> : null}
               {!isLoadingTokenUsage && !tokenUsageError ? (
                 <>
-                  {tokenUsageRows.length === 0 ? (
+                  {lastAiUsageSorted.length === 0 && tokenUsageRows.length === 0 ? (
                     <p className="admin-user-empty">
                       Noch keine Eintraege. Nach Migration und KI-Nutzung erscheinen hier Werte.
                     </p>
                   ) : (
+                    <>
+                      <h3 className="admin-token-section-heading">Zuletzt protokolliertes Modell (je Nutzer)</h3>
+                      <p className="admin-token-section-hint">
+                        Neueste Zeile aus <code>ai_token_usage</code> pro Nutzer — Spalte «Modell» ist der exakte Wert
+                        aus der Datenbank (API-Rueckgabe), nicht aus dem Frontend-Code abgeleitet.
+                      </p>
+                      {lastAiUsageSorted.length === 0 ? (
+                        <p className="admin-user-empty">Keine Zeilen fuer «zuletzt» (ungewoehnlich).</p>
+                      ) : (
+                        <table className="admin-token-usage-table" aria-label="Letzter KI-Aufruf pro Nutzer">
+                          <thead>
+                            <tr>
+                              <th scope="col">Nutzer</th>
+                              <th scope="col">E-Mail</th>
+                              <th scope="col">Zuletzt</th>
+                              <th scope="col">Provider</th>
+                              <th scope="col">Modell</th>
+                              <th scope="col">Modus</th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Input
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Output
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Summe
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lastAiUsageSorted.map((row) => {
+                              const sum = row.input_tokens + row.output_tokens
+                              const cost = estimateAiTokenCostsUsd(
+                                row.provider,
+                                row.model,
+                                row.input_tokens,
+                                row.output_tokens,
+                              )
+                              return (
+                                <tr key={row.user_id}>
+                                  <td>{formatLastAiPerson(row)}</td>
+                                  <td>{row.email ?? '—'}</td>
+                                  <td>
+                                    <time dateTime={row.last_used_at}>{formatFeedbackDate(row.last_used_at)}</time>
+                                  </td>
+                                  <td>{row.provider}</td>
+                                  <td>
+                                    <code className="admin-token-model">{row.model}</code>
+                                  </td>
+                                  <td>
+                                    <code className="admin-token-model">{row.mode}</code>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.inputUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(row.output_tokens)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.outputUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(sum)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.totalUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+
+                      <h3 className="admin-token-section-heading">Kumulierte Tokens (nach Nutzer und Modell)</h3>
+                      <p className="admin-token-section-hint">
+                        Summen aller protokollierten Aufrufe, gruppiert nach Nutzer, Provider und Modell.
+                      </p>
+                      {tokenUsageRows.length === 0 ? (
+                        <p className="admin-user-empty">Keine aggregierten Eintraege.</p>
+                      ) : (
                     <>
                       <div className="admin-token-toolbar">
                         <SecondaryButton
@@ -1145,6 +1453,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       ) : null}
                         </>
                       )}
+                    </>
+                  )}
                     </>
                   )}
                 </>
@@ -1547,6 +1857,73 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 }}
               >
                 Als Entwurf speichern
+              </PrimaryButton>
+            </div>
+          </section>
+        </ModalShell>
+      ) : null}
+      {confirmDeleteUserId && deleteTargetUser ? (
+        <ModalShell
+          isOpen={Boolean(confirmDeleteUserId)}
+          onRequestClose={() => {
+            if (!deletingUserId) {
+              setConfirmDeleteUserId(null)
+              setDeleteUserEmailConfirm('')
+            }
+          }}
+        >
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Nutzer loeschen">
+            <ModalHeader
+              title="Nutzer endgueltig loeschen?"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={() => {
+                if (!deletingUserId) {
+                  setConfirmDeleteUserId(null)
+                  setDeleteUserEmailConfirm('')
+                }
+              }}
+              closeLabel="Dialog schliessen"
+            />
+            <p>
+              Das Auth-Konto, Profil, Chats, Lernpfade, Feedback und weitere verknuepfte Daten werden unwiderruflich
+              entfernt (soweit in der Datenbank mit CASCADE vorgesehen).
+            </p>
+            <p>
+              Gib zur Bestaetigung die E-Mail-Adresse ein:{' '}
+              <strong>{deleteTargetUser.email ?? '—'}</strong>
+            </p>
+            <label className="admin-delete-email-label" htmlFor="admin-delete-email-confirm">
+              E-Mail bestaetigen
+            </label>
+            <input
+              id="admin-delete-email-confirm"
+              type="email"
+              className="admin-subscriptions-name-input"
+              autoComplete="off"
+              value={deleteUserEmailConfirm}
+              onChange={(event) => setDeleteUserEmailConfirm(event.target.value)}
+              disabled={Boolean(deletingUserId)}
+              placeholder="E-Mail-Adresse"
+            />
+            <div className="rename-actions">
+              <SecondaryButton
+                type="button"
+                disabled={Boolean(deletingUserId)}
+                onClick={() => {
+                  setConfirmDeleteUserId(null)
+                  setDeleteUserEmailConfirm('')
+                }}
+              >
+                Abbrechen
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                className="admin-delete-confirm-button"
+                disabled={!deleteEmailMatches || Boolean(deletingUserId)}
+                onClick={() => void handleDeleteUser(confirmDeleteUserId)}
+              >
+                {deletingUserId ? 'Loeschen…' : 'Endgueltig loeschen'}
               </PrimaryButton>
             </div>
           </section>

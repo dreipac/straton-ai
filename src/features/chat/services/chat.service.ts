@@ -1,6 +1,7 @@
 import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import {
   getAssistantEmojiStyleInstruction,
+  getAssistantMainChatBrevityInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import { env } from '../../../config/env'
@@ -42,6 +43,11 @@ export type SendMessageOptions = {
    * Spezifikation laeuft separat ueber {@link generateExcelSpecWithSonnet}.
    */
   userRequestedExcel?: boolean
+  /**
+   * Optional: OpenAI-Modellreihenfolge fuer `chat-completion` (z. B. Lernkapitel-Hilfe).
+   * Edge Function: sonst budgetbasierte Standardliste.
+   */
+  openAiModels?: string[]
 }
 
 type EvaluateQuizAnswerInput = {
@@ -107,10 +113,12 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
+  const mainChatBrevity = options?.useLearnPathModel ? '' : getAssistantMainChatBrevityInstruction()
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
+    mainChatBrevity,
     getAssistantMarkdownFormattingInstruction(),
     getAssistantEmojiStyleInstruction(),
   ]
@@ -228,6 +236,7 @@ async function getAssistantReply(messages: ChatMessage[], options?: SendMessageO
       body: {
         provider,
         messages: buildGatewayMessages(messages, options),
+        ...(options?.openAiModels?.length ? { openAiModels: options.openAiModels } : {}),
       },
     })
 
@@ -254,6 +263,32 @@ export async function sendMessage(
   return {
     assistantMessage: createAssistantMessage(content),
   }
+}
+
+/** Primärmodell für den Hilfe-Chat im Lernkapitel-Modal (Edge `chat-completion`). */
+export const LEARN_CHAPTER_HELP_OPENAI_MODELS = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] as const
+
+/**
+ * Kurzer Hilfe-Chat zum aktuellen Lernkapitel-Schritt (kein Thread in der Haupt-Chat-UI).
+ */
+export async function sendLearnChapterHelpMessage(
+  messages: ChatMessage[],
+  chapterContext: string,
+): Promise<SendMessageResult> {
+  const trimmedContext = chapterContext.trim().slice(0, 12_000)
+  const systemPrompt = [
+    'Kontext zum aktuellen Lernkapitel (für dich als Referenz):',
+    '',
+    trimmedContext || '(Kein zusätzlicher Kontext.)',
+  ].join('\n')
+
+  return sendMessage(messages, {
+    useLearnPathModel: true,
+    interactiveQuizPrompt:
+      'Du bist ein freundlicher Lernhelfer. Antworte auf Deutsch, verständlich und kompakt. Nutze Markdown wo sinnvoll. Keine Quiz-JSON-Blöcke (<<<STRATON_QUIZ_JSON>>>).',
+    systemPrompt,
+    openAiModels: [...LEARN_CHAPTER_HELP_OPENAI_MODELS],
+  })
 }
 
 export type SendMessageStreamingOptions = SendMessageOptions & {

@@ -33,6 +33,112 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+/** Primärmodell für Chat; Fallbacks bei 404 oder „unknown model“. */
+const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+
+/** Nach Erreichen des Kosten-Budgets: günstigeres Modell zuerst (ohne gpt-5.4-mini). */
+const ECONOMY_OPENAI_CHAT_MODELS: string[] = ['gpt-5-mini', 'gpt-4o-mini']
+
+type UsdRates = { inPerM: number; outPerM: number }
+
+function costFromTokens(tokens: number, usdPerMillion: number): number {
+  return (Math.max(0, tokens) / 1_000_000) * usdPerMillion
+}
+
+/** Gleiche Tarif-Logik wie `src/features/auth/utils/aiModelPricing.ts` (Edge Function dupliziert). */
+function openAiRatesForEstimate(model: string): UsdRates | null {
+  const m = model.toLowerCase()
+  const tryMatch = (predicate: (s: string) => boolean, rates: UsdRates): UsdRates | null =>
+    predicate(m) ? rates : null
+  return (
+    tryMatch((s) => s.includes('gpt-4o-mini'), { inPerM: 0.15, outPerM: 0.6 }) ??
+    tryMatch((s) => s.includes('gpt-4o-2024-05-13'), { inPerM: 5, outPerM: 15 }) ??
+    tryMatch((s) => s.includes('gpt-4o') && !s.includes('mini'), { inPerM: 2.5, outPerM: 10 }) ??
+    tryMatch((s) => s.includes('gpt-5-nano'), { inPerM: 0.05, outPerM: 0.4 }) ??
+    tryMatch((s) => s.includes('gpt-5.4-mini'), { inPerM: 0.75, outPerM: 4.5 }) ??
+    tryMatch((s) => s.includes('gpt-5-mini'), { inPerM: 0.25, outPerM: 2 }) ??
+    tryMatch((s) => s.includes('gpt-5-pro'), { inPerM: 15, outPerM: 120 }) ??
+    tryMatch((s) => /gpt-5(\.|$|-)/.test(s) || s === 'gpt-5', { inPerM: 1.25, outPerM: 10 }) ??
+    tryMatch((s) => s.includes('gpt-4.1-nano'), { inPerM: 0.1, outPerM: 0.4 }) ??
+    tryMatch((s) => s.includes('gpt-4.1-mini'), { inPerM: 0.4, outPerM: 1.6 }) ??
+    tryMatch((s) => s.includes('gpt-4.1'), { inPerM: 2, outPerM: 8 }) ??
+    tryMatch((s) => s.includes('o4-mini'), { inPerM: 1.1, outPerM: 4.4 }) ??
+    tryMatch((s) => s.includes('o3-mini') || s.includes('o1-mini'), { inPerM: 1.1, outPerM: 4.4 }) ??
+    tryMatch((s) => s.includes('gpt-3.5-turbo'), { inPerM: 0.5, outPerM: 1.5 }) ??
+    null
+  )
+}
+
+function anthropicRatesForEstimate(model: string): UsdRates | null {
+  const m = model.toLowerCase()
+  if (m.includes('opus')) {
+    return { inPerM: 15, outPerM: 75 }
+  }
+  if (m.includes('haiku')) {
+    return { inPerM: 0.8, outPerM: 4 }
+  }
+  if (m.includes('claude') || m.includes('sonnet')) {
+    return { inPerM: 3, outPerM: 15 }
+  }
+  return null
+}
+
+function estimateAiUsageUsd(
+  provider: Provider,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const rates = provider === 'anthropic' ? anthropicRatesForEstimate(model) : openAiRatesForEstimate(model)
+  if (!rates) {
+    return 0
+  }
+  return costFromTokens(inputTokens, rates.inPerM) + costFromTokens(outputTokens, rates.outPerM)
+}
+
+/**
+ * Schwelle in USD: ab dieser kumulierten geschätzten Kosten wird `ECONOMY_OPENAI_CHAT_MODELS` genutzt.
+ * Optional: `AI_OPENAI_COST_DOWNGRADE_THRESHOLD_USD` setzen (überschreibt CHF).
+ * Sonst: `AI_OPENAI_PREMIUM_MODEL_MAX_CHF` (Default 2) × `AI_USD_PER_CHF` (Default 1.14, USD je 1 CHF).
+ */
+function getPremiumBudgetThresholdUsd(): number {
+  const direct = Deno.env.get('AI_OPENAI_COST_DOWNGRADE_THRESHOLD_USD')?.trim()
+  if (direct) {
+    const n = Number(direct)
+    if (Number.isFinite(n) && n > 0) {
+      return n
+    }
+  }
+  const maxChf = Number(Deno.env.get('AI_OPENAI_PREMIUM_MODEL_MAX_CHF') ?? '2')
+  const usdPerChf = Number(Deno.env.get('AI_USD_PER_CHF') ?? '1.14')
+  const mc = Number.isFinite(maxChf) && maxChf > 0 ? maxChf : 2
+  const fx = Number.isFinite(usdPerChf) && usdPerChf > 0 ? usdPerChf : 1.14
+  return mc * fx
+}
+
+function openAiChatModelsForCumulativeCost(cumulativeUsd: number): string[] {
+  if (cumulativeUsd >= getPremiumBudgetThresholdUsd()) {
+    return [...ECONOMY_OPENAI_CHAT_MODELS]
+  }
+  return [...DEFAULT_OPENAI_CHAT_MODELS]
+}
+
+async function getUserCumulativeEstimatedCostUsd(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<number> {
+  if (!admin) {
+    return 0
+  }
+  const { data, error } = await admin.rpc('sum_user_ai_estimated_cost_usd', { p_user_id: userId })
+  if (error) {
+    console.error('[chat-completion] sum_user_ai_estimated_cost_usd failed', error.message)
+    return 0
+  }
+  const n = typeof data === 'number' ? data : Number(data)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -45,6 +151,24 @@ function jsonResponse(payload: unknown, status = 200) {
 
 function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
+}
+
+/** Optional: Modellreihenfolge fuer OpenAI-Chat (z. B. Lernkapitel-Hilfe = `gpt-5.4-mini`). */
+function sanitizeOpenAiModelsOverride(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue
+    }
+    const t = item.trim()
+    if (t.length > 0 && t.length <= 120 && out.length < 12) {
+      out.push(t)
+    }
+  }
+  return out.length > 0 ? out : null
 }
 
 function normalizeMode(
@@ -161,6 +285,12 @@ async function tryLogTokenUsage(
   if (!admin) {
     return
   }
+  const estimated_cost_usd = estimateAiUsageUsd(
+    provider,
+    result.model,
+    result.inputTokens,
+    result.outputTokens,
+  )
   const { error } = await admin.from('ai_token_usage').insert({
     user_id: userId,
     provider,
@@ -168,6 +298,7 @@ async function tryLogTokenUsage(
     mode: mode.slice(0, 64),
     input_tokens: result.inputTokens,
     output_tokens: result.outputTokens,
+    estimated_cost_usd,
   })
   if (error) {
     console.error('[chat-completion] ai_token_usage insert failed', error.message)
@@ -225,7 +356,7 @@ function formatOpenAiHttpError(status: number, errorText: string): string {
 
 async function callOpenAi(messages: InputMessage[], apiKey: string, models?: string[]): Promise<AiCallResult> {
   const modelsToTry =
-    Array.isArray(models) && models.length > 0 ? models : (['gpt-5-mini', 'gpt-4o-mini'] as string[])
+    Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
 
   for (const model of modelsToTry) {
     const reasoningSteps = model.toLowerCase().startsWith('gpt-5')
@@ -348,6 +479,7 @@ async function handleOpenAiChatStream(
   admin: SupabaseClient | null,
   messages: InputMessage[],
   apiKey: string,
+  openAiModels: string[],
 ): Promise<Response> {
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -360,7 +492,7 @@ async function handleOpenAiChatStream(
   ;(async () => {
     let closed = false
     try {
-      const modelsToTry: string[] = ['gpt-5-mini', 'gpt-4o-mini']
+      const modelsToTry: string[] = [...openAiModels]
 
       outer: for (const model of modelsToTry) {
         const reasoningSteps = model.toLowerCase().startsWith('gpt-5')
@@ -586,6 +718,7 @@ async function evaluateQuizWithAi(
   provider: Provider,
   payload: QuizEvaluationPayload,
   apiKey: string,
+  openAiModels: string[],
 ): Promise<{ evaluation: QuizEvaluationResult; usage: AiCallResult }> {
   const acceptableAnswers = payload.acceptableAnswers?.length
     ? payload.acceptableAnswers.join(' | ')
@@ -616,7 +749,7 @@ async function evaluateQuizWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(evaluationMessages, apiKey, { maxTokens: 512 })
-      : await callOpenAi(evaluationMessages, apiKey)
+      : await callOpenAi(evaluationMessages, apiKey, openAiModels)
 
   return { evaluation: parseQuizEvaluationResult(usage.text), usage }
 }
@@ -636,6 +769,7 @@ async function generateTitleWithAi(
   provider: Provider,
   sourceMessages: InputMessage[],
   apiKey: string,
+  openAiModels: string[],
 ): Promise<{ title: string; usage: AiCallResult }> {
   const transcript = sourceMessages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -661,7 +795,7 @@ async function generateTitleWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(titleMessages, apiKey, { maxTokens: 256 })
-      : await callOpenAi(titleMessages, apiKey)
+      : await callOpenAi(titleMessages, apiKey, openAiModels)
 
   const cleaned = sanitizeGeneratedTitle(usage.text)
   if (!cleaned) {
@@ -789,6 +923,7 @@ async function generateFlashcardsWithAi(
   provider: Provider,
   chapterOutline: string,
   apiKey: string,
+  openAiModels: string[],
 ): Promise<{ flashcards: FlashcardPayload[]; usage: AiCallResult }> {
   const outline = chapterOutline.trim()
   if (!outline) {
@@ -815,7 +950,7 @@ async function generateFlashcardsWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(flashcardMessages, apiKey, { maxTokens: 4096 })
-      : await callOpenAi(flashcardMessages, apiKey)
+      : await callOpenAi(flashcardMessages, apiKey, openAiModels)
 
   const cards = parseFlashcardsFromRaw(usage.text)
   if (cards.length === 0) {
@@ -828,6 +963,7 @@ async function generateWorksheetWithAi(
   provider: Provider,
   chapterOutline: string,
   apiKey: string,
+  openAiModels: string[],
 ): Promise<{ prompts: WorksheetPromptPayload[]; usage: AiCallResult }> {
   const outline = chapterOutline.trim()
   if (!outline) {
@@ -854,7 +990,7 @@ async function generateWorksheetWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(worksheetMessages, apiKey, { maxTokens: 4096 })
-      : await callOpenAi(worksheetMessages, apiKey)
+      : await callOpenAi(worksheetMessages, apiKey, openAiModels)
 
   const items = parseWorksheetPromptsFromRaw(usage.text)
   if (items.length === 0) {
@@ -867,6 +1003,7 @@ async function generateTopicSuggestionsWithAi(
   provider: Provider,
   topic: string,
   apiKey: string,
+  openAiModels: string[],
 ): Promise<{ suggestions: string[]; usage: AiCallResult }> {
   const suggestionMessages: InputMessage[] = [
     {
@@ -886,7 +1023,7 @@ async function generateTopicSuggestionsWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(suggestionMessages, apiKey, { maxTokens: 1024 })
-      : await callOpenAi(suggestionMessages, apiKey)
+      : await callOpenAi(suggestionMessages, apiKey, openAiModels)
 
   const suggestions = sanitizeTopicSuggestions(usage.text)
   if (suggestions.length === 0) {
@@ -936,6 +1073,9 @@ serve(async (req) => {
     ? createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
     : null
 
+  const cumulativeUsd = await getUserCumulativeEstimatedCostUsd(admin, user.id)
+  const openAiModelsFromCost = openAiChatModelsForCumulativeCost(cumulativeUsd)
+
   try {
     const body = (await req.json()) as {
       mode?: unknown
@@ -946,7 +1086,11 @@ serve(async (req) => {
       maxTokens?: unknown
       /** `true`: nur OpenAI-Hauptchat — SSE (`text/event-stream`) statt JSON. */
       stream?: unknown
+      /** Optional: OpenAI-Modellreihenfolge (Chat); sonst Budget-basierte Liste. */
+      openAiModels?: unknown
     }
+    const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
+    const openAiModels = openAiModelsOverride ?? openAiModelsFromCost
     let mode = normalizeMode(body.mode)
     const outlinePreview = chapterOutlineFromBody(body.payload)
     // Ohne gueltigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
@@ -961,7 +1105,7 @@ serve(async (req) => {
         return jsonResponse({ error: 'Ungueltige Bewertungsdaten uebermittelt.' }, 400)
       }
 
-      const { evaluation, usage } = await evaluateQuizWithAi(provider, payload, apiKey)
+      const { evaluation, usage } = await evaluateQuizWithAi(provider, payload, apiKey, openAiModels)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ evaluation })
     }
@@ -973,7 +1117,7 @@ serve(async (req) => {
       if (!topic) {
         return jsonResponse({ error: 'Kein gueltiges Thema uebermittelt.' }, 400)
       }
-      const { suggestions, usage } = await generateTopicSuggestionsWithAi(provider, topic, apiKey)
+      const { suggestions, usage } = await generateTopicSuggestionsWithAi(provider, topic, apiKey, openAiModels)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ suggestions })
     }
@@ -983,7 +1127,7 @@ serve(async (req) => {
       if (!outline) {
         return jsonResponse({ error: 'Kein Kapitelkontext fuer Lernkarten uebermittelt.' }, 400)
       }
-      const { flashcards, usage } = await generateFlashcardsWithAi(provider, outline, apiKey)
+      const { flashcards, usage } = await generateFlashcardsWithAi(provider, outline, apiKey, openAiModels)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ flashcards })
     }
@@ -993,7 +1137,7 @@ serve(async (req) => {
       if (!outline) {
         return jsonResponse({ error: 'Kein Kapitelkontext fuer Arbeitsblatt uebermittelt.' }, 400)
       }
-      const { prompts, usage } = await generateWorksheetWithAi(provider, outline, apiKey)
+      const { prompts, usage } = await generateWorksheetWithAi(provider, outline, apiKey, openAiModels)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ worksheetItems: prompts })
     }
@@ -1029,13 +1173,13 @@ serve(async (req) => {
     }
 
     if (mode === 'generate_title') {
-      const { title, usage } = await generateTitleWithAi(provider, messages, apiKey)
+      const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ title })
     }
 
     if (body.stream === true && mode === 'chat' && provider === 'openai') {
-      return await handleOpenAiChatStream(user.id, admin, messages, apiKey)
+      return await handleOpenAiChatStream(user.id, admin, messages, apiKey, openAiModels)
     }
 
     const rawMax = body.maxTokens
@@ -1047,7 +1191,7 @@ serve(async (req) => {
     const chatUsage =
       provider === 'anthropic'
         ? await callAnthropic(messages, apiKey, { maxTokens: chatMaxTokens ?? 8192 })
-        : await callOpenAi(messages, apiKey)
+        : await callOpenAi(messages, apiKey, openAiModels)
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
 

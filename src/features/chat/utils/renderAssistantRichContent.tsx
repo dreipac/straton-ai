@@ -11,6 +11,84 @@ type Block =
   | { type: 'ol'; items: string[] }
   /** Markdown-Zeilen mit > — für Bibelverse (siehe System-Prompt) */
   | { type: 'blockquote'; lines: string[] }
+  /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
+  | { type: 'table'; rows: string[][] }
+
+function parsePipeTableRow(line: string): string[] | null {
+  const t = line.trim()
+  if (!t.startsWith('|')) {
+    return null
+  }
+  const parts = t.split('|')
+  if (parts.length < 3) {
+    return null
+  }
+  const cells = parts.slice(1, -1).map((c) => c.trim())
+  return cells.length ? cells : null
+}
+
+function isTableSeparatorLine(line: string): boolean {
+  const t = line.trim()
+  if (!t.startsWith('|') || !t.includes('-')) {
+    return false
+  }
+  const parts = t.split('|')
+  if (parts.length < 3) {
+    return false
+  }
+  const cells = parts
+    .slice(1, -1)
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0)
+  if (cells.length === 0) {
+    return false
+  }
+  return cells.every((c) => /^:?-{3,}:?$/.test(c))
+}
+
+function normalizeTableRow(cells: string[], colCount: number): string[] {
+  const out = cells.slice(0, colCount)
+  while (out.length < colCount) {
+    out.push('')
+  }
+  return out
+}
+
+function tryParseMarkdownTable(
+  lines: string[],
+  start: number,
+): { rows: string[][]; end: number } | null {
+  if (start + 1 >= lines.length) {
+    return null
+  }
+  const headerLine = lines[start].trimEnd()
+  const sepLine = lines[start + 1].trimEnd()
+  const header = parsePipeTableRow(headerLine)
+  if (!header || header.length === 0) {
+    return null
+  }
+  if (!isTableSeparatorLine(sepLine)) {
+    return null
+  }
+
+  const colCount = header.length
+  const rows: string[][] = [normalizeTableRow(header, colCount)]
+  let i = start + 2
+  while (i < lines.length) {
+    const raw = lines[i].trimEnd()
+    if (raw.trim() === '') {
+      break
+    }
+    const row = parsePipeTableRow(raw)
+    if (!row) {
+      break
+    }
+    rows.push(normalizeTableRow(row, colCount))
+    i++
+  }
+
+  return { rows, end: i }
+}
 
 function parseBlocks(raw: string): Block[] {
   const lines = raw.replace(/\r\n/g, '\n').split('\n')
@@ -45,9 +123,20 @@ function parseBlocks(raw: string): Block[] {
     }
   }
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]
     const t = line.trimEnd()
     const trimmed = t.trim()
+
+    const tableTry = tryParseMarkdownTable(lines, lineIndex)
+    if (tableTry) {
+      flushQuote()
+      flushList()
+      flushPara()
+      blocks.push({ type: 'table', rows: tableTry.rows })
+      lineIndex = tableTry.end - 1
+      continue
+    }
 
     if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
       flushQuote()
@@ -209,6 +298,40 @@ function renderBlock(block: Block, i: number): ReactNode {
           </div>
         </blockquote>
       )
+    case 'table': {
+      const [headerRow, ...bodyRows] = block.rows
+      if (!headerRow?.length) {
+        return null
+      }
+      return (
+        <div key={key} className="chat-md-table-wrap">
+          <table className="chat-md-table">
+            <thead>
+              <tr>
+                {headerRow.map((cell, j) => (
+                  <th key={`${key}-th-${j}`} className="chat-md-th">
+                    {renderAssistantInline(cell)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            {bodyRows.length > 0 ? (
+              <tbody>
+                {bodyRows.map((row, ri) => (
+                  <tr key={`${key}-tr-${ri}`}>
+                    {row.map((cell, ci) => (
+                      <td key={`${key}-td-${ri}-${ci}`} className="chat-md-td">
+                        {renderAssistantInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            ) : null}
+          </table>
+        </div>
+      )
+    }
     default:
       return null
   }

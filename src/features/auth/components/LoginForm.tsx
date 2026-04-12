@@ -8,7 +8,7 @@ export function LoginForm() {
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { signIn, error, isConfigured } = useAuth()
+  const { signIn, refreshProfile, error, isConfigured } = useAuth()
   const navigate = useNavigate()
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -24,6 +24,7 @@ export function LoginForm() {
 
     try {
       await signIn(email.trim(), password)
+      await refreshProfile()
       navigate('/chat', { replace: true })
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Login fehlgeschlagen.')

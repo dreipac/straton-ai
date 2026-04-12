@@ -20,7 +20,7 @@ function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: 
     case 'en':
       return {
         title: 'Emojis in AI replies',
-        body: 'The assistant may use occasional, context-appropriate emojis.',
+        body: 'Headings (##/###) include one emoji in the title; occasional emojis in the body.',
       }
     case 'hr':
       return {
@@ -45,7 +45,7 @@ function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: 
     default:
       return {
         title: 'Emoji in KI-Antworten',
-        body: 'Die KI kann in Antworten gelegentlich passende Emoji verwenden.',
+        body: 'Die KI setzt bei Überschriften (##/###) ein Emoji im Titel; im Text gelegentlich passende Emoji.',
       }
   }
 }

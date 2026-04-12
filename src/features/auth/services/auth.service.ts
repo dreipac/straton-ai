@@ -71,10 +71,14 @@ async function resolveCurrentSession(): Promise<Session | null> {
 }
 
 const PROFILE_SELECT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
 const PROFILE_SELECT_COMPAT =
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+
+/** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
+const PROFILE_SELECT_COMPAT_LEGACY =
   'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
@@ -83,6 +87,14 @@ function isMissingUiSettingsColumnError(err: unknown): boolean {
   }
   const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
   return msg.includes('ui_settings')
+}
+
+function isMissingMustChangePasswordColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
+  return msg.includes('must_change_password_on_first_login')
 }
 
 async function updateProfileReturningNoUiSettingsPatch(
@@ -94,13 +106,19 @@ async function updateProfileReturningNoUiSettingsPatch(
   if (!r.error) {
     return r
   }
-  if (!isMissingUiSettingsColumnError(r.error)) {
-    return r
-  }
   if (Object.prototype.hasOwnProperty.call(patch, 'ui_settings')) {
     return r
   }
-  return supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT_COMPAT).single()
+  if (isMissingUiSettingsColumnError(r.error)) {
+    r = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT_COMPAT).single()
+    if (!r.error) {
+      return r
+    }
+  }
+  if (isMissingMustChangePasswordColumnError(r.error) || isMissingUiSettingsColumnError(r.error)) {
+    return supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT_COMPAT_LEGACY).single()
+  }
+  return r
 }
 
 type ProfileRow = {
@@ -113,6 +131,7 @@ type ProfileRow = {
   chat_onboarding_completed: boolean
   beta_notice_seen: boolean
   ui_settings: unknown | null
+  must_change_password_on_first_login?: boolean
   subscription_plan_id: string | null
   subscription_plans:
     | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
@@ -166,6 +185,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     chat_onboarding_completed: data.chat_onboarding_completed,
     beta_notice_seen: data.beta_notice_seen,
     ui_settings: parseUiSettings(data.ui_settings ?? {}),
+    must_change_password_on_first_login: data.must_change_password_on_first_login === true,
     subscription_plan_id: data.subscription_plan_id,
     subscription_plans: plan,
     subscription_usages: usage,
@@ -185,6 +205,8 @@ export type UserProfile = {
   beta_notice_seen: boolean
   /** Oberflächen-Einstellungen (Theme, Paletten, Emoji, …), aus Spalte ui_settings */
   ui_settings: UiSettingsV1
+  /** true = Nutzer muss nach erstem Login neues Passwort setzen (bis erledigt) */
+  must_change_password_on_first_login: boolean
   subscription_plan_id: string | null
   subscription_plans:
     | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
@@ -286,12 +308,30 @@ export async function getProfileByUserId(userId: string): Promise<UserProfile | 
       .eq('id', userId)
       .maybeSingle())
   }
+  if (
+    error &&
+    (isMissingMustChangePasswordColumnError(error) || isMissingUiSettingsColumnError(error))
+  ) {
+    ;({ data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_COMPAT_LEGACY)
+      .eq('id', userId)
+      .maybeSingle())
+  }
 
   if (error) {
     throw error
   }
 
   return mapProfileRow(data as ProfileRow)
+}
+
+export async function clearMustChangePasswordOnFirstLogin(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('user_clear_must_change_password_on_first_login')
+  if (error) {
+    throw error
+  }
 }
 
 export async function updateAutoRemoveEmptyChatsByUserId(

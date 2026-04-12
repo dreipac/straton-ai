@@ -79,9 +79,6 @@ export function ChatPage() {
     selectChat,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true)
   const navigate = useNavigate()
-  const showChatTour = Boolean(
-    user && profile && profile.chat_onboarding_completed === false && !isLoading,
-  )
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('general')
@@ -104,6 +101,18 @@ export function ChatPage() {
   const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
   const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
+  /** Beta-Hinweis kommt vor der Einstiegstour — Tour blockieren, solange Beta noch angezeigt werden muss. */
+  const tourBlockedByBeta = Boolean(
+    user && profile && showBetaNoticeOnFirstLogin && !profile.beta_notice_seen,
+  )
+  const showChatTour = Boolean(
+    user &&
+      profile &&
+      profile.chat_onboarding_completed === false &&
+      !isLoading &&
+      profile.must_change_password_on_first_login !== true &&
+      !tourBlockedByBeta,
+  )
   const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(false)
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
@@ -269,10 +278,9 @@ export function ChatPage() {
     const shouldShowBetaNotice = Boolean(
       user &&
         profile &&
-        profile.chat_onboarding_completed &&
+        profile.must_change_password_on_first_login !== true &&
         !profile.beta_notice_seen &&
-        showBetaNoticeOnFirstLogin &&
-        !showChatTour,
+        showBetaNoticeOnFirstLogin,
     )
 
     if (!shouldShowBetaNotice) {
@@ -289,7 +297,7 @@ export function ChatPage() {
     window.requestAnimationFrame(() => {
       setIsBetaNoticeVisible(true)
     })
-  }, [user, profile, showBetaNoticeOnFirstLogin, showChatTour])
+  }, [user, profile, showBetaNoticeOnFirstLogin])
 
   function openBetaNoticeModal(markSeenOnClose: boolean) {
     if (betaNoticeCloseTimerRef.current) {

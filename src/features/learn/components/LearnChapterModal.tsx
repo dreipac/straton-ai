@@ -5,6 +5,9 @@ import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 import { TextArea } from '../../../components/ui/inputs/TextArea'
 import infoIcon from '../../../assets/icons/info.svg'
+import newMessageIcon from '../../../assets/icons/newMessage.svg'
+import { sendLearnChapterHelpMessage } from '../../chat/services/chat.service'
+import type { ChatMessage } from '../../chat/types'
 import type { ChapterBlueprint, ChapterStep } from '../services/learn.persistence'
 
 function getPriorExplanationContext(blueprint: ChapterBlueprint | null, currentStep: ChapterStep | null): string | null {
@@ -35,6 +38,41 @@ function getPriorExplanationContext(blueprint: ChapterBlueprint | null, currentS
     }
   }
   return null
+}
+
+function buildLearnChapterHelpContext(
+  blueprint: ChapterBlueprint | null,
+  step: ChapterStep | null,
+  stepIndex: number,
+  totalSteps: number,
+): string {
+  const lines: string[] = []
+  if (blueprint?.title) {
+    lines.push(`Kapitel: ${blueprint.title}`)
+  }
+  lines.push(`Schritt ${stepIndex + 1} von ${Math.max(1, totalSteps)} in diesem Kapitel.`)
+  if (!step) {
+    return lines.join('\n\n')
+  }
+  if (step.type === 'question') {
+    lines.push(`Aktueller Schritt: Frage (${step.questionType === 'mcq' ? 'Multiple Choice' : 'Freitext'})`)
+    lines.push(`Frage: ${step.prompt}`)
+    if (step.questionType === 'mcq' && step.options && step.options.length > 0) {
+      lines.push(`Optionen:\n${step.options.map((o) => `• ${o}`).join('\n')}`)
+    }
+  } else {
+    lines.push(`Aktueller Schritt: ${step.type === 'recap' ? 'Zusammenfassung' : 'Erklärung'}`)
+    if (step.title) {
+      lines.push(`Titel: ${step.title}`)
+    }
+    if (step.content?.trim()) {
+      lines.push(`Inhalt:\n${step.content.trim()}`)
+    }
+    if (step.bullets && step.bullets.length > 0) {
+      lines.push(`Stichpunkte:\n${step.bullets.map((b) => `• ${b}`).join('\n')}`)
+    }
+  }
+  return lines.join('\n\n')
 }
 
 function buildQuestionInfoPanelText(blueprint: ChapterBlueprint | null, step: ChapterStep | null): string {
@@ -161,13 +199,76 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
       ? buildQuestionInfoPanelText(activeChapterBlueprint, activeChapterStep)
       : ''
 
+  const [isHelpChatOpen, setIsHelpChatOpen] = useState(false)
+  const [helpMessages, setHelpMessages] = useState<ChatMessage[]>([])
+  const [helpDraft, setHelpDraft] = useState('')
+  const [isHelpSending, setIsHelpSending] = useState(false)
+  const [helpError, setHelpError] = useState<string | null>(null)
+  const helpScrollRef = useRef<HTMLDivElement>(null)
+
+  const chapterStepTotal = Math.max(1, activeChapterBlueprint?.steps.length ?? 1)
+
+  useEffect(() => {
+    setHelpMessages([])
+    setHelpDraft('')
+    setHelpError(null)
+    setIsHelpChatOpen(false)
+  }, [activeChapterBlueprint?.id])
+
+  useEffect(() => {
+    if (!isHelpChatOpen) {
+      return
+    }
+    const el = helpScrollRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [helpMessages, isHelpChatOpen, isHelpSending])
+
+  async function sendHelpMessage() {
+    const trimmed = helpDraft.trim()
+    if (!trimmed || isHelpSending) {
+      return
+    }
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    }
+    const nextThread = [...helpMessages, userMessage]
+    setHelpMessages(nextThread)
+    setHelpDraft('')
+    setHelpError(null)
+    setIsHelpSending(true)
+    try {
+      const context = buildLearnChapterHelpContext(
+        activeChapterBlueprint,
+        activeChapterStep,
+        safeChapterStepIndex,
+        chapterStepTotal,
+      )
+      const { assistantMessage } = await sendLearnChapterHelpMessage(nextThread, context)
+      setHelpMessages([...nextThread, assistantMessage])
+    } catch (err) {
+      setHelpError(err instanceof Error ? err.message : 'Die Anfrage ist fehlgeschlagen.')
+    } finally {
+      setIsHelpSending(false)
+    }
+  }
+
   if (!isMounted) {
     return null
   }
 
   return (
     <ModalShell isOpen={isVisible} className="learn-chapter-modal-overlay" onRequestClose={onClose}>
-      <section className="learn-chapter-modal" role="dialog" aria-modal="true" aria-label="Lernkapitel">
+      <section
+        className={`learn-chapter-modal${isHelpChatOpen ? ' learn-chapter-modal--help-open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Lernkapitel"
+      >
         <header className="learn-chapter-modal-header">
           <div className="learn-chapter-modal-header-copy">
             <h2>{activeChapterBlueprint?.title || 'Lernkapitel'}</h2>
@@ -175,11 +276,84 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
               Kapitel {safeChapterIndex + 1} von {Math.max(1, effectiveChapterCount)}
             </p>
           </div>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label="Lernkapitel schliessen">
-            <span className="ui-icon settings-close-icon" aria-hidden="true" />
-          </button>
+          <div className="learn-chapter-modal-header-actions">
+            <button
+              type="button"
+              className={`learn-chapter-help-toggle ${isHelpChatOpen ? 'is-active' : ''}`}
+              onClick={() => setIsHelpChatOpen((v) => !v)}
+              aria-pressed={isHelpChatOpen}
+              aria-expanded={isHelpChatOpen}
+              title="KI-Hilfe zum aktuellen Schritt"
+            >
+              <img src={newMessageIcon} alt="" width={18} height={18} aria-hidden="true" />
+              <span>Fragen</span>
+            </button>
+            <button type="button" className="settings-close-button" onClick={onClose} aria-label="Lernkapitel schliessen">
+              <span className="ui-icon settings-close-icon" aria-hidden="true" />
+            </button>
+          </div>
         </header>
-        <div className="learn-chapter-modal-body">
+        <div className="learn-chapter-modal-main">
+          {isHelpChatOpen ? (
+            <aside className="learn-chapter-help-chat" aria-label="Hilfe-Chat zum Kapitel">
+              <div className="learn-chapter-help-chat-header">
+                <p className="learn-chapter-help-chat-title">Hilfe zum Schritt</p>
+                <p className="learn-chapter-help-chat-sub">
+                  Modell: GPT-5.4 mini — stelle Fragen zum aktuellen Inhalt.
+                </p>
+              </div>
+              <div ref={helpScrollRef} className="learn-chapter-help-chat-messages" role="log" aria-live="polite">
+                {helpMessages.length === 0 ? (
+                  <p className="learn-chapter-help-chat-empty">
+                    Wenn etwas unklar ist, formuliere hier deine Frage. Die KI bezieht sich auf den aktuellen Schritt.
+                  </p>
+                ) : (
+                  helpMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`learn-chapter-help-bubble ${m.role === 'user' ? 'learn-chapter-help-bubble--user' : 'learn-chapter-help-bubble--assistant'}`}
+                    >
+                      <p className="learn-chapter-help-bubble-text">{m.content}</p>
+                    </div>
+                  ))
+                )}
+                {isHelpSending ? (
+                  <p className="learn-chapter-help-chat-thinking" aria-live="assertive">
+                    Antwort wird erstellt…
+                  </p>
+                ) : null}
+              </div>
+              {helpError ? <p className="learn-chapter-help-chat-error">{helpError}</p> : null}
+              <div className="learn-chapter-help-chat-input-row">
+                <TextArea
+                  value={helpDraft}
+                  onChange={(e) => setHelpDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void sendHelpMessage()
+                    }
+                  }}
+                  placeholder="Frage zum aktuellen Schritt…"
+                  disabled={isHelpSending}
+                  rows={2}
+                  className="learn-chapter-help-chat-textarea"
+                />
+                <PrimaryButton
+                  type="button"
+                  className="learn-chapter-help-chat-send"
+                  onClick={() => {
+                    void sendHelpMessage()
+                  }}
+                  disabled={isHelpSending || !helpDraft.trim()}
+                >
+                  Senden
+                </PrimaryButton>
+              </div>
+            </aside>
+          ) : null}
+          <div className="learn-chapter-modal-column">
+            <div className="learn-chapter-modal-body">
           {!activeChapterStep ? (
             <p className="learn-muted">Keine Schritte verfuegbar.</p>
           ) : activeChapterStep.type === 'question' ? (
@@ -247,8 +421,8 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
               ) : null}
             </article>
           )}
-        </div>
-        <footer className="learn-chapter-modal-footer">
+            </div>
+            <footer className="learn-chapter-modal-footer">
           <div className="learn-chapter-modal-footer-start">
             <div className="learn-chapter-modal-footer-start-row">
               {activeChapterStep?.type === 'question' ? (
@@ -332,7 +506,9 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
               Weiter
             </PrimaryButton>
           </div>
-        </footer>
+            </footer>
+          </div>
+        </div>
       </section>
     </ModalShell>
   )
