@@ -985,6 +985,7 @@ export function ChatPage() {
         <ProfileFullSheet
           ref={profileFullSheetRef}
           open
+          bodyClassName={mobileSheetMode === 'settings' ? 'is-settings-mode' : undefined}
           onClose={() => {
             setMobileSheetMode('closed')
           }}

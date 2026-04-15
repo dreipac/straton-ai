@@ -2625,7 +2625,23 @@
 /* Mobile Einstellungen: keine Listen-Hervorhebung (Hover + aktiver Eintrag). Steht nach allen Theme-Regeln. */
 @media (max-width: 860px) {
   .settings-menu-item {
+    appearance: none;
+    -webkit-appearance: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    outline: none;
+  }
+
+  button.settings-menu-item,
+  button.settings-menu-item:hover,
+  button.settings-menu-item:active,
+  button.settings-menu-item:focus,
+  button.settings-menu-item:focus-visible {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
   }
 
   .settings-menu-item:hover:enabled,
@@ -2633,6 +2649,15 @@
     background: transparent;
     border-color: transparent;
     color: var(--color-text-app);
+  }
+
+  .settings-menu-item:focus,
+  .settings-menu-item:focus-visible,
+  .settings-menu-item:active {
+    outline: none;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
   }
 
   :root[data-theme='dark'] .settings-menu-item:hover:enabled,

@@ -23,6 +23,8 @@ type ProfileFullSheetProps = {
   children: ReactNode
   /** Titel in der Kopfzeile (zentriert, mit Trennlinie zum Inhalt). */
   title?: string
+  /** Optionaler Klassenname für den scrollbaren Body-Bereich. */
+  bodyClassName?: string
 }
 
 /** Etwas langsamer als Standard-Sheet — Vollbild-Einstieg. */
@@ -30,7 +32,10 @@ const SHEET_MS = 560
 const SHEET_MS_REDUCED = 45
 
 export const ProfileFullSheet = forwardRef<ProfileFullSheetHandle, ProfileFullSheetProps>(
-  function ProfileFullSheet({ open, onClose, children, title = 'Einstellungen' }: ProfileFullSheetProps, ref) {
+  function ProfileFullSheet(
+    { open, onClose, children, title = 'Einstellungen', bodyClassName }: ProfileFullSheetProps,
+    ref,
+  ) {
     const titleId = useId()
     const rootRef = useRef<HTMLDivElement | null>(null)
     const closingRef = useRef(false)
@@ -148,7 +153,7 @@ export const ProfileFullSheet = forwardRef<ProfileFullSheetHandle, ProfileFullSh
               <span className="profile-full-sheet-header-spacer" aria-hidden="true" />
             </header>
           </div>
-          <div className="profile-full-sheet-body">{children}</div>
+          <div className={`profile-full-sheet-body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>
         </div>
       </div>
     )

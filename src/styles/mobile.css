@@ -511,6 +511,20 @@
   min-height: 0;
 }
 
+/* Eingebettete Einstellungen im Profil-Sheet:
+   kein zweites Scroll-Container-Verhalten mit Innenabständen. */
+.profile-full-sheet-body.is-settings-mode {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.profile-full-sheet-body.is-settings-mode > .settings-sheet-embed {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
 .profile-full-sheet-hero {
   display: flex;
   flex-direction: column;
@@ -571,6 +585,8 @@
 }
 
 .profile-full-sheet-row {
+  appearance: none;
+  -webkit-appearance: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -589,12 +605,30 @@
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   touch-action: manipulation;
   transition: background-color 0.14s ease;
 }
 
+button.profile-full-sheet-row,
+button.profile-full-sheet-row:hover,
+button.profile-full-sheet-row:active,
+button.profile-full-sheet-row:focus,
+button.profile-full-sheet-row:focus-visible {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .profile-full-sheet-row:active {
   background: rgba(15, 23, 42, 0.055);
+}
+
+.profile-full-sheet-row:focus,
+.profile-full-sheet-row:focus-visible {
+  outline: none;
+  background: transparent;
 }
 
 .profile-full-sheet-row-label {
@@ -671,6 +705,28 @@
 
 :root[data-theme='dark'] .profile-full-sheet-row:active {
   background: rgba(255, 255, 255, 0.055);
+}
+
+:root[data-theme='dark'] .profile-full-sheet-row:focus,
+:root[data-theme='dark'] .profile-full-sheet-row:focus-visible {
+  outline: none;
+  background: transparent;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-row:active,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-row:focus,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-row:focus-visible {
+  outline: none;
+  background: transparent;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] button.profile-full-sheet-row,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] button.profile-full-sheet-row:hover,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] button.profile-full-sheet-row:active,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] button.profile-full-sheet-row:focus,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] button.profile-full-sheet-row:focus-visible {
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 :root[data-theme='dark'] .profile-full-sheet-row-chevron {
