@@ -16,6 +16,10 @@ type InputMessage = {
   content: string
 }
 
+type OpenAiVisionContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 type QuizEvaluationPayload = {
   question: string
   expectedAnswer: string
@@ -322,12 +326,59 @@ function openAiChatRequestBody(
   messages: InputMessage[],
   options?: { includeReasoningLow?: boolean },
 ): Record<string, unknown> {
+  function parseVisionPayload(content: string): { text: string; imageDataUrls: string[] } {
+    const imageDataUrls: string[] = []
+    const visionRegex = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/g
+    let text = content
+    let match: RegExpExecArray | null = visionRegex.exec(content)
+    while (match) {
+      const maybeUrl = String(match[1] ?? '').trim()
+      if (maybeUrl.startsWith('data:image/')) {
+        imageDataUrls.push(maybeUrl)
+      }
+      match = visionRegex.exec(content)
+    }
+    text = text
+      .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+      .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
+      .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
+      .trim()
+    return { text, imageDataUrls: imageDataUrls.slice(0, 4) }
+  }
+
   const body: Record<string, unknown> = {
     model,
-    messages: messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    messages: messages.map((message) => {
+      if (message.role !== 'user') {
+        return {
+          role: message.role,
+          content: message.content,
+        }
+      }
+      const parsed = parseVisionPayload(message.content)
+      if (parsed.imageDataUrls.length === 0) {
+        return {
+          role: message.role,
+          content: message.content,
+        }
+      }
+      const parts: OpenAiVisionContentPart[] = []
+      if (parsed.text) {
+        parts.push({ type: 'text', text: parsed.text })
+      } else {
+        parts.push({ type: 'text', text: 'Bitte analysiere dieses Bild.' })
+      }
+      for (const url of parsed.imageDataUrls) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url },
+        })
+      }
+      return {
+        role: message.role,
+        content: parts,
+      }
+    }),
   }
   if (!openAiUsesDefaultTemperatureOnly(model)) {
     body.temperature = 0.7
@@ -689,6 +740,11 @@ async function callAnthropic(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '')
+    if (response.status === 429) {
+      throw new Error(
+        'Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte Anfrage verkuerzen oder kurz warten.',
+      )
+    }
     const hint =
       response.status === 404
         ? ' (Modell-ID unbekannt/retired? Secret ANTHROPIC_MODEL prüfen oder Edge Function deployen.)'

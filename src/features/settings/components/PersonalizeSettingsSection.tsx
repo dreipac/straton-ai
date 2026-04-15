@@ -3,16 +3,19 @@ import { ACCENT_PALETTES } from '../constants/accentPalettes'
 import { HOVER_PALETTES } from '../constants/hoverPalettes'
 import type { LearnPathTitleColorMode } from '../constants/learnPathTitleColor'
 import { MESSAGE_BOX_PALETTES } from '../constants/messageBoxPalettes'
+import type { ChatBackgroundMode } from '../uiSettings'
 
 type PersonalizeSettingsSectionProps = {
   themeMode: 'light' | 'dark' | 'pink-glass'
   sidebarScale: '100' | '75'
+  chatBackground: ChatBackgroundMode
   accentPaletteId: string
   hoverPaletteId: string
   messageBoxPaletteId: string
   learnPathTitleColorMode: LearnPathTitleColorMode
   onChangeThemeMode: (nextThemeMode: 'light' | 'dark' | 'pink-glass') => void
   onChangeSidebarScale: (nextScale: '100' | '75') => void
+  onChangeChatBackground: (nextMode: ChatBackgroundMode) => void
   onChangeAccentPalette: (nextPaletteId: string) => void
   onChangeHoverPalette: (nextPaletteId: string) => void
   onChangeMessageBoxPalette: (nextPaletteId: string) => void
@@ -22,12 +25,14 @@ type PersonalizeSettingsSectionProps = {
 export function PersonalizeSettingsSection({
   themeMode,
   sidebarScale,
+  chatBackground,
   accentPaletteId,
   hoverPaletteId,
   messageBoxPaletteId,
   learnPathTitleColorMode,
   onChangeThemeMode,
   onChangeSidebarScale,
+  onChangeChatBackground,
   onChangeAccentPalette,
   onChangeHoverPalette,
   onChangeMessageBoxPalette,
@@ -73,6 +78,7 @@ export function PersonalizeSettingsSection({
       <div className="settings-section-divider" />
       <div className="personalize-scale-row">
         <p className="personalize-subtitle">Skalierung der Sidebar-Buttons</p>
+        <p className="personalize-hint">100% = kompakt, 150% = größer.</p>
         <div
           className={`personalize-scale-toggle ${sidebarScale === '75' ? 'is-75' : 'is-100'}`}
           role="group"
@@ -84,14 +90,40 @@ export function PersonalizeSettingsSection({
             className={`personalize-scale-option ${sidebarScale === '100' ? 'is-active' : ''}`}
             onClick={() => onChangeSidebarScale('100')}
           >
-            100%
+            150%
           </button>
           <button
             type="button"
             className={`personalize-scale-option ${sidebarScale === '75' ? 'is-active' : ''}`}
             onClick={() => onChangeSidebarScale('75')}
           >
-            75%
+            100%
+          </button>
+        </div>
+      </div>
+      <div className="settings-section-divider" />
+      <div className="personalize-theme-row">
+        <p className="personalize-subtitle">Chat Hintergrund</p>
+        <div className="personalize-theme-grid" role="radiogroup" aria-label="Chat Hintergrund auswählen">
+          <button
+            type="button"
+            className={`personalize-theme-tile ${chatBackground === 'space-dark' ? 'is-active' : ''}`}
+            onClick={() => onChangeChatBackground('space-dark')}
+            role="radio"
+            aria-checked={chatBackground === 'space-dark'}
+          >
+            <span className="personalize-theme-preview is-space-dark" />
+            <span>Weltall dunkel</span>
+          </button>
+          <button
+            type="button"
+            className={`personalize-theme-tile ${chatBackground === 'space-stars' ? 'is-active' : ''}`}
+            onClick={() => onChangeChatBackground('space-stars')}
+            role="radio"
+            aria-checked={chatBackground === 'space-stars'}
+          >
+            <span className="personalize-theme-preview is-space-stars" />
+            <span>Weltall Sterne</span>
           </button>
         </div>
       </div>

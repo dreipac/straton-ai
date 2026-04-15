@@ -181,40 +181,84 @@ export async function generateExcelFromSpec(input: {
 
 /** Begrenzt Sonnet-Ausgabe fuer Excel-Spec (Kosten). Edge `chat-completion` wertet `maxTokens` aus. */
 const EXCEL_SPEC_MAX_OUTPUT_TOKENS = 8192
+/** Harte Eingabegrenze fuer Excel-Spec (senkt TPM-Spitzen bei langen Paste-/Datei-Texten). */
+const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
+
+function isAnthropicRateLimitErrorMessage(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('anthropic anfrage fehlgeschlagen (429)') ||
+    m.includes('claude rate-limit') ||
+    m.includes('rate_limit') ||
+    m.includes('rate-limit')
+  )
+}
+
+async function requestExcelSpecViaProvider(
+  provider: 'anthropic' | 'openai',
+  prompt: string,
+): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      provider,
+      ...(provider === 'openai' ? { openAiModels: ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] } : {}),
+      messages: [
+        { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
+        { role: 'user', content: prompt },
+      ],
+      maxTokens: EXCEL_SPEC_MAX_OUTPUT_TOKENS,
+    },
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const content = data?.assistantMessage?.content
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error(
+      provider === 'anthropic'
+        ? 'Claude hat keine Excel-Spezifikation geliefert.'
+        : 'OpenAI hat keine Excel-Spezifikation geliefert.',
+    )
+  }
+  return content.trim()
+}
+
+export type ExcelSpecGenerationResult = {
+  specBlock: string
+  modelLabel: 'Claude Sonnet' | 'OpenAI (Fallback)'
+}
 
 /**
  * Nur Claude Sonnet: maschinenlesbarer Excel-Block (Marker + JSON).
  * Eingabe absichtlich nur Nutzeranfrage — kein Chat-Verlauf (Input-Tokens sparen).
  */
-export async function generateExcelSpecWithSonnet(userRequest: string): Promise<string> {
-  const trimmed = userRequest.trim()
+export async function generateExcelSpecWithSonnet(userRequest: string): Promise<ExcelSpecGenerationResult> {
+  const trimmed = userRequest.trim().slice(0, EXCEL_SPEC_MAX_INPUT_CHARS)
   return getOrSetCachedResponse(
     'excel-spec',
     [EXCEL_SPEC_CACHE_EPOCH, trimmed],
     AI_CACHE_TTL.excelSpec,
     async () => {
-      const supabase = getSupabaseClient()
-      const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-        body: {
-          provider: 'anthropic',
-          messages: [
-            { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
-            { role: 'user', content: trimmed },
-          ],
-          maxTokens: EXCEL_SPEC_MAX_OUTPUT_TOKENS,
-        },
-      })
-
-      if (error) {
-        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+      try {
+        const specBlock = await requestExcelSpecViaProvider('anthropic', trimmed)
+        return { specBlock, modelLabel: 'Claude Sonnet' as const }
+      } catch (err) {
+        const primaryMessage = err instanceof Error ? err.message : String(err)
+        if (!isAnthropicRateLimitErrorMessage(primaryMessage)) {
+          throw err
+        }
+        try {
+          const specBlock = await requestExcelSpecViaProvider('openai', trimmed)
+          return { specBlock, modelLabel: 'OpenAI (Fallback)' as const }
+        } catch {
+          throw new Error(
+            'Excel-Spezifikation konnte wegen Rate-Limit nicht erstellt werden. Bitte kurz warten und erneut versuchen.',
+          )
+        }
       }
-
-      const content = data?.assistantMessage?.content
-      if (typeof content !== 'string' || !content.trim()) {
-        throw new Error('Claude hat keine Excel-Spezifikation geliefert.')
-      }
-
-      return content.trim()
     },
   )
 }

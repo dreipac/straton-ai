@@ -512,6 +512,34 @@
   padding: 0.35rem;
 }
 
+.learn-material-choice-modal {
+  width: min(440px, calc(100vw - 0.8rem));
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.learn-material-choice-body {
+  padding: 0 1rem 1.1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.learn-material-choice-lead {
+  margin: 0;
+  line-height: 1.45;
+  font-size: 0.92rem;
+}
+
+.learn-material-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
 .learn-flashcards-modal {
   width: min(760px, calc(100vw - 0.8rem));
   max-height: calc(100dvh - 0.8rem);

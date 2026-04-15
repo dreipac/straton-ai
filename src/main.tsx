@@ -40,8 +40,12 @@ document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' 
 document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
 
 const persistedSidebarScale = window.localStorage.getItem('straton-sidebar-scale')
-const initialSidebarScale = persistedSidebarScale === '75' ? '75' : '100'
+const initialSidebarScale = persistedSidebarScale === '100' ? '100' : '75'
 document.documentElement.dataset.sidebarScale = initialSidebarScale
+
+const persistedChatBackground = window.localStorage.getItem('straton-chat-background')
+const initialChatBackground = persistedChatBackground === 'space-stars' ? 'space-stars' : 'space-dark'
+document.documentElement.dataset.chatBackground = initialChatBackground
 
 const persistedAccentPaletteId = window.localStorage.getItem(ACCENT_STORAGE_KEY)
 const initialAccentPaletteId = applyAccentPalette(persistedAccentPaletteId ?? DEFAULT_ACCENT_PALETTE_ID)

@@ -3,17 +3,17 @@
  */
 export const EXCEL_SPEC_CACHE_EPOCH = '1'
 
+/** Expliziter Slash-Befehl aus der UI: Nur dann wird der Excel-Flow aktiviert. */
+export const EXCEL_EXPORT_COMMAND_MARKER = '[[STRATON_EXCEL_COMMAND]]'
+
 /** Erkennung: Excel-Export soll nur ueber Claude Sonnet (Separataufruf) laufen, nicht ueber OpenAI. */
 export function userWantsExcelExport(text: string): boolean {
-  const t = text.toLowerCase()
-  return (
-    /\bexcel\b/.test(t) ||
-    /\bxlsx\b/.test(t) ||
-    /\b\.xlsx\b/.test(t) ||
-    /\btabellenkalkulation\b/.test(t) ||
-    /\bspreadsheet\b/.test(t) ||
-    (/\btabelle\b/.test(t) && /\b(formel|formeln|excel|xlsx|kalkulation|zelle)\b/.test(t))
-  )
+  return text.includes(EXCEL_EXPORT_COMMAND_MARKER)
+}
+
+/** Marker aus Sichttext entfernen, bevor Nachricht gespeichert/angezeigt wird. */
+export function stripExcelCommandMarker(text: string): string {
+  return text.replace(EXCEL_EXPORT_COMMAND_MARKER, '').trim()
 }
 
 /**

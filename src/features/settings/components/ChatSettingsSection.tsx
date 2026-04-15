@@ -45,7 +45,7 @@ function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: 
     default:
       return {
         title: 'Emoji in KI-Antworten',
-        body: 'Die KI setzt bei Überschriften (##/###) ein Emoji im Titel; im Text gelegentlich passende Emoji.',
+        body: 'Die KI verwendet Emojis beim Antworten',
       }
   }
 }

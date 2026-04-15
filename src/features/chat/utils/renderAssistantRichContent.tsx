@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { renderAssistantInline } from './markdownInline'
 
 type Block =
@@ -10,7 +10,9 @@ type Block =
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
   /** Markdown-Zeilen mit > — für Bibelverse (siehe System-Prompt) */
-  | { type: 'blockquote'; lines: string[] }
+  | { type: 'blockquote'; lines: string[]; quoteKind: 'bible' | 'quran' }
+  /** Markdown-Codeblock mit ``` */
+  | { type: 'code'; language: string; code: string }
   /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
   | { type: 'table'; rows: string[][] }
 
@@ -97,6 +99,48 @@ function parseBlocks(raw: string): Block[] {
   let listItems: string[] | null = null
   let orderedItems: string[] | null = null
   let quoteLines: string[] | null = null
+  let quoteKind: 'bible' | 'quran' = 'bible'
+  let codeLines: string[] | null = null
+  let codeLanguage = ''
+
+  function resolveQuoteKindFromContext(context: string): 'bible' | 'quran' {
+    const t = context.toLowerCase()
+    if (/(qur'?an|quran|koran|sure\s*\d+|sura\s*\d+|ayah|ayat)/i.test(t)) {
+      return 'quran'
+    }
+    return 'bible'
+  }
+
+  function recentContextText(currentLine: string): string {
+    const fromPara = para.slice(-2).join(' ')
+    const fromList = [...(listItems ?? []), ...(orderedItems ?? [])].slice(-2).join(' ')
+    const fromBlocks = blocks
+      .slice(-3)
+      .map((b) => {
+        switch (b.type) {
+          case 'h1':
+          case 'h2':
+          case 'h3':
+          case 'p':
+            return b.text
+          case 'ul':
+          case 'ol':
+            return b.items.slice(-2).join(' ')
+          default:
+            return ''
+        }
+      })
+      .join(' ')
+    return [fromPara, fromList, fromBlocks, currentLine].filter(Boolean).join(' ')
+  }
+
+  function isQuranReferenceLine(line: string): boolean {
+    const t = line.trim()
+    if (!t) {
+      return false
+    }
+    return /^(sure|sura)\s*\d+(?:\s*[,.:]\s*\d+)?$/i.test(t)
+  }
 
   function flushPara() {
     if (para.length) {
@@ -118,8 +162,17 @@ function parseBlocks(raw: string): Block[] {
 
   function flushQuote() {
     if (quoteLines && quoteLines.length) {
-      blocks.push({ type: 'blockquote', lines: [...quoteLines] })
+      blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind })
       quoteLines = null
+      quoteKind = 'bible'
+    }
+  }
+
+  function flushCode() {
+    if (codeLines) {
+      blocks.push({ type: 'code', language: codeLanguage, code: codeLines.join('\n') })
+      codeLines = null
+      codeLanguage = ''
     }
   }
 
@@ -127,6 +180,24 @@ function parseBlocks(raw: string): Block[] {
     const line = lines[lineIndex]
     const t = line.trimEnd()
     const trimmed = t.trim()
+
+    if (codeLines) {
+      if (trimmed.startsWith('```')) {
+        flushCode()
+      } else {
+        codeLines.push(line)
+      }
+      continue
+    }
+
+    if (trimmed.startsWith('```')) {
+      flushQuote()
+      flushList()
+      flushPara()
+      codeLines = []
+      codeLanguage = trimmed.replace(/^```/, '').trim().toLowerCase()
+      continue
+    }
 
     const tableTry = tryParseMarkdownTable(lines, lineIndex)
     if (tableTry) {
@@ -148,10 +219,23 @@ function parseBlocks(raw: string): Block[] {
 
     const bq = trimmed.match(/^>\s*(.*)$/)
     if (bq) {
-      flushList()
-      flushPara()
       if (!quoteLines) {
+        const paraTail = para.length > 0 ? para[para.length - 1].trim() : ''
+        const inferredKind = resolveQuoteKindFromContext(`${recentContextText(trimmed)} ${paraTail}`.trim())
+        let carriedHeading: string | null = null
+        if (inferredKind === 'quran' && isQuranReferenceLine(paraTail)) {
+          para.pop()
+          carriedHeading = paraTail
+        }
+
+        flushList()
+        flushPara()
+
         quoteLines = []
+        quoteKind = inferredKind
+        if (carriedHeading) {
+          quoteLines.push(`**${carriedHeading}**`)
+        }
       }
       quoteLines.push(bq[1])
       continue
@@ -231,9 +315,47 @@ function parseBlocks(raw: string): Block[] {
   }
 
   flushQuote()
+  flushCode()
   flushList()
   flushPara()
   return blocks
+}
+
+function CodeBlock({ code, language }: { code: string; language: string }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  useEffect(() => {
+    if (copyState === 'idle') {
+      return
+    }
+    const timer = window.setTimeout(() => setCopyState('idle'), 1400)
+    return () => window.clearTimeout(timer)
+  }, [copyState])
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+  }
+
+  const buttonLabel = copyState === 'copied' ? 'Kopiert' : copyState === 'failed' ? 'Fehler' : 'Copy'
+
+  return (
+    <div className="chat-md-code-wrap">
+      <div className="chat-md-code-head">
+        <span className="chat-md-code-lang">{language || 'text'}</span>
+        <button type="button" className="chat-md-code-copy" onClick={() => void handleCopy()}>
+          {buttonLabel}
+        </button>
+      </div>
+      <pre className="chat-md-code-pre">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
 }
 
 function renderBlock(block: Block, i: number): ReactNode {
@@ -287,8 +409,11 @@ function renderBlock(block: Block, i: number): ReactNode {
       )
     case 'blockquote':
       return (
-        <blockquote key={key} className="chat-bible-verse">
-          <span className="chat-bible-verse-label">Bibel</span>
+        <blockquote
+          key={key}
+          className={`chat-bible-verse${block.quoteKind === 'quran' ? ' chat-bible-verse--quran' : ''}`}
+        >
+          <span className="chat-bible-verse-label">{block.quoteKind === 'quran' ? 'Quran' : 'Bibel'}</span>
           <div className="chat-bible-verse-body">
             {block.lines.map((line, j) => (
               <p key={`${key}-ln-${j}`} className="chat-bible-verse-line">
@@ -298,6 +423,8 @@ function renderBlock(block: Block, i: number): ReactNode {
           </div>
         </blockquote>
       )
+    case 'code':
+      return <CodeBlock key={key} code={block.code} language={block.language} />
     case 'table': {
       const [headerRow, ...bodyRows] = block.rows
       if (!headerRow?.length) {

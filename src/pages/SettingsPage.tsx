@@ -98,7 +98,11 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   })
   const [sidebarScale, setSidebarScale] = useState<'100' | '75'>(() => {
     const persistedScale = window.localStorage.getItem('straton-sidebar-scale')
-    return persistedScale === '75' ? '75' : '100'
+    return persistedScale === '100' ? '100' : '75'
+  })
+  const [chatBackground, setChatBackground] = useState<'space-dark' | 'space-stars'>(() => {
+    const persisted = window.localStorage.getItem('straton-chat-background')
+    return persisted === 'space-stars' ? 'space-stars' : 'space-dark'
   })
   const [language, setLanguage] = useState<'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'>(() => {
     const persistedLanguage = window.localStorage.getItem('straton-language')
@@ -421,6 +425,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     skipNextUiPersistRef.current = true
     setThemeMode(s.theme)
     setSidebarScale(s.sidebarScale)
+    setChatBackground(s.chatBackground)
     setAccentPaletteId(applyAccentPalette(s.accentPaletteId))
     setHoverPaletteId(applyHoverPalette(s.hoverPaletteId))
     setMessageBoxPaletteId(applyMessageBoxPalette(s.messageBoxPaletteId))
@@ -440,6 +445,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     const snapshot: UiSettingsV1 = {
       theme: themeMode,
       sidebarScale,
+      chatBackground,
       accentPaletteId,
       hoverPaletteId,
       messageBoxPaletteId,
@@ -457,6 +463,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     uiSettingsHydrated,
     themeMode,
     sidebarScale,
+    chatBackground,
     accentPaletteId,
     hoverPaletteId,
     messageBoxPaletteId,
@@ -480,6 +487,11 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     document.documentElement.dataset.sidebarScale = sidebarScale
     window.localStorage.setItem('straton-sidebar-scale', sidebarScale)
   }, [sidebarScale])
+
+  useEffect(() => {
+    document.documentElement.dataset.chatBackground = chatBackground
+    window.localStorage.setItem('straton-chat-background', chatBackground)
+  }, [chatBackground])
 
   useEffect(() => {
     document.documentElement.lang = language
@@ -786,12 +798,14 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
           <PersonalizeSettingsSection
             themeMode={themeMode}
             sidebarScale={sidebarScale}
+            chatBackground={chatBackground}
             accentPaletteId={accentPaletteId}
             hoverPaletteId={hoverPaletteId}
             messageBoxPaletteId={messageBoxPaletteId}
             learnPathTitleColorMode={learnPathTitleColorMode}
             onChangeThemeMode={setThemeMode}
             onChangeSidebarScale={setSidebarScale}
+            onChangeChatBackground={setChatBackground}
             onChangeAccentPalette={setAccentPaletteId}
             onChangeHoverPalette={setHoverPaletteId}
             onChangeMessageBoxPalette={setMessageBoxPaletteId}

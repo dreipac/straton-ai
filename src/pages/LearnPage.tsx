@@ -4,6 +4,8 @@ import deleteIcon from '../assets/icons/delete.svg'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
+import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
+import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { useAuth } from '../features/auth/context/useAuth'
 import { incrementMySubscriptionUsage } from '../features/auth/services/subscription.service'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
@@ -46,7 +48,10 @@ import {
   validateGeneratedEntryQuiz,
 } from '../features/learn/utils/learnPageHelpers'
 import { formatRelevantMaterialContext } from '../features/learn/utils/ragLite'
-import { buildFlashcardSourceFromBlueprints } from '../features/learn/utils/flashcardSourceFromBlueprints'
+import {
+  buildLearnMaterialOutlineFromBlueprints,
+  type LearnMaterialPersonalizationMode,
+} from '../features/learn/utils/flashcardSourceFromBlueprints'
 import { LearnChapterModal } from '../features/learn/components/LearnChapterModal'
 import { LearnFlashcardsModal } from '../features/learn/components/LearnFlashcardsModal'
 import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheetModal'
@@ -109,6 +114,7 @@ export function LearnPage() {
   const [learnWorksheets, setLearnWorksheets] = useState<LearnWorksheetItem[]>([])
   const [isGeneratingWorksheet, setIsGeneratingWorksheet] = useState(false)
   const [worksheetError, setWorksheetError] = useState<string | null>(null)
+  const [learnMaterialChoiceTarget, setLearnMaterialChoiceTarget] = useState<null | 'flashcards' | 'worksheet'>(null)
   const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
   const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
   const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
@@ -930,7 +936,8 @@ export function LearnPage() {
     entryQuizAnswers,
   })
 
-  const handleCreateFlashcards = useCallback(async () => {
+  const runCreateFlashcards = useCallback(
+    async (personalization: LearnMaterialPersonalizationMode) => {
     if (effectiveChapterBlueprints.length === 0) {
       return
     }
@@ -947,7 +954,12 @@ export function LearnPage() {
       window.clearTimeout(flashcardsModalCloseTimerRef.current)
       flashcardsModalCloseTimerRef.current = null
     }
-    const outline = buildFlashcardSourceFromBlueprints(effectiveChapterBlueprints)
+    const outline = buildLearnMaterialOutlineFromBlueprints(
+      personalization,
+      chapterBlueprints,
+      effectiveChapterBlueprints,
+      chapterSession,
+    )
     setLearnFlashcards([])
     setFlashcardsError(null)
     setIsFlashcardsModalMounted(true)
@@ -987,16 +999,21 @@ export function LearnPage() {
     } finally {
       setIsGeneratingFlashcards(false)
     }
-  }, [
+  },
+  [
     captureEditableState,
+    chapterBlueprints,
+    chapterSession,
     effectiveChapterBlueprints,
     learningPaths,
     profile?.subscription_plans?.max_images,
     profile?.subscription_usages?.used_images,
     user,
-  ])
+  ],
+ )
 
-  const handleCreateWorksheet = useCallback(async () => {
+  const runCreateWorksheet = useCallback(
+    async (personalization: LearnMaterialPersonalizationMode) => {
     if (effectiveChapterBlueprints.length === 0) {
       return
     }
@@ -1013,7 +1030,12 @@ export function LearnPage() {
       window.clearTimeout(worksheetModalCloseTimerRef.current)
       worksheetModalCloseTimerRef.current = null
     }
-    const outline = buildFlashcardSourceFromBlueprints(effectiveChapterBlueprints)
+    const outline = buildLearnMaterialOutlineFromBlueprints(
+      personalization,
+      chapterBlueprints,
+      effectiveChapterBlueprints,
+      chapterSession,
+    )
     setLearnWorksheets([])
     setWorksheetError(null)
     setIsWorksheetModalMounted(true)
@@ -1053,14 +1075,31 @@ export function LearnPage() {
     } finally {
       setIsGeneratingWorksheet(false)
     }
-  }, [
+  },
+  [
     captureEditableState,
+    chapterBlueprints,
+    chapterSession,
     effectiveChapterBlueprints,
     learningPaths,
     profile?.subscription_plans?.max_images,
     profile?.subscription_usages?.used_images,
     user,
-  ])
+  ],
+  )
+
+  const confirmLearnMaterialChoice = useCallback(
+    (personalization: LearnMaterialPersonalizationMode) => {
+      const target = learnMaterialChoiceTarget
+      setLearnMaterialChoiceTarget(null)
+      if (target === 'flashcards') {
+        void runCreateFlashcards(personalization)
+      } else if (target === 'worksheet') {
+        void runCreateWorksheet(personalization)
+      }
+    },
+    [learnMaterialChoiceTarget, runCreateFlashcards, runCreateWorksheet],
+  )
 
   if (isLoading) {
     return <main className="learn-loading">Lade Lernbereich...</main>
@@ -1385,12 +1424,12 @@ export function LearnPage() {
                   onStartChapter: openChapterModal,
                   canCreateFlashcards: effectiveChapterBlueprints.length > 0,
                   isGeneratingFlashcards,
-                  onCreateFlashcards: handleCreateFlashcards,
+                  onCreateFlashcards: () => setLearnMaterialChoiceTarget('flashcards'),
                   hasSavedFlashcards: learnFlashcards.length > 0,
                   onOpenSavedFlashcards: openSavedFlashcardsModal,
                   canCreateWorksheet: effectiveChapterBlueprints.length > 0,
                   isGeneratingWorksheet,
-                  onCreateWorksheet: handleCreateWorksheet,
+                  onCreateWorksheet: () => setLearnMaterialChoiceTarget('worksheet'),
                   hasSavedWorksheets: learnWorksheets.length > 0,
                   onOpenSavedWorksheets: openSavedWorksheetsModal,
                 }}
@@ -1510,6 +1549,48 @@ export function LearnPage() {
         onEvaluateChapterQuestion={handleEvaluateCurrentChapterQuestion}
         onNextChapterStep={handleNextChapterStep}
       />
+      {learnMaterialChoiceTarget !== null ? (
+        <ModalShell
+          isOpen
+          className="learn-flashcards-modal-overlay"
+          onRequestClose={() => setLearnMaterialChoiceTarget(null)}
+        >
+          <section
+            className="learn-material-choice-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="learn-material-choice-title"
+          >
+            <header className="learn-flashcards-modal-header">
+              <h2 id="learn-material-choice-title">
+                {learnMaterialChoiceTarget === 'worksheet' ? 'Arbeitsblatt erstellen' : 'Lernkarten erstellen'}
+              </h2>
+              <button
+                type="button"
+                className="settings-close-button"
+                onClick={() => setLearnMaterialChoiceTarget(null)}
+                aria-label="Schliessen"
+              >
+                <span className="ui-icon settings-close-icon" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="learn-material-choice-body">
+              <p className="learn-muted learn-material-choice-lead">
+                Nur die Kapitelinhalte nutzen, oder zusätzlich deinen Lernverlauf (falsch beantwortete Fragen und
+                ggf. das adaptive Schwächen-Kapitel) einbeziehen?
+              </p>
+              <div className="learn-material-choice-actions">
+                <PrimaryButton type="button" onClick={() => confirmLearnMaterialChoice('personalized')}>
+                  Personalisiert
+                </PrimaryButton>
+                <SecondaryButton type="button" onClick={() => confirmLearnMaterialChoice('general')}>
+                  Allgemein
+                </SecondaryButton>
+              </div>
+            </div>
+          </section>
+        </ModalShell>
+      ) : null}
       <LearnFlashcardsModal
         isMounted={isFlashcardsModalMounted}
         isVisible={isFlashcardsModalVisible}

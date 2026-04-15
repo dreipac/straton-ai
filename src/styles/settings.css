@@ -621,6 +621,38 @@
   background: linear-gradient(135deg, #2a1b33 0%, #6d3e82 55%, #f472b6 100%);
 }
 
+.personalize-theme-preview.is-space-dark {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #1b2433 0%, rgba(27, 36, 51, 0.33) 42%, transparent 70%),
+    linear-gradient(160deg, #06080f 0%, #0c1018 56%, #05070d 100%);
+}
+
+.personalize-theme-preview.is-space-stars {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 67% 38%, rgba(226, 232, 240, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 42% 72%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 82% 74%, rgba(203, 213, 225, 0.86) 0 1px, transparent 1.2px),
+    radial-gradient(120% 90% at 50% 0%, #1b2433 0%, rgba(27, 36, 51, 0.38) 42%, transparent 70%),
+    linear-gradient(160deg, #06080f 0%, #0c1018 56%, #05070d 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-theme-preview.is-space-dark {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #3b1f47 0%, rgba(59, 31, 71, 0.34) 42%, transparent 70%),
+    linear-gradient(160deg, #120a18 0%, #1a1022 56%, #100914 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-theme-preview.is-space-stars {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 67% 38%, rgba(249, 168, 212, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 42% 72%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 82% 74%, rgba(216, 180, 254, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(120% 90% at 50% 0%, #3b1f47 0%, rgba(59, 31, 71, 0.38) 42%, transparent 70%),
+    linear-gradient(160deg, #120a18 0%, #1a1022 56%, #100914 100%);
+}
+
 .personalize-theme-tile:hover:enabled {
   transform: translateY(-1px);
   border-color: var(--interactive-hover-border);

@@ -3,14 +3,17 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
 import fileIcon from '../../../assets/icons/file.svg'
+import greenFileIcon from '../../../assets/icons/green-file.svg'
 import sendIcon from '../../../assets/icons/send.svg'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import type { ChatMessage } from '../types'
@@ -35,6 +38,8 @@ type PendingAttachment = {
   id: string
   name: string
   content: string
+  kind: 'file' | 'pasted-image'
+  previewDataUrl?: string
 }
 
 type QuizAnswerState = {
@@ -53,7 +58,10 @@ export function ChatWindow({
   onSendMessage,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState('')
+  const [showSlashMenu, setShowSlashMenu] = useState(false)
+  const [excelCommandSelected, setExcelCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
   const isEmptyState = messages.length === 0
   const showAssistantPendingLoader =
     isSending &&
@@ -358,11 +366,35 @@ export function ChatWindow({
   function buildAttachmentMessageBlocks(items: PendingAttachment[]): string {
     return items
       .map((item) =>
-        item.content.trim()
-          ? `[Datei: ${item.name}]\n${item.content}\n[/Datei]`
-          : `[Datei: ${item.name}] (Kein auslesbarer Text gefunden)\n[/Datei]`,
+        item.kind === 'pasted-image'
+          ? (() => {
+              const dataBlock = item.previewDataUrl
+                ? `[BildData:${item.id}]\n${item.previewDataUrl}\n[/BildData]`
+                : ''
+              const ocrBlock = item.content.trim()
+                ? `[Bild:${item.id}:${item.name}]\n${item.content}\n[/Bild]`
+                : `[Bild:${item.id}:${item.name}] (Kein auslesbarer Text gefunden)\n[/Bild]`
+              return [dataBlock, ocrBlock].filter(Boolean).join('\n')
+            })()
+          : item.content.trim()
+            ? `[Datei: ${item.name}]\n${item.content}\n[/Datei]`
+            : `[Datei: ${item.name}] (Kein auslesbarer Text gefunden)\n[/Datei]`,
       )
       .join('\n\n')
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const out = typeof reader.result === 'string' ? reader.result : ''
+        resolve(out)
+      }
+      reader.onerror = () => {
+        reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -374,13 +406,54 @@ export function ChatWindow({
 
     const textPart = draft.trim()
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
-    const content = [textPart, attachmentPart].filter(Boolean).join('\n\n')
+    const baseContent = [textPart, attachmentPart].filter(Boolean).join('\n\n')
+    const content = excelCommandSelected
+      ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
+      : baseContent
+    const pastedImageEntries = pendingAttachments.filter(
+      (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
+        entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
+    )
+    if (pastedImageEntries.length > 0) {
+      setSentPastedImagePreviews((prev) => {
+        const next = { ...prev }
+        for (const item of pastedImageEntries) {
+          next[item.id] = item.previewDataUrl
+        }
+        return next
+      })
+    }
     setDraft('')
+    setShowSlashMenu(false)
+    setExcelCommandSelected(false)
     setPendingAttachments([])
     await onSendMessage(content)
   }
 
+  function handleDraftChange(nextValue: string) {
+    setDraft(nextValue)
+    if (excelCommandSelected) {
+      setShowSlashMenu(false)
+      return
+    }
+    const withoutTrailingSpaces = nextValue.replace(/\s+$/, '')
+    const shouldShow = /(^|\s)\/$/.test(withoutTrailingSpaces)
+    setShowSlashMenu(shouldShow)
+  }
+
+  function handleSelectExcelSlashCommand() {
+    setExcelCommandSelected(true)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus()
+  }
+
   function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (showSlashMenu && event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      handleSelectExcelSlashCommand()
+      return
+    }
     if (event.key !== 'Enter' || event.shiftKey) {
       return
     }
@@ -400,9 +473,16 @@ export function ChatWindow({
       return
     }
 
+    await attachFiles(Array.from(fileList))
+  }
+
+  async function attachFiles(files: File[]) {
+    if (files.length === 0 || isSending || isAttachingFiles || tokenLimitReached) {
+      return
+    }
+
     setIsAttachingFiles(true)
     try {
-      const files = Array.from(fileList)
       const nextAttachments: PendingAttachment[] = []
 
       for (const file of files) {
@@ -412,6 +492,7 @@ export function ChatWindow({
           id: crypto.randomUUID(),
           name: file.name,
           content: excerpt,
+          kind: 'file',
         })
       }
 
@@ -425,8 +506,66 @@ export function ChatWindow({
     }
   }
 
+  function handleComposePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (isSending || isAttachingFiles || tokenLimitReached) {
+      return
+    }
+    const clipboardFiles = Array.from(event.clipboardData?.files ?? [])
+    const imageFiles = clipboardFiles.filter((file) => file.type.startsWith('image/'))
+    if (imageFiles.length === 0) {
+      return
+    }
+    event.preventDefault()
+    void (async () => {
+      if (isSending || isAttachingFiles || tokenLimitReached) {
+        return
+      }
+      setIsAttachingFiles(true)
+      try {
+        const imageAttachments: PendingAttachment[] = []
+        for (const file of imageFiles) {
+          const [text, previewDataUrl] = await Promise.all([extractLearningMaterialText(file), readFileAsDataUrl(file)])
+          imageAttachments.push({
+            id: crypto.randomUUID(),
+            name: file.name || `image-${Date.now()}.png`,
+            content: text.trim().slice(0, 1400),
+            kind: 'pasted-image',
+            previewDataUrl,
+          })
+        }
+        setPendingAttachments((prev) => [...prev, ...imageAttachments])
+      } finally {
+        setIsAttachingFiles(false)
+        inputRef.current?.focus()
+      }
+    })()
+  }
+
   function removeAttachment(id: string) {
     setPendingAttachments((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  function extractPastedImageIdsFromContent(content: string): string[] {
+    const regex = /\[(?:BildData|Bild):([^:\]]+)(?::[^\]]+)?\][\s\S]*?\[\/(?:BildData|Bild)\]/g
+    const ids = new Set<string>()
+    let match: RegExpExecArray | null = regex.exec(content)
+    while (match) {
+      const id = String(match[1] ?? '').trim()
+      if (id) {
+        ids.add(id)
+      }
+      match = regex.exec(content)
+    }
+    return [...ids]
+  }
+
+  function stripAttachmentBlocksForDisplay(content: string): string {
+    return content
+      .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
+      .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+      .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   }
 
   if (isEmptyState) {
@@ -439,9 +578,7 @@ export function ChatWindow({
         ) : null}
         <div className="chat-empty-compose">
           <h2 className="chat-empty-title">
-            Wie kann ich
-            <br />
-            dir heute helfen, {greetingName}?
+            Wie kann ich dir heute helfen, {greetingName}?
           </h2>
           {error ? <p className="error-text">{error}</p> : null}
           <form
@@ -457,51 +594,101 @@ export function ChatWindow({
                 void handleAttachFiles(event.target.files)
               }}
             />
-            <button
-              type="button"
-              className="chat-attach-button"
-              disabled={isSending || isAttachingFiles || tokenLimitReached}
-              aria-label="Datei anhängen"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
-            </button>
+            <div className="chat-left-actions">
+              <button
+                type="button"
+                className="chat-attach-button"
+                disabled={isSending || isAttachingFiles || tokenLimitReached}
+                aria-label="Datei anhängen"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
+              </button>
+              {excelCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-excel-command-icon-badge"
+                  title="Excel-Befehl aktiv (klicken zum Entfernen)"
+                  aria-label="Excel-Befehl entfernen"
+                  onClick={() => setExcelCommandSelected(false)}
+                >
+                  <img src={greenFileIcon} alt="" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
             <div className="chat-input-compose">
               {pendingAttachments.length > 0 ? (
                 <div className="chat-attachment-chips" aria-label="Angehängte Dateien">
                   {pendingAttachments.map((item) => (
-                    <span key={item.id} className="chat-attachment-chip">
-                      <img className="ui-icon chat-attachment-chip-icon" src={fileIcon} alt="" aria-hidden="true" />
-                      <span className="chat-attachment-chip-name">{item.name}</span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className="chat-attachment-chip-remove"
-                        aria-label={`${item.name} entfernen`}
-                        onClick={() => removeAttachment(item.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            removeAttachment(item.id)
-                          }
-                        }}
-                      >
-                        ×
+                    item.kind === 'pasted-image' && item.previewDataUrl ? (
+                      <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
+                        <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="chat-attachment-chip-remove"
+                          aria-label={`${item.name} entfernen`}
+                          onClick={() => removeAttachment(item.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              removeAttachment(item.id)
+                            }
+                          }}
+                        >
+                          ×
+                        </span>
                       </span>
-                    </span>
+                    ) : (
+                      <span key={item.id} className="chat-attachment-chip">
+                        <img className="ui-icon chat-attachment-chip-icon" src={fileIcon} alt="" aria-hidden="true" />
+                        <span className="chat-attachment-chip-name">{item.name}</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="chat-attachment-chip-remove"
+                          aria-label={`${item.name} entfernen`}
+                          onClick={() => removeAttachment(item.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              removeAttachment(item.id)
+                            }
+                          }}
+                        >
+                          ×
+                        </span>
+                      </span>
+                    )
                   ))}
                 </div>
               ) : null}
               <div className="chat-input-field">
+                {showSlashMenu ? (
+                  <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                    <button
+                      type="button"
+                      className="thread-menu-item"
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onClick={handleSelectExcelSlashCommand}
+                    >
+                      Excel
+                    </button>
+                  </div>
+                ) : null}
                 <textarea
                   ref={inputRef}
                   className="chat-input"
                   rows={1}
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => handleDraftChange(event.target.value)}
                   onKeyDown={handleComposeKeyDown}
+                  onPaste={handleComposePaste}
                   placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
-                  disabled={isSending || isAttachingFiles || tokenLimitReached}
+                  disabled={isSending || tokenLimitReached}
                   aria-multiline="true"
                   autoComplete="off"
                 />
@@ -554,7 +741,8 @@ export function ChatWindow({
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
           const displayContent = isAssistant
             ? stripExcelSpecBlock(rawAssistantDisplay)
-            : message.content
+            : stripAttachmentBlocksForDisplay(message.content)
+          const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(message.content) : []
           const showExcelFallbackText =
             isAssistant &&
             Boolean(message.metadata?.excelExport) &&
@@ -573,6 +761,17 @@ export function ChatWindow({
               className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}`}
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
+              {message.role === 'user' && pastedImageIds.length > 0 ? (
+                <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
+                  {pastedImageIds.map((imageId) => {
+                    const src = sentPastedImagePreviews[imageId]
+                    if (!src) {
+                      return null
+                    }
+                    return <img key={imageId} className="chat-user-inline-image" src={src} alt="Eingefügtes Bild" />
+                  })}
+                </div>
+              ) : null}
               {displayContent ? (
                 isAssistant ? (
                   <div className="chat-message-body chat-message-body--rich">{renderAssistantRichContent(displayContent)}</div>
@@ -691,51 +890,101 @@ export function ChatWindow({
             void handleAttachFiles(event.target.files)
           }}
         />
-        <button
-          type="button"
-          className="chat-attach-button"
-          disabled={isSending || isAttachingFiles || tokenLimitReached}
-          aria-label="Datei anhängen"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
-        </button>
+        <div className="chat-left-actions">
+          <button
+            type="button"
+            className="chat-attach-button"
+            disabled={isSending || isAttachingFiles || tokenLimitReached}
+            aria-label="Datei anhängen"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
+          </button>
+          {excelCommandSelected ? (
+            <button
+              type="button"
+              className="chat-excel-command-icon-badge"
+              title="Excel-Befehl aktiv (klicken zum Entfernen)"
+              aria-label="Excel-Befehl entfernen"
+              onClick={() => setExcelCommandSelected(false)}
+            >
+              <img src={greenFileIcon} alt="" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
         <div className="chat-input-compose">
           {pendingAttachments.length > 0 ? (
             <div className="chat-attachment-chips" aria-label="Angehängte Dateien">
               {pendingAttachments.map((item) => (
-                <span key={item.id} className="chat-attachment-chip">
-                  <img className="ui-icon chat-attachment-chip-icon" src={fileIcon} alt="" aria-hidden="true" />
-                  <span className="chat-attachment-chip-name">{item.name}</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="chat-attachment-chip-remove"
-                    aria-label={`${item.name} entfernen`}
-                    onClick={() => removeAttachment(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        removeAttachment(item.id)
-                      }
-                    }}
-                  >
-                    ×
+                item.kind === 'pasted-image' && item.previewDataUrl ? (
+                  <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
+                    <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="chat-attachment-chip-remove"
+                      aria-label={`${item.name} entfernen`}
+                      onClick={() => removeAttachment(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          removeAttachment(item.id)
+                        }
+                      }}
+                    >
+                      ×
+                    </span>
                   </span>
-                </span>
+                ) : (
+                  <span key={item.id} className="chat-attachment-chip">
+                    <img className="ui-icon chat-attachment-chip-icon" src={fileIcon} alt="" aria-hidden="true" />
+                    <span className="chat-attachment-chip-name">{item.name}</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="chat-attachment-chip-remove"
+                      aria-label={`${item.name} entfernen`}
+                      onClick={() => removeAttachment(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          removeAttachment(item.id)
+                        }
+                      }}
+                    >
+                      ×
+                    </span>
+                  </span>
+                )
               ))}
             </div>
           ) : null}
           <div className="chat-input-field">
+            {showSlashMenu ? (
+              <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                <button
+                  type="button"
+                  className="thread-menu-item"
+                  role="menuitem"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                  }}
+                  onClick={handleSelectExcelSlashCommand}
+                >
+                  Excel
+                </button>
+              </div>
+            ) : null}
             <textarea
               ref={inputRef}
               className="chat-input"
               rows={1}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => handleDraftChange(event.target.value)}
               onKeyDown={handleComposeKeyDown}
+              onPaste={handleComposePaste}
               placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
-              disabled={isSending || isAttachingFiles || tokenLimitReached}
+              disabled={isSending || tokenLimitReached}
               aria-multiline="true"
               autoComplete="off"
             />

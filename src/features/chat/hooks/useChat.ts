@@ -6,7 +6,7 @@ import {
   normalizeExcelSpecForExport,
   parseExcelSpecFromContent,
 } from '../excel/excelSpec'
-import { userWantsExcelExport } from '../constants/excelExportPrompt'
+import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import {
   generateChatTitleWithAi,
   generateExcelFromSpec,
@@ -29,7 +29,12 @@ const TEMP_THREAD_PREFIX = 'temp-thread-'
 const THREAD_REMOVE_ANIMATION_MS = 180
 
 function createChatTitle(content: string) {
-  const trimmed = content.trim()
+  const trimmed = content
+    .replace(/\[\[STRATON_EXCEL_COMMAND\]\]/g, '')
+    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
+    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
+    .trim()
   if (!trimmed) {
     return 'Neuer Chat'
   }
@@ -316,7 +321,8 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
   }
 
   async function submitMessage(content: string) {
-    const trimmed = content.trim()
+    const wantsExcel = userWantsExcelExport(content)
+    const trimmed = stripExcelCommandMarker(content)
     if (!trimmed || !canSend) {
       return
     }
@@ -419,9 +425,9 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
 
-      const wantsExcel = userWantsExcelExport(trimmed)
       let streamAssistantId: string | null = null
       let finalAssistantContent: string
+      let excelSpecModelLabel: 'Claude Sonnet' | 'OpenAI (Fallback)' | null = null
 
       if (usesGatewayAi()) {
         const streamingMessageId = crypto.randomUUID()
@@ -468,8 +474,9 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
       }
       if (usesGatewayAi() && wantsExcel) {
         try {
-          const specBlock = await generateExcelSpecWithSonnet(trimmed)
-          finalAssistantContent = `${finalAssistantContent.trim()}\n\n${specBlock.trim()}`
+          const specResult = await generateExcelSpecWithSonnet(trimmed)
+          excelSpecModelLabel = specResult.modelLabel
+          finalAssistantContent = `${finalAssistantContent.trim()}\n\n${specResult.specBlock.trim()}`
         } catch (specErr) {
           setError(
             specErr instanceof Error
@@ -508,7 +515,9 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           })
           mergedAssistantMessage = {
             ...storedAssistantMessage,
-            content: excelResult.displayContent,
+            content: excelSpecModelLabel
+              ? `${excelResult.displayContent}\n\n_Modell fuer Excel-Spezifikation: ${excelSpecModelLabel}_`
+              : excelResult.displayContent,
             metadata: { excelExport: excelResult.excelExport },
           }
         } catch (excelErr) {

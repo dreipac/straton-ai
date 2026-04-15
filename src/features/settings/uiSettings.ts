@@ -5,10 +5,12 @@ import { applyMessageBoxPalette, DEFAULT_MESSAGE_BOX_PALETTE_ID } from './consta
 import { writeAssistantEmojisEnabled } from '../chat/constants/chatAssistantStyle'
 
 export type ThemeMode = 'light' | 'dark' | 'pink-glass'
+export type ChatBackgroundMode = 'space-dark' | 'space-stars'
 
 export type UiSettingsV1 = {
   theme: ThemeMode
   sidebarScale: '100' | '75'
+  chatBackground: ChatBackgroundMode
   accentPaletteId: string
   hoverPaletteId: string
   messageBoxPaletteId: string
@@ -19,7 +21,8 @@ export type UiSettingsV1 = {
 export function defaultUiSettings(): UiSettingsV1 {
   return {
     theme: 'dark',
-    sidebarScale: '100',
+    sidebarScale: '75',
+    chatBackground: 'space-dark',
     accentPaletteId: DEFAULT_ACCENT_PALETTE_ID,
     hoverPaletteId: DEFAULT_HOVER_PALETTE_ID,
     messageBoxPaletteId: DEFAULT_MESSAGE_BOX_PALETTE_ID,
@@ -42,6 +45,8 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
   const o = raw as Record<string, unknown>
   const theme = isThemeMode(o.theme) ? o.theme : d.theme
   const sidebarScale = o.sidebarScale === '75' || o.sidebarScale === '100' ? o.sidebarScale : d.sidebarScale
+  const chatBackground =
+    o.chatBackground === 'space-stars' || o.chatBackground === 'space-dark' ? o.chatBackground : d.chatBackground
   const accentPaletteId = typeof o.accentPaletteId === 'string' && o.accentPaletteId.trim() ? o.accentPaletteId : d.accentPaletteId
   const hoverPaletteId = typeof o.hoverPaletteId === 'string' && o.hoverPaletteId.trim() ? o.hoverPaletteId : d.hoverPaletteId
   const messageBoxPaletteId =
@@ -57,6 +62,7 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
   return {
     theme,
     sidebarScale,
+    chatBackground,
     accentPaletteId,
     hoverPaletteId,
     messageBoxPaletteId,
@@ -74,6 +80,9 @@ export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
 
   document.documentElement.dataset.sidebarScale = settings.sidebarScale
   window.localStorage.setItem('straton-sidebar-scale', settings.sidebarScale)
+
+  document.documentElement.dataset.chatBackground = settings.chatBackground
+  window.localStorage.setItem('straton-chat-background', settings.chatBackground)
 
   const accentId = applyAccentPalette(settings.accentPaletteId)
   window.localStorage.setItem('straton-accent-palette', accentId)
