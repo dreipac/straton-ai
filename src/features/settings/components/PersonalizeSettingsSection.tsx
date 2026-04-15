@@ -20,6 +20,7 @@ type PersonalizeSettingsSectionProps = {
   onChangeHoverPalette: (nextPaletteId: string) => void
   onChangeMessageBoxPalette: (nextPaletteId: string) => void
   onChangeLearnPathTitleColorMode: (nextMode: LearnPathTitleColorMode) => void
+  showSidebarScaleOption?: boolean
 }
 
 export function PersonalizeSettingsSection({
@@ -37,6 +38,7 @@ export function PersonalizeSettingsSection({
   onChangeHoverPalette,
   onChangeMessageBoxPalette,
   onChangeLearnPathTitleColorMode,
+  showSidebarScaleOption = true,
 }: PersonalizeSettingsSectionProps) {
   return (
     <div className="personalize-panel">
@@ -75,33 +77,39 @@ export function PersonalizeSettingsSection({
           </button>
         </div>
       </div>
-      <div className="settings-section-divider" />
-      <div className="personalize-scale-row">
-        <p className="personalize-subtitle">Skalierung der Sidebar-Buttons</p>
-        <p className="personalize-hint">100% = kompakt, 150% = größer.</p>
-        <div
-          className={`personalize-scale-toggle ${sidebarScale === '75' ? 'is-75' : 'is-100'}`}
-          role="group"
-          aria-label="Sidebar Skalierung"
-        >
-          <span className="personalize-scale-pill" aria-hidden="true" />
-          <button
-            type="button"
-            className={`personalize-scale-option ${sidebarScale === '100' ? 'is-active' : ''}`}
-            onClick={() => onChangeSidebarScale('100')}
-          >
-            150%
-          </button>
-          <button
-            type="button"
-            className={`personalize-scale-option ${sidebarScale === '75' ? 'is-active' : ''}`}
-            onClick={() => onChangeSidebarScale('75')}
-          >
-            100%
-          </button>
-        </div>
-      </div>
-      <div className="settings-section-divider" />
+      {showSidebarScaleOption ? (
+        <>
+          <div className="settings-section-divider" />
+          <div className="personalize-scale-row">
+            <p className="personalize-subtitle">Skalierung der Sidebar-Buttons</p>
+            <p className="personalize-hint">100% = kompakt, 150% = größer.</p>
+            <div
+              className={`personalize-scale-toggle ${sidebarScale === '75' ? 'is-75' : 'is-100'}`}
+              role="group"
+              aria-label="Sidebar Skalierung"
+            >
+              <span className="personalize-scale-pill" aria-hidden="true" />
+              <button
+                type="button"
+                className={`personalize-scale-option ${sidebarScale === '100' ? 'is-active' : ''}`}
+                onClick={() => onChangeSidebarScale('100')}
+              >
+                150%
+              </button>
+              <button
+                type="button"
+                className={`personalize-scale-option ${sidebarScale === '75' ? 'is-active' : ''}`}
+                onClick={() => onChangeSidebarScale('75')}
+              >
+                100%
+              </button>
+            </div>
+          </div>
+          <div className="settings-section-divider" />
+        </>
+      ) : (
+        <div className="settings-section-divider" />
+      )}
       <div className="personalize-theme-row">
         <p className="personalize-subtitle">Chat Hintergrund</p>
         <div className="personalize-theme-grid" role="radiogroup" aria-label="Chat Hintergrund auswählen">

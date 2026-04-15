@@ -63,6 +63,18 @@ export type AdminUserLastAiUsageRow = {
   last_used_at: string
 }
 
+export type AdminCreateUserPayload = {
+  email: string
+  temporaryPassword: string
+  firstName: string
+  lastName: string
+}
+
+export type AdminCreateUserResult = {
+  userId: string
+  email: string
+}
+
 function toSafeInt(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value))
@@ -143,6 +155,28 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
         : String(row.last_sign_in_at),
     must_change_password_on_first_login: row.must_change_password_on_first_login === true,
   }))
+}
+
+export async function adminCreateUser(payload: AdminCreateUserPayload): Promise<AdminCreateUserResult> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    body: {
+      email: payload.email,
+      temporaryPassword: payload.temporaryPassword,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+    },
+  })
+  if (error) {
+    throw error
+  }
+  const result = data as { userId?: unknown; email?: unknown } | null
+  const userId = typeof result?.userId === 'string' ? result.userId : ''
+  const email = typeof result?.email === 'string' ? result.email : ''
+  if (!userId || !email) {
+    throw new Error('Nutzer konnte nicht erstellt werden.')
+  }
+  return { userId, email }
 }
 
 export async function adminSetMustChangePasswordOnFirstLogin(

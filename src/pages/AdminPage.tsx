@@ -15,6 +15,7 @@ import {
   type SystemPromptKey,
 } from '../config/systemPromptDefaults'
 import {
+  adminCreateUser,
   adminDeleteUser,
   adminSetMustChangePasswordOnFirstLogin,
   adminSetUserProfileNames,
@@ -112,6 +113,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
   const [usersError, setUsersError] = useState<string | null>(null)
+  const [newUserEmail, setNewUserEmail] = useState('')
+  const [newUserFirstName, setNewUserFirstName] = useState('')
+  const [newUserLastName, setNewUserLastName] = useState('')
+  const [newUserTemporaryPassword, setNewUserTemporaryPassword] = useState('')
+  const [isCreatingUser, setIsCreatingUser] = useState(false)
+  const [createUserInfo, setCreateUserInfo] = useState<string | null>(null)
   const [feedbackItems, setFeedbackItems] = useState<UserFeedbackRow[]>([])
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false)
   const [feedbackError, setFeedbackError] = useState<string | null>(null)
@@ -681,6 +688,39 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleCreateUser() {
+    const email = newUserEmail.trim().toLowerCase()
+    const temporaryPassword = newUserTemporaryPassword
+    const firstName = newUserFirstName.trim()
+    const lastName = newUserLastName.trim()
+    if (!email || !temporaryPassword) {
+      setUsersError('Bitte E-Mail und temporäres Passwort ausfüllen.')
+      return
+    }
+    setUsersError(null)
+    setCreateUserInfo(null)
+    setIsCreatingUser(true)
+    try {
+      const result = await adminCreateUser({
+        email,
+        temporaryPassword,
+        firstName,
+        lastName,
+      })
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+      setCreateUserInfo(`Nutzer ${result.email} wurde erstellt.`)
+      setNewUserEmail('')
+      setNewUserFirstName('')
+      setNewUserLastName('')
+      setNewUserTemporaryPassword('')
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht erstellt werden.'))
+    } finally {
+      setIsCreatingUser(false)
+    }
+  }
+
   async function handleToggleMustChangePassword(userId: string, enabled: boolean) {
     setUsersError(null)
     setSavingMustPwUserId(userId)
@@ -962,6 +1002,55 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           ) : null}
           {activeSection === 'users' ? (
             <div className="admin-users-panel">
+              <div className="admin-subscriptions-create">
+                <p className="admin-subscriptions-field-label">Neuen Nutzer erstellen</p>
+                <div className="admin-subscriptions-create-row">
+                  <input
+                    type="email"
+                    className="admin-user-profile-input"
+                    value={newUserEmail}
+                    onChange={(event) => setNewUserEmail(event.target.value)}
+                    placeholder="E-Mail"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserFirstName}
+                    onChange={(event) => setNewUserFirstName(event.target.value)}
+                    placeholder="Vorname (optional)"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserLastName}
+                    onChange={(event) => setNewUserLastName(event.target.value)}
+                    placeholder="Nachname (optional)"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserTemporaryPassword}
+                    onChange={(event) => setNewUserTemporaryPassword(event.target.value)}
+                    placeholder="Temporäres Passwort"
+                    autoComplete="new-password"
+                    disabled={isCreatingUser}
+                  />
+                  <PrimaryButton type="button" disabled={isCreatingUser} onClick={() => void handleCreateUser()}>
+                    {isCreatingUser ? 'Erstellen…' : 'Nutzer erstellen'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Neue Nutzer werden in Supabase Auth erstellt und beim ersten Login automatisch zur Passwortänderung
+                  aufgefordert.
+                </p>
+                {createUserInfo ? <p className="admin-ai-info">{createUserInfo}</p> : null}
+              </div>
               <p className="admin-users-warning">
                 Achtung: Aenderungen in diesem Bereich koennen kritische Berechtigungen beeinflussen. Bitte nur mit
                 Vorsicht bearbeiten.

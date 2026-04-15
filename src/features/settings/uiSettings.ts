@@ -73,13 +73,15 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
 
 /** DOM + localStorage (wie bisherige SettingsPage-Effekte). */
 export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
+  const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
   const baseTheme = settings.theme === 'light' ? 'light' : 'dark'
   document.documentElement.dataset.theme = baseTheme
   document.documentElement.dataset.themeVariant = settings.theme === 'pink-glass' ? 'pink-glass' : ''
   window.localStorage.setItem('straton-theme', settings.theme)
 
-  document.documentElement.dataset.sidebarScale = settings.sidebarScale
-  window.localStorage.setItem('straton-sidebar-scale', settings.sidebarScale)
+  const effectiveSidebarScale = isMobileSidebarScaleLocked ? '100' : settings.sidebarScale
+  document.documentElement.dataset.sidebarScale = effectiveSidebarScale
+  window.localStorage.setItem('straton-sidebar-scale', effectiveSidebarScale)
 
   document.documentElement.dataset.chatBackground = settings.chatBackground
   window.localStorage.setItem('straton-chat-background', settings.chatBackground)

@@ -40,7 +40,8 @@ document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' 
 document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
 
 const persistedSidebarScale = window.localStorage.getItem('straton-sidebar-scale')
-const initialSidebarScale = persistedSidebarScale === '100' ? '100' : '75'
+const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
+const initialSidebarScale = isMobileSidebarScaleLocked ? '100' : persistedSidebarScale === '100' ? '100' : '75'
 document.documentElement.dataset.sidebarScale = initialSidebarScale
 
 const persistedChatBackground = window.localStorage.getItem('straton-chat-background')

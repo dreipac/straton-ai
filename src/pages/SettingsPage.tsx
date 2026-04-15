@@ -97,6 +97,10 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       : 'dark'
   })
   const [sidebarScale, setSidebarScale] = useState<'100' | '75'>(() => {
+    const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
+    if (isMobileSidebarScaleLocked) {
+      return '100'
+    }
     const persistedScale = window.localStorage.getItem('straton-sidebar-scale')
     return persistedScale === '100' ? '100' : '75'
   })
@@ -484,6 +488,12 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   }, [themeMode])
 
   useEffect(() => {
+    if (isNarrowSettings && sidebarScale !== '100') {
+      setSidebarScale('100')
+    }
+  }, [isNarrowSettings, sidebarScale])
+
+  useEffect(() => {
     document.documentElement.dataset.sidebarScale = sidebarScale
     window.localStorage.setItem('straton-sidebar-scale', sidebarScale)
   }, [sidebarScale])
@@ -810,6 +820,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             onChangeHoverPalette={setHoverPaletteId}
             onChangeMessageBoxPalette={setMessageBoxPaletteId}
             onChangeLearnPathTitleColorMode={setLearnPathTitleColorMode}
+            showSidebarScaleOption={!isNarrowSettings}
           />
         ) : null}
         {activeSection === 'chat' ? (
