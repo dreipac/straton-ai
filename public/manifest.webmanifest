@@ -9,19 +9,19 @@
   "description": "Straton AI",
   "icons": [
     {
-      "src": "./assets/logo/icon-192.png",
+      "src": "./assets/logo/icon-192-v2.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./assets/logo/icon-512.png",
+      "src": "./assets/logo/icon-512-v2.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./assets/logo/icon-512.png",
+      "src": "./assets/logo/icon-512-v2.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
