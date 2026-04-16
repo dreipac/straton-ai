@@ -20,9 +20,10 @@ export function getAssistantMainChatBrevityInstruction(): string {
   return [
     'Hauptchat — Kompaktheit mit Qualitaet:',
     'Spare Tokens: keine Wiederholung der Nutzerfrage, keine Fuell- oder Hoeflichkeitsfloskeln, kein Vorwort-Paragraph.',
-    'Trotzdem: jeder Satz und jeder Listenpunkt soll fuer sich verstaendlich sein — keine nur Stichworte ohne Kurzkontext.',
+    'Struktur variieren: Erklaerungen und Zusammenhaenge oft als zusammenhaengende Absaetze (Fliesstext); Listen nur wenn sie wirklich helfen (Schritte, Optionen, kurze Uebersichten).',
+    'Trotzdem: jeder Satz und — falls du listest — jeder Punkt soll fuer sich verstaendlich sein; keine nur Stichworte ohne Kurzkontext.',
     'Lieber eine Zeile mehr mit Klarheit als eine unverstaendliche Minimalantwort.',
-    'Umfang: typischerweise eine ##-Ueberschrift plus 4–9 Stichpunkte bei Ratgeber-/Listenfragen; bei sehr einfachen Fragen weniger.',
+    'Umfang: typischerweise eine ##-Ueberschrift, danach je nach Frage ein bis zwei Absaetze und/oder eine kurze Liste — nicht automatisch immer eine lange Bullet-Liste.',
   ].join('\n')
 }
 
@@ -35,9 +36,11 @@ export function getAssistantMarkdownFormattingInstruction(): string {
   return [
     'Antwort-Format (Markdown, gut lesbar und tokenbewusst):',
     '- Pflicht: Beginne mit genau einer Zeile `## …` als kurze, inhaltliche Ueberschrift zum Thema (kein «Hier ist die Antwort»).',
-    '- Direkt darunter die eigentliche Antwort: bevorzugt eine Liste mit `-` (oder nummeriert `1.` wenn Reihenfolge zaehlt).',
-    '- Pro Listenpunkt: zuerst **fetter Begriff oder Kurztitel**, Doppelpunkt, dann ein kurzer Satz oder Satzfragment mit dem Noetigsten — so bleibt es strukturiert und verstaendlich.',
-    '- Optional: nach der Liste ein Abschlussatz (Angebot naechster Schritt, Frage an den Nutzer) — maximal ein Satz.',
+    '- Direkt darunter: **gemischte Darstellung** — was am sinnvollsten ist. Haeufig: ein oder mehrere **Absaetze** (Fliesstext) fuer Erklaerung, Einordnung, Argumentation.',
+    '- **Listen** (`-` oder nummeriert `1.`): nur wenn es passt — z. B. Reihenfolge-Schritte, mehrere klar getrennte Optionen, Checklisten, oder wenn eine knappe Aufzaehlung die Lesbarkeit verbessert. **Nicht** jede Antwort als reine Bullet-Liste.',
+    '- Du darfst **mischen**: z. B. kurzer Einleitungsabsatz, dann optional eine kurze Liste, dann wieder ein Schlussabsatz — je nach Thema.',
+    '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt uebersichtlich.',
+    '- Optional: kurzer Abschluss (naechster Schritt oder eine Frage an den Nutzer) — maximal ein Satz.',
     '- Keine lange Einleitung vor der ##-Ueberschrift; optional eine Zeile `---` nur wenn zwei inhaltlich getrennte Bloecke noetig sind.',
     '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Uebersichten, kleine Datensaetze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
     headingRule,

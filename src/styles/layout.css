@@ -640,6 +640,18 @@
   opacity: 0.78;
 }
 
+/* Hellmodus: neutraler Chat-Hintergrund — kein Weltall, keine Sterne (unabhängig von Chat-Hintergrund-Wahl) */
+:root[data-theme='light'] .chat-main::before {
+  background:
+    radial-gradient(120% 85% at 50% -5%, rgba(255, 255, 255, 0.75) 0%, rgba(243, 245, 249, 0.4) 42%, transparent 72%),
+    linear-gradient(165deg, var(--color-bg-app) 0%, var(--color-surface-soft) 52%, #e8edf5 100%);
+}
+
+:root[data-theme='light'] .chat-main::after {
+  opacity: 0;
+  animation: none;
+}
+
 .chat-main > * {
   position: relative;
   z-index: 1;
