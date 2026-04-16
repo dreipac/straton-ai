@@ -1,5 +1,9 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
-import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
+import {
+  coerceQuizScalarToString,
+  resolveMcqExpectedAnswer,
+  type InteractiveQuizPayload,
+} from '../../chat/utils/interactiveQuiz'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 
 export type LearningPathSummary = {
@@ -55,9 +59,11 @@ export type ChapterStep =
   | {
       id: string
       type: 'question'
-      questionType: 'mcq' | 'text'
+      questionType: 'mcq' | 'text' | 'match' | 'true_false'
       prompt: string
       options?: string[]
+      matchLeft?: string[]
+      matchRight?: string[]
       expectedAnswer: string
       acceptableAnswers?: string[]
       hint?: string
@@ -276,8 +282,85 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
 
   if (type === 'question') {
     const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
-    const expectedAnswer = typeof item.expectedAnswer === 'string' ? item.expectedAnswer.trim() : ''
-    if (!prompt || !expectedAnswer) {
+    const acceptableAnswers = Array.isArray(item.acceptableAnswers)
+      ? item.acceptableAnswers
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : undefined
+    const hint = typeof item.hint === 'string' && item.hint.trim() ? item.hint.trim() : undefined
+    const explanation = typeof item.explanation === 'string' && item.explanation.trim() ? item.explanation.trim() : undefined
+    const evaluation = item.evaluation === 'contains' ? 'contains' : 'exact'
+
+    const matchLeft = Array.isArray(item.matchLeft)
+      ? item.matchLeft
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    const matchRight = Array.isArray(item.matchRight)
+      ? item.matchRight
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    const wantsMatch =
+      item.questionType === 'match' ||
+      (matchLeft.length >= 2 && matchLeft.length === matchRight.length && prompt.length > 0)
+
+    if (wantsMatch && matchLeft.length === matchRight.length && matchLeft.length >= 2 && prompt) {
+      const n = matchLeft.length
+      const canonicalExpected = Array.from({ length: n }, (_, i) => String(i)).join(',')
+      const expectedAnswer =
+        typeof item.expectedAnswer === 'string' && item.expectedAnswer.trim()
+          ? item.expectedAnswer.trim()
+          : canonicalExpected
+      return {
+        id,
+        type,
+        questionType: 'match',
+        prompt,
+        matchLeft,
+        matchRight,
+        expectedAnswer,
+        acceptableAnswers,
+        hint,
+        explanation,
+        evaluation: 'exact',
+      }
+    }
+
+    const qtf = item.questionType === 'true_false' || item.type === 'true_false'
+    const expectedRaw = coerceQuizScalarToString(item.expectedAnswer)
+    if (qtf && prompt && expectedRaw) {
+      const lower = expectedRaw.toLowerCase()
+      const truthy = new Set(['wahr', 'true', 't', 'ja', 'yes', '1', 'richtig', 'korrekt'])
+      const falsy = new Set(['falsch', 'false', 'f', 'nein', 'no', '0'])
+      let norm: 'Wahr' | 'Falsch' | null = null
+      if (truthy.has(lower)) {
+        norm = 'Wahr'
+      } else if (falsy.has(lower)) {
+        norm = 'Falsch'
+      }
+      if (!norm) {
+        return null
+      }
+      return {
+        id,
+        type,
+        questionType: 'true_false',
+        prompt,
+        options: ['Wahr', 'Falsch'],
+        expectedAnswer: norm,
+        acceptableAnswers,
+        hint,
+        explanation,
+        evaluation: 'exact',
+      }
+    }
+
+    const expectedStr = expectedRaw
+    if (!prompt || !expectedStr) {
       return null
     }
     const options = Array.isArray(item.options)
@@ -286,23 +369,38 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
           .map((entry) => entry.trim())
           .filter(Boolean)
       : undefined
-    const acceptableAnswers = Array.isArray(item.acceptableAnswers)
+    const optList = options && options.length > 0 ? options : []
+    const acceptableList = Array.isArray(item.acceptableAnswers)
       ? item.acceptableAnswers
-          .filter((entry): entry is string => typeof entry === 'string')
-          .map((entry) => entry.trim())
+          .map((entry) => coerceQuizScalarToString(entry))
           .filter(Boolean)
       : undefined
+
+    if (item.questionType === 'mcq' && optList.length >= 2) {
+      return {
+        id,
+        type,
+        questionType: 'mcq',
+        prompt,
+        options: optList,
+        expectedAnswer: resolveMcqExpectedAnswer(expectedStr, optList),
+        acceptableAnswers: acceptableList?.map((a) => resolveMcqExpectedAnswer(a, optList)),
+        hint,
+        explanation,
+        evaluation,
+      }
+    }
+
     return {
       id,
       type,
-      questionType: item.questionType === 'mcq' ? 'mcq' : 'text',
+      questionType: 'text',
       prompt,
-      options: options && options.length > 0 ? options : undefined,
-      expectedAnswer,
-      acceptableAnswers,
-      hint: typeof item.hint === 'string' && item.hint.trim() ? item.hint.trim() : undefined,
-      explanation: typeof item.explanation === 'string' && item.explanation.trim() ? item.explanation.trim() : undefined,
-      evaluation: item.evaluation === 'contains' ? 'contains' : 'exact',
+      expectedAnswer: expectedStr,
+      acceptableAnswers: acceptableList,
+      hint,
+      explanation,
+      evaluation,
     }
   }
 
@@ -439,18 +537,6 @@ function parsePersistedStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
-function resolvePersistedMcqExpectedAnswer(rawExpected: string, options: string[]): string {
-  const expected = rawExpected.trim()
-  if (!expected) {
-    return ''
-  }
-  const index = Number.parseInt(expected, 10)
-  if (Number.isInteger(index) && index >= 0 && index < options.length) {
-    return options[index] ?? expected
-  }
-  return expected
-}
-
 function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -502,14 +588,47 @@ function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
         } satisfies InteractiveQuizPayload['questions'][number]
       }
 
-      const expectedAnswer = typeof item.expectedAnswer === 'string' ? item.expectedAnswer.trim() : ''
+      const qtf = item.questionType === 'true_false' || item.type === 'true_false'
+      const expectedTfRaw = coerceQuizScalarToString(item.expectedAnswer)
+      if (qtf && prompt && expectedTfRaw) {
+        const lower = expectedTfRaw.toLowerCase()
+        const truthy = new Set(['wahr', 'true', 't', 'ja', 'yes', '1', 'richtig', 'korrekt'])
+        const falsy = new Set(['falsch', 'false', 'f', 'nein', 'no', '0'])
+        let norm: 'Wahr' | 'Falsch' | null = null
+        if (truthy.has(lower)) {
+          norm = 'Wahr'
+        } else if (falsy.has(lower)) {
+          norm = 'Falsch'
+        }
+        if (!norm) {
+          return null
+        }
+        const acceptableAnswersTf = Array.isArray(item.acceptableAnswers)
+          ? item.acceptableAnswers
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : []
+        return {
+          id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `q${index + 1}`,
+          prompt,
+          questionType: 'true_false' as const,
+          options: ['Wahr', 'Falsch'],
+          expectedAnswer: norm,
+          acceptableAnswers: acceptableAnswersTf,
+          hint: typeof item.hint === 'string' ? item.hint.trim() : undefined,
+          explanation: typeof item.explanation === 'string' ? item.explanation.trim() : undefined,
+          evaluation: 'exact' as const,
+        } satisfies InteractiveQuizPayload['questions'][number]
+      }
+
+      const expectedAnswer = coerceQuizScalarToString(item.expectedAnswer)
       if (!prompt || !expectedAnswer) {
         return null
       }
       const acceptableAnswers = Array.isArray(item.acceptableAnswers)
         ? item.acceptableAnswers
-            .filter((value): value is string => typeof value === 'string')
-            .map((value) => value.trim())
+            .map((value) => coerceQuizScalarToString(value))
             .filter(Boolean)
         : []
       const options = Array.isArray(item.options)
@@ -521,11 +640,11 @@ function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
       const normalizedOptions = options && options.length > 0 ? options : undefined
       const normalizedExpectedAnswer =
         item.questionType === 'mcq' && normalizedOptions
-          ? resolvePersistedMcqExpectedAnswer(expectedAnswer, normalizedOptions)
+          ? resolveMcqExpectedAnswer(expectedAnswer, normalizedOptions)
           : expectedAnswer
       const normalizedAcceptableAnswers =
         item.questionType === 'mcq' && normalizedOptions
-          ? acceptableAnswers.map((value) => resolvePersistedMcqExpectedAnswer(value, normalizedOptions))
+          ? acceptableAnswers.map((value) => resolveMcqExpectedAnswer(value, normalizedOptions))
           : acceptableAnswers
       return {
         id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `q${index + 1}`,

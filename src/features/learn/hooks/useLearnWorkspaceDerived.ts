@@ -80,8 +80,11 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     entryQuiz && entryQuizTotalQuestions > 0
       ? entryQuiz.questions[Math.min(entryQuizQuestionIndex, entryQuizTotalQuestions - 1)]
       : null
-  const hasMultipleChoiceOptions =
-    activeEntryQuestion?.questionType === 'mcq' && (activeEntryQuestion.options?.length ?? 0) >= 2
+  const hasMultipleChoiceOptions = Boolean(
+    activeEntryQuestion &&
+      (activeEntryQuestion.questionType === 'true_false' ||
+        (activeEntryQuestion.questionType === 'mcq' && (activeEntryQuestion.options?.length ?? 0) >= 2)),
+  )
   const activeEntryAnswer = activeEntryQuestion ? (entryQuizAnswers[activeEntryQuestion.id] ?? '') : ''
   const isLastEntryQuestion = entryQuizTotalQuestions > 0 && entryQuizQuestionIndex >= entryQuizTotalQuestions - 1
   const entryQuizProgressPercent =

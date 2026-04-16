@@ -85,7 +85,14 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
       const adaptiveMaterialContext = formatRelevantMaterialContext(
         `${effectiveTopic || getDisplayPathTitle(activePathTitle ?? '')} ${selectedTopic} Schwachstellen Training Uebung Aufgabe Berechnung`,
         materials,
-        { maxChunks: 6, maxChars: 3200 },
+        materials.length > 0
+          ? {
+              maxChunks: materials.length > 2 ? 10 : 7,
+              maxChars: materials.length > 2 ? 7200 : 5600,
+              denseChunks: true,
+              emphasizePersonalSources: true,
+            }
+          : { maxChunks: 6, maxChars: 3200 },
       )
 
       const request: ChatMessage = {
@@ -105,7 +112,8 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           adaptiveMaterialContext
             ? `Materialauszuege (Fragen und Erklaerungen hierauf beziehen):\n${adaptiveMaterialContext}`
             : 'Materialauszuege: keine — nutze realistische IT-Beispiele in Erklaerungen und Aufgaben.',
-          'Schema pro Kapitel: {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
+          'Fragetypen mischen: mcq, text, match und/oder true_false (expectedAnswer "Wahr" oder "Falsch").',
+          'Schema pro Kapitel (Beispiele): {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
           'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten).',
         ].join('\n\n'),
         createdAt: new Date().toISOString(),

@@ -1,7 +1,7 @@
 export type InteractiveQuizQuestion = {
   id: string
   prompt: string
-  questionType?: 'mcq' | 'text' | 'match'
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
   /** Zuordnung: links Begriffe, rechts passende Definitionen (Index i gehoert zusammen). */
   matchLeft?: string[]
   matchRight?: string[]
@@ -84,7 +84,8 @@ function parseStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
-function resolveMcqExpectedAnswer(rawExpected: string, options: string[]): string {
+/** MCQ: erwartete Antwort oft als Index (`0`/`"1"`); UI speichert den gewaehlten Optionstext. */
+export function resolveMcqExpectedAnswer(rawExpected: string, options: string[]): string {
   const expected = rawExpected.trim()
   if (!expected) {
     return ''
@@ -94,6 +95,17 @@ function resolveMcqExpectedAnswer(rawExpected: string, options: string[]): strin
     return options[index] ?? expected
   }
   return expected
+}
+
+/** JSON-Felder `expectedAnswer` / acceptableAnswers koennen Zahl oder String sein. */
+export function coerceQuizScalarToString(raw: unknown): string {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return String(raw)
+  }
+  if (typeof raw === 'string') {
+    return raw.trim()
+  }
+  return ''
 }
 
 function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
@@ -133,6 +145,46 @@ function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestio
       matchRight,
       expectedAnswer,
       acceptableAnswers,
+      hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
+      explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
+      evaluation: 'exact',
+    }
+  }
+
+  const rawQType = candidate.questionType ?? candidate.type
+  const wantsTrueFalse =
+    rawQType === 'true_false' ||
+    rawQType === 'boolean' ||
+    rawQType === 'tf' ||
+    rawQType === 'wahr_falsch'
+
+  if (wantsTrueFalse && prompt) {
+    const rawExpected = typeof candidate.expectedAnswer === 'string' ? candidate.expectedAnswer.trim() : ''
+    const lower = rawExpected.toLowerCase()
+    const truthy = new Set(['wahr', 'true', 't', 'ja', 'yes', '1', 'richtig', 'korrekt'])
+    const falsy = new Set(['falsch', 'false', 'f', 'nein', 'no', '0'])
+    let resolved: 'Wahr' | 'Falsch' | null = null
+    if (truthy.has(lower)) {
+      resolved = 'Wahr'
+    } else if (falsy.has(lower)) {
+      resolved = 'Falsch'
+    }
+    if (!resolved) {
+      return null
+    }
+    const acceptableAnswersTf = Array.isArray(candidate.acceptableAnswers)
+      ? candidate.acceptableAnswers
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    return {
+      id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
+      prompt,
+      questionType: 'true_false',
+      options: ['Wahr', 'Falsch'],
+      expectedAnswer: resolved,
+      acceptableAnswers: acceptableAnswersTf,
       hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
       explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
       evaluation: 'exact',

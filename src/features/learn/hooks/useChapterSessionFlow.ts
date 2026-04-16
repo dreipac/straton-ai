@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import { evaluateInteractiveAnswer } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession } from '../services/learn.persistence'
+import { chapterQuestionToInteractiveQuestion } from '../utils/learnPageHelpers'
 
 type UseChapterSessionFlowArgs = {
   effectiveChapterBlueprints: ChapterBlueprint[]
@@ -44,27 +45,15 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
       }
 
       let result: { isCorrect: boolean; feedback: string }
-      if (activeStep.questionType === 'mcq') {
-        result = evaluateInteractiveAnswer(answer, {
-          id: activeStep.id,
-          prompt: activeStep.prompt,
-          expectedAnswer: activeStep.expectedAnswer,
-          acceptableAnswers: activeStep.acceptableAnswers ?? [],
-          evaluation: activeStep.evaluation === 'contains' ? 'contains' : 'exact',
-          hint: activeStep.hint,
-          explanation: activeStep.explanation,
-        })
+      if (
+        activeStep.questionType === 'mcq' ||
+        activeStep.questionType === 'true_false' ||
+        activeStep.questionType === 'match'
+      ) {
+        result = evaluateInteractiveAnswer(answer, chapterQuestionToInteractiveQuestion(activeStep))
       } else {
         result = await evaluateQuizAnswerWithAi({
-          question: {
-            id: activeStep.id,
-            prompt: activeStep.prompt,
-            expectedAnswer: activeStep.expectedAnswer,
-            acceptableAnswers: activeStep.acceptableAnswers ?? [],
-            evaluation: activeStep.evaluation === 'contains' ? 'contains' : 'exact',
-            hint: activeStep.hint,
-            explanation: activeStep.explanation,
-          },
+          question: chapterQuestionToInteractiveQuestion(activeStep),
           userAnswer: answer,
         })
       }

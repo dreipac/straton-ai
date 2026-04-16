@@ -3,6 +3,10 @@ import type { UploadedMaterial } from '../services/learn.persistence'
 type RetrievalOptions = {
   maxChunks?: number
   maxChars?: number
+  /** Groessere Fenster + mehr Ueberlappung: mehr zusammenhaengender Kontext pro Ausschnitt. */
+  denseChunks?: boolean
+  /** Klarstellung fuer die KI: Inhalte aus den Dateien vor Generik bevorzugen. */
+  emphasizePersonalSources?: boolean
 }
 
 type MaterialChunk = {
@@ -165,10 +169,10 @@ function chunkParagraphs(text: string, maxChunkSize: number, overlap: number): s
   return out
 }
 
-function buildChunks(materials: UploadedMaterial[]): MaterialChunk[] {
+function buildChunks(materials: UploadedMaterial[], chunkMaxSize: number, overlap: number): MaterialChunk[] {
   const result: MaterialChunk[] = []
   for (const material of materials) {
-    for (const chunk of chunkParagraphs(material.excerpt, 720, 140)) {
+    for (const chunk of chunkParagraphs(material.excerpt, chunkMaxSize, overlap)) {
       result.push({
         materialName: material.name,
         content: chunk,
@@ -346,11 +350,13 @@ export function formatRelevantMaterialContext(
 ): string {
   const maxChunks = options?.maxChunks ?? 8
   const maxChars = options?.maxChars ?? 5000
+  const chunkMaxSize = options?.denseChunks ? 920 : 720
+  const chunkOverlap = options?.denseChunks ? 200 : 140
   if (!materials.length) {
     return ''
   }
 
-  const chunks = buildChunks(materials)
+  const chunks = buildChunks(materials, chunkMaxSize, chunkOverlap)
   if (chunks.length === 0) {
     return ''
   }
@@ -384,5 +390,51 @@ export function formatRelevantMaterialContext(
     totalChars += line.length
   }
 
-  return lines.join('\n\n')
+  const body = lines.join('\n\n')
+  if (!body) {
+    return ''
+  }
+  if (options?.emphasizePersonalSources) {
+    return [
+      'PERSOENLICHE UNTERLAGEN (hoechste Prioritaet):',
+      'Nutze Begriffe, Zahlen, Tabellen, Aufgabenstellungen und Beispiele aus den Auszuegen — nicht paraphrasieren, wenn der Originalwortlaut pruefbar ist.',
+      'Wenn der Auszug Uebungsaufgaben enthaelt: orientiere Fragen und Erklaerungen daran (gleiche oder leicht variierte Werte/Szenarien).',
+      'Vermeide generische Ersatzbeispiele, wenn der Auszug schon konkrete Inhalte liefert.',
+      '',
+      body,
+    ].join('\n')
+  }
+
+  return body
+}
+
+/**
+ * Kombiniert Kapitel-Umriss mit relevanten Rohauszuegen — fuer Lernkarten/Arbeitsblatt im Modus «personalisiert».
+ */
+export function mergeOutlineWithPersonalMaterialContext(
+  chapterOutline: string,
+  queryHint: string,
+  materials: UploadedMaterial[],
+): string {
+  const trimmedOutline = chapterOutline.trim()
+  if (!materials.length || !trimmedOutline) {
+    return trimmedOutline
+  }
+  const block = formatRelevantMaterialContext(queryHint, materials, {
+    maxChunks: 11,
+    maxChars: 7800,
+    denseChunks: true,
+    emphasizePersonalSources: true,
+  })
+  if (!block.trim()) {
+    return trimmedOutline
+  }
+  return [
+    block,
+    '',
+    '---',
+    '',
+    'KAPITEL-UMRISS (aus bereits generierten Lernschritten — mit den Auszuegen oben verknuepfen):',
+    trimmedOutline,
+  ].join('\n')
 }

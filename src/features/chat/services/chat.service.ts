@@ -833,6 +833,10 @@ export async function evaluateQuizAnswerWithAi(
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }
 
+  if (input.question.questionType === 'mcq' || input.question.questionType === 'true_false') {
+    return evaluateInteractiveAnswer(trimmedAnswer, input.question)
+  }
+
   if (!usesGatewayAi()) {
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }

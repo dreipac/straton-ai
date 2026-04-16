@@ -5,7 +5,12 @@ import type {
   ChapterStep,
   ChapterStepWithoutId,
 } from '../services/learn.persistence'
-import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
+import {
+  coerceQuizScalarToString,
+  resolveMcqExpectedAnswer,
+  type InteractiveQuizPayload,
+  type InteractiveQuizQuestion,
+} from '../../chat/utils/interactiveQuiz'
 
 export function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
@@ -102,11 +107,12 @@ export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
  */
 export const CHAPTER_LEARNING_FIDELITY_RULES = [
   'KAPITEL-INHALT (nicht nur Titel):',
+  'Wenn «Materialauszuege» oder «PERSOENLICHE UNTERLAGEN» im Prompt vorkommen: behandle sie als primaere Wahrheit — Begriffe, Zahlen, Tabellen und Aufgabenstellungen aus den Dateien vor generischen IT-Beispielen.',
   'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. Broadcast ermitteln, Praefixlaenge, konkrete Rechnung) — der Titel ist nur die Ueberschrift, nicht der einzige Lerninhalt.',
   'VERBOTEN bei question-Steps (prompt): Fragen, die nur den Kapiteltitel, "dieses Kapitel" oder "das Thema von Kapitel X" abfragen ohne Fachinhalt (z. B. "Worueber handelt dieses Kapitel?", "Was ist das Hauptthema?", "Nenne den Namen des Kapitels").',
   'PFLICHT bei jeder Frage: Der prompt enthaelt pruefbare Details — Begriffe, Zahlen, IP/CIDR, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem Fachgebiet. Mindestens zwei konkrete Anker (z. B. konkrete Adresse, "/24", "Subnetzmaske 255.255.255.0").',
   'Erklaerungs-Steps: Felder "content" und "bullets" liefern echte Erklaerung (Definition, Schrittfolge, Rechnung, Beispiel). VERBOTEN: nur Floskeln wie "In diesem Kapitel lernst du ..." ohne technische Substanz.',
-  'Mindestens die Haelfte der Fragen pro Kapitel bezieht sich auf die Materialauszuege und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind.',
+  'Mindestens die Haelfte der Fragen pro Kapitel bezieht sich auf die Materialauszuege und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind — unabhaengig vom Fragetyp (mcq, text, match, true_false).',
   'Jede Frage soll so formuliert sein, dass sie auch ohne Kenntnis des Kapiteltitels verstaendlich und beantwortbar ist (inhaltlich, nicht metakognitiv).',
 ].join('\n')
 
@@ -145,11 +151,37 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
     }
   }
 
-  const firstQuestion = quiz.questions[0]
-  if (!firstQuestion || firstQuestion.questionType !== 'mcq') {
+  const textCount = quiz.questions.filter((q) => q.questionType === 'text').length
+  const matchOrTfCount = quiz.questions.filter(
+    (q) => q.questionType === 'match' || q.questionType === 'true_false',
+  ).length
+  if (textCount < 1) {
     return {
       valid: false,
-      reason: 'Die erste Frage muss eine Multiple-Choice-Frage sein.',
+      reason: 'Der Einstiegstest braucht mindestens eine Freitext-Frage (questionType "text").',
+    }
+  }
+  if (matchOrTfCount < 1) {
+    return {
+      valid: false,
+      reason: 'Der Einstiegstest braucht mindestens eine Zuordnungs- (match) oder Wahr/Falsch-Frage (true_false).',
+    }
+  }
+
+  const firstQuestion = quiz.questions[0]
+  if (!firstQuestion || (firstQuestion.questionType !== 'mcq' && firstQuestion.questionType !== 'true_false')) {
+    return {
+      valid: false,
+      reason: 'Die erste Frage muss Multiple-Choice (mcq) oder Wahr/Falsch (true_false) sein.',
+    }
+  }
+  if (firstQuestion.questionType === 'mcq') {
+    const n = firstQuestion.options?.length ?? 0
+    if (n < 3 || n > 5) {
+      return {
+        valid: false,
+        reason: 'Die erste Frage (MCQ) muss 3-5 Antwortoptionen haben.',
+      }
     }
   }
 
@@ -166,6 +198,9 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
       }
       continue
     }
+    if (question.questionType === 'true_false') {
+      continue
+    }
     if (question.questionType !== 'mcq') {
       continue
     }
@@ -179,6 +214,64 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
   }
 
   return { valid: true, reason: '' }
+}
+
+/** Kapitelfrage fuer gemeinsame Auswertung mit {@link evaluateInteractiveAnswer}. */
+export function chapterQuestionToInteractiveQuestion(
+  step: Extract<ChapterStep, { type: 'question' }>,
+): InteractiveQuizQuestion {
+  if (step.questionType === 'match' && step.matchLeft && step.matchRight) {
+    return {
+      id: step.id,
+      prompt: step.prompt,
+      questionType: 'match',
+      matchLeft: step.matchLeft,
+      matchRight: step.matchRight,
+      expectedAnswer: step.expectedAnswer,
+      acceptableAnswers: step.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: step.hint,
+      explanation: step.explanation,
+    }
+  }
+  if (step.questionType === 'true_false') {
+    return {
+      id: step.id,
+      prompt: step.prompt,
+      questionType: 'true_false',
+      options: step.options ?? ['Wahr', 'Falsch'],
+      expectedAnswer: step.expectedAnswer,
+      acceptableAnswers: step.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: step.hint,
+      explanation: step.explanation,
+    }
+  }
+  if (step.questionType === 'mcq') {
+    const opts = step.options ?? []
+    return {
+      id: step.id,
+      prompt: step.prompt,
+      questionType: 'mcq',
+      options: step.options,
+      expectedAnswer: opts.length > 0 ? resolveMcqExpectedAnswer(step.expectedAnswer, opts) : step.expectedAnswer,
+      acceptableAnswers:
+        opts.length > 0 ? (step.acceptableAnswers ?? []).map((a) => resolveMcqExpectedAnswer(a, opts)) : step.acceptableAnswers ?? [],
+      evaluation: step.evaluation === 'contains' ? 'contains' : 'exact',
+      hint: step.hint,
+      explanation: step.explanation,
+    }
+  }
+  return {
+    id: step.id,
+    prompt: step.prompt,
+    questionType: 'text',
+    expectedAnswer: step.expectedAnswer,
+    acceptableAnswers: step.acceptableAnswers ?? [],
+    evaluation: step.evaluation === 'contains' ? 'contains' : 'exact',
+    hint: step.hint,
+    explanation: step.explanation,
+  }
 }
 
 export const DEFAULT_CHAPTER_SESSION: ChapterSession = {
@@ -312,34 +405,102 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                 ? stepCandidate.id.trim()
                 : `c${chapterIndex + 1}-s${stepIndex + 1}`
             if (type === 'question') {
-              const questionType = stepCandidate.questionType === 'text' ? 'text' : 'mcq'
               const prompt = typeof stepCandidate.prompt === 'string' ? stepCandidate.prompt.trim() : ''
               const hint = typeof stepCandidate.hint === 'string' ? stepCandidate.hint.trim() : undefined
               const explanation =
                 typeof stepCandidate.explanation === 'string' ? stepCandidate.explanation.trim() : undefined
-              const expectedAnswer =
-                typeof stepCandidate.expectedAnswer === 'string' ? stepCandidate.expectedAnswer.trim() : ''
               const acceptableAnswers = Array.isArray(stepCandidate.acceptableAnswers)
                 ? stepCandidate.acceptableAnswers
-                    .filter((value): value is string => typeof value === 'string')
-                    .map((value) => value.trim())
+                    .map((value) => coerceQuizScalarToString(value))
                     .filter(Boolean)
                     .slice(0, 8)
                 : []
               const evaluation = stepCandidate.evaluation === 'contains' ? 'contains' : 'exact'
 
+              const matchLeft = Array.isArray(stepCandidate.matchLeft)
+                ? stepCandidate.matchLeft
+                    .filter((value): value is string => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : []
+              const matchRight = Array.isArray(stepCandidate.matchRight)
+                ? stepCandidate.matchRight
+                    .filter((value): value is string => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : []
+              const wantsMatch =
+                stepCandidate.questionType === 'match' ||
+                (matchLeft.length >= 2 && matchLeft.length === matchRight.length && prompt.length > 0)
+
+              if (wantsMatch && matchLeft.length === matchRight.length && matchLeft.length >= 2 && prompt) {
+                const n = matchLeft.length
+                const canonicalExpected = Array.from({ length: n }, (_, i) => String(i)).join(',')
+                const expectedAnswer =
+                  typeof stepCandidate.expectedAnswer === 'string' && stepCandidate.expectedAnswer.trim()
+                    ? stepCandidate.expectedAnswer.trim()
+                    : canonicalExpected
+                return {
+                  id,
+                  type: 'question' as const,
+                  questionType: 'match' as const,
+                  prompt,
+                  matchLeft,
+                  matchRight,
+                  expectedAnswer,
+                  acceptableAnswers,
+                  evaluation: 'exact',
+                  hint,
+                  explanation,
+                } satisfies ChapterStep
+              }
+
+              const qtf =
+                stepCandidate.questionType === 'true_false' ||
+                stepCandidate.questionType === 'boolean' ||
+                stepCandidate.type === 'true_false'
+              const expectedTfRaw = coerceQuizScalarToString(stepCandidate.expectedAnswer)
+              if (qtf && prompt && expectedTfRaw) {
+                const lower = expectedTfRaw.toLowerCase()
+                const truthy = new Set(['wahr', 'true', 't', 'ja', 'yes', '1', 'richtig', 'korrekt'])
+                const falsy = new Set(['falsch', 'false', 'f', 'nein', 'no', '0'])
+                let norm: 'Wahr' | 'Falsch' | null = null
+                if (truthy.has(lower)) {
+                  norm = 'Wahr'
+                } else if (falsy.has(lower)) {
+                  norm = 'Falsch'
+                }
+                if (!norm) {
+                  return null
+                }
+                return {
+                  id,
+                  type: 'question' as const,
+                  questionType: 'true_false' as const,
+                  prompt,
+                  options: ['Wahr', 'Falsch'],
+                  expectedAnswer: norm,
+                  acceptableAnswers,
+                  evaluation: 'exact',
+                  hint,
+                  explanation,
+                } satisfies ChapterStep
+              }
+
+              const expectedAnswer = coerceQuizScalarToString(stepCandidate.expectedAnswer)
               if (!prompt || !expectedAnswer) {
                 return null
               }
 
-              if (questionType === 'mcq') {
-                const options = Array.isArray(stepCandidate.options)
-                  ? stepCandidate.options
-                      .filter((value): value is string => typeof value === 'string')
-                      .map((value) => value.trim())
-                      .filter(Boolean)
-                      .slice(0, 6)
-                  : []
+              const declaredMcq = stepCandidate.questionType === 'mcq'
+              const options = Array.isArray(stepCandidate.options)
+                ? stepCandidate.options
+                    .filter((value): value is string => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .slice(0, 6)
+                : []
+              if (declaredMcq || options.length >= 2) {
                 if (options.length < 2) {
                   return null
                 }
@@ -349,8 +510,8 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   questionType: 'mcq' as const,
                   prompt,
                   options,
-                  expectedAnswer,
-                  acceptableAnswers,
+                  expectedAnswer: resolveMcqExpectedAnswer(expectedAnswer, options),
+                  acceptableAnswers: acceptableAnswers?.map((a) => resolveMcqExpectedAnswer(a, options)),
                   evaluation,
                   hint,
                   explanation,

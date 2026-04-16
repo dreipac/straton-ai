@@ -89,8 +89,10 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
 
     const previewText =
       formatRelevantMaterialContext('Thema aus Unterlagen erkennen', materials, {
-        maxChunks: 8,
-        maxChars: 5200,
+        maxChunks: 10,
+        maxChars: 6800,
+        denseChunks: true,
+        emphasizePersonalSources: true,
       }) || '(Kein auswertbarer Text gefunden)'
 
     const userMessage: ChatMessage = {

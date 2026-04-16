@@ -8,7 +8,10 @@ import infoIcon from '../../../assets/icons/info.svg'
 import newMessageIcon from '../../../assets/icons/newMessage.svg'
 import { sendLearnChapterHelpMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
+import { isMatchAnswerComplete } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterStep } from '../services/learn.persistence'
+import { chapterQuestionToInteractiveQuestion } from '../utils/learnPageHelpers'
+import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
 
 function getPriorExplanationContext(blueprint: ChapterBlueprint | null, currentStep: ChapterStep | null): string | null {
   if (!blueprint?.steps.length || !currentStep || currentStep.type !== 'question') {
@@ -55,10 +58,26 @@ function buildLearnChapterHelpContext(
     return lines.join('\n\n')
   }
   if (step.type === 'question') {
-    lines.push(`Aktueller Schritt: Frage (${step.questionType === 'mcq' ? 'Multiple Choice' : 'Freitext'})`)
+    const kind =
+      step.questionType === 'mcq'
+        ? 'Multiple Choice'
+        : step.questionType === 'match'
+          ? 'Zuordnung'
+          : step.questionType === 'true_false'
+            ? 'Wahr/Falsch'
+            : 'Freitext'
+    lines.push(`Aktueller Schritt: Frage (${kind})`)
     lines.push(`Frage: ${step.prompt}`)
     if (step.questionType === 'mcq' && step.options && step.options.length > 0) {
       lines.push(`Optionen:\n${step.options.map((o) => `• ${o}`).join('\n')}`)
+    }
+    if (step.questionType === 'true_false' && step.options && step.options.length > 0) {
+      lines.push(`Optionen:\n${step.options.map((o) => `• ${o}`).join('\n')}`)
+    }
+    if (step.questionType === 'match' && step.matchLeft?.length && step.matchRight?.length) {
+      lines.push(
+        `Zuordnung links:\n${step.matchLeft.map((o) => `• ${o}`).join('\n')}\nrechts:\n${step.matchRight.map((o) => `• ${o}`).join('\n')}`,
+      )
     }
   } else {
     lines.push(`Aktueller Schritt: ${step.type === 'recap' ? 'Zusammenfassung' : 'Erklärung'}`)
@@ -90,7 +109,39 @@ function buildQuestionInfoPanelText(blueprint: ChapterBlueprint | null, step: Ch
   if (step.questionType === 'mcq') {
     return 'Wähle die passende Option. Wenn du unsicher bist: schliesse zuerst eindeutig falsche Antworten aus.'
   }
+  if (step.questionType === 'true_false') {
+    return 'Entscheide dich für Wahr oder Falsch. Achte auf Formulierungen wie «immer», «nie» — oft sind sie ein Hinweis.'
+  }
+  if (step.questionType === 'match') {
+    return 'Ordne jeden Begriff links der passenden Spalte rechts zu. Ziehe die Karten per Drag-and-Drop.'
+  }
   return 'Formuliere eine kurze, sachliche Antwort direkt zur Frage. Achte auf Fachbegriffe und — wo nötig — auf Format und Einheit (z. B. bei Adressen oder Zahlen).'
+}
+
+function chapterQuestionKindLabel(step: ChapterStep): string {
+  if (step.type !== 'question') {
+    return ''
+  }
+  if (step.questionType === 'mcq') {
+    return 'Interaktive Multiple-Choice Frage'
+  }
+  if (step.questionType === 'true_false') {
+    return 'Wahr oder Falsch'
+  }
+  if (step.questionType === 'match') {
+    return 'Zuordnungsaufgabe'
+  }
+  return 'Interaktive Freitext Frage'
+}
+
+function canSubmitChapterQuestionAnswer(step: ChapterStep | null, answer: string): boolean {
+  if (!step || step.type !== 'question') {
+    return false
+  }
+  if (step.questionType === 'match' && step.matchLeft && step.matchRight) {
+    return isMatchAnswerComplete(chapterQuestionToInteractiveQuestion(step), answer)
+  }
+  return answer.trim().length > 0
 }
 
 export type LearnChapterModalProps = {
@@ -358,11 +409,21 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
             <p className="learn-muted">Keine Schritte verfuegbar.</p>
           ) : activeChapterStep.type === 'question' ? (
             <article className="learn-chapter-step-card">
-              <p className="learn-chapter-step-label">
-                {activeChapterStep.questionType === 'mcq' ? 'Interaktive Multiple-Choice Frage' : 'Interaktive Freitext Frage'}
-              </p>
+              <p className="learn-chapter-step-label">{chapterQuestionKindLabel(activeChapterStep)}</p>
               <h3>{activeChapterStep.prompt}</h3>
-              {activeChapterStep.questionType === 'mcq' && (activeChapterStep.options?.length ?? 0) > 0 ? (
+              {activeChapterStep.questionType === 'match' &&
+              activeChapterStep.matchLeft &&
+              activeChapterStep.matchRight ? (
+                <LearnEntryQuizMatch
+                  questionId={activeChapterStep.id}
+                  matchLeft={activeChapterStep.matchLeft}
+                  matchRight={activeChapterStep.matchRight}
+                  value={currentChapterAnswer}
+                  disabled={isEvaluatingChapterStep}
+                  onChange={(next) => onChapterAnswerChange(activeChapterStep.id, next)}
+                />
+              ) : (activeChapterStep.questionType === 'mcq' || activeChapterStep.questionType === 'true_false') &&
+                (activeChapterStep.options?.length ?? 0) > 0 ? (
                 <div className="learn-entry-test-options" role="radiogroup" aria-label="Antwortoptionen Kapitel">
                   {activeChapterStep.options?.map((option) => {
                     const isSelected = currentChapterAnswer.trim() === option
@@ -493,7 +554,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                 onClick={() => {
                   void onEvaluateChapterQuestion()
                 }}
-                disabled={!currentChapterAnswer.trim() || isEvaluatingChapterStep}
+                disabled={!canSubmitChapterQuestionAnswer(activeChapterStep, currentChapterAnswer) || isEvaluatingChapterStep}
               >
                 {isEvaluatingChapterStep ? 'Wird bewertet...' : 'Antwort pruefen'}
               </PrimaryButton>

@@ -47,7 +47,10 @@ import {
   getDisplayPathTitle,
   validateGeneratedEntryQuiz,
 } from '../features/learn/utils/learnPageHelpers'
-import { formatRelevantMaterialContext } from '../features/learn/utils/ragLite'
+import {
+  formatRelevantMaterialContext,
+  mergeOutlineWithPersonalMaterialContext,
+} from '../features/learn/utils/ragLite'
 import {
   buildLearnMaterialOutlineFromBlueprints,
   type LearnMaterialPersonalizationMode,
@@ -702,7 +705,14 @@ export function LearnPage() {
             ' Uebung Aufgabe Berechnung Teilaufgabe Beispiel'
           ).trim(),
           materials,
-          { maxChunks: 10, maxChars: 6500 },
+          materials.length > 0
+            ? {
+                maxChunks: materials.length > 2 ? 14 : 11,
+                maxChars: materials.length > 2 ? 10_000 : 8200,
+                denseChunks: true,
+                emphasizePersonalSources: true,
+              }
+            : { maxChunks: 10, maxChars: 6500 },
         )
 
         let parsedQuiz: InteractiveQuizPayload | null = null
@@ -730,10 +740,13 @@ export function LearnPage() {
               'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
               'Formuliere die Fragen so, dass bei vorhandenen Dateien klar erkennbar ist, ob der Lernende den Auszug verstanden hat (Zuordnen, Begriffe, Kurztext, konkrete Rechen- oder Zuordnungsaufgaben wie im Blatt).',
               'Der Test muss als interaktiver Quiz-JSON-Block mit mindestens 5 Fragen geliefert werden.',
-              'Die ERSTE Frage MUSS Multiple-Choice sein.',
-              'Insgesamt muessen mindestens 2 Multiple-Choice-Fragen enthalten sein.',
+              'Die ERSTE Frage muss Multiple-Choice (mcq) ODER Wahr/Falsch (true_false) sein — leichter Einstieg.',
+              'Insgesamt mindestens 2 Multiple-Choice-Fragen (mcq), jede mit 3-5 Optionen.',
+              'Mindestens 1 Freitext-Frage (questionType "text", evaluation "exact" oder "contains").',
+              'Mindestens 1 Zuordnung (match) ODER 1 Wahr/Falsch (true_false) zusaetzlich zu den MCQs.',
+              'Wahr/Falsch: questionType "true_false", expectedAnswer exakt "Wahr" oder "Falsch" (oder synonym true/false im JSON, wird normalisiert), optional options ["Wahr","Falsch"].',
               'Jede Multiple-Choice-Frage MUSS 3-5 Optionen enthalten.',
-              'Nutze ein Mischformat aus Multiple-Choice, Freitext und optional Zuordnung (Drag-and-Drop im UI).',
+              'Mischformat: mcq, text, match und true_false sinnvoll verteilen (nicht nur ein Typ).',
               'Fuer Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
               'Fuer Freitext-Fragen setze questionType auf "text".',
               'Fuer Zuordnungsfragen setze questionType auf "match", gib zwei gleich lange Arrays "matchLeft" (z. B. Begriffe) und "matchRight" (Definitionen); die richtige Zuordnung ist Index i zu Index i (expectedAnswer z. B. "0,1,2" fuer drei Paare oder weglassen).',
@@ -960,13 +973,21 @@ export function LearnPage() {
       effectiveChapterBlueprints,
       chapterSession,
     )
+    const outlineForApi =
+      personalization === 'personalized' && materials.length > 0
+        ? mergeOutlineWithPersonalMaterialContext(
+            outline,
+            `${effectiveTopic} ${selectedTopic} Lernkarten Originalunterlagen`,
+            materials,
+          )
+        : outline
     setLearnFlashcards([])
     setFlashcardsError(null)
     setIsFlashcardsModalMounted(true)
     window.requestAnimationFrame(() => {
       setIsFlashcardsModalVisible(true)
     })
-    if (!outline.trim()) {
+    if (!outlineForApi.trim()) {
       setFlashcardsError('Kein Kapiteltext vorhanden.')
       return
     }
@@ -980,7 +1001,7 @@ export function LearnPage() {
 
     setIsGeneratingFlashcards(true)
     try {
-      const cards = await generateLearnFlashcards(outline)
+      const cards = await generateLearnFlashcards(outlineForApi)
       setLearnFlashcards(cards)
       const pathId = activePathIdRef.current
       if (pathId) {
@@ -1005,9 +1026,12 @@ export function LearnPage() {
     chapterBlueprints,
     chapterSession,
     effectiveChapterBlueprints,
+    effectiveTopic,
     learningPaths,
+    materials,
     profile?.subscription_plans?.max_images,
     profile?.subscription_usages?.used_images,
+    selectedTopic,
     user,
   ],
  )
@@ -1036,13 +1060,21 @@ export function LearnPage() {
       effectiveChapterBlueprints,
       chapterSession,
     )
+    const outlineForApi =
+      personalization === 'personalized' && materials.length > 0
+        ? mergeOutlineWithPersonalMaterialContext(
+            outline,
+            `${effectiveTopic} ${selectedTopic} Arbeitsblatt Originalunterlagen`,
+            materials,
+          )
+        : outline
     setLearnWorksheets([])
     setWorksheetError(null)
     setIsWorksheetModalMounted(true)
     window.requestAnimationFrame(() => {
       setIsWorksheetModalVisible(true)
     })
-    if (!outline.trim()) {
+    if (!outlineForApi.trim()) {
       setWorksheetError('Kein Kapiteltext vorhanden.')
       return
     }
@@ -1056,7 +1088,7 @@ export function LearnPage() {
 
     setIsGeneratingWorksheet(true)
     try {
-      const items = await generateLearnWorksheet(outline)
+      const items = await generateLearnWorksheet(outlineForApi)
       setLearnWorksheets(items)
       const pathId = activePathIdRef.current
       if (pathId) {
@@ -1081,9 +1113,12 @@ export function LearnPage() {
     chapterBlueprints,
     chapterSession,
     effectiveChapterBlueprints,
+    effectiveTopic,
     learningPaths,
+    materials,
     profile?.subscription_plans?.max_images,
     profile?.subscription_usages?.used_images,
+    selectedTopic,
     user,
   ],
   )

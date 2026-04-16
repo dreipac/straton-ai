@@ -186,7 +186,14 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             ' Uebung Aufgabe Berechnung Teilaufgabe'
           ).trim(),
           materials,
-          { maxChunks: 8, maxChars: 4200 },
+          materials.length > 0
+            ? {
+                maxChunks: materials.length > 2 ? 12 : 9,
+                maxChars: materials.length > 2 ? 9000 : 7200,
+                denseChunks: true,
+                emphasizePersonalSources: true,
+              }
+            : { maxChunks: 8, maxChars: 4200 },
         )
 
         const chapterRequest: ChatMessage = {
@@ -201,15 +208,15 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
             'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
             'Erklaerungs-Steps (type explanation): im Feld "content" immer 2-5 Saetze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" koennen 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
-            'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (mcq/text) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
+            'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (alle Typen: mcq, text, match, true_false) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
             WORKSHEET_EXERCISE_FIDELITY_RULES,
             CHAPTER_LEARNING_FIDELITY_RULES,
             'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
             'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
-            'Fragetypen mischen: text und mcq.',
+            'Fragetypen mischen: mindestens je einige mcq, text, und zusaetzlich match (Zuordnung) und/oder true_false (Wahr/Falsch, expectedAnswer "Wahr" oder "Falsch") pro Kapitel — nicht nur mcq+text.',
             'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
-            'Schema pro Kapitel: {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["..."],"expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
+            'Schema pro Kapitel (Beispiele): {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Wahr","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["A","B"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
             'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten). Feld "explanation" optional: kurze Begruendung zur erwarteten Antwort.',
             `Auswertungsgrundlage:\n${evaluationSummary}`,
             chapterMaterialContext
