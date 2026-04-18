@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import loginPicture from '../assets/png/picture-1.png'
 import { LoginForm } from '../features/auth/components/LoginForm'
@@ -7,6 +8,58 @@ const loginLogoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
 
 export function LoginPage() {
   const { user, profile } = useAuth()
+
+  /* iOS/PWA: Seite nicht wegrutschen / grauen Hintergrund zeigen; bei Tastatur-Fokus wieder normal */
+  useEffect(() => {
+    if (user) {
+      return undefined
+    }
+
+    const html = document.documentElement
+    let blurTimeout: ReturnType<typeof setTimeout> | null = null
+
+    const clearBlurTimeout = () => {
+      if (blurTimeout != null) {
+        clearTimeout(blurTimeout)
+        blurTimeout = null
+      }
+    }
+
+    const setKeyboardActive = (active: boolean) => {
+      html.classList.toggle('auth-login-keyboard-active', active)
+    }
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const el = event.target
+      if (el instanceof HTMLElement && el.matches('input, textarea, select')) {
+        clearBlurTimeout()
+        setKeyboardActive(true)
+      }
+    }
+
+    const handleFocusOut = () => {
+      clearBlurTimeout()
+      blurTimeout = window.setTimeout(() => {
+        blurTimeout = null
+        const active = document.activeElement
+        if (!(active instanceof HTMLElement && active.matches('input, textarea, select'))) {
+          setKeyboardActive(false)
+        }
+      }, 120)
+    }
+
+    html.classList.add('auth-login-scroll-lock')
+
+    document.addEventListener('focusin', handleFocusIn)
+    document.addEventListener('focusout', handleFocusOut)
+
+    return () => {
+      clearBlurTimeout()
+      document.removeEventListener('focusin', handleFocusIn)
+      document.removeEventListener('focusout', handleFocusOut)
+      html.classList.remove('auth-login-scroll-lock', 'auth-login-keyboard-active')
+    }
+  }, [user])
 
   if (user && profile?.must_change_password_on_first_login) {
     return <Navigate to="/chat" replace />

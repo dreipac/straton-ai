@@ -526,3 +526,56 @@
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
   }
 }
+
+/* iOS/PWA Login: weniger Rubber-Band; gleicher Grundton wie Login; Scroll im #root.
+   Bei Fokus in Eingabefeldern (Tastatur): html wieder normal, damit Viewport/iOS mitscrollen kann. */
+html.auth-login-scroll-lock {
+  overscroll-behavior: none;
+  background-color: #11161d;
+}
+
+html.auth-login-scroll-lock body {
+  overscroll-behavior: none;
+  background-color: #11161d;
+}
+
+html.auth-login-scroll-lock:not(.auth-login-keyboard-active) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.auth-login-scroll-lock:not(.auth-login-keyboard-active) body {
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
+
+html.auth-login-scroll-lock:not(.auth-login-keyboard-active) #root {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+html.auth-login-scroll-lock.auth-login-keyboard-active {
+  position: static;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+html.auth-login-scroll-lock.auth-login-keyboard-active body {
+  overflow: auto;
+  height: auto;
+  min-height: 100dvh;
+}
+
+html.auth-login-scroll-lock.auth-login-keyboard-active #root {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
