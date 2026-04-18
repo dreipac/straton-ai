@@ -1102,9 +1102,9 @@
 }
 
 .chat-slash-menu.chat-model-picker-dropdown.thread-menu {
-  /* Slash „/“: nach oben — Modellwahl: nach unten unter den Trigger */
-  top: calc(100% + 0.35rem);
-  bottom: auto;
+  /* Modellwahl wie Slash-Menü: nach oben über den Trigger */
+  bottom: calc(100% + 0.35rem);
+  top: auto;
   left: 0;
   min-width: min(12.5rem, calc(100vw - 2rem));
   max-height: min(50vh, 15rem);

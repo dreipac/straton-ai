@@ -16,6 +16,11 @@ export type ActionBottomSheetItem = {
   iconSrc?: string
   variant?: 'default' | 'danger'
   onClick: () => void
+  /**
+   * false = nach Klick kein animiertes Schliessen (Sheet bleibt offen bis Parent es abklemmt).
+   * Standard: animiert schliessen wie beim Backdrop.
+   */
+  closeSheetAfter?: boolean
 }
 
 type ActionBottomSheetProps = {
@@ -71,7 +76,20 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
     }, sheetExitMs)
   }, [onClose, sheetExitMs])
 
+  /** `isShown` bei jedem Öffnen neu triggern (Enter-Animation); bei Schließen zurücksetzen — sonst bleibt das Sheet nach erneutem Öffnen unsichtbar (leere deps lief nur beim ersten Mount). */
   useLayoutEffect(() => {
+    if (!open) {
+      setIsShown(false)
+      closingRef.current = false
+      if (exitTimerRef.current !== null) {
+        window.clearTimeout(exitTimerRef.current)
+        exitTimerRef.current = null
+      }
+      return
+    }
+
+    closingRef.current = false
+    setIsShown(false)
     if (
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -81,7 +99,7 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
     }
     const id = requestAnimationFrame(() => setIsShown(true))
     return () => cancelAnimationFrame(id)
-  }, [])
+  }, [open])
 
   useEffect(() => {
     return () => {
@@ -187,6 +205,9 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
                   startActionBreath(e.currentTarget)
                 }
                 action.onClick()
+                if (action.closeSheetAfter !== false) {
+                  requestClose()
+                }
               }}
             >
               {action.iconSrc ? (
