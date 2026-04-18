@@ -211,7 +211,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (alle Typen: mcq, text, match, true_false) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
             WORKSHEET_EXERCISE_FIDELITY_RULES,
             CHAPTER_LEARNING_FIDELITY_RULES,
-            'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches IT-Szenario mit kurzer Loesungsidee).',
+            'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches KV-/Büro-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
             'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
             'Fragetypen mischen: mindestens je einige mcq, text, und zusaetzlich match (Zuordnung) und/oder true_false (Wahr/Falsch, expectedAnswer "Wahr" oder "Falsch") pro Kapitel — nicht nur mcq+text.',
@@ -221,7 +221,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             `Auswertungsgrundlage:\n${evaluationSummary}`,
             chapterMaterialContext
               ? 'Materialauszuege (Pflichtbezug fuer Erklaerungen und mindestens Haelfte der Fragen):\n' + chapterMaterialContext
-              : 'Materialauszuege: keine — nutze dann realistische IT-Praxisbeispiele in Erklaerungen und Aufgaben.',
+              : 'Materialauszuege: keine — nutze dann realistische KV-Praxisbeispiele in Erklaerungen und Aufgaben.',
           ].join('\n\n'),
           createdAt: new Date().toISOString(),
         }

@@ -14,6 +14,8 @@ import {
   EXCEL_SPEC_CACHE_EPOCH,
 } from '../constants/excelExportPrompt'
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
+import type { ChatComposerModelId } from '../constants/chatComposerModels'
+import { getChatComposerModelMeta } from '../constants/chatComposerModels'
 import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 
@@ -48,6 +50,10 @@ export type SendMessageOptions = {
    * Edge Function: sonst budgetbasierte Standardliste.
    */
   openAiModels?: string[]
+  /**
+   * Hauptchat: gewaehltes Modell (GPT vs. Claude). Wird bei `useLearnPathModel` ignoriert.
+   */
+  mainChatModelId?: ChatComposerModelId
 }
 
 type EvaluateQuizAnswerInput = {
@@ -272,16 +278,64 @@ function providerForLearnPath(): 'openai' {
   return 'openai'
 }
 
+function buildChatCompletionRequestBody(
+  messages: ChatMessage[],
+  options?: SendMessageOptions,
+): Record<string, unknown> {
+  const gatewayMessages = buildGatewayMessages(messages, options)
+  if (options?.useLearnPathModel) {
+    const body: Record<string, unknown> = {
+      provider: providerForLearnPath(),
+      messages: gatewayMessages,
+    }
+    if (options.openAiModels?.length) {
+      body.openAiModels = options.openAiModels
+    }
+    return body
+  }
+
+  const meta = getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+  const body: Record<string, unknown> = {
+    provider: meta.provider,
+    messages: gatewayMessages,
+  }
+  if (meta.provider === 'openai' && meta.openAiModels?.length) {
+    body.openAiModels = [...meta.openAiModels]
+  }
+  if (meta.provider === 'anthropic' && meta.anthropicModel) {
+    body.anthropicModel = meta.anthropicModel
+  }
+  return body
+}
+
+const SIMULATED_STREAM_MS = 14
+const SIMULATED_STREAM_STEP = 36
+
+async function simulateAssistantTextStream(
+  fullText: string,
+  onDelta: (accumulated: string) => void,
+): Promise<void> {
+  const text = fullText.trim()
+  if (!text.length) {
+    onDelta('')
+    return
+  }
+  if (text.length <= SIMULATED_STREAM_STEP) {
+    onDelta(text)
+    return
+  }
+  for (let end = SIMULATED_STREAM_STEP; end < text.length; end += SIMULATED_STREAM_STEP) {
+    onDelta(text.slice(0, end))
+    await new Promise((r) => setTimeout(r, SIMULATED_STREAM_MS))
+  }
+  onDelta(text)
+}
+
 async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {
   if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
-    const provider = options?.useLearnPathModel ? providerForLearnPath() : providerForMainChat()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
-      body: {
-        provider,
-        messages: buildGatewayMessages(messages, options),
-        ...(options?.openAiModels?.length ? { openAiModels: options.openAiModels } : {}),
-      },
+      body: buildChatCompletionRequestBody(messages, options),
     })
 
     if (error) {
@@ -438,6 +492,13 @@ export async function sendMessageStreaming(
     return content.trim()
   }
 
+  const mainMeta = getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
+  if (mainMeta.provider === 'anthropic') {
+    const content = await getAssistantReply(messages, options)
+    await simulateAssistantTextStream(content, onDelta)
+    return content.trim()
+  }
+
   const supabase = getSupabaseClient()
   const {
     data: { session },
@@ -457,8 +518,7 @@ export async function sendMessageStreaming(
       apikey: env.supabaseAnonKey,
     },
     body: JSON.stringify({
-      provider: providerForMainChat(),
-      messages: buildGatewayMessages(messages, options),
+      ...buildChatCompletionRequestBody(messages, options),
       stream: true,
     }),
   })

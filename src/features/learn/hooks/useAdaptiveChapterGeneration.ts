@@ -107,11 +107,11 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           'Nutze vorhandene Unterlagen als primaere Quelle: mindestens die Haelfte der Fragen soll Inhalte aus den Materialauszuegen aufgreifen (Begriffe, Zusammenhaenge, Zuordnungen).',
           WORKSHEET_EXERCISE_FIDELITY_RULES,
           CHAPTER_LEARNING_FIDELITY_RULES,
-          `Thema: ${selectedTopic || effectiveTopic || 'Informatik Grundlagen'}`,
+          `Thema: ${selectedTopic || effectiveTopic || 'KV Grundlagen'}`,
           `Schwachstellen aus bisherigem Lernverlauf:\n${weaknessSummary}`,
           adaptiveMaterialContext
             ? `Materialauszuege (Fragen und Erklaerungen hierauf beziehen):\n${adaptiveMaterialContext}`
-            : 'Materialauszuege: keine — nutze realistische IT-Beispiele in Erklaerungen und Aufgaben.',
+            : 'Materialauszuege: keine — nutze realistische KV-Beispiele (kaufmaennischer Alltag) in Erklaerungen und Aufgaben.',
           'Fragetypen mischen: mcq, text, match und/oder true_false (expectedAnswer "Wahr" oder "Falsch").',
           'Schema pro Kapitel (Beispiele): {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
           'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten).',

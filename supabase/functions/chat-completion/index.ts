@@ -175,6 +175,21 @@ function sanitizeOpenAiModelsOverride(value: unknown): string[] | null {
   return out.length > 0 ? out : null
 }
 
+/** Einzelnes Claude-Modell (Chat); z. B. aus Composer-Auswahl. */
+function sanitizeAnthropicModelOverride(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const t = value.trim()
+  if (t.length === 0 || t.length > 120) {
+    return null
+  }
+  if (!/^claude-[a-z0-9._-]+$/i.test(t)) {
+    return null
+  }
+  return t
+}
+
 function normalizeMode(
   value: unknown,
 ):
@@ -770,6 +785,74 @@ async function callAnthropic(
   return { text: content, model: usedModel, inputTokens, outputTokens }
 }
 
+function uniqueAnthropicModelIds(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of ids) {
+    const t = raw.trim()
+    if (!t || seen.has(t)) {
+      continue
+    }
+    seen.add(t)
+    out.push(t)
+  }
+  return out
+}
+
+/** Reihenfolge fuer Chat: gewuenschtes Modell, dann Opus-Fallback, dann ANTHROPIC_MODEL / Sonnet. */
+function buildAnthropicChatModelChain(override: string | null): string[] {
+  const fallback = anthropicLearnModel()
+  const raw = typeof override === 'string' ? override.trim() : ''
+  if (!raw) {
+    return [fallback]
+  }
+  const chain: string[] = [raw]
+  const lower = raw.toLowerCase()
+  if (lower.includes('opus')) {
+    chain.push('claude-opus-4-6')
+  }
+  chain.push(fallback)
+  return uniqueAnthropicModelIds(chain)
+}
+
+function isRetryableAnthropicChatModelError(message: string): boolean {
+  const m = message.toLowerCase()
+  if (m.includes('rate-limit') || m.includes('429') || m.includes('zu viele tokens')) {
+    return false
+  }
+  return (
+    m.includes('404') ||
+    m.includes('not_found') ||
+    m.includes('does not exist') ||
+    m.includes('invalid model') ||
+    m.includes('model_id') ||
+    (m.includes('400') && m.includes('model'))
+  )
+}
+
+async function callAnthropicFirstSuccessful(
+  messages: InputMessage[],
+  apiKey: string,
+  modelsToTry: string[],
+  maxTokens: number,
+): Promise<AiCallResult> {
+  const chain = uniqueAnthropicModelIds(modelsToTry.length > 0 ? modelsToTry : [anthropicLearnModel()])
+  let lastErr: Error | null = null
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i]!
+    try {
+      return await callAnthropic(messages, apiKey, { model, maxTokens })
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      const last = i === chain.length - 1
+      if (last || !isRetryableAnthropicChatModelError(lastErr.message)) {
+        throw lastErr
+      }
+    }
+  }
+  throw lastErr ?? new Error('Anthropic: Modellkette fehlgeschlagen.')
+}
+
 async function evaluateQuizWithAi(
   provider: Provider,
   payload: QuizEvaluationPayload,
@@ -990,7 +1073,7 @@ async function generateFlashcardsWithAi(
     {
       role: 'system',
       content: [
-        'Du erstellst Lernkarten (Karteikarten) fuer Berufsschule/EFZ Informatik.',
+        'Du erstellst Lernkarten (Karteikarten) fuer Berufsfachschule EFZ — kaufmaennischer Bereich (KV-Lehre).',
         'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
         'Antworte ausschliesslich mit einem JSON-Array, kein Text davor oder danach.',
         'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Saetze)"}]',
@@ -1144,9 +1227,12 @@ serve(async (req) => {
       stream?: unknown
       /** Optional: OpenAI-Modellreihenfolge (Chat); sonst Budget-basierte Liste. */
       openAiModels?: unknown
+      /** Optional: Claude-Modell-ID fuer Chat (Composer). */
+      anthropicModel?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     const openAiModels = openAiModelsOverride ?? openAiModelsFromCost
+    const anthropicModelChat = sanitizeAnthropicModelOverride(body.anthropicModel)
     let mode = normalizeMode(body.mode)
     const outlinePreview = chapterOutlineFromBody(body.payload)
     // Ohne gueltigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
@@ -1246,7 +1332,12 @@ serve(async (req) => {
 
     const chatUsage =
       provider === 'anthropic'
-        ? await callAnthropic(messages, apiKey, { maxTokens: chatMaxTokens ?? 8192 })
+        ? await callAnthropicFirstSuccessful(
+            messages,
+            apiKey,
+            buildAnthropicChatModelChain(anthropicModelChat),
+            chatMaxTokens ?? 8192,
+          )
         : await callOpenAi(messages, apiKey, openAiModels)
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)

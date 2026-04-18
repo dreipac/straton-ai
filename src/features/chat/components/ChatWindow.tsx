@@ -21,6 +21,8 @@ import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../../learn/utils/documentParser'
+import type { ChatComposerModelId } from '../constants/chatComposerModels'
+import { ChatComposerModelPicker } from './ChatComposerModelPicker'
 
 type ChatWindowProps = {
   /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
@@ -30,6 +32,8 @@ type ChatWindowProps = {
   error: string | null
   greetingName: string
   tokenLimitReached?: boolean
+  composerModelId: ChatComposerModelId
+  onComposerModelChange: (id: ChatComposerModelId) => void
   onSendMessage: (content: string) => Promise<void>
 }
 
@@ -55,6 +59,8 @@ export function ChatWindow({
   error,
   greetingName,
   tokenLimitReached = false,
+  composerModelId,
+  onComposerModelChange,
   onSendMessage,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState('')
@@ -604,6 +610,11 @@ export function ChatWindow({
               >
                 <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
               </button>
+              <ChatComposerModelPicker
+                value={composerModelId}
+                onChange={onComposerModelChange}
+                disabled={isSending || tokenLimitReached}
+              />
               {excelCommandSelected ? (
                 <button
                   type="button"
@@ -900,6 +911,11 @@ export function ChatWindow({
           >
             <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
           </button>
+          <ChatComposerModelPicker
+            value={composerModelId}
+            onChange={onComposerModelChange}
+            disabled={isSending || tokenLimitReached}
+          />
           {excelCommandSelected ? (
             <button
               type="button"

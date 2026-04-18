@@ -96,10 +96,10 @@ export function getMaterialTypeBadge(filename: string): { label: string; variant
 
 /** Regeln fuer Einstiegstest / Kapitel: Fragen an echte Übungsinhalte koppeln, nicht an generische Theorie. */
 export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
-  'UEBUNGS-TREUE (wenn die Dateiauszuege Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. IP/CIDR), Tabellen oder nummerierte Teilfragen enthalten):',
-  'Die Fragen und Aufgaben MUESSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Netze wo moeglich, gleiche Art von Teilaufgabe (z. B. Subnetzmaske berechnen statt "Hauptfunktion von Subnetting").',
+  'UEBUNGS-TREUE (wenn die Dateiauszuege Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. MWSt-Satz, Betraege, Konten, Rabatte), Tabellen oder nummerierte Teilfragen enthalten):',
+  'Die Fragen und Aufgaben MUESSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Betraege wo moeglich, gleiche Art von Teilaufgabe (z. B. MWSt berechnen statt "Was ist die Hauptaufgabe der Buchhaltung").',
   'VERBOTEN in diesem Fall: reine Definitions- oder "Was ist die Hauptfunktion von ..."-Fragen, wenn im Material bereits konkrete Übungen stehen — ausser EINER optionalen sehr kurzen Grundlagenfrage.',
-  'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Netz 192.168.31.0/24: ..."), nicht das Thema nur allgemein abfragen.',
+  'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Rechnung 2024-0815 und Betrag CHF 1\'240.50: ..."), nicht das Thema nur allgemein abfragen.',
 ].join('\n')
 
 /**
@@ -107,10 +107,10 @@ export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
  */
 export const CHAPTER_LEARNING_FIDELITY_RULES = [
   'KAPITEL-INHALT (nicht nur Titel):',
-  'Wenn «Materialauszuege» oder «PERSOENLICHE UNTERLAGEN» im Prompt vorkommen: behandle sie als primaere Wahrheit — Begriffe, Zahlen, Tabellen und Aufgabenstellungen aus den Dateien vor generischen IT-Beispielen.',
-  'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. Broadcast ermitteln, Praefixlaenge, konkrete Rechnung) — der Titel ist nur die Ueberschrift, nicht der einzige Lerninhalt.',
+  'Wenn «Materialauszuege» oder «PERSOENLICHE UNTERLAGEN» im Prompt vorkommen: behandle sie als primaere Wahrheit — Begriffe, Zahlen, Tabellen und Aufgabenstellungen aus den Dateien vor generischen KV-Beispielen.',
+  'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. MWSt berechnen, Konten zuordnen, Geschaeftsbrief formuliert pruefen, konkrete Rechnungsposition) — der Titel ist nur die Ueberschrift, nicht der einzige Lerninhalt.',
   'VERBOTEN bei question-Steps (prompt): Fragen, die nur den Kapiteltitel, "dieses Kapitel" oder "das Thema von Kapitel X" abfragen ohne Fachinhalt (z. B. "Worueber handelt dieses Kapitel?", "Was ist das Hauptthema?", "Nenne den Namen des Kapitels").',
-  'PFLICHT bei jeder Frage: Der prompt enthaelt pruefbare Details — Begriffe, Zahlen, IP/CIDR, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem Fachgebiet. Mindestens zwei konkrete Anker (z. B. konkrete Adresse, "/24", "Subnetzmaske 255.255.255.0").',
+  'PFLICHT bei jeder Frage: Der prompt enthaelt pruefbare Details — Begriffe, Zahlen, Betraege, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem kaufmaennischen Fachgebiet (KV). Mindestens zwei konkrete Anker (z. B. konkreter Betrag, MWSt-Satz "8.1%", Kontonummer, Position in der Rechnung).',
   'Erklaerungs-Steps: Felder "content" und "bullets" liefern echte Erklaerung (Definition, Schrittfolge, Rechnung, Beispiel). VERBOTEN: nur Floskeln wie "In diesem Kapitel lernst du ..." ohne technische Substanz.',
   'Mindestens die Haelfte der Fragen pro Kapitel bezieht sich auf die Materialauszuege und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind — unabhaengig vom Fragetyp (mcq, text, match, true_false).',
   'Jede Frage soll so formuliert sein, dass sie auch ohne Kenntnis des Kapiteltitels verstaendlich und beantwortbar ist (inhaltlich, nicht metakognitiv).',

@@ -8,6 +8,11 @@ import {
 } from '../excel/excelSpec'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import {
+  CHAT_COMPOSER_MODEL_STORAGE_KEY,
+  type ChatComposerModelId,
+  parseStoredComposerModelId,
+} from '../constants/chatComposerModels'
+import {
   generateChatTitleWithAi,
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
@@ -80,7 +85,21 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
   const [isSending, setIsSending] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [composerModelId, setComposerModelId] = useState<ChatComposerModelId>(() =>
+    parseStoredComposerModelId(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
+    ),
+  )
   const removeTimersRef = useRef<Record<string, number>>({})
+
+  function persistComposerModelId(id: ChatComposerModelId) {
+    setComposerModelId(id)
+    try {
+      localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, id)
+    } catch {
+      /* ignore */
+    }
+  }
 
   const messages = activeThreadId ? (messagesByThreadId[activeThreadId] ?? []) : []
   const canSend = useMemo(() => !isSending, [isSending])
@@ -449,6 +468,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           finalAssistantContent = await sendMessageStreaming(nextMessages, {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
+            mainChatModelId: composerModelId,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -469,6 +489,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         const { assistantMessage } = await sendMessage(nextMessages, {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
+          mainChatModelId: composerModelId,
         })
         finalAssistantContent = assistantMessage.content
       }
@@ -611,5 +632,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
     deleteChat,
     selectChat,
     canSend,
+    composerModelId,
+    setComposerModelId: persistComposerModelId,
   }
 }

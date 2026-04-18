@@ -50,6 +50,7 @@ import {
   listUserFeedbackForAdmin,
   type UserFeedbackRow,
 } from '../features/feedback/services/feedback.persistence'
+import { getComposerApiModelIdsForAdminFilter } from '../features/chat/constants/chatComposerModels'
 import { useAuth } from '../features/auth/context/useAuth'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
 import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
@@ -202,6 +203,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       if (row.model) {
         ids.add(row.model)
       }
+    }
+    for (const id of getComposerApiModelIdsForAdminFilter()) {
+      ids.add(id)
     }
     return [...ids].sort((a, b) => a.localeCompare(b, 'de'))
   }, [tokenUsageRows])
@@ -1210,8 +1214,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             <div className="admin-users-panel">
               <p className="admin-users-warning">
                 Daten stammen aus der Tabelle <code>ai_token_usage</code> (von der Edge Function{' '}
-                <strong>chat-completion</strong> geschrieben). Oben: <strong>letzte echte Zeile</strong> pro Nutzer
-                (Modell-String wie in der API-Antwort). Unten: <strong>kumulierte</strong> Token nach Nutzer und
+                <strong>chat-completion</strong> geschrieben).                 Oben: juengste Zeile pro Nutzer <strong>ohne</strong> Modus{' '}
+                <code>generate_title</code> (sonst ueberschreibt die OpenAI-Titel-Zeile den Chat mit Claude/OpenAI).
+                Unten: <strong>kumulierte</strong> Token nach Nutzer und
                 Modell. Geschaetzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewaehr). Voraussetzung:
                 Migrationen inkl. <code>ai_token_usage</code> und Secret{' '}
                 <code>SUPABASE_SERVICE_ROLE_KEY</code> fuer die Function.
@@ -1228,8 +1233,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <>
                       <h3 className="admin-token-section-heading">Zuletzt protokolliertes Modell (je Nutzer)</h3>
                       <p className="admin-token-section-hint">
-                        Neueste Zeile aus <code>ai_token_usage</code> pro Nutzer — Spalte «Modell» ist der exakte Wert
-                        aus der Datenbank (API-Rueckgabe), nicht aus dem Frontend-Code abgeleitet.
+                        Juengste Zeile aus <code>ai_token_usage</code> pro Nutzer ausser Chat-Titelgenerierung (
+                        <code>generate_title</code>). Spalte «Modell»: API-Rueckgabe.
                       </p>
                       {lastAiUsageSorted.length === 0 ? (
                         <p className="admin-user-empty">Keine Zeilen fuer «zuletzt» (ungewoehnlich).</p>

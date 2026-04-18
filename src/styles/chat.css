@@ -1005,6 +1005,24 @@
   color: #16a34a;
 }
 
+/* Modellwahl: gleiche Shell/Position wie Slash-Menü („/“), Hover neutral (nicht grün wie Excel-Zeile) */
+.chat-slash-menu.chat-model-picker-dropdown.thread-menu .thread-menu-item:hover:enabled {
+  background: #f8fafc;
+  color: #334155;
+}
+
+:root[data-theme='dark'] .chat-slash-menu.chat-model-picker-dropdown.thread-menu .thread-menu-item:hover:enabled {
+  background: #252b35;
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass']
+  .chat-slash-menu.chat-model-picker-dropdown.thread-menu
+  .thread-menu-item:hover:enabled {
+  background: rgba(244, 114, 182, 0.12);
+  color: #f9fafb;
+}
+
 .chat-excel-command-icon-badge:hover:enabled {
   border-color: color-mix(in srgb, #22c55e 70%, var(--color-border));
   background: color-mix(in srgb, #22c55e 22%, var(--color-surface-elevated));
@@ -1017,6 +1035,89 @@
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
+}
+
+.chat-model-picker {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(12.5rem, 52vw);
+}
+
+/* Nur Modellname + Chevron — keine Pill (kein eigenes Surface wie Senden/+) */
+.chat-model-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  width: auto;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0.35rem 0.15rem 0.35rem 0.12rem;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.chat-model-picker-trigger:hover:enabled {
+  color: var(--color-text-app);
+}
+
+.chat-model-picker-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-link) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-model-picker-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chat-model-picker-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.chat-model-picker-chevron {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.65;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.chat-slash-menu.chat-model-picker-dropdown.thread-menu {
+  /* Slash „/“: nach oben — Modellwahl: nach unten unter den Trigger */
+  top: calc(100% + 0.35rem);
+  bottom: auto;
+  left: 0;
+  min-width: min(12.5rem, calc(100vw - 2rem));
+  max-height: min(50vh, 15rem);
+  overflow-y: auto;
+  z-index: 60;
+}
+
+.chat-model-picker-item.thread-menu-item.is-selected {
+  font-weight: 700;
+}
+
+:root[data-theme='dark'] .chat-model-picker-item.thread-menu-item.is-selected {
+  color: #f1f5f9;
 }
 
 .chat-excel-command-icon-badge {

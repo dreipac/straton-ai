@@ -735,7 +735,7 @@ export function LearnPage() {
               materialContext
                 ? 'Dateiauszuege (mind. die Haelfte der Fragen muss sich hierauf beziehen — Begriffe, Fakten, Beispiele aus den Dateien):\n' +
                   materialContext
-                : 'Dateien: keine hochgeladen — nutze realistische IT-Praxisbeispiele in den Fragestellungen.',
+                : 'Dateien: keine hochgeladen — nutze realistische KV-Praxisbeispiele in den Fragestellungen.',
               WORKSHEET_EXERCISE_FIDELITY_RULES,
               'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
               'Formuliere die Fragen so, dass bei vorhandenen Dateien klar erkennbar ist, ob der Lernende den Auszug verstanden hat (Zuordnen, Begriffe, Kurztext, konkrete Rechen- oder Zuordnungsaufgaben wie im Blatt).',

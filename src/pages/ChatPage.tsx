@@ -38,6 +38,11 @@ import {
   getUserDisplayName,
 } from '../features/auth/utils/userDisplay'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
+import {
+  CHAT_COMPOSER_MODEL_STORAGE_KEY,
+  type ChatComposerModelId,
+  parseStoredComposerModelId,
+} from '../features/chat/constants/chatComposerModels'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
@@ -77,7 +82,23 @@ export function ChatPage() {
     renameChat,
     deleteChat,
     selectChat,
+    composerModelId,
+    setComposerModelId,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true)
+  const [guestComposerModelId, setGuestComposerModelId] = useState<ChatComposerModelId>(() =>
+    parseStoredComposerModelId(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
+    ),
+  )
+
+  function handleGuestComposerModel(id: ChatComposerModelId) {
+    setGuestComposerModelId(id)
+    try {
+      localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, id)
+    } catch {
+      /* ignore */
+    }
+  }
   const navigate = useNavigate()
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
@@ -672,6 +693,8 @@ export function ChatPage() {
               error={null}
               greetingName="da"
               tokenLimitReached={false}
+              composerModelId={guestComposerModelId}
+              onComposerModelChange={handleGuestComposerModel}
               onSendMessage={async () => {
                 navigate('/login')
               }}
@@ -938,6 +961,8 @@ export function ChatPage() {
           error={error}
           greetingName={greetingName}
           tokenLimitReached={tokenLimitReached}
+          composerModelId={composerModelId}
+          onComposerModelChange={setComposerModelId}
           onSendMessage={submitMessage}
         />
       </section>
