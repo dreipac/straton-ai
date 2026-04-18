@@ -367,9 +367,8 @@
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
     align-items: stretch;
-    background:
-      radial-gradient(ellipse 100% 65% at 50% 0%, rgba(37, 99, 235, 0.16), transparent 58%),
-      #11161d;
+    /* Einheitlich mit Sheet (#131922), sonst unten Streifen mit #11161d (Body/PWA-Safe-Area) */
+    background: #131922;
     min-height: 100dvh;
     /* Rundungen am Sheet nicht am Grid/Overflow „abschneiden“ */
     overflow: visible;
@@ -578,4 +577,20 @@ html.auth-login-scroll-lock.auth-login-keyboard-active #root {
   height: auto;
   min-height: 100dvh;
   overflow: visible;
+}
+
+/* Mobil/PWA: gleicher Grund wie Login-Sheet — vermeidet farbigen Streifen unter Home-Indicator */
+@media (max-width: 768px) {
+  html.auth-login-scroll-lock,
+  html.auth-login-scroll-lock body {
+    background-color: #131922;
+  }
+
+  html.auth-login-scroll-lock:not(.auth-login-keyboard-active) #root {
+    background-color: #131922;
+  }
+
+  html.auth-login-scroll-lock.auth-login-keyboard-active #root {
+    background-color: #131922;
+  }
 }
