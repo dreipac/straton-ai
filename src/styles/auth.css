@@ -193,9 +193,11 @@
   text-decoration: none;
 }
 
-.auth-login-register-link:hover {
-  color: var(--login-accent-link-hover);
-  text-decoration: none;
+@media (hover: hover) {
+  .auth-login-register-link:hover {
+    color: var(--login-accent-link-hover);
+    text-decoration: none;
+  }
 }
 
 .auth-login-register-link:focus-visible {
@@ -306,8 +308,10 @@
     box-shadow 0.15s ease;
 }
 
-.auth-login-remember input[type='checkbox']:hover:enabled {
-  border-color: rgba(203, 213, 225, 0.65);
+@media (hover: hover) {
+  .auth-login-remember input[type='checkbox']:hover:enabled {
+    border-color: rgba(203, 213, 225, 0.65);
+  }
 }
 
 .auth-login-remember input[type='checkbox']:checked {

@@ -187,9 +187,11 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
   cursor: not-allowed;
 }
 
-button:hover:enabled {
-  border-color: var(--interactive-hover-border);
-  background: var(--interactive-hover-bg);
+@media (hover: hover) {
+  button:hover:enabled {
+    border-color: var(--interactive-hover-border);
+    background: var(--interactive-hover-bg);
+  }
 }
 
 button:disabled {

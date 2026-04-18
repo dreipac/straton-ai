@@ -88,27 +88,44 @@
   pointer-events: none;
 }
 
-.ui-button.ui-button-primary:hover:enabled::before {
-  background-position: 100% 50%;
-  opacity: 1;
-  filter: saturate(1.1) brightness(1.05);
-}
+@media (hover: hover) {
+  .ui-button.ui-button-primary:hover:enabled::before {
+    background-position: 100% 50%;
+    opacity: 1;
+    filter: saturate(1.1) brightness(1.05);
+  }
 
-.ui-button.ui-button-primary:hover:enabled {
-  border-color: transparent;
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(29, 78, 216, 0.38);
+  .ui-button.ui-button-primary:hover:enabled {
+    border-color: transparent;
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(29, 78, 216, 0.38);
+  }
+
+  .ui-button-secondary:hover:enabled {
+    background: #f8fafc;
+    border-color: #c3d3ea;
+  }
+
+  :root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled {
+    border-color: transparent;
+    box-shadow: 0 14px 28px rgba(56, 189, 248, 0.28);
+  }
+
+  :root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled::before {
+    background-position: 100% 50%;
+    opacity: 1;
+  }
+
+  :root[data-theme='dark'] .ui-button-secondary:hover:enabled {
+    background: #252b35;
+    border-color: #4b5563;
+  }
 }
 
 .ui-button-secondary {
   background: #ffffff;
   color: #1e293b;
   border-color: #d5deea;
-}
-
-.ui-button-secondary:hover:enabled {
-  background: #f8fafc;
-  border-color: #c3d3ea;
 }
 
 :root[data-theme='dark'] .ui-button-primary {
@@ -121,28 +138,10 @@
   background-image: var(--accent-gradient);
 }
 
-:root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled {
-  border-color: transparent;
-}
-
-:root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled::before {
-  background-position: 100% 50%;
-  opacity: 1;
-}
-
-:root[data-theme='dark'] .ui-button.ui-button-primary:hover:enabled {
-  box-shadow: 0 14px 28px rgba(56, 189, 248, 0.28);
-}
-
 :root[data-theme='dark'] .ui-button-secondary {
   background: #1b1f26;
   color: #f3f4f6;
   border-color: #3a424f;
-}
-
-:root[data-theme='dark'] .ui-button-secondary:hover:enabled {
-  background: #252b35;
-  border-color: #4b5563;
 }
 
 /* Globale mehrzeilige Texteingabe (TextArea-Komponente) — gleiche Underline-Logik wie native Inputs */
