@@ -5,6 +5,7 @@ import { useAuth } from '../features/auth/context/useAuth'
 import { ChatPage } from '../pages/ChatPage'
 import { LearnPage } from '../pages/LearnPage'
 import { LoginPage } from '../pages/LoginPage'
+import { RegisterPage } from '../pages/RegisterPage'
 
 function AuthSessionLayout() {
   const { user, profile, isLoading } = useAuth()
@@ -49,6 +50,10 @@ const router = createHashRouter([
       {
         path: '/login',
         element: <LoginPage />,
+      },
+      {
+        path: '/register',
+        element: <RegisterPage />,
       },
       {
         path: '/first-login-password',

@@ -8,7 +8,7 @@ export type AuthContextValue = {
   isLoading: boolean
   error: string | null
   isConfigured: boolean
-  signIn: (email: string, password: string) => Promise<void>
+  signIn: (email: string, password: string, rememberSession?: boolean) => Promise<void>
   logout: () => Promise<void>
   refreshProfile: () => Promise<void>
   updateAutoRemoveEmptyChats: (enabled: boolean) => Promise<void>

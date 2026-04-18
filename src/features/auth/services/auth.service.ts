@@ -1,5 +1,5 @@
 import type { AuthChangeEvent, PostgrestError, Session, User } from '@supabase/supabase-js'
-import { getSupabaseClient } from '../../../integrations/supabase/client'
+import { getSupabaseClient, prepareAuthStorageForSignIn } from '../../../integrations/supabase/client'
 import { extractProfileNamesFromAuthUser } from '../utils/userDisplay'
 import { parseUiSettings, type UiSettingsV1 } from '../../settings/uiSettings'
 
@@ -247,7 +247,12 @@ export async function ensureProfileForUserWithSessionRecovery(userId: string): P
   }
 }
 
-export async function signInWithEmailPassword(email: string, password: string) {
+export async function signInWithEmailPassword(
+  email: string,
+  password: string,
+  rememberSession = true,
+) {
+  prepareAuthStorageForSignIn(rememberSession)
   const supabase = getSupabaseClient()
   const { error } = await supabase.auth.signInWithPassword({
     email,

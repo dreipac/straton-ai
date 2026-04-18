@@ -192,9 +192,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     applyUiSettingsToDocument(profile.ui_settings)
   }, [user?.id, JSON.stringify(profile?.ui_settings)])
 
-  async function signIn(email: string, password: string) {
+  async function signIn(email: string, password: string, rememberSession = true) {
     setError(null)
-    await signInWithEmailPassword(email, password)
+    await signInWithEmailPassword(email, password, rememberSession)
   }
 
   async function logout() {
