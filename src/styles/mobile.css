@@ -414,8 +414,8 @@
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: var(--straton-app-height);
-  max-height: var(--straton-app-height);
+  min-height: 100dvh;
+  max-height: 100dvh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -760,82 +760,5 @@ button.profile-full-sheet-row:focus-visible {
 
   .action-bottom-sheet-action.is-pressing {
     animation: none;
-  }
-}
-
-/* —— PWA Chat: gleiche Scroll-/Rubber-Band-Logik wie Login (`auth-login-scroll-lock`); Farben via Theme. —— */
-html.chat-pwa-scroll-lock {
-  overscroll-behavior: none;
-  background-color: var(--app-background);
-}
-
-html.chat-pwa-scroll-lock body {
-  overscroll-behavior: none;
-  background-color: var(--app-background);
-}
-
-/* Safe Area nur in #root (base.css). Kein height am fixed html: top+bottom spannt —
-   zusätzliche height/var(--straton-app-height) kann kleiner sein als Viewport → Balken unten.
-   min-height unset: base.css html { min-height } sonst zusätzlicher Konflikt. */
-html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  min-height: unset;
-  overflow: hidden;
-}
-
-html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
-  overflow: hidden;
-  height: 100%;
-  min-height: 0;
-  width: 100%;
-}
-
-html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  /* Höhe wie :root --straton-app-height (100dvh) — vermeidet fragile 100%-Kette html→body→#root */
-  height: var(--straton-app-height);
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: none;
-  overscroll-behavior-y: contain;
-}
-
-html.chat-pwa-scroll-lock.chat-pwa-keyboard-active {
-  position: static;
-  height: auto;
-  min-height: var(--straton-app-height);
-  overflow: visible;
-}
-
-html.chat-pwa-scroll-lock.chat-pwa-keyboard-active body {
-  overflow: auto;
-  height: auto;
-  min-height: var(--straton-app-height);
-}
-
-html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
-  height: auto;
-  min-height: var(--straton-app-height);
-  overflow: visible;
-}
-
-@media (max-width: 768px) {
-  html.chat-pwa-scroll-lock,
-  html.chat-pwa-scroll-lock body {
-    background-color: var(--app-background);
-  }
-
-  html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-    background-color: var(--app-background);
-  }
-
-  html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
-    background-color: var(--app-background);
   }
 }

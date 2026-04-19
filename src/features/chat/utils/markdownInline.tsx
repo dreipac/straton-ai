@@ -42,9 +42,6 @@ function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,;:!?)]+$/, '')
 }
 
-/** Klartext-E-Mails (nicht in URLs); konservativ, um False Positives zu vermeiden. */
-const INLINE_EMAIL_RE = /\b[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9][A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-
 function hostnameFromUrl(url: string): string {
   try {
     const u = new URL(url)
@@ -54,32 +51,7 @@ function hostnameFromUrl(url: string): string {
   }
 }
 
-function renderEmailsThenBold(text: string, keyBase: string): ReactNode[] {
-  const out: ReactNode[] = []
-  let last = 0
-  let idx = 0
-  INLINE_EMAIL_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = INLINE_EMAIL_RE.exec(text)) !== null) {
-    if (m.index > last) {
-      const chunk = text.slice(last, m.index)
-      out.push(...withKeys(renderInlineMarkdown(chunk), `${keyBase}-b${idx++}`))
-    }
-    const addr = m[0]
-    out.push(
-      <a key={`${keyBase}-e${idx++}`} className="chat-md-email-pill" href={`mailto:${addr}`}>
-        {addr}
-      </a>,
-    )
-    last = m.index + m[0].length
-  }
-  if (last < text.length) {
-    out.push(...withKeys(renderInlineMarkdown(text.slice(last)), `${keyBase}-b${idx++}`))
-  }
-  return out
-}
-
-function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[] {
+function renderPlainBoldAndUrls(text: string, keyBase: string): ReactNode[] {
   const urlRe = /https?:\/\/[^\s<]+/gi
   const out: ReactNode[] = []
   let last = 0
@@ -89,7 +61,7 @@ function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[
   while ((m = urlRe.exec(text)) !== null) {
     if (m.index > last) {
       const chunk = text.slice(last, m.index)
-      out.push(...renderEmailsThenBold(chunk, `${keyBase}-pre${idx++}`))
+      out.push(...withKeys(renderInlineMarkdown(chunk), `${keyBase}-b${idx++}`))
     }
     const href = trimTrailingPunctuation(m[0])
     out.push(
@@ -106,7 +78,7 @@ function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[
     last = m.index + m[0].length
   }
   if (last < text.length) {
-    out.push(...renderEmailsThenBold(text.slice(last), `${keyBase}-post${idx++}`))
+    out.push(...withKeys(renderInlineMarkdown(text.slice(last)), `${keyBase}-b${idx++}`))
   }
   return out
 }
@@ -132,32 +104,19 @@ export function renderAssistantInline(content: string): ReactNode[] {
     if (lm) {
       const href = trimTrailingPunctuation(lm[2].trim())
       const label = lm[1].trim() || hostnameFromUrl(href)
-      if (/^mailto:/i.test(href)) {
-        const raw = href.replace(/^mailto:/i, '').trim()
-        out.push(
-          <a
-            key={`mdl-${k++}`}
-            className="chat-md-email-pill"
-            href={href}
-          >
-            {label || raw}
-          </a>,
-        )
-      } else {
-        out.push(
-          <a
-            key={`mdl-${k++}`}
-            className="chat-md-link"
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {label}
-          </a>,
-        )
-      }
+      out.push(
+        <a
+          key={`mdl-${k++}`}
+          className="chat-md-link"
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {label}
+        </a>,
+      )
     } else {
-      out.push(...renderPlainBoldUrlsAndEmails(seg, `pi-${k++}`))
+      out.push(...renderPlainBoldAndUrls(seg, `pi-${k++}`))
     }
   }
 

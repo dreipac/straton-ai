@@ -49,7 +49,6 @@ import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { isMobileViewport } from '../utils/mobile'
-import { isPwaStandalone } from '../utils/pwa'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
 
@@ -79,7 +78,6 @@ export function ChatPage() {
     isBootstrapping,
     error,
     submitMessage,
-    cancelOutgoingMessage,
     createNewChat,
     renameChat,
     deleteChat,
@@ -221,58 +219,6 @@ export function ChatPage() {
     syncCompactSidebarLayout()
     mq.addEventListener('change', syncCompactSidebarLayout)
     return () => mq.removeEventListener('change', syncCompactSidebarLayout)
-  }, [])
-
-  /* PWA: dieselbe html-Scroll-Sperre wie Login (kein Rubber-Band / grauer Rand); bei Tastatur wieder normal */
-  useEffect(() => {
-    if (!isPwaStandalone()) {
-      return undefined
-    }
-
-    const html = document.documentElement
-    let blurTimeout: ReturnType<typeof setTimeout> | null = null
-
-    const clearBlurTimeout = () => {
-      if (blurTimeout != null) {
-        clearTimeout(blurTimeout)
-        blurTimeout = null
-      }
-    }
-
-    const setKeyboardActive = (active: boolean) => {
-      html.classList.toggle('chat-pwa-keyboard-active', active)
-    }
-
-    const handleFocusIn = (event: FocusEvent) => {
-      const el = event.target
-      if (el instanceof HTMLElement && el.matches('input, textarea, select')) {
-        clearBlurTimeout()
-        setKeyboardActive(true)
-      }
-    }
-
-    const handleFocusOut = () => {
-      clearBlurTimeout()
-      blurTimeout = window.setTimeout(() => {
-        blurTimeout = null
-        const active = document.activeElement
-        if (!(active instanceof HTMLElement && active.matches('input, textarea, select'))) {
-          setKeyboardActive(false)
-        }
-      }, 120)
-    }
-
-    html.classList.add('chat-pwa-scroll-lock')
-
-    document.addEventListener('focusin', handleFocusIn)
-    document.addEventListener('focusout', handleFocusOut)
-
-    return () => {
-      clearBlurTimeout()
-      document.removeEventListener('focusin', handleFocusIn)
-      document.removeEventListener('focusout', handleFocusOut)
-      html.classList.remove('chat-pwa-scroll-lock', 'chat-pwa-keyboard-active')
-    }
   }, [])
 
   useEffect(() => {
@@ -1018,7 +964,6 @@ export function ChatPage() {
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
           onSendMessage={submitMessage}
-          onCancelSend={cancelOutgoingMessage}
         />
       </section>
       <button

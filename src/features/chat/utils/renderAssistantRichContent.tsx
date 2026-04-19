@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { renderAssistantInline } from './markdownInline'
 
 type Block =
@@ -9,65 +9,12 @@ type Block =
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
-  /** Markdown-Zeilen mit > — Bibel/Quran nur bei erkennbarer Stellenangabe; sonst normales Zitat */
-  | { type: 'blockquote'; lines: string[]; quoteKind: 'bible' | 'quran' | 'plain' }
+  /** Markdown-Zeilen mit > — für Bibelverse (siehe System-Prompt) */
+  | { type: 'blockquote'; lines: string[]; quoteKind: 'bible' | 'quran' }
   /** Markdown-Codeblock mit ``` */
   | { type: 'code'; language: string; code: string }
-  /** E-Mail-/Briefentwurf: ```email oder erkannter Fliesstext mit Betreff: */
-  | { type: 'emailDraft'; body: string }
   /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
   | { type: 'table'; rows: string[][] }
-
-function stripBoldMarkers(line: string): string {
-  return line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').trim()
-}
-
-/** Erste Zeile wirkt wie eine deutschsprachige Bibelstellenangabe (Buch + Kap.,Vers o. Ä.). */
-function looksLikeGermanBibleVerseHeading(line: string): boolean {
-  const t = stripBoldMarkers(line)
-  if (!t) {
-    return false
-  }
-  if (/^(sure|sura)\s*\d+/i.test(t)) {
-    return false
-  }
-
-  const hasChapterVerse =
-    /\b\d{1,3}\s*[,.]\s*\d{1,3}\b/.test(t) ||
-    /\b\d{1,3}\s*:\s*\d{1,3}\b/.test(t) ||
-    /^Psalm(?:en)?\s+\d{1,3}(?:\s*[,.]\s*\d{1,3})?$/i.test(t)
-
-  const bookAtStart =
-    /^(?:[12]\s*)?(?:Mose|Exodus|Levitikus|Numeri|Deuteronomium|5\.\s*Mose|Josua|Richter|Ruth|(?:1|2)\s*Samuel|(?:1|2)\s*Könige|(?:1|2)\s*Chronik|Esra|Nehemia|Esther|Hiob|Psalm|Psalmen|Sprüche|Prediger|Hohelied|Jesaja|Jeremia|Klagelieder|Hesekiel|Daniel|Hosea|Joel|Amos|Obadja|Jona|Micha|Nahum|Habakuk|Sephaja|Haggai|Sacharja|Maleachi|Johannes|Matthäus|Markus|Lukas|Apostelgeschichte|Apg\.|Römer|Röm\.|Galater|Epheser|Philipper|Kolosser|(?:1|2)\.\s*Korinther|(?:1|2)\.\s*Thessalonicher|(?:1|2)\.\s*Timotheus|Titus|Philemon|Hebräer|Jakobus|(?:1|2)\.\s*Petrus|(?:1|3)\.\s*Johannes|(?:2|3)\.\s*Johannes|Judas|Offenbarung|Offb\.)\b/i.test(
-      t,
-    )
-
-  return Boolean(bookAtStart && hasChapterVerse)
-}
-
-function isQuranReferenceLine(line: string): boolean {
-  const t = stripBoldMarkers(line).trim()
-  if (!t) {
-    return false
-  }
-  return /^(sure|sura)\s*\d+(?:\s*[,.:]\s*\d+)?$/i.test(t)
-}
-
-function classifyScriptureBlockquote(lines: string[], _contextBefore: string): 'bible' | 'quran' | 'plain' {
-  const firstLine = lines.map((l) => l.trim()).find((l) => l.length > 0) ?? ''
-  const head = stripBoldMarkers(firstLine)
-
-  // Sure-/Sura-Zeile ist eindeutig — keine «Bibel»-Box
-  if (isQuranReferenceLine(head)) {
-    return 'quran'
-  }
-
-  if (looksLikeGermanBibleVerseHeading(firstLine)) {
-    return 'bible'
-  }
-
-  return 'plain'
-}
 
 function parsePipeTableRow(line: string): string[] | null {
   const t = line.trim()
@@ -152,10 +99,17 @@ function parseBlocks(raw: string): Block[] {
   let listItems: string[] | null = null
   let orderedItems: string[] | null = null
   let quoteLines: string[] | null = null
-  /** Kontext vor dem ersten `>` — zur Klassifikation Bibel / Quran / normales Zitat */
-  let quoteParseContext = ''
+  let quoteKind: 'bible' | 'quran' = 'bible'
   let codeLines: string[] | null = null
   let codeLanguage = ''
+
+  function resolveQuoteKindFromContext(context: string): 'bible' | 'quran' {
+    const t = context.toLowerCase()
+    if (/(qur'?an|quran|koran|sure\s*\d+|sura\s*\d+|ayah|ayat)/i.test(t)) {
+      return 'quran'
+    }
+    return 'bible'
+  }
 
   function recentContextText(currentLine: string): string {
     const fromPara = para.slice(-2).join(' ')
@@ -180,6 +134,14 @@ function parseBlocks(raw: string): Block[] {
     return [fromPara, fromList, fromBlocks, currentLine].filter(Boolean).join(' ')
   }
 
+  function isQuranReferenceLine(line: string): boolean {
+    const t = line.trim()
+    if (!t) {
+      return false
+    }
+    return /^(sure|sura)\s*\d+(?:\s*[,.:]\s*\d+)?$/i.test(t)
+  }
+
   function flushPara() {
     if (para.length) {
       blocks.push({ type: 'p', text: para.join('\n') })
@@ -200,22 +162,15 @@ function parseBlocks(raw: string): Block[] {
 
   function flushQuote() {
     if (quoteLines && quoteLines.length) {
-      const kind = classifyScriptureBlockquote(quoteLines, quoteParseContext)
-      blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind: kind })
+      blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind })
       quoteLines = null
-      quoteParseContext = ''
+      quoteKind = 'bible'
     }
   }
 
   function flushCode() {
     if (codeLines) {
-      const raw = codeLines.join('\n')
-      const lang = codeLanguage.trim().toLowerCase()
-      if (lang === 'email' || lang === 'mail' || lang === 'e-mail') {
-        blocks.push({ type: 'emailDraft', body: raw })
-      } else {
-        blocks.push({ type: 'code', language: codeLanguage, code: raw })
-      }
+      blocks.push({ type: 'code', language: codeLanguage, code: codeLines.join('\n') })
       codeLines = null
       codeLanguage = ''
     }
@@ -266,9 +221,9 @@ function parseBlocks(raw: string): Block[] {
     if (bq) {
       if (!quoteLines) {
         const paraTail = para.length > 0 ? para[para.length - 1].trim() : ''
-        const ctxCombined = `${recentContextText(trimmed)} ${paraTail}`.trim()
+        const inferredKind = resolveQuoteKindFromContext(`${recentContextText(trimmed)} ${paraTail}`.trim())
         let carriedHeading: string | null = null
-        if (paraTail && isQuranReferenceLine(paraTail)) {
+        if (inferredKind === 'quran' && isQuranReferenceLine(paraTail)) {
           para.pop()
           carriedHeading = paraTail
         }
@@ -277,7 +232,7 @@ function parseBlocks(raw: string): Block[] {
         flushPara()
 
         quoteLines = []
-        quoteParseContext = ctxCombined
+        quoteKind = inferredKind
         if (carriedHeading) {
           quoteLines.push(`**${carriedHeading}**`)
         }
@@ -363,168 +318,7 @@ function parseBlocks(raw: string): Block[] {
   flushCode()
   flushList()
   flushPara()
-  return promotePlainParagraphEmailDrafts(blocks)
-}
-
-function splitBetreffFromEmailBody(body: string): { subject?: string; rest: string } {
-  const trimmed = body.trim()
-  const nlPos = trimmed.search(/\r?\n/)
-  if (nlPos === -1) {
-    return { rest: trimmed }
-  }
-  const firstLine = stripBoldMarkers(trimmed.slice(0, nlPos)).trim()
-  const m = /^betreff\s*:\s*(.+)$/i.exec(firstLine)
-  if (!m) {
-    return { rest: trimmed }
-  }
-  const rest = trimmed.slice(nlPos + 1).replace(/^\r?\n+/, '').trimStart()
-  return { subject: m[1].trim(), rest }
-}
-
-/** Fliesstext mit «Betreff:» und typischer Mail (Fallback, wenn das Modell keinen ```email-Block nutzt). */
-function promotePlainParagraphEmailDrafts(blocks: Block[]): Block[] {
-  return blocks.map((b) => {
-    if (b.type !== 'p') {
-      return b
-    }
-    const t = b.text.trim()
-    if (t.length < 28) {
-      return b
-    }
-    const firstLine = stripBoldMarkers(t.split(/\r?\n/, 1)[0] ?? '').trim()
-    if (!/^betreff\s*:/i.test(firstLine)) {
-      return b
-    }
-    if (!/\r?\n/.test(t)) {
-      return b
-    }
-    if (
-      !/\b(hallo|sehr geehrte|guten tag|liebe |mit freundlichen grüßen|freundliche grüße|viele grüße|\bvg\b)/i.test(
-        t,
-      )
-    ) {
-      return b
-    }
-    return { type: 'emailDraft', body: t }
-  })
-}
-
-function buildEmailDraftClipboardText(subject: string, letter: string): string {
-  const s = subject.trim()
-  const l = letter.trim()
-  if (s && l) {
-    return `Betreff: ${s}\n\n${l}`
-  }
-  if (s) {
-    return `Betreff: ${s}`
-  }
-  return l
-}
-
-function EmailDraftBlock({ body }: { body: string }) {
-  const betreffFieldId = useId()
-  const letterFieldId = useId()
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
-
-  const { subject: parsedSubject, rest: parsedRest } = splitBetreffFromEmailBody(body)
-  const initialLetter = (parsedSubject ? parsedRest : body).trim()
-
-  const [editedSubject, setEditedSubject] = useState(() => parsedSubject ?? '')
-  const [editedLetter, setEditedLetter] = useState(() => initialLetter)
-
-  useEffect(() => {
-    const { subject: s, rest: r } = splitBetreffFromEmailBody(body)
-    setEditedSubject(s ?? '')
-    setEditedLetter((s ? r : body).trim())
-  }, [body])
-
-  useEffect(() => {
-    if (copyState === 'idle') {
-      return
-    }
-    const timer = window.setTimeout(() => setCopyState('idle'), 1400)
-    return () => window.clearTimeout(timer)
-  }, [copyState])
-
-  function openInSystemMailApp() {
-    // Kein URLSearchParams.toString(): das wandelt Leerzeichen in "+" um;
-    // Outlook (und andere Clients) zeigen "+" in mailto oft wörtlich statt als Leerzeichen.
-    const parts: string[] = []
-    const subj = editedSubject.trim()
-    const bod = editedLetter.trim()
-    if (subj) {
-      parts.push(`subject=${encodeURIComponent(subj)}`)
-    }
-    if (bod) {
-      parts.push(`body=${encodeURIComponent(bod)}`)
-    }
-    const q = parts.join('&')
-    window.location.assign(q ? `mailto:?${q}` : 'mailto:')
-  }
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(buildEmailDraftClipboardText(editedSubject, editedLetter))
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
-  }
-
-  const copyLabel = copyState === 'copied' ? 'Kopiert' : copyState === 'failed' ? 'Fehler' : 'Kopieren'
-
-  return (
-    <div className="chat-email-draft">
-      <div className="chat-email-draft-head">
-        <span className="chat-email-draft-badge">E-Mail</span>
-        <div className="chat-email-draft-actions">
-          <button
-            type="button"
-            className="chat-email-draft-mailto"
-            onClick={openInSystemMailApp}
-            title="Öffnet dein Mailprogramm mit diesem Text und Betreff — dort kannst du weiterbearbeiten, als Entwurf speichern oder senden."
-          >
-            E-Mail senden
-          </button>
-          <button
-            type="button"
-            className="chat-email-draft-copy"
-            onClick={() => void handleCopy()}
-            title="Aktuellen Text (Betreff + Nachricht) kopieren"
-          >
-            {copyLabel}
-          </button>
-        </div>
-      </div>
-      <div className="chat-email-draft-subject-row chat-email-draft-subject-edit">
-        <label className="chat-email-draft-subject-k" htmlFor={betreffFieldId}>
-          Betreff
-        </label>
-        <input
-          id={betreffFieldId}
-          type="text"
-          className="chat-email-draft-subject-input"
-          value={editedSubject}
-          onChange={(e) => setEditedSubject(e.target.value)}
-          placeholder="z. B. Krankmeldung"
-          autoComplete="off"
-        />
-      </div>
-      <div className="chat-email-draft-letter">
-        <label className="chat-email-draft-letter-label" htmlFor={letterFieldId}>
-          Nachricht
-        </label>
-        <textarea
-          id={letterFieldId}
-          className="chat-email-draft-textarea"
-          value={editedLetter}
-          onChange={(e) => setEditedLetter(e.target.value)}
-          spellCheck={true}
-          rows={12}
-        />
-      </div>
-    </div>
-  )
+  return blocks
 }
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
@@ -614,19 +408,6 @@ function renderBlock(block: Block, i: number): ReactNode {
         </ol>
       )
     case 'blockquote':
-      if (block.quoteKind === 'plain') {
-        return (
-          <blockquote key={key} className="chat-md-blockquote">
-            <div className="chat-md-blockquote-body">
-              {block.lines.map((line, j) => (
-                <p key={`${key}-ln-${j}`} className="chat-md-blockquote-line">
-                  {renderAssistantInline(line)}
-                </p>
-              ))}
-            </div>
-          </blockquote>
-        )
-      }
       return (
         <blockquote
           key={key}
@@ -644,8 +425,6 @@ function renderBlock(block: Block, i: number): ReactNode {
       )
     case 'code':
       return <CodeBlock key={key} code={block.code} language={block.language} />
-    case 'emailDraft':
-      return <EmailDraftBlock key={key} body={block.body} />
     case 'table': {
       const [headerRow, ...bodyRows] = block.rows
       if (!headerRow?.length) {

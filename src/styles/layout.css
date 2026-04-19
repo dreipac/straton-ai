@@ -7,8 +7,9 @@
 }
 
 .chat-app-shell {
-  height: var(--straton-app-height);
-  min-height: var(--straton-app-height);
+  height: 100vh;
+  min-height: 100vh;
+  height: 100dvh;
   display: grid;
   --sidebar-width: 308px;
   grid-template-columns: var(--sidebar-width) 1fr;
@@ -732,8 +733,8 @@
     --mobile-sidebar-transition-ms: 520ms;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
-    min-height: var(--straton-app-height);
-    height: var(--straton-app-height);
+    min-height: 100vh;
+    height: 100dvh;
     position: relative;
   }
 
@@ -743,7 +744,8 @@
     position: fixed;
     inset: 0 auto 0 0;
     width: var(--mobile-sidebar-width);
-    height: var(--straton-app-height);
+    height: 100vh;
+    height: 100dvh;
     max-height: none;
     padding: max(0.55rem, env(safe-area-inset-top)) var(--chat-sidebar-pad-x) 0;
     gap: 0.55rem;

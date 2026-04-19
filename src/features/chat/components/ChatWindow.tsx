@@ -6,7 +6,6 @@ import {
   type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
@@ -36,8 +35,6 @@ type ChatWindowProps = {
   composerModelId: ChatComposerModelId
   onComposerModelChange: (id: ChatComposerModelId) => void
   onSendMessage: (content: string) => Promise<void>
-  /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
-  onCancelSend?: () => void
 }
 
 type QuizAnswerStatus = 'idle' | 'correct' | 'incorrect'
@@ -65,7 +62,6 @@ export function ChatWindow({
   composerModelId,
   onComposerModelChange,
   onSendMessage,
-  onCancelSend,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState('')
   const [showSlashMenu, setShowSlashMenu] = useState(false)
@@ -104,16 +100,6 @@ export function ChatWindow({
     return animated.length < lastMessage.content.length
   })()
   const showDuringSendIcon = isSending || isAssistantReplyStillAnimating
-  const cancelWhileSending = Boolean(isSending && onCancelSend)
-
-  function handleComposerSendClick(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (!cancelWhileSending) {
-      return
-    }
-    event.preventDefault()
-    event.stopPropagation()
-    onCancelSend?.()
-  }
 
   const lastMessageFingerprint =
     messages.length > 0
@@ -722,19 +708,9 @@ export function ChatWindow({
             <button
               type="submit"
               disabled={
-                tokenLimitReached ||
-                isAttachingFiles ||
-                (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
+                tokenLimitReached || isSending || isAttachingFiles || (!draft.trim() && pendingAttachments.length === 0)
               }
               aria-busy={showDuringSendIcon}
-              aria-label={
-                tokenLimitReached
-                  ? 'Token-Limit erreicht'
-                  : cancelWhileSending
-                    ? 'Antwort abbrechen'
-                    : 'Nachricht senden'
-              }
-              onClick={handleComposerSendClick}
             >
               <img
                 className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
@@ -1032,20 +1008,8 @@ export function ChatWindow({
         </div>
         <button
           type="submit"
-          disabled={
-            tokenLimitReached ||
-            isAttachingFiles ||
-            (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
-          }
+          disabled={tokenLimitReached || isSending || isAttachingFiles || (!draft.trim() && pendingAttachments.length === 0)}
           aria-busy={showDuringSendIcon}
-          aria-label={
-            tokenLimitReached
-              ? 'Token-Limit erreicht'
-              : cancelWhileSending
-                ? 'Antwort abbrechen'
-                : 'Nachricht senden'
-          }
-          onClick={handleComposerSendClick}
         >
           <img
             className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
