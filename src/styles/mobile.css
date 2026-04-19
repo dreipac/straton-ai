@@ -774,7 +774,9 @@ html.chat-pwa-scroll-lock body {
   background-color: var(--app-background);
 }
 
-/* Safe Area nur in #root (base.css) — hier kein padding am html */
+/* Safe Area nur in #root (base.css). Kein height am fixed html: top+bottom spannt —
+   zusätzliche height/var(--straton-app-height) kann kleiner sein als Viewport → Balken unten.
+   min-height unset: base.css html { min-height } sonst zusätzlicher Konflikt. */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
   position: fixed;
   top: 0;
@@ -782,19 +784,20 @@ html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
   right: 0;
   bottom: 0;
   width: 100%;
-  height: var(--straton-app-height);
-  min-height: var(--straton-app-height);
+  min-height: unset;
   overflow: hidden;
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
   overflow: hidden;
   height: 100%;
+  min-height: 0;
   width: 100%;
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  height: 100%;
+  /* Explizite Höhe wie appHeightSync — vermeidet fragile 100%-Kette html→body→#root */
+  height: var(--straton-app-height);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;

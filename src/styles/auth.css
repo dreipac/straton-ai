@@ -549,19 +549,19 @@ html.auth-login-scroll-lock:not(.auth-login-keyboard-active) {
   right: 0;
   bottom: 0;
   width: 100%;
-  height: var(--straton-app-height);
-  min-height: var(--straton-app-height);
+  min-height: unset;
   overflow: hidden;
 }
 
 html.auth-login-scroll-lock:not(.auth-login-keyboard-active) body {
   overflow: hidden;
   height: 100%;
+  min-height: 0;
   width: 100%;
 }
 
 html.auth-login-scroll-lock:not(.auth-login-keyboard-active) #root {
-  height: 100%;
+  height: var(--straton-app-height);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
