@@ -1623,7 +1623,7 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    /* Unten: Safe Area im Panel — nicht über #root, damit die Shell bis zum unteren Rand reicht */
+    /* Safe Area unten im Panel (nicht mehr am #root — vermeidet Höhen-Mismatch / Streifen) */
     padding: env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   }
 
@@ -1668,7 +1668,6 @@
   }
 
   .chat-panel.is-empty .chat-input-hint {
-    /* Safe Area kommt über .chat-panel padding-bottom */
     padding-bottom: 0;
   }
 
@@ -1680,7 +1679,6 @@
 
   .chat-panel:not(.is-empty) .chat-input-row {
     position: sticky;
-    /* Panel hat unten bereits env(safe-area-inset-bottom) im Padding */
     bottom: 0.32rem;
     z-index: 6;
   }

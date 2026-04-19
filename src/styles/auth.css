@@ -598,3 +598,13 @@ html.auth-login-scroll-lock.auth-login-keyboard-active #root {
     background-color: #131922;
   }
 }
+
+/* Gleicher Breakpoint wie Chat-Mobile: Dokument fest (base.css); Registrierung darf bei langem Formular scrollen */
+@media (max-width: 860px) {
+  .auth-register-page {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0;
+  }
+}
