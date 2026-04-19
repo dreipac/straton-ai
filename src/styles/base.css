@@ -7,9 +7,9 @@
 }
 
 :root {
-  /* Volle App-Höhe: 100svh = stabile «kleine» Viewport-Höhe (iOS Safari/PWA), weniger Sprung als 100dvh */
+  /* Browser-Tab: dynamische Viewport-Höhe. PWA-Override steht unten (100lvh), damit es nicht überschrieben wird. */
   --straton-app-height: 100vh;
-  --straton-app-height: 100svh;
+  --straton-app-height: 100dvh;
   font-family: SegUIVar, Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-optical-sizing: auto;
   font-variation-settings: 'opsz' 32;
@@ -39,6 +39,17 @@
   );
   /* Mobile FAB «Chat»: Vordergrund auf Akzentfläche (wird von applyAccentPalette gesetzt) */
   --accent-fab-fg: #ffffff;
+}
+
+/*
+ * Installierte PWA / Vollbild: 100dvh/100svh sind hier oft niedriger als der sichtbare Bereich — Lücke unten.
+ * 100lvh = «large» Viewport (ohne Browser-Chrome) ≈ volle nutzbare Fläche inkl. Home-Indicator-Zone.
+ */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --straton-app-height: 100vh;
+    --straton-app-height: 100lvh;
+  }
 }
 
 *,
