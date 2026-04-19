@@ -7,6 +7,8 @@
 }
 
 :root {
+  /* Volle App-Höhe per Viewport-Einheit (inkl. dynamischer UA-Leisten); kein JS-Override */
+  --straton-app-height: 100dvh;
   font-family: SegUIVar, Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-optical-sizing: auto;
   font-variation-settings: 'opsz' 32;
@@ -47,9 +49,7 @@
 /* Volle Safe Area: gleicher Hintergrund wie die App bis ganz oben (verhindert weisse/flackernde Notch-Zone) */
 html {
   margin: 0;
-  min-height: 100%;
-  min-height: 100dvh;
-  min-height: -webkit-fill-available;
+  min-height: var(--straton-app-height);
   background: var(--app-background);
   background-attachment: fixed;
 }
@@ -57,9 +57,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
-  min-height: 100dvh;
-  min-height: -webkit-fill-available;
+  min-height: var(--straton-app-height);
   background: var(--app-background);
   background-attachment: fixed;
 }
@@ -101,9 +99,13 @@ a:hover {
 }
 
 #root {
-  min-height: 100vh;
-  min-height: 100dvh;
-  min-height: -webkit-fill-available;
+  min-height: var(--straton-app-height);
+  height: var(--straton-app-height);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 button {
@@ -121,7 +123,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input) {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input) {
   font: inherit;
   width: 100%;
   margin: 0;
@@ -145,7 +147,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input)::placeholder {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input)::placeholder {
   color: var(--input-field-placeholder);
   opacity: 1;
 }
@@ -154,12 +156,12 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):focus,
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus,
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):focus-visible {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus-visible {
   outline: none;
 }
 
@@ -167,7 +169,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):focus-visible {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus-visible {
   background-color: var(--input-field-bg);
   background-image: var(--accent-gradient-line);
   background-size: 100% 1px;
@@ -182,7 +184,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):disabled {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):disabled {
   opacity: 0.62;
   cursor: not-allowed;
 }

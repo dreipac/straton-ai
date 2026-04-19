@@ -16,9 +16,45 @@
 }
 
 @media (max-width: 768px) {
-  html {
-    /* Verhindert horizontalen Scroll durch 100vw + Padding auf manchen Geräten */
+  /**
+   * PWA / Mobil: Dokument nicht vertikal scrollen (kein Rubber-Band auf body/html/#root).
+   * Scroll nur in Chat-, Lern- und Sheet-Bereichen. Login nutzt weiterhin `.auth-login-scroll-lock`.
+   */
+  html:not(.auth-login-scroll-lock) {
     overflow-x: clip;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow-y: hidden;
+    overscroll-behavior: none;
+    width: 100%;
+  }
+
+  html:not(.auth-login-scroll-lock) body {
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    width: 100%;
+  }
+
+  html:not(.auth-login-scroll-lock) #root {
+    height: 100%;
+    max-height: 100%;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+
+  /* Shell füllt #root statt eigenes 100dvh — sonst Clipping zu groß / Doppel-Safe-Area */
+  html:not(.auth-login-scroll-lock) .chat-app-shell {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
   }
 
   .chat-thread-row {
