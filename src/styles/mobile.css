@@ -15,25 +15,34 @@
   --straton-profile-full-sheet-ms: 560ms;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 860px) {
   /**
-   * PWA / Mobil: Dokument nicht vertikal scrollen (kein Rubber-Band auf body/html/#root).
+   * PWA / Mobil (gleicher Breakpoint wie Sidebar in layout.css): Dokument nicht vertikal scrollen.
    * Scroll nur in Chat-, Lern- und Sheet-Bereichen. Login nutzt weiterhin `.auth-login-scroll-lock`.
+   *
+   * iOS standalone: `100dvh` endet oft oberhalb der Home-Indicator-Zone → schwarzer Streifen unten.
+   * `-webkit-fill-available` füllt die tatsächlich verfügbare Höhe (siehe webkit.org Blog).
    */
   html:not(.auth-login-scroll-lock) {
     overflow-x: clip;
-    height: 100dvh;
-    max-height: 100dvh;
-    min-height: 0;
+    height: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: 100lvh;
+    min-height: -webkit-fill-available;
+    max-height: none;
     overflow-y: hidden;
     overscroll-behavior: none;
     width: 100%;
   }
 
   html:not(.auth-login-scroll-lock) body {
-    height: 100dvh;
-    max-height: 100dvh;
-    min-height: 0;
+    height: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: 100lvh;
+    min-height: -webkit-fill-available;
+    max-height: none;
     overflow: hidden;
     overscroll-behavior: none;
     width: 100%;
@@ -41,22 +50,22 @@
 
   html:not(.auth-login-scroll-lock) #root {
     height: 100%;
-    max-height: 100%;
-    min-height: 0 !important;
+    min-height: 100%;
+    min-height: -webkit-fill-available;
+    max-height: none;
     overflow: hidden !important;
     overscroll-behavior: none;
     -webkit-overflow-scrolling: auto;
-    /* Kein padding-bottom hier: sonst Streifen über Home-Indicator + Shell wirkt «abgeschnitten».
-       Safe Area setzen Chat-/Learn-Layouts selbst (z. B. chat.css .chat-panel). */
+    /* Kein padding-bottom: Safe Area in Chat-/Learn-Panels (chat.css). */
     padding-bottom: 0 !important;
     box-sizing: border-box;
   }
 
-  /* Shell füllt #root statt eigenes 100dvh — sonst Clipping zu groß / Doppel-Safe-Area */
   html:not(.auth-login-scroll-lock) .chat-app-shell {
     height: 100%;
-    min-height: 0;
-    max-height: 100%;
+    min-height: 100%;
+    min-height: -webkit-fill-available;
+    max-height: none;
   }
 
   .chat-thread-row {
