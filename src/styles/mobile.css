@@ -775,35 +775,53 @@ html.chat-pwa-scroll-lock body {
   background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
+/*
+ * iOS-PWA: html { position:fixed; inset:0; height:100% } ist oft *kürzer* als die Pixel unter dem
+ * Home-Indicator → schwarzer Systemstreifen. Ohne bottom:0 min-height erzwingen wir Extra-Höhe +
+ * Safe-Area (Viewport-Bottom wird mit eingerechnet).
+ */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   width: 100%;
-  height: 100%;
+  height: auto;
+  /* größere Viewport-Einheit + Safe-Area: schließt iOS-Lücke unter Home-Indicator */
+  min-height: calc(100dvh + env(safe-area-inset-bottom, 0px));
+  min-height: calc(100lvh + env(safe-area-inset-bottom, 0px));
+  max-height: none;
   overflow: hidden;
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
   overflow: hidden;
-  height: 100%;
   width: 100%;
+  min-height: 100%;
+  min-height: inherit;
+  height: auto;
+  background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  height: 100%;
+  min-height: 100%;
+  min-height: inherit;
+  height: auto;
+  max-height: none;
   overflow-x: hidden;
-  /* Kein Scroll auf #root: sonst leeres Chat-Overlay „wandert“ + Streifen unten (100dvh vs. 100%). */
+  /* Kein Scroll auf #root: sonst leeres Chat-Overlay „wandert“. */
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
-/* Höhe an gesperrtes html gekoppelt; Kantenfarbe = Chat-Fuß (kein Schwarz unter Home-Indicator) */
+/* Shell: gleiche Mindesthöhe wie html — füllt bis unter Safe-Area */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) .chat-app-shell {
-  height: 100%;
+  min-height: 100%;
+  min-height: inherit;
+  height: auto;
   max-height: none;
-  min-height: -webkit-fill-available;
   box-sizing: border-box;
   background: var(--chat-viewport-edge-fill, var(--app-background));
 }
@@ -827,7 +845,7 @@ html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
   overflow: visible;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 860px) {
   html.chat-pwa-scroll-lock,
   html.chat-pwa-scroll-lock body {
     background-color: var(--chat-viewport-edge-fill, var(--app-background));
