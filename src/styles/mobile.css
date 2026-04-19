@@ -46,7 +46,9 @@
     overflow: hidden !important;
     overscroll-behavior: none;
     -webkit-overflow-scrolling: auto;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Kein padding-bottom hier: sonst Streifen über Home-Indicator + Shell wirkt «abgeschnitten».
+       Safe Area setzen Chat-/Learn-Layouts selbst (z. B. chat.css .chat-panel). */
+    padding-bottom: 0 !important;
     box-sizing: border-box;
   }
 
