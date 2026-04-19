@@ -1623,8 +1623,9 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    /* Safe Area unten im Panel (nicht mehr am #root — vermeidet Höhen-Mismatch / Streifen) */
-    padding: env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
+    padding:
+      env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-panel.is-empty {
@@ -1668,7 +1669,7 @@
   }
 
   .chat-panel.is-empty .chat-input-hint {
-    padding-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
   .chat-panel.is-empty.has-limit-banner .chat-empty-compose {

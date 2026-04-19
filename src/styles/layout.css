@@ -7,9 +7,8 @@
 }
 
 .chat-app-shell {
-  height: 100vh;
-  min-height: 100vh;
-  height: 100dvh;
+  height: var(--straton-app-height);
+  min-height: var(--straton-app-height);
   display: grid;
   --sidebar-width: 308px;
   grid-template-columns: var(--sidebar-width) 1fr;
@@ -733,7 +732,6 @@
     --mobile-sidebar-transition-ms: 520ms;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
-    /* Füllt #root (100 %); festes 100dvh vermeidet Konflikt mit Safe-Area / unterem Streifen */
     min-height: 0;
     height: 100%;
     max-height: 100%;
@@ -746,8 +744,6 @@
     position: fixed;
     inset: 0 auto 0 0;
     width: var(--mobile-sidebar-width);
-    height: 100vh;
-    height: 100dvh;
     max-height: none;
     padding: max(0.55rem, env(safe-area-inset-top)) var(--chat-sidebar-pad-x) 0;
     gap: 0.55rem;

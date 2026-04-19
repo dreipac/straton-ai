@@ -27,8 +27,7 @@
 
 /* Login: linke Spalte Bild, rechte Spalte Formular (unabhängig vom globalen Theme) */
 .auth-login-page {
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: stretch;
@@ -62,7 +61,7 @@
 .auth-login-visual-img {
   width: 100%;
   height: 100%;
-  max-height: calc(100dvh - 2 * clamp(0.5rem, calc(0.35rem + 1.6vw), 1.35rem));
+  max-height: calc(var(--straton-app-height) - 2 * clamp(0.5rem, calc(0.35rem + 1.6vw), 1.35rem));
   object-fit: cover;
   border-radius: clamp(11px, calc(0.45rem + 1.2vw), 22px);
 }
@@ -335,8 +334,7 @@
 
 /* Platzhalter-Seite „Registrieren“ */
 .auth-register-page {
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
   box-sizing: border-box;
   display: grid;
   place-items: center;
@@ -373,7 +371,7 @@
     align-items: stretch;
     /* Einheitlich mit Sheet (#131922), sonst unten Streifen mit #11161d (Body/PWA-Safe-Area) */
     background: #131922;
-    min-height: 100dvh;
+    min-height: var(--straton-app-height);
     /* Rundungen am Sheet nicht am Grid/Overflow „abschneiden“ */
     overflow: visible;
     --color-text-app: #eef2f9;
@@ -574,13 +572,18 @@ html.auth-login-scroll-lock.auth-login-keyboard-active {
 html.auth-login-scroll-lock.auth-login-keyboard-active body {
   overflow: auto;
   height: auto;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
+  position: static;
+  inset: auto;
+  width: auto;
+  max-height: none;
 }
 
 html.auth-login-scroll-lock.auth-login-keyboard-active #root {
   height: auto;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
   overflow: visible;
+  max-height: none;
 }
 
 /* Mobil/PWA: gleicher Grund wie Login-Sheet — vermeidet farbigen Streifen unter Home-Indicator */
@@ -596,15 +599,5 @@ html.auth-login-scroll-lock.auth-login-keyboard-active #root {
 
   html.auth-login-scroll-lock.auth-login-keyboard-active #root {
     background-color: #131922;
-  }
-}
-
-/* Gleicher Breakpoint wie Chat-Mobile: Dokument fest (base.css); Registrierung darf bei langem Formular scrollen */
-@media (max-width: 860px) {
-  .auth-register-page {
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    min-height: 0;
   }
 }

@@ -7,8 +7,9 @@
 }
 
 :root {
-  /* Volle App-Höhe per Viewport-Einheit (inkl. dynamischer UA-Leisten); kein JS-Override */
-  --straton-app-height: 100dvh;
+  /* Volle App-Höhe: 100svh = stabile «kleine» Viewport-Höhe (iOS Safari/PWA), weniger Sprung als 100dvh */
+  --straton-app-height: 100vh;
+  --straton-app-height: 100svh;
   font-family: SegUIVar, Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-optical-sizing: auto;
   font-variation-settings: 'opsz' 32;
@@ -101,44 +102,17 @@ a:hover {
 #root {
   min-height: var(--straton-app-height);
   height: var(--straton-app-height);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   box-sizing: border-box;
   overflow-y: auto;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
 }
 
-/**
- * Mobile / schmale Layouts (wie Chat-Sidebar-Breakpoint): kein «Body-Scroll»,
- * keine doppelte Höhe gegenüber 100dvh — Safe Area nur in den Views (z. B. Chat-Padding).
- */
+/* Mobil: Safe-Bottom liegt in den Screens (z. B. chat-panel); hier kein zusätzlicher Abstand — sonst wirkt die Fläche «zu kurz» */
 @media (max-width: 860px) {
-  html {
-    overflow: hidden;
-    height: 100dvh;
-    max-height: 100dvh;
-    overscroll-behavior: none;
-  }
-
-  body {
-    overflow: hidden;
-    height: 100dvh;
-    max-height: 100dvh;
-    overscroll-behavior: none;
-  }
-
   #root {
-    height: 100%;
-    max-height: 100%;
-    min-height: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  #root > * {
-    flex: 1 1 auto;
-    min-height: 0;
-    min-width: 0;
+    padding-bottom: 0;
   }
 }
 
