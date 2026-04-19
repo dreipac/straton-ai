@@ -22,6 +22,7 @@ import {
   writeAssistantEmojisEnabled,
 } from '../features/chat/constants/chatAssistantStyle'
 import type { UiSettingsV1 } from '../features/settings/uiSettings'
+import { syncThemeColorMeta } from '../utils/themeColorMeta'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
 import { listVisibleSubscriptionPlans, type VisibleSubscriptionPlan } from '../features/auth/services/subscriptionCatalog.service'
@@ -485,6 +486,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     document.documentElement.dataset.theme = baseTheme
     document.documentElement.dataset.themeVariant = themeMode === 'pink-glass' ? 'pink-glass' : ''
     window.localStorage.setItem('straton-theme', themeMode)
+    syncThemeColorMeta()
   }, [themeMode])
 
   useEffect(() => {

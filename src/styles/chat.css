@@ -1623,7 +1623,8 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    padding: env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom));
+    /* Unten: Safe Area nur noch über #root padding-bottom (base.css) */
+    padding: env(safe-area-inset-top, 0px) 0.65rem 0.6rem;
   }
 
   .chat-panel.is-empty {

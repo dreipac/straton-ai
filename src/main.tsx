@@ -21,6 +21,7 @@ import {
   readPersistedLearnPathTitleColorMode,
 } from './features/settings/constants/learnPathTitleColor'
 import { initAppHeightSync } from './utils/appHeightSync'
+import { syncThemeColorMeta } from './utils/themeColorMeta'
 import './styles/theme.css'
 import './styles/base.css'
 import './styles/ui.css'
@@ -41,6 +42,7 @@ const initialThemeMode =
     : 'dark'
 document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' : 'dark'
 document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
+syncThemeColorMeta()
 
 const persistedSidebarScale = window.localStorage.getItem('straton-sidebar-scale')
 const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches

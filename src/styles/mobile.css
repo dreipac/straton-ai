@@ -774,11 +774,14 @@ html.chat-pwa-scroll-lock body {
   background-color: var(--app-background);
 }
 
+/* Safe Area nur in #root (base.css) — hier kein padding am html */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
-  /* 100% wäre hier kürzer als der sichtbare PWA-Viewport (Eltern-Referenz) — unten Lücke */
   height: var(--straton-app-height);
   min-height: var(--straton-app-height);
   overflow: hidden;
@@ -786,17 +789,17 @@ html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
   overflow: hidden;
-  height: var(--straton-app-height);
-  min-height: var(--straton-app-height);
+  height: 100%;
   width: 100%;
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  height: var(--straton-app-height);
-  min-height: var(--straton-app-height);
+  height: 100%;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
   overscroll-behavior-y: contain;
 }
 
