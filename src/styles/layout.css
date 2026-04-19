@@ -733,8 +733,12 @@
     --mobile-sidebar-transition-ms: 520ms;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
+    /* dvh allein reicht auf iOS oft nicht — lvh/fill-available füllen den sichtbaren Bereich zuverlässiger */
     min-height: 100vh;
+    min-height: 100lvh;
+    min-height: -webkit-fill-available;
     height: 100dvh;
+    max-height: none;
     position: relative;
   }
 
@@ -744,8 +748,8 @@
     position: fixed;
     inset: 0 auto 0 0;
     width: var(--mobile-sidebar-width);
-    height: 100vh;
-    height: 100dvh;
+    /* Volle Bildschirmhöhe per top+bottom — 100dvh/100vh lässt auf iOS/PWA oft einen Streifen unter dem Home-Indicator */
+    height: auto;
     max-height: none;
     padding: max(0.55rem, env(safe-area-inset-top)) var(--chat-sidebar-pad-x) 0;
     gap: 0.55rem;
