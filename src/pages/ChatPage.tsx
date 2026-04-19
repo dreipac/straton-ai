@@ -239,6 +239,21 @@ export function ChatPage() {
 
     const setKeyboardActive = (active: boolean) => {
       html.classList.toggle('chat-pwa-keyboard-active', active)
+      if (active) {
+        /* Sonst nimmt syncPwaViewportHeightPx die kleine visualViewport-Höhe — Layout bleibt zu kurz */
+        html.style.removeProperty('--straton-pwa-vh')
+      } else {
+        syncPwaViewportHeightPx()
+        requestAnimationFrame(() => syncPwaViewportHeightPx())
+      }
+    }
+
+    /** iOS PWA: dvh/lvh passen oft nicht zur echten Pixelhöhe — innerHeight/visualViewport als px-Mindesthöhe */
+    function syncPwaViewportHeightPx() {
+      const vv = window.visualViewport
+      const fromVv = vv != null && vv.height > 2 ? vv.height : 0
+      const h = Math.round(Math.max(window.innerHeight, fromVv))
+      html.style.setProperty('--straton-pwa-vh', `${h}px`)
     }
 
     const syncScrollLock = () => {
@@ -246,7 +261,24 @@ export function ChatPage() {
       html.classList.toggle('chat-pwa-scroll-lock', lock)
       if (!lock) {
         html.classList.remove('chat-pwa-keyboard-active')
+        html.style.removeProperty('--straton-pwa-vh')
+        return
       }
+      syncPwaViewportHeightPx()
+      requestAnimationFrame(() => {
+        syncPwaViewportHeightPx()
+      })
+      window.setTimeout(syncPwaViewportHeightPx, 80)
+    }
+
+    const onViewportResize = () => {
+      if (!(mq.matches || isPwaStandalone())) {
+        return
+      }
+      if (html.classList.contains('chat-pwa-keyboard-active')) {
+        return
+      }
+      syncPwaViewportHeightPx()
     }
 
     const handleFocusIn = (event: FocusEvent) => {
@@ -270,15 +302,22 @@ export function ChatPage() {
 
     syncScrollLock()
     mq.addEventListener('change', syncScrollLock)
+    window.addEventListener('resize', onViewportResize)
+    window.addEventListener('orientationchange', onViewportResize)
+    window.visualViewport?.addEventListener('resize', onViewportResize)
     document.addEventListener('focusin', handleFocusIn)
     document.addEventListener('focusout', handleFocusOut)
 
     return () => {
       mq.removeEventListener('change', syncScrollLock)
+      window.removeEventListener('resize', onViewportResize)
+      window.removeEventListener('orientationchange', onViewportResize)
+      window.visualViewport?.removeEventListener('resize', onViewportResize)
       clearBlurTimeout()
       document.removeEventListener('focusin', handleFocusIn)
       document.removeEventListener('focusout', handleFocusOut)
       html.classList.remove('chat-pwa-scroll-lock', 'chat-pwa-keyboard-active')
+      html.style.removeProperty('--straton-pwa-vh')
     }
   }, [])
 
