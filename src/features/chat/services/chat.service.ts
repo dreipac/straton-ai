@@ -311,9 +311,14 @@ function buildChatCompletionRequestBody(
 const SIMULATED_STREAM_MS = 14
 const SIMULATED_STREAM_STEP = 36
 
+function isAbortErrorLike(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError'
+}
+
 async function simulateAssistantTextStream(
   fullText: string,
   onDelta: (accumulated: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const text = fullText.trim()
   if (!text.length) {
@@ -321,12 +326,21 @@ async function simulateAssistantTextStream(
     return
   }
   if (text.length <= SIMULATED_STREAM_STEP) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
     onDelta(text)
     return
   }
   for (let end = SIMULATED_STREAM_STEP; end < text.length; end += SIMULATED_STREAM_STEP) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
     onDelta(text.slice(0, end))
     await new Promise((r) => setTimeout(r, SIMULATED_STREAM_MS))
+  }
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
   }
   onDelta(text)
 }
@@ -391,6 +405,7 @@ export async function sendLearnChapterHelpMessage(
 
 export type SendMessageStreamingOptions = SendMessageOptions & {
   onDelta: (accumulatedText: string) => void
+  signal?: AbortSignal
 }
 
 type StreamSsePayload =
@@ -401,6 +416,7 @@ type StreamSsePayload =
 async function consumeChatCompletionSse(
   response: Response,
   onDelta: (accumulated: string) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   const reader = response.body?.getReader()
   if (!reader) {
@@ -413,7 +429,20 @@ async function consumeChatCompletionSse(
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => {})
+        throw new DOMException('Aborted', 'AbortError')
+      }
+      let readResult: ReadableStreamReadResult<Uint8Array>
+      try {
+        readResult = await reader.read()
+      } catch (readErr) {
+        if (signal?.aborted || isAbortErrorLike(readErr)) {
+          throw new DOMException('Aborted', 'AbortError')
+        }
+        throw readErr
+      }
+      const { done, value } = readResult
       if (done) {
         break
       }
@@ -472,6 +501,7 @@ export async function sendMessageStreaming(
   options: SendMessageStreamingOptions,
 ): Promise<string> {
   const onDelta = options.onDelta
+  const signal = options.signal
 
   if (!usesGatewayAi()) {
     const text = await getMockAssistantReply(messages)
@@ -480,22 +510,40 @@ export async function sendMessageStreaming(
     }
     const step = Math.max(4, Math.ceil(text.length / 20))
     for (let i = step; i < text.length; i += step) {
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
       onDelta(text.slice(0, i))
+    }
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
     }
     onDelta(text)
     return text.trim()
   }
 
   if (options.useLearnPathModel) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
     const content = await getAssistantReply(messages, options)
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
     onDelta(content)
     return content.trim()
   }
 
   const mainMeta = getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
   if (mainMeta.provider === 'anthropic') {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
     const content = await getAssistantReply(messages, options)
-    await simulateAssistantTextStream(content, onDelta)
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+    await simulateAssistantTextStream(content, onDelta, signal)
     return content.trim()
   }
 
@@ -521,6 +569,7 @@ export async function sendMessageStreaming(
       ...buildChatCompletionRequestBody(messages, options),
       stream: true,
     }),
+    signal,
   })
 
   const ct = res.headers.get('content-type') ?? ''
@@ -564,7 +613,7 @@ export async function sendMessageStreaming(
     )
   }
 
-  return consumeChatCompletionSse(res, onDelta)
+  return consumeChatCompletionSse(res, onDelta, signal)
 }
 
 function fallbackChatTitle(messages: ChatMessage[]): string {

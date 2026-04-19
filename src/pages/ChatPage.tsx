@@ -79,6 +79,7 @@ export function ChatPage() {
     isBootstrapping,
     error,
     submitMessage,
+    cancelOutgoingMessage,
     createNewChat,
     renameChat,
     deleteChat,
@@ -222,13 +223,11 @@ export function ChatPage() {
     return () => mq.removeEventListener('change', syncCompactSidebarLayout)
   }, [])
 
-  /* PWA: dieselbe html-Scroll-Sperre wie Login (kein Rubber-Band / grauer Rand); bei Tastatur wieder normal */
+  /* Mobil & PWA: gleiche Scroll-Sperre wie Login — kein Rubber-Band, kein Streifen unten; bei Tastatur wieder normal */
   useEffect(() => {
-    if (!isPwaStandalone()) {
-      return undefined
-    }
-
     const html = document.documentElement
+    const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)
+
     let blurTimeout: ReturnType<typeof setTimeout> | null = null
 
     const clearBlurTimeout = () => {
@@ -240,6 +239,14 @@ export function ChatPage() {
 
     const setKeyboardActive = (active: boolean) => {
       html.classList.toggle('chat-pwa-keyboard-active', active)
+    }
+
+    const syncScrollLock = () => {
+      const lock = mq.matches || isPwaStandalone()
+      html.classList.toggle('chat-pwa-scroll-lock', lock)
+      if (!lock) {
+        html.classList.remove('chat-pwa-keyboard-active')
+      }
     }
 
     const handleFocusIn = (event: FocusEvent) => {
@@ -261,12 +268,13 @@ export function ChatPage() {
       }, 120)
     }
 
-    html.classList.add('chat-pwa-scroll-lock')
-
+    syncScrollLock()
+    mq.addEventListener('change', syncScrollLock)
     document.addEventListener('focusin', handleFocusIn)
     document.addEventListener('focusout', handleFocusOut)
 
     return () => {
+      mq.removeEventListener('change', syncScrollLock)
       clearBlurTimeout()
       document.removeEventListener('focusin', handleFocusIn)
       document.removeEventListener('focusout', handleFocusOut)
@@ -1017,6 +1025,7 @@ export function ChatPage() {
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
           onSendMessage={submitMessage}
+          onCancelSend={cancelOutgoingMessage}
         />
       </section>
       <button

@@ -64,6 +64,13 @@ function getMessagesByThread(
   }, {})
 }
 
+function isAbortLike(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === 'AbortError') {
+    return true
+  }
+  return typeof e === 'object' && e !== null && 'name' in e && (e as { name: string }).name === 'AbortError'
+}
+
 function createTemporaryThread(userId: string): ChatThread {
   const now = new Date().toISOString()
   return {
@@ -91,6 +98,8 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
     ),
   )
   const removeTimersRef = useRef<Record<string, number>>({})
+  const streamAbortRef = useRef<AbortController | null>(null)
+  const streamAccumRef = useRef('')
 
   function persistComposerModelId(id: ChatComposerModelId) {
     setComposerModelId(id)
@@ -464,12 +473,16 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           [targetThreadId]: [...(prev[targetThreadId] ?? []), streamingPlaceholder],
         }))
 
+        streamAbortRef.current = new AbortController()
+        streamAccumRef.current = ''
         try {
           finalAssistantContent = await sendMessageStreaming(nextMessages, {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
             mainChatModelId: composerModelId,
+            signal: streamAbortRef.current.signal,
             onDelta: (full) => {
+              streamAccumRef.current = full
               setMessagesByThreadId((prev) => ({
                 ...prev,
                 [targetThreadId]: (prev[targetThreadId] ?? []).map((m) =>
@@ -479,11 +492,57 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
             },
           })
         } catch (streamErr) {
+          if (isAbortLike(streamErr)) {
+            streamAbortRef.current = null
+            const partial = streamAccumRef.current.trim()
+            streamAccumRef.current = ''
+            if (!partial) {
+              setMessagesByThreadId((prev) => ({
+                ...prev,
+                [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
+              }))
+            } else {
+              try {
+                const stored = await createChatMessage(targetThreadId, 'assistant', partial)
+                setMessagesByThreadId((prev) => ({
+                  ...prev,
+                  [targetThreadId]: (prev[targetThreadId] ?? []).map((m) =>
+                    m.id === streamingMessageId
+                      ? { ...stored, metadata: { ...stored.metadata, userCancelled: true } }
+                      : m,
+                  ),
+                }))
+                await touchChatThread(targetThreadId)
+                setThreads((prev) => {
+                  const updated = prev.map((thread) =>
+                    thread.id === targetThreadId
+                      ? {
+                          ...thread,
+                          updatedAt: new Date().toISOString(),
+                        }
+                      : thread,
+                  )
+                  return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                })
+              } catch (persistErr) {
+                setMessagesByThreadId((prev) => ({
+                  ...prev,
+                  [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
+                }))
+                setError(
+                  persistErr instanceof Error ? persistErr.message : 'Antwort konnte nicht gespeichert werden.',
+                )
+              }
+            }
+            return
+          }
           setMessagesByThreadId((prev) => ({
             ...prev,
             [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
           }))
           throw streamErr
+        } finally {
+          streamAbortRef.current = null
         }
       } else {
         const { assistantMessage } = await sendMessage(nextMessages, {
@@ -611,12 +670,19 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         })()
       }
     } catch (err) {
+      if (isAbortLike(err)) {
+        return
+      }
       const message =
         err instanceof Error ? err.message : 'Beim Senden ist ein unbekannter Fehler aufgetreten.'
       setError(message)
     } finally {
       setIsSending(false)
     }
+  }
+
+  function cancelOutgoingMessage() {
+    streamAbortRef.current?.abort()
   }
 
   return {
@@ -627,6 +693,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
     isBootstrapping,
     error,
     submitMessage,
+    cancelOutgoingMessage,
     createNewChat,
     renameChat,
     deleteChat,

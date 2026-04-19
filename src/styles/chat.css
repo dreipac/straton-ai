@@ -608,7 +608,290 @@
   color: #0f172a;
 }
 
-/* Blockzitate mit > (laut Prompt: Bibelverse) */
+/* E-Mail-Adressen in KI-Antworten (ähnlich hervorgehoben wie URL-Pills, eigenes Thema) */
+.chat-md-email-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.16rem 0.55rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid color-mix(in srgb, #0ea5e9 45%, #bae6fd);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #ecfeff 94%, #a5f3fc) 0%,
+    color-mix(in srgb, #f8fafc 92%, #e0f2fe) 100%
+  );
+  color: #0c4a6e;
+  text-decoration: none;
+  vertical-align: 0.08em;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.chat-md-email-pill:hover {
+  border-color: color-mix(in srgb, #0284c7 52%, #7dd3fc);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #e0f2fe 88%, #7dd3fc) 0%,
+    color-mix(in srgb, #f0f9ff 86%, #bae6fd) 100%
+  );
+  color: #075985;
+}
+
+.chat-md-email-pill:focus-visible {
+  outline: 2px solid color-mix(in srgb, #0ea5e9 65%, #94a3b8);
+  outline-offset: 2px;
+}
+
+/* E-Mail-/Briefentwurf der KI (Code ```email oder erkanntes Betreff:-Muster) */
+.chat-email-draft {
+  margin: 0.65rem 0 0;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #0ea5e9 38%, #bae6fd);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #f0fdfa 94%, #a5f3fc) 0%,
+    color-mix(in srgb, #ffffff 92%, #e0f2fe) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 6px 20px rgba(14, 165, 233, 0.09);
+  max-width: min(640px, 100%);
+}
+
+.chat-email-draft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.38rem 0.65rem;
+  background: color-mix(in srgb, #ecfeff 88%, #67e8f9);
+  border-bottom: 1px solid color-mix(in srgb, #22d3ee 28%, #bae6fd);
+}
+
+.chat-email-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.chat-email-draft-mailto {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, #0d9488 45%, #5eead4);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #14b8a6 18%, #f0fdfa) 0%,
+    color-mix(in srgb, #2dd4bf 12%, #ecfeff) 100%
+  );
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-email-draft-mailto:hover {
+  background: color-mix(in srgb, #5eead4 32%, #f0fdfa);
+  color: #115e59;
+}
+
+.chat-email-draft-mailto:focus-visible {
+  outline: 2px solid color-mix(in srgb, #14b8a6 55%, #94a3b8);
+  outline-offset: 2px;
+}
+
+.chat-email-draft-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #0e7490;
+}
+
+.chat-email-draft-copy {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, #06b6d4 42%, #a5f3fc);
+  background: color-mix(in srgb, #ffffff 92%, #cffafe);
+  color: #155e75;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chat-email-draft-copy:hover {
+  background: color-mix(in srgb, #cffafe 88%, #67e8f9);
+}
+
+.chat-email-draft-copy:focus-visible {
+  outline: 2px solid color-mix(in srgb, #06b6d4 55%, #94a3b8);
+  outline-offset: 2px;
+}
+
+.chat-email-draft-subject-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem 0.65rem;
+  align-items: baseline;
+  padding: 0.55rem 0.85rem 0.35rem;
+  border-bottom: 1px dashed color-mix(in srgb, #64748b 28%, #bae6fd);
+}
+
+.chat-email-draft-subject-row.chat-email-draft-subject-edit {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.38rem;
+}
+
+.chat-email-draft-subject-k {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chat-email-draft-subject-v {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+/* Editierbar wie frueherer Fliesstext — keine sichtbaren Eingabe-Rahmen */
+.chat-email-draft-subject-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 650;
+  font-family: inherit;
+}
+
+.chat-email-draft-subject-input::placeholder {
+  color: color-mix(in srgb, #64748b 75%, #94a3b8);
+  font-weight: 500;
+}
+
+.chat-email-draft-subject-input:focus {
+  outline: none;
+}
+
+.chat-email-draft-subject-input:focus-visible {
+  outline: 1px dashed color-mix(in srgb, #06b6d4 55%, #94a3b8);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.chat-email-draft-letter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.38rem;
+  padding: 0.65rem 0.85rem 0.85rem;
+}
+
+.chat-email-draft-letter-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chat-email-draft-textarea {
+  display: block;
+  width: 100%;
+  min-height: 10rem;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #164e63;
+  font-size: 0.93rem;
+  line-height: 1.56;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  field-sizing: content;
+  min-block-size: 8rem;
+}
+
+.chat-email-draft-textarea:focus {
+  outline: none;
+}
+
+.chat-email-draft-textarea:focus-visible {
+  outline: 1px dashed color-mix(in srgb, #06b6d4 55%, #94a3b8);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.chat-email-draft-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  font-size: 0.93rem;
+  line-height: 1.56;
+  color: #164e63;
+}
+
+/* Blockzitate mit > die *keine* Bibel-/Sure-Referenz sind (normales Zitat) */
+.chat-md-blockquote {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0 0.45rem 0.75rem;
+  border-left: 3px solid color-mix(in srgb, #64748b 55%, #94a3b8);
+  background: color-mix(in srgb, #f8fafc 96%, #e2e8f0);
+  border-radius: 0 10px 10px 0;
+}
+
+.chat-md-blockquote-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-md-blockquote-line {
+  margin: 0;
+  font-size: 0.98em;
+  line-height: 1.55;
+  color: #334155;
+}
+
+/* Blockzitate mit > — nur bei erkanntem Bibel-/Sure-Muster: spezielle Box */
 .chat-bible-verse {
   margin: 0.35rem 0 0;
   padding: 0.65rem 0.85rem 0.75rem;
@@ -798,6 +1081,7 @@
 }
 
 .chat-input-row {
+  --chat-composer-icon-size: 26px;
   position: relative;
   display: flex;
   align-items: flex-end;
@@ -938,6 +1222,9 @@
 }
 
 .chat-attach-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   border: 1px solid var(--chat-composer-action-border) !important;
   background: var(--chat-composer-action-bg) !important;
@@ -1326,14 +1613,10 @@
   outline-offset: 1px;
 }
 
-/* Anhang-Button: gleiche Icon-Größe wie Senden */
-.chat-input-row--stacked .chat-attach-button .chat-send-icon {
-  --ui-icon-size: 26px;
-}
-
-/* Senden: grösseres Icon im Kreis-Button */
-.chat-input-row--stacked > button[type='submit'] .chat-send-icon {
-  --ui-icon-size: 26px;
+/* Anhang + Senden: gleiche Icon-Größe (über --chat-composer-icon-size) */
+.chat-input-row .chat-attach-button .chat-send-icon,
+.chat-input-row > button[type='submit'] .chat-send-icon {
+  --ui-icon-size: var(--chat-composer-icon-size);
 }
 
 @media (max-width: 860px) {
@@ -1604,9 +1887,122 @@
   color: #f3f4f6;
 }
 
+:root[data-theme='dark'] .chat-md-email-pill {
+  border-color: color-mix(in srgb, #38bdf8 42%, #334155);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #164e63 72%, #0f172a) 0%,
+    color-mix(in srgb, #0f172a 94%, #155e75) 100%
+  );
+  color: #bae6fd;
+}
+
+:root[data-theme='dark'] .chat-md-email-pill:hover {
+  border-color: color-mix(in srgb, #38bdf8 58%, #475569);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #155e75 65%, #0f172a) 0%,
+    color-mix(in srgb, #164e63 55%, #0f172a) 100%
+  );
+  color: #e0f2fe;
+}
+
+:root[data-theme='dark'] .chat-md-email-pill:focus-visible {
+  outline-color: color-mix(in srgb, #38bdf8 55%, #64748b);
+}
+
+:root[data-theme='dark'] .chat-email-draft {
+  border-color: color-mix(in srgb, #22d3ee 42%, #334155);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, #164e63 62%, #0f172a) 0%,
+    color-mix(in srgb, #0f172a 93%, #155e75) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.38);
+}
+
+:root[data-theme='dark'] .chat-email-draft-head {
+  background: color-mix(in srgb, #164e63 72%, #0f172a);
+  border-bottom-color: color-mix(in srgb, #22d3ee 38%, #334155);
+}
+
+:root[data-theme='dark'] .chat-email-draft-mailto {
+  border-color: color-mix(in srgb, #2dd4bf 45%, #334155);
+  background: color-mix(in srgb, #115e59 45%, #0f172a);
+  color: #99f6e4;
+}
+
+:root[data-theme='dark'] .chat-email-draft-mailto:hover {
+  background: color-mix(in srgb, #0d9488 38%, #115e59);
+  color: #ecfdf5;
+}
+
+:root[data-theme='dark'] .chat-email-draft-mailto:focus-visible {
+  outline-color: color-mix(in srgb, #2dd4bf 50%, #64748b);
+}
+
+:root[data-theme='dark'] .chat-email-draft-badge {
+  color: #67e8f9;
+}
+
+:root[data-theme='dark'] .chat-email-draft-copy {
+  border-color: color-mix(in srgb, #22d3ee 45%, #475569);
+  background: color-mix(in srgb, #155e75 55%, #0f172a);
+  color: #cffafe;
+}
+
+:root[data-theme='dark'] .chat-email-draft-copy:hover {
+  background: color-mix(in srgb, #164e63 65%, #0f172a);
+}
+
+:root[data-theme='dark'] .chat-email-draft-subject-row {
+  border-bottom-color: color-mix(in srgb, #64748b 55%, #334155);
+}
+
+:root[data-theme='dark'] .chat-email-draft-subject-k {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .chat-email-draft-subject-v {
+  color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .chat-email-draft-letter-label {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .chat-email-draft-subject-input {
+  color: #f1f5f9;
+  background: transparent;
+}
+
+:root[data-theme='dark'] .chat-email-draft-subject-input::placeholder {
+  color: #64748b;
+}
+
+:root[data-theme='dark'] .chat-email-draft-textarea {
+  color: #ccfbf1;
+  background: transparent;
+}
+
+:root[data-theme='dark'] .chat-email-draft-pre {
+  color: #ccfbf1;
+}
+
 :root[data-theme='dark'] .chat-md-code-wrap {
   border-color: #0f172a;
   background: #020617;
+}
+
+:root[data-theme='dark'] .chat-md-blockquote {
+  border-left-color: color-mix(in srgb, #94a3b8 45%, #475569);
+  background: color-mix(in srgb, #11161d 96%, #1e293b);
+}
+
+:root[data-theme='dark'] .chat-md-blockquote-line {
+  color: #cbd5e1;
 }
 
 :root[data-theme='dark'] .chat-bible-verse {
@@ -1904,6 +2300,7 @@
   }
 
   :root[data-sidebar-scale='75'] .chat-input-row {
+    --chat-composer-icon-size: 24px;
     width: min(700px, 100%);
     padding: 0.34rem 0.4rem;
     gap: 0.42rem;
@@ -1917,14 +2314,18 @@
   }
 
   :root[data-sidebar-scale='75'] .chat-input-row > button {
-    width: 35px;
-    height: 35px;
-    min-width: 35px;
-    min-height: 35px;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
   }
 
-  :root[data-sidebar-scale='75'] .chat-send-icon {
-    --ui-icon-size: 18px;
+  :root[data-sidebar-scale='75'] .chat-input-row--stacked .chat-attach-button,
+  :root[data-sidebar-scale='75'] .chat-input-row--stacked > button[type='submit'] {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
   }
 
   :root[data-sidebar-scale='75'] .chat-empty-title {

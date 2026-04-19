@@ -791,9 +791,17 @@ html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
   height: 100%;
   overflow-x: hidden;
-  overflow-y: auto;
+  /* Kein Scroll auf #root: sonst leeres Chat-Overlay „wandert“ + Streifen unten (100dvh vs. 100%). */
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+}
+
+/* Höhe an gesperrtes html gekoppelt — vermeidet Extra-Pixel gegenüber 100dvh auf dem Shell */
+html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) .chat-app-shell {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
 }
 
 html.chat-pwa-scroll-lock.chat-pwa-keyboard-active {

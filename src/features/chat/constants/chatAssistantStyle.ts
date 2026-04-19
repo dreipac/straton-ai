@@ -45,7 +45,9 @@ export function getAssistantMarkdownFormattingInstruction(): string {
     '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Uebersichten, kleine Datensaetze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
     headingRule,
     '- Quellen als [Kurzname](https://…) oder freistehende http(s)-URLs in einer Zeile.',
-    '- Bibelverse: immer als Blockzitat setzen — jede Zeile mit > am Zeilenanfang (Markdown). Erste Zeile mit **Buch Kapitel,Vers** (z. B. **Johannes 3,16**), folgende Zeilen mit > den Wortlaut. Kein > bei normalen Zitaten ohne Bibel.',
+    '- **Nur echte Bibelverse** in die violette Bibel-Box: Blockzitat mit >, erste Zeile **Buch Kapitel,Vers** (z. B. **Johannes 3,16**), folgende Zeilen mit > den Wortlaut.',
+    '- **Normale Zitate** (Autoren, Philosophie, Filme, «ein Zitat zum Thema», usw.): **kein** >-Block wie bei Bibeltext — stattdessen kurzes Zitat im Fliesstext mit Anführungszeichen oder kurze eigene Zeile in Anführungszeichen; keine Bibel-Box.',
+    '- **E-Mail-, Brief- oder Krankmeldungsentwurf**: den **gesamten** Entwurf in einen Codeblock mit Sprache `email` packen — Zeile 1 nur die Oeffnung ```email, dann `Betreff: …`, dann Fliesstext mit Anrede und Signatur, am Ende eigene Zeile ``` zum Schliessen. Die UI zeigt das dann **als E-Mail-Karte** mit Kopier-Button.',
     '- Keinen JSON-Code-Block senden, außer interaktives Quiz laut anderen Regeln.',
   ].join('\n')
 }
