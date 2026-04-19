@@ -766,12 +766,13 @@ button.profile-full-sheet-row:focus-visible {
 /* —— PWA Chat: gleiche Scroll-/Rubber-Band-Logik wie Login (`auth-login-scroll-lock`); Farben via Theme. —— */
 html.chat-pwa-scroll-lock {
   overscroll-behavior: none;
-  background-color: var(--app-background);
+  /* Nicht nur --app-background: Chat-Fläche endet dunkler (#05070d) — sonst Streifen unten iOS/PWA */
+  background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
 html.chat-pwa-scroll-lock body {
   overscroll-behavior: none;
-  background-color: var(--app-background);
+  background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
@@ -795,13 +796,16 @@ html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
-/* Höhe an gesperrtes html gekoppelt — vermeidet Extra-Pixel gegenüber 100dvh auf dem Shell */
+/* Höhe an gesperrtes html gekoppelt; Kantenfarbe = Chat-Fuß (kein Schwarz unter Home-Indicator) */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) .chat-app-shell {
   height: 100%;
-  max-height: 100%;
-  min-height: 0;
+  max-height: none;
+  min-height: -webkit-fill-available;
+  box-sizing: border-box;
+  background: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
 html.chat-pwa-scroll-lock.chat-pwa-keyboard-active {
@@ -826,14 +830,14 @@ html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
 @media (max-width: 768px) {
   html.chat-pwa-scroll-lock,
   html.chat-pwa-scroll-lock body {
-    background-color: var(--app-background);
+    background-color: var(--chat-viewport-edge-fill, var(--app-background));
   }
 
   html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-    background-color: var(--app-background);
+    background-color: var(--chat-viewport-edge-fill, var(--app-background));
   }
 
   html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
-    background-color: var(--app-background);
+    background-color: var(--chat-viewport-edge-fill, var(--app-background));
   }
 }

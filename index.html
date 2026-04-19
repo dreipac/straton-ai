@@ -12,8 +12,9 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <!-- Chrome/Android: Systemleiste nicht mit eigener Farbe überdecken (Seitenhintergrund bis oben) -->
-    <meta name="theme-color" content="transparent" />
+    <!-- iOS/PWA: transparent kann unten Schwarz zeigen — hell/dunkel passend zur Chat-Kante -->
+    <meta name="theme-color" content="#e8edf5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#05070d" media="(prefers-color-scheme: dark)" />
     <link rel="manifest" href="/manifest.webmanifest?v=3" />
     <title>straton-ai</title>
   </head>
