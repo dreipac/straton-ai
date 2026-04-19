@@ -20,6 +20,7 @@ import {
   applyLearnPathTitleColorMode,
   readPersistedLearnPathTitleColorMode,
 } from './features/settings/constants/learnPathTitleColor'
+import { initAppHeightSync } from './utils/appHeightSync'
 import './styles/theme.css'
 import './styles/base.css'
 import './styles/ui.css'
@@ -30,6 +31,8 @@ import './styles/learn.css'
 import './styles/settings.css'
 import './styles/auth.css'
 import './styles/mobile.css'
+
+initAppHeightSync()
 
 const persistedTheme = window.localStorage.getItem('straton-theme')
 const initialThemeMode =

@@ -46,8 +46,6 @@
   --settings-body-bg: var(--color-surface);
   --settings-card-bg: var(--color-surface-soft);
   --app-background: #f3f5f9;
-  /* Untere Kante wie .chat-main::before (Hell) — vermeidet Streifen unter Home-Indicator/PWA */
-  --chat-viewport-edge-fill: #e8edf5;
   --glass-blur: 0px;
   --glass-saturation: 100%;
   --chat-user-bubble-bg: #eef2f7;
@@ -114,8 +112,6 @@
   --settings-body-bg: var(--color-surface);
   --settings-card-bg: var(--color-surface-soft);
   --app-background: #0b0f14;
-  /* Gleicher Boden wie linear-gradient-Ende auf .chat-main::before (#05070d) */
-  --chat-viewport-edge-fill: #05070d;
   --glass-blur: 0px;
   --glass-saturation: 100%;
   --chat-user-bubble-bg: #eef2f7;
@@ -180,6 +176,4 @@
   --input-field-placeholder: rgba(232, 210, 236, 0.52);
   --input-field-border-idle: rgba(244, 114, 182, 0.22);
   --input-field-shadow-focus: 0 14px 40px rgba(18, 6, 28, 0.55);
-  /* Wie .chat-main::before (pink-glass) unterer Verlauf */
-  --chat-viewport-edge-fill: #100914;
 }

@@ -7,9 +7,8 @@
 }
 
 .chat-app-shell {
-  height: 100vh;
-  min-height: 100vh;
-  height: 100dvh;
+  height: var(--straton-app-height);
+  min-height: var(--straton-app-height);
   display: grid;
   --sidebar-width: 308px;
   grid-template-columns: var(--sidebar-width) 1fr;
@@ -733,10 +732,8 @@
     --mobile-sidebar-transition-ms: 520ms;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
-    /* PWA setzt --straton-pwa-vh auf ChatPage; sonst iOS-freundliche Viewport-Höhe */
-    min-height: var(--straton-pwa-vh, 100lvh);
-    height: auto;
-    max-height: none;
+    min-height: var(--straton-app-height);
+    height: var(--straton-app-height);
     position: relative;
   }
 
@@ -744,14 +741,9 @@
     --chat-sidebar-pad-x: 0.65rem;
     --mobile-sidebar-footer-fade: 4rem;
     position: fixed;
-    /* Kein bottom:0 — inset klammt die Höhe auf dvh/vh und erzeugt den schwarzen Streifen unter dem Home-Indicator */
-    top: 0;
-    left: 0;
-    bottom: auto;
-    right: auto;
+    inset: 0 auto 0 0;
     width: var(--mobile-sidebar-width);
-    min-height: var(--straton-pwa-vh, calc(100lvh + env(safe-area-inset-bottom, 0px)));
-    height: auto;
+    height: var(--straton-app-height);
     max-height: none;
     padding: max(0.55rem, env(safe-area-inset-top)) var(--chat-sidebar-pad-x) 0;
     gap: 0.55rem;
@@ -1115,13 +1107,7 @@
   .mobile-sidebar-backdrop {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    bottom: auto;
-    min-height: var(--straton-pwa-vh, 100lvh);
-    height: auto;
+    inset: 0;
     background: rgba(2, 6, 23, 0.35);
     opacity: 0;
     pointer-events: none;

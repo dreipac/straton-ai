@@ -414,8 +414,8 @@
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 100dvh;
-  max-height: 100dvh;
+  min-height: var(--straton-app-height);
+  max-height: var(--straton-app-height);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -766,66 +766,34 @@ button.profile-full-sheet-row:focus-visible {
 /* —— PWA Chat: gleiche Scroll-/Rubber-Band-Logik wie Login (`auth-login-scroll-lock`); Farben via Theme. —— */
 html.chat-pwa-scroll-lock {
   overscroll-behavior: none;
-  /* Nicht nur --app-background: Chat-Fläche endet dunkler (#05070d) — sonst Streifen unten iOS/PWA */
-  background-color: var(--chat-viewport-edge-fill, var(--app-background));
+  background-color: var(--app-background);
 }
 
 html.chat-pwa-scroll-lock body {
   overscroll-behavior: none;
-  background-color: var(--chat-viewport-edge-fill, var(--app-background));
+  background-color: var(--app-background);
 }
 
-/*
- * iOS-PWA: html { position:fixed; inset:0; height:100% } ist oft *kürzer* als die Pixel unter dem
- * Home-Indicator → schwarzer Systemstreifen. Ohne bottom:0 min-height erzwingen wir Extra-Höhe +
- * Safe-Area (Viewport-Bottom wird mit eingerechnet).
- */
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
   width: 100%;
-  height: auto;
-  /* --straton-pwa-vh: echte Gerätehöhe in px (ChatPage), Fallback: lvh + Safe-Area */
-  min-height: var(--straton-pwa-vh, calc(100lvh + env(safe-area-inset-bottom, 0px)));
-  max-height: none;
+  height: 100%;
   overflow: hidden;
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
   overflow: hidden;
+  height: 100%;
   width: 100%;
-  min-height: 100%;
-  min-height: inherit;
-  height: auto;
-  background-color: var(--chat-viewport-edge-fill, var(--app-background));
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  min-height: 100%;
-  min-height: inherit;
-  height: auto;
-  max-height: none;
+  height: 100%;
   overflow-x: hidden;
-  /* Kein Scroll auf #root: sonst leeres Chat-Overlay „wandert“. */
-  overflow-y: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  background-color: var(--chat-viewport-edge-fill, var(--app-background));
-}
-
-/* Shell + Chat-Fläche: gleiche px-Mindesthöhe wie html */
-html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) .chat-app-shell {
-  min-height: var(--straton-pwa-vh, calc(100lvh + env(safe-area-inset-bottom, 0px)));
-  height: auto;
-  max-height: none;
-  box-sizing: border-box;
-  background: var(--chat-viewport-edge-fill, var(--app-background));
-}
-
-html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) .chat-main {
-  min-height: var(--straton-pwa-vh, calc(100lvh + env(safe-area-inset-bottom, 0px)));
 }
 
 html.chat-pwa-scroll-lock.chat-pwa-keyboard-active {
@@ -838,26 +806,26 @@ html.chat-pwa-scroll-lock.chat-pwa-keyboard-active {
 html.chat-pwa-scroll-lock.chat-pwa-keyboard-active body {
   overflow: auto;
   height: auto;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
 }
 
 html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
   height: auto;
-  min-height: 100dvh;
+  min-height: var(--straton-app-height);
   overflow: visible;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 768px) {
   html.chat-pwa-scroll-lock,
   html.chat-pwa-scroll-lock body {
-    background-color: var(--chat-viewport-edge-fill, var(--app-background));
+    background-color: var(--app-background);
   }
 
   html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-    background-color: var(--chat-viewport-edge-fill, var(--app-background));
+    background-color: var(--app-background);
   }
 
   html.chat-pwa-scroll-lock.chat-pwa-keyboard-active #root {
-    background-color: var(--chat-viewport-edge-fill, var(--app-background));
+    background-color: var(--app-background);
   }
 }

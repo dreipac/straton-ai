@@ -6,15 +6,14 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/logo/apple-touch-icon-v3.png" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual"
     />
     <!-- PWA / iOS: Inhalt bis unter Statusleiste & Dynamic Island; kein festes «Füll-Grau» -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <!-- iOS/PWA: transparent kann unten Schwarz zeigen — hell/dunkel passend zur Chat-Kante -->
-    <meta name="theme-color" content="#e8edf5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#05070d" media="(prefers-color-scheme: dark)" />
+    <!-- Chrome/Android: Systemleiste nicht mit eigener Farbe überdecken (Seitenhintergrund bis oben) -->
+    <meta name="theme-color" content="transparent" />
     <link rel="manifest" href="/manifest.webmanifest?v=3" />
     <title>straton-ai</title>
   </head>
