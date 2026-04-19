@@ -796,7 +796,7 @@ html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) body {
 }
 
 html.chat-pwa-scroll-lock:not(.chat-pwa-keyboard-active) #root {
-  /* Explizite Höhe wie appHeightSync — vermeidet fragile 100%-Kette html→body→#root */
+  /* Höhe wie :root --straton-app-height (100dvh) — vermeidet fragile 100%-Kette html→body→#root */
   height: var(--straton-app-height);
   min-height: 0;
   overflow-x: hidden;
