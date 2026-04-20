@@ -363,19 +363,9 @@
   gap: 0.65rem;
 }
 
-.deploy-update-later {
-  align-self: center;
-  padding: 0.35rem 0.75rem;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary, #64748b);
-  font-size: 0.88rem;
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-.deploy-update-later:active {
-  opacity: 0.85;
+.deploy-update-actions .ui-button {
+  width: 100%;
+  justify-content: center;
 }
 
 .deploy-update-modal.deploy-update-modal {
@@ -389,10 +379,6 @@
 }
 
 :root[data-theme='dark'] .deploy-update-copy {
-  color: var(--color-text-secondary, #94a3b8);
-}
-
-:root[data-theme='dark'] .deploy-update-later {
   color: var(--color-text-secondary, #94a3b8);
 }
 

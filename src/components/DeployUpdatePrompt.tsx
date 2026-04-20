@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PrimaryButton } from './ui/buttons/PrimaryButton'
+import { SecondaryButton } from './ui/buttons/SecondaryButton'
 import { ContentBottomSheet, type ContentBottomSheetHandle } from './ui/bottom-sheet/ContentBottomSheet'
 import { ModalShell } from './ui/modal/ModalShell'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 
 const STORAGE_KEY = 'straton-deploy-build-id'
-const SESSION_SKIP_KEY = 'straton-skip-deploy-prompt-build'
+/** Nach „Später“: Wert = dieselbe `buildId` — nächster Check erzwingt dann nur noch Aktualisieren. */
+const SESSION_DEFERRED_BUILD_KEY = 'straton-deploy-deferred-build'
 
 /** Alle 60 s `version.json` prüfen (kleine Datei; pausiert wenn Tab/App im Hintergrund). */
 const VERSION_POLL_MS = 60_000
@@ -37,6 +39,8 @@ export function DeployUpdatePrompt() {
   const isMobile = useIsMobileViewport()
   const [open, setOpen] = useState(false)
   const [pendingBuildId, setPendingBuildId] = useState<string | null>(null)
+  /** Nach einmal „Später“ für diese Server-Build-ID: nur noch Primäraktion. */
+  const [updateMandatory, setUpdateMandatory] = useState(false)
   const sheetRef = useRef<ContentBottomSheetHandle | null>(null)
 
   const evaluate = useCallback(async () => {
@@ -65,14 +69,15 @@ export function DeployUpdatePrompt() {
       return
     }
 
+    let deferredForThisBuild = false
     try {
-      if (window.sessionStorage.getItem(SESSION_SKIP_KEY) === serverBuildId) {
-        return
-      }
+      deferredForThisBuild =
+        window.sessionStorage.getItem(SESSION_DEFERRED_BUILD_KEY) === serverBuildId
     } catch {
       /* ignore */
     }
 
+    setUpdateMandatory(deferredForThisBuild)
     setPendingBuildId(serverBuildId)
     setOpen(true)
   }, [])
@@ -132,9 +137,12 @@ export function DeployUpdatePrompt() {
   }
 
   function handleDismiss() {
+    if (updateMandatory) {
+      return
+    }
     if (pendingBuildId) {
       try {
-        window.sessionStorage.setItem(SESSION_SKIP_KEY, pendingBuildId)
+        window.sessionStorage.setItem(SESSION_DEFERRED_BUILD_KEY, pendingBuildId)
       } catch {
         /* ignore */
       }
@@ -149,15 +157,19 @@ export function DeployUpdatePrompt() {
   const body = (
     <>
       <p className="deploy-update-copy">
-        Es ist eine neue Version verfügbar. Bitte lade die App neu, um alle Änderungen zu nutzen.
+        {updateMandatory
+          ? 'Bitte aktualisiere jetzt — eine neuere Version ist bereit.'
+          : 'Es ist eine neue Version verfügbar. Bitte lade die App neu, um alle Änderungen zu nutzen.'}
       </p>
       <div className="deploy-update-actions">
         <PrimaryButton type="button" onClick={() => handleReload()}>
           Jetzt aktualisieren
         </PrimaryButton>
-        <button type="button" className="deploy-update-later" onClick={() => handleDismiss()}>
-          Später
-        </button>
+        {!updateMandatory ? (
+          <SecondaryButton type="button" onClick={() => handleDismiss()}>
+            Später
+          </SecondaryButton>
+        ) : null}
       </div>
     </>
   )
@@ -172,7 +184,7 @@ export function DeployUpdatePrompt() {
         ref={sheetRef}
         open={open}
         onExitComplete={() => setOpen(false)}
-        title="Neue Version"
+        title={updateMandatory ? 'Update erforderlich' : 'Neue Version'}
         closeOnBackdrop={false}
         allowEscape={false}
         showCloseButton={false}
@@ -186,7 +198,11 @@ export function DeployUpdatePrompt() {
   }
 
   return (
-    <ModalShell isOpen={open} onRequestClose={() => handleDismiss()} closeOnOverlayClick={false}>
+    <ModalShell
+      isOpen={open}
+      onRequestClose={updateMandatory ? undefined : () => handleDismiss()}
+      closeOnOverlayClick={false}
+    >
       <section
         className="rename-modal deploy-update-modal"
         role="dialog"
@@ -194,7 +210,7 @@ export function DeployUpdatePrompt() {
         aria-labelledby="deploy-update-heading"
       >
         <h3 id="deploy-update-heading" className="deploy-update-desktop-title">
-          Neue Version
+          {updateMandatory ? 'Update erforderlich' : 'Neue Version'}
         </h3>
         {body}
       </section>
