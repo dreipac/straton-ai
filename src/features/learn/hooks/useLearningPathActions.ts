@@ -185,7 +185,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
         }
         applyPathToState(next)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht geloescht werden.')
+        setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht gelöscht werden.')
       }
     },
     [

@@ -260,6 +260,64 @@
   border: 0;
 }
 
+/* Erstanmeldung: Vollbild-Loader nach Passwort-Speichern / Profil-Sync */
+.first-login-password-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(6px);
+}
+
+.first-login-password-busy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1.35rem 1.5rem;
+  border-radius: 14px;
+  background: var(--color-surface-elevated, #fff);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22);
+  max-width: min(19rem, calc(100vw - 2rem));
+}
+
+.first-login-password-busy-spinner {
+  width: 2rem;
+  height: 2rem;
+  box-sizing: border-box;
+  border: 3px solid var(--color-success-spinner-soft, #cbd5e1);
+  border-top-color: var(--color-success-spinner, #0ea5e9);
+  border-radius: 50%;
+  animation: first-login-busy-spin 0.75s linear infinite;
+}
+
+.first-login-password-busy-label {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #0f172a);
+  text-align: center;
+}
+
+@keyframes first-login-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:root[data-theme='dark'] .first-login-password-busy-card {
+  background: var(--color-surface-elevated, #1e293b);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='dark'] .first-login-password-busy-label {
+  color: var(--color-text-primary, #f1f5f9);
+}
+
 .auth-login-field {
   display: grid;
   gap: clamp(0.28rem, 0.8vw, 0.35rem);

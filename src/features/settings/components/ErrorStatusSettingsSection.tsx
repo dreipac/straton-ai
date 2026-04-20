@@ -75,13 +75,13 @@ export function ErrorStatusSettingsSection({
       language === 'en' ? 'Authentication status' : language === 'es-PE' ? 'Estado de autenticación' : 'Authentifizierungsstatus',
     statusSession:
       language === 'en' ? 'Session available' : language === 'es-PE' ? 'Sesión disponible' : 'Session vorhanden',
-    lastCheck: language === 'en' ? 'Last check' : language === 'es-PE' ? 'Última revisión' : 'Letzte Pruefung',
+    lastCheck: language === 'en' ? 'Last check' : language === 'es-PE' ? 'Última revisión' : 'Letzte Prüfung',
     noError: language === 'en' ? 'No current error.' : language === 'es-PE' ? 'Sin error actual.' : 'Kein aktueller Fehler.',
     latestError:
       language === 'en' ? 'Latest error' : language === 'es-PE' ? 'Último error' : 'Letzte Fehlermeldung',
     yes: language === 'en' ? 'Yes' : language === 'es-PE' ? 'Sí' : 'Ja',
     no: language === 'en' ? 'No' : language === 'es-PE' ? 'No' : 'Nein',
-    loading: language === 'en' ? 'Checking...' : language === 'es-PE' ? 'Comprobando...' : 'Wird geprueft...',
+    loading: language === 'en' ? 'Checking...' : language === 'es-PE' ? 'Comprobando...' : 'Wird geprüft...',
   }
 
   const authState = isAuthLoading ? i18n.loading : hasUser ? i18n.yes : i18n.no

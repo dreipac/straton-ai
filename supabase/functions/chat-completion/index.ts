@@ -16,6 +16,63 @@ type InputMessage = {
   content: string
 }
 
+/** OpenAI Prompt Caching (Routing + ggf. 24h-Retention auf unterstützten Modellen). */
+type OpenAiPromptCacheOptions = {
+  key: string
+  retention?: 'in_memory' | '24h'
+}
+
+function sanitizePromptCacheKey(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const t = value.trim()
+  if (t.length === 0 || t.length > 64) {
+    return null
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(t)) {
+    return null
+  }
+  return t
+}
+
+function sanitizePromptCacheRetention(value: unknown): 'in_memory' | '24h' | null {
+  if (value === '24h' || value === 'in_memory') {
+    return value
+  }
+  return null
+}
+
+/** Extended retention laut OpenAI-Doku u. a. für GPT-5.x, GPT-4.1, Codex. */
+function openAiSupportsExtendedPromptCache(modelId: string): boolean {
+  const m = modelId.toLowerCase()
+  return m.includes('gpt-5') || m.includes('gpt-4.1') || m.includes('codex')
+}
+
+function resolveOpenAiPromptCacheForRequest(
+  mode: string,
+  clientKey: string | null,
+  clientRetention: 'in_memory' | '24h' | null,
+): OpenAiPromptCacheOptions | undefined {
+  const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
+    evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
+    generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
+    generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
+    generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
+    generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
+  }
+  if (mode === 'chat') {
+    if (!clientKey) {
+      return undefined
+    }
+    return {
+      key: clientKey,
+      retention: clientRetention ?? undefined,
+    }
+  }
+  return defaults[mode]
+}
+
 type OpenAiVisionContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
@@ -143,6 +200,48 @@ async function getUserCumulativeEstimatedCostUsd(
   return Number.isFinite(n) && n >= 0 ? n : 0
 }
 
+type PlanChatFields = {
+  chat_allow_model_choice: boolean
+  default_chat_model_id: string | null
+}
+
+async function fetchSubscriptionPlanChatFields(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<PlanChatFields | null> {
+  if (!admin) {
+    return null
+  }
+  const { data, error } = await admin
+    .from('profiles')
+    .select('subscription_plans ( chat_allow_model_choice, default_chat_model_id )')
+    .eq('id', userId)
+    .maybeSingle()
+  if (error) {
+    console.error('[chat-completion] subscription plan read failed', error.message)
+    return null
+  }
+  const rel = (data as { subscription_plans?: unknown } | null)?.subscription_plans
+  const plan = Array.isArray(rel) ? rel[0] : rel
+  if (!plan || typeof plan !== 'object') {
+    return null
+  }
+  const p = plan as Record<string, unknown>
+  return {
+    chat_allow_model_choice: p.chat_allow_model_choice !== false,
+    default_chat_model_id: typeof p.default_chat_model_id === 'string' ? p.default_chat_model_id : null,
+  }
+}
+
+type LockedComposerId = 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
+
+function parseLockedComposerModelId(raw: string | null): LockedComposerId {
+  if (raw === 'claude-sonnet-4-6' || raw === 'claude-opus-4-7' || raw === 'gpt-5.4-mini') {
+    return raw
+  }
+  return 'gpt-5.4-mini'
+}
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -157,7 +256,7 @@ function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-/** Optional: Modellreihenfolge fuer OpenAI-Chat (z. B. Lernkapitel-Hilfe = `gpt-5.4-mini`). */
+/** Optional: Modellreihenfolge für OpenAI-Chat (z. B. Lernkapitel-Hilfe = `gpt-5.4-mini`). */
 function sanitizeOpenAiModelsOverride(value: unknown): string[] | null {
   if (!Array.isArray(value)) {
     return null
@@ -281,7 +380,7 @@ async function getProviderApiKey(
   const envKeyName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
   const apiKey = String(Deno.env.get(envKeyName) ?? '').trim()
   if (!apiKey) {
-    throw new Error(`API Key fuer Provider "${provider}" ist nicht als Supabase Secret gesetzt.`)
+    throw new Error(`API Key für Provider "${provider}" ist nicht als Supabase Secret gesetzt.`)
   }
 
   return apiKey
@@ -292,6 +391,8 @@ type AiCallResult = {
   model: string
   inputTokens: number
   outputTokens: number
+  /** OpenAI: Cache-Treffer aus usage.prompt_tokens_details.cached_tokens */
+  cachedPromptTokens?: number
 }
 
 async function tryLogTokenUsage(
@@ -322,6 +423,10 @@ async function tryLogTokenUsage(
   if (error) {
     console.error('[chat-completion] ai_token_usage insert failed', error.message)
   }
+  const cached = result.cachedPromptTokens
+  if (typeof cached === 'number' && cached > 0) {
+    console.log(`[chat-completion] OpenAI prompt cache: ${cached} cached input tokens (${mode})`)
+  }
 }
 
 /** GPT-5 / o-series: Chat Completions erlauben oft nur die Default-Temperatur — feste Werte wie 0.7 → HTTP 400. */
@@ -339,7 +444,10 @@ function openAiUsesDefaultTemperatureOnly(modelId: string): boolean {
 function openAiChatRequestBody(
   model: string,
   messages: InputMessage[],
-  options?: { includeReasoningLow?: boolean },
+  options?: {
+    includeReasoningLow?: boolean
+    promptCache?: OpenAiPromptCacheOptions
+  },
 ): Record<string, unknown> {
   function parseVisionPayload(content: string): { text: string; imageDataUrls: string[] } {
     const imageDataUrls: string[] = []
@@ -402,6 +510,15 @@ function openAiChatRequestBody(
   if (options?.includeReasoningLow && model.toLowerCase().startsWith('gpt-5')) {
     body.reasoning = { effort: 'low' }
   }
+  const pc = options?.promptCache
+  if (pc?.key) {
+    body.prompt_cache_key = pc.key
+    if (pc.retention === 'in_memory') {
+      body.prompt_cache_retention = 'in_memory'
+    } else if (pc.retention === '24h' && openAiSupportsExtendedPromptCache(model)) {
+      body.prompt_cache_retention = '24h'
+    }
+  }
   return body
 }
 
@@ -420,7 +537,12 @@ function formatOpenAiHttpError(status: number, errorText: string): string {
   return `OpenAI Anfrage fehlgeschlagen (${status}).`
 }
 
-async function callOpenAi(messages: InputMessage[], apiKey: string, models?: string[]): Promise<AiCallResult> {
+async function callOpenAi(
+  messages: InputMessage[],
+  apiKey: string,
+  models?: string[],
+  promptCache?: OpenAiPromptCacheOptions,
+): Promise<AiCallResult> {
   const modelsToTry =
     Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
 
@@ -436,7 +558,12 @@ async function callOpenAi(messages: InputMessage[], apiKey: string, models?: str
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(openAiChatRequestBody(model, messages, { includeReasoningLow })),
+        body: JSON.stringify(
+          openAiChatRequestBody(model, messages, {
+            includeReasoningLow,
+            promptCache,
+          }),
+        ),
       })
 
       if (!response.ok) {
@@ -468,14 +595,28 @@ async function callOpenAi(messages: InputMessage[], apiKey: string, models?: str
       const data = (await response.json()) as {
         model?: string
         choices?: Array<{ message?: { content?: string } }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
+        usage?: {
+          prompt_tokens?: number
+          completion_tokens?: number
+          prompt_tokens_details?: { cached_tokens?: number }
+        }
       }
       const content = data.choices?.[0]?.message?.content?.trim()
       if (content) {
         const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
         const inputTokens = Math.max(0, Math.floor(Number(data.usage?.prompt_tokens ?? 0)))
         const outputTokens = Math.max(0, Math.floor(Number(data.usage?.completion_tokens ?? 0)))
-        return { text: content, model: usedModel, inputTokens, outputTokens }
+        const cachedPromptTokens = Math.max(
+          0,
+          Math.floor(Number(data.usage?.prompt_tokens_details?.cached_tokens ?? 0)),
+        )
+        return {
+          text: content,
+          model: usedModel,
+          inputTokens,
+          outputTokens,
+          ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+        }
       }
       break
     }
@@ -488,7 +629,11 @@ async function* iterateOpenAiSseBytes(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<{
   delta?: string
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
+  }
   model?: string
 }> {
   const reader = body.getReader()
@@ -520,7 +665,13 @@ async function* iterateOpenAiSseBytes(
           try {
             const json = JSON.parse(data) as Record<string, unknown>
             const model = typeof json.model === 'string' ? json.model : undefined
-            const usage = json.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined
+            const usage = json.usage as
+              | {
+                  prompt_tokens?: number
+                  completion_tokens?: number
+                  prompt_tokens_details?: { cached_tokens?: number }
+                }
+              | undefined
             const choices = json.choices as Array<Record<string, unknown>> | undefined
             const delta = choices?.[0]?.delta as Record<string, unknown> | undefined
             const content = delta?.content
@@ -539,13 +690,14 @@ async function* iterateOpenAiSseBytes(
   }
 }
 
-/** SSE an den Browser: `data: {"type":"delta","t":"..."}\n\n` und abschliessend `done` oder `error`. */
+/** SSE an den Browser: `data: {"type":"delta","t":"..."}\n\n` und abschließend `done` oder `error`. */
 async function handleOpenAiChatStream(
   userId: string,
   admin: SupabaseClient | null,
   messages: InputMessage[],
   apiKey: string,
   openAiModels: string[],
+  promptCache?: OpenAiPromptCacheOptions,
 ): Promise<Response> {
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -570,7 +722,7 @@ async function handleOpenAiChatStream(
 
           while (true) {
             const reqBody: Record<string, unknown> = {
-              ...openAiChatRequestBody(model, messages, { includeReasoningLow }),
+              ...openAiChatRequestBody(model, messages, { includeReasoningLow, promptCache }),
               stream: true,
             }
             if (includeUsageFlag) {
@@ -638,6 +790,7 @@ async function handleOpenAiChatStream(
             let usedModel = model
             let inputTokens = 0
             let outputTokens = 0
+            let cachedPromptTokens = 0
 
             try {
               for await (const chunk of iterateOpenAiSseBytes(res.body)) {
@@ -651,6 +804,10 @@ async function handleOpenAiChatStream(
                 if (chunk.usage) {
                   inputTokens = Math.max(0, Math.floor(Number(chunk.usage.prompt_tokens ?? 0)))
                   outputTokens = Math.max(0, Math.floor(Number(chunk.usage.completion_tokens ?? 0)))
+                  cachedPromptTokens = Math.max(
+                    0,
+                    Math.floor(Number(chunk.usage.prompt_tokens_details?.cached_tokens ?? 0)),
+                  )
                 }
               }
             } catch (readErr) {
@@ -673,6 +830,7 @@ async function handleOpenAiChatStream(
               model: usedModel,
               inputTokens,
               outputTokens,
+              ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
             })
             await writeSse({
               type: 'done',
@@ -724,6 +882,9 @@ type AnthropicCallOptions = {
   model?: string
 }
 
+/** Anthropic: Mindestgröße für sinnvolles Prompt Caching (ca. 1024 Tokens — konservativ in Zeichen). */
+const ANTHROPIC_SYSTEM_CACHE_MIN_CHARS = 2800
+
 async function callAnthropic(
   messages: InputMessage[],
   apiKey: string,
@@ -731,6 +892,14 @@ async function callAnthropic(
 ): Promise<AiCallResult> {
   const model = options?.model ?? anthropicLearnModel()
   const max_tokens = options?.maxTokens ?? 4096
+  const systemRaw =
+    messages.find((message) => message.role === 'system')?.content?.trim() ??
+    'Du bist ein hilfreicher Assistent.'
+  const system: string | Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> =
+    systemRaw.length >= ANTHROPIC_SYSTEM_CACHE_MIN_CHARS
+      ? [{ type: 'text', text: systemRaw, cache_control: { type: 'ephemeral' } }]
+      : systemRaw
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -747,9 +916,7 @@ async function callAnthropic(
           role: message.role,
           content: message.content,
         })),
-      system:
-        messages.find((message) => message.role === 'system')?.content ??
-        'Du bist ein hilfreicher Assistent.',
+      system,
     }),
   })
 
@@ -757,7 +924,7 @@ async function callAnthropic(
     const errBody = await response.text().catch(() => '')
     if (response.status === 429) {
       throw new Error(
-        'Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte Anfrage verkuerzen oder kurz warten.',
+        'Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte Anfrage verkürzen oder kurz warten.',
       )
     }
     const hint =
@@ -799,7 +966,7 @@ function uniqueAnthropicModelIds(ids: string[]): string[] {
   return out
 }
 
-/** Reihenfolge fuer Chat: gewuenschtes Modell, dann Opus-Fallback, dann ANTHROPIC_MODEL / Sonnet. */
+/** Reihenfolge für Chat: gewünschtes Modell, dann Opus-Fallback, dann ANTHROPIC_MODEL / Sonnet. */
 function buildAnthropicChatModelChain(override: string | null): string[] {
   const fallback = anthropicLearnModel()
   const raw = typeof override === 'string' ? override.trim() : ''
@@ -858,6 +1025,7 @@ async function evaluateQuizWithAi(
   payload: QuizEvaluationPayload,
   apiKey: string,
   openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ evaluation: QuizEvaluationResult; usage: AiCallResult }> {
   const acceptableAnswers = payload.acceptableAnswers?.length
     ? payload.acceptableAnswers.join(' | ')
@@ -867,9 +1035,9 @@ async function evaluateQuizWithAi(
     {
       role: 'system',
       content: [
-        'Du bist ein strenger, aber fairer Pruefungs-Korrektor.',
+        'Du bist ein strenger, aber fairer Prüfungs-Korrektor.',
         'Bewerte semantisch, nicht nur exakt wortgleich.',
-        'Antworte ausschliesslich als JSON Objekt ohne weiteren Text.',
+        'Antworte ausschließlich als JSON Objekt ohne weiteren Text.',
         'Schema: {"isCorrect": boolean, "feedback": string}',
         'feedback kurz halten (max 220 Zeichen), auf Deutsch.',
       ].join('\n'),
@@ -888,7 +1056,7 @@ async function evaluateQuizWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(evaluationMessages, apiKey, { maxTokens: 512 })
-      : await callOpenAi(evaluationMessages, apiKey, openAiModels)
+      : await callOpenAi(evaluationMessages, apiKey, openAiModels, openAiPromptCache)
 
   return { evaluation: parseQuizEvaluationResult(usage.text), usage }
 }
@@ -909,6 +1077,7 @@ async function generateTitleWithAi(
   sourceMessages: InputMessage[],
   apiKey: string,
   openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ title: string; usage: AiCallResult }> {
   const transcript = sourceMessages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -921,8 +1090,8 @@ async function generateTitleWithAi(
       role: 'system',
       content: [
         'Erzeuge einen kurzen Chat-Titel auf Deutsch.',
-        'Maximal 6 Woerter und maximal 42 Zeichen.',
-        'Nur den Titel ausgeben, ohne Anfuehrungszeichen und ohne Satzzeichen am Ende.',
+        'Maximal 6 Wörter und maximal 42 Zeichen.',
+        'Nur den Titel ausgeben, ohne Anführungszeichen und ohne Satzzeichen am Ende.',
       ].join('\n'),
     },
     {
@@ -934,7 +1103,7 @@ async function generateTitleWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(titleMessages, apiKey, { maxTokens: 256 })
-      : await callOpenAi(titleMessages, apiKey, openAiModels)
+      : await callOpenAi(titleMessages, apiKey, openAiModels, openAiPromptCache)
 
   const cleaned = sanitizeGeneratedTitle(usage.text)
   if (!cleaned) {
@@ -1063,20 +1232,21 @@ async function generateFlashcardsWithAi(
   chapterOutline: string,
   apiKey: string,
   openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ flashcards: FlashcardPayload[]; usage: AiCallResult }> {
   const outline = chapterOutline.trim()
   if (!outline) {
-    throw new Error('Keine Kapiteldaten fuer Lernkarten.')
+    throw new Error('Keine Kapiteldaten für Lernkarten.')
   }
 
   const flashcardMessages: InputMessage[] = [
     {
       role: 'system',
       content: [
-        'Du erstellst Lernkarten (Karteikarten) fuer Berufsfachschule EFZ — kaufmaennischer Bereich (KV-Lehre).',
+        'Du erstellst Lernkarten (Karteikarten) für Berufsfachschule EFZ — kaufmännischer Bereich (KV-Lehre).',
         'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
-        'Antworte ausschliesslich mit einem JSON-Array, kein Text davor oder danach.',
-        'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Saetze)"}]',
+        'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+        'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)"}]',
         'Maximal 16 Karten, auf Deutsch, fachlich korrekt, verschiedene Aspekte abdecken.',
       ].join('\n'),
     },
@@ -1089,7 +1259,7 @@ async function generateFlashcardsWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(flashcardMessages, apiKey, { maxTokens: 4096 })
-      : await callOpenAi(flashcardMessages, apiKey, openAiModels)
+      : await callOpenAi(flashcardMessages, apiKey, openAiModels, openAiPromptCache)
 
   const cards = parseFlashcardsFromRaw(usage.text)
   if (cards.length === 0) {
@@ -1103,20 +1273,21 @@ async function generateWorksheetWithAi(
   chapterOutline: string,
   apiKey: string,
   openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ prompts: WorksheetPromptPayload[]; usage: AiCallResult }> {
   const outline = chapterOutline.trim()
   if (!outline) {
-    throw new Error('Keine Kapiteldaten fuer Arbeitsblatt.')
+    throw new Error('Keine Kapiteldaten für Arbeitsblatt.')
   }
 
   const worksheetMessages: InputMessage[] = [
     {
       role: 'system',
       content: [
-        'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterloesung im JSON).',
+        'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterlösung im JSON).',
         'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
-        'Antworte ausschliesslich mit einem JSON-Array, kein Text davor oder danach.',
-        'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Saetzen"}]',
+        'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+        'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Sätzen"}]',
         'Maximal 14 Aufgaben, auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
       ].join('\n'),
     },
@@ -1129,7 +1300,7 @@ async function generateWorksheetWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(worksheetMessages, apiKey, { maxTokens: 4096 })
-      : await callOpenAi(worksheetMessages, apiKey, openAiModels)
+      : await callOpenAi(worksheetMessages, apiKey, openAiModels, openAiPromptCache)
 
   const items = parseWorksheetPromptsFromRaw(usage.text)
   if (items.length === 0) {
@@ -1143,12 +1314,13 @@ async function generateTopicSuggestionsWithAi(
   topic: string,
   apiKey: string,
   openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ suggestions: string[]; usage: AiCallResult }> {
   const suggestionMessages: InputMessage[] = [
     {
       role: 'system',
       content: [
-        'Du erstellst konkrete Unterthemen fuer Lernen.',
+        'Du erstellst konkrete Unterthemen für Lernen.',
         'Antworte nur als JSON-Array mit Strings.',
         'Liefere maximal 5 kurze, konkrete Unterthemen auf Deutsch.',
       ].join('\n'),
@@ -1162,7 +1334,7 @@ async function generateTopicSuggestionsWithAi(
   const usage =
     provider === 'anthropic'
       ? await callAnthropic(suggestionMessages, apiKey, { maxTokens: 1024 })
-      : await callOpenAi(suggestionMessages, apiKey, openAiModels)
+      : await callOpenAi(suggestionMessages, apiKey, openAiModels, openAiPromptCache)
 
   const suggestions = sanitizeTopicSuggestions(usage.text)
   if (suggestions.length === 0) {
@@ -1204,7 +1376,7 @@ serve(async (req) => {
     error: authError,
   } = await userClient.auth.getUser()
   if (authError || !user) {
-    return jsonResponse({ error: 'Session ist ungueltig.' }, 401)
+    return jsonResponse({ error: 'Session ist ungültig.' }, 401)
   }
 
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -1214,6 +1386,7 @@ serve(async (req) => {
 
   const cumulativeUsd = await getUserCumulativeEstimatedCostUsd(admin, user.id)
   const openAiModelsFromCost = openAiChatModelsForCumulativeCost(cumulativeUsd)
+  const planChatFields = await fetchSubscriptionPlanChatFields(admin, user.id)
 
   try {
     const body = (await req.json()) as {
@@ -1227,27 +1400,55 @@ serve(async (req) => {
       stream?: unknown
       /** Optional: OpenAI-Modellreihenfolge (Chat); sonst Budget-basierte Liste. */
       openAiModels?: unknown
-      /** Optional: Claude-Modell-ID fuer Chat (Composer). */
+      /** Optional: Claude-Modell-ID für Chat (Composer). */
       anthropicModel?: unknown
+      /** OpenAI Prompt Caching: stabiler Key pro Prompt-Prefix (Chat: vom Client). */
+      promptCacheKey?: unknown
+      /** Optional: `24h` nur wenn das gewählte OpenAI-Modell extended caching unterstützt. */
+      promptCacheRetention?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
-    const openAiModels = openAiModelsOverride ?? openAiModelsFromCost
-    const anthropicModelChat = sanitizeAnthropicModelOverride(body.anthropicModel)
+    let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
+    let anthropicModelChat = sanitizeAnthropicModelOverride(body.anthropicModel)
     let mode = normalizeMode(body.mode)
     const outlinePreview = chapterOutlineFromBody(body.payload)
-    // Ohne gueltigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
+    // Ohne gültigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
     if (mode === 'chat' && outlinePreview) {
       mode = 'generate_flashcards'
     }
-    const provider = normalizeProvider(body.provider)
+    let provider = normalizeProvider(body.provider)
+    if (mode === 'chat' && planChatFields && planChatFields.chat_allow_model_choice === false) {
+      const lockedId = parseLockedComposerModelId(planChatFields.default_chat_model_id)
+      provider = lockedId === 'gpt-5.4-mini' ? 'openai' : 'anthropic'
+      if (lockedId === 'gpt-5.4-mini') {
+        openAiModels = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+        anthropicModelChat = null
+      } else if (lockedId === 'claude-sonnet-4-6') {
+        anthropicModelChat = 'claude-sonnet-4-6'
+      } else {
+        anthropicModelChat = 'claude-opus-4-7'
+      }
+    }
     const apiKey = await getProviderApiKey(provider)
+    const clientPromptCacheKey = sanitizePromptCacheKey(body.promptCacheKey)
+    const clientPromptCacheRetention = sanitizePromptCacheRetention(body.promptCacheRetention)
+
     if (mode === 'evaluate_quiz') {
       const payload = sanitizeQuizEvaluationPayload(body.payload)
       if (!payload) {
-        return jsonResponse({ error: 'Ungueltige Bewertungsdaten uebermittelt.' }, 400)
+        return jsonResponse({ error: 'Ungültige Bewertungsdaten übermittelt.' }, 400)
       }
 
-      const { evaluation, usage } = await evaluateQuizWithAi(provider, payload, apiKey, openAiModels)
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { evaluation, usage } = await evaluateQuizWithAi(
+        provider,
+        payload,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ evaluation })
     }
@@ -1257,9 +1458,18 @@ serve(async (req) => {
         ? String((body.payload as { topic?: unknown }).topic).trim()
         : ''
       if (!topic) {
-        return jsonResponse({ error: 'Kein gueltiges Thema uebermittelt.' }, 400)
+        return jsonResponse({ error: 'Kein gültiges Thema übermittelt.' }, 400)
       }
-      const { suggestions, usage } = await generateTopicSuggestionsWithAi(provider, topic, apiKey, openAiModels)
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { suggestions, usage } = await generateTopicSuggestionsWithAi(
+        provider,
+        topic,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ suggestions })
     }
@@ -1267,9 +1477,18 @@ serve(async (req) => {
     if (mode === 'generate_flashcards') {
       const outline = outlinePreview
       if (!outline) {
-        return jsonResponse({ error: 'Kein Kapitelkontext fuer Lernkarten uebermittelt.' }, 400)
+        return jsonResponse({ error: 'Kein Kapitelkontext für Lernkarten übermittelt.' }, 400)
       }
-      const { flashcards, usage } = await generateFlashcardsWithAi(provider, outline, apiKey, openAiModels)
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { flashcards, usage } = await generateFlashcardsWithAi(
+        provider,
+        outline,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ flashcards })
     }
@@ -1277,9 +1496,18 @@ serve(async (req) => {
     if (mode === 'generate_worksheet') {
       const outline = outlinePreview
       if (!outline) {
-        return jsonResponse({ error: 'Kein Kapitelkontext fuer Arbeitsblatt uebermittelt.' }, 400)
+        return jsonResponse({ error: 'Kein Kapitelkontext für Arbeitsblatt übermittelt.' }, 400)
       }
-      const { prompts, usage } = await generateWorksheetWithAi(provider, outline, apiKey, openAiModels)
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { prompts, usage } = await generateWorksheetWithAi(
+        provider,
+        outline,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ worksheetItems: prompts })
     }
@@ -1311,23 +1539,32 @@ serve(async (req) => {
       .filter((entry): entry is InputMessage => entry !== null)
 
     if (messages.length === 0) {
-      return jsonResponse({ error: 'Keine gueltigen Nachrichten uebermittelt.' }, 400)
+      return jsonResponse({ error: 'Keine gültigen Nachrichten übermittelt.' }, 400)
     }
 
     if (mode === 'generate_title') {
-      const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels)
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels, openAiPc)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ title })
     }
 
     if (body.stream === true && mode === 'chat' && provider === 'openai') {
-      return await handleOpenAiChatStream(user.id, admin, messages, apiKey, openAiModels)
+      const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
+      return await handleOpenAiChatStream(user.id, admin, messages, apiKey, openAiModels, openAiPc)
     }
 
     const rawMax = body.maxTokens
     const chatMaxTokens =
       typeof rawMax === 'number' && Number.isFinite(rawMax) && rawMax >= 64
         ? Math.min(16384, Math.floor(rawMax))
+        : undefined
+
+    const openAiChatPc =
+      provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
         : undefined
 
     const chatUsage =
@@ -1338,7 +1575,7 @@ serve(async (req) => {
             buildAnthropicChatModelChain(anthropicModelChat),
             chatMaxTokens ?? 8192,
           )
-        : await callOpenAi(messages, apiKey, openAiModels)
+        : await callOpenAi(messages, apiKey, openAiModels, openAiChatPc)
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
 

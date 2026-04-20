@@ -702,7 +702,7 @@ export function LearnPage() {
             (effectiveTopic || getDisplayPathTitle(activePathTitle)) +
             ' ' +
             selectedTopic +
-            ' Uebung Aufgabe Berechnung Teilaufgabe Beispiel'
+            ' Übung Aufgabe Berechnung Teilaufgabe Beispiel'
           ).trim(),
           materials,
           materials.length > 0
@@ -726,14 +726,14 @@ export function LearnPage() {
             content: [
               'Lernpfad Name: ' + getDisplayPathTitle(activePathTitle),
               'Thema: ' + (effectiveTopic || getDisplayPathTitle(activePathTitle)),
-              selectedTopic.trim() ? 'Gewaehlter Schwerpunkt: ' + selectedTopic.trim() : 'Gewaehlter Schwerpunkt: keiner',
+              selectedTopic.trim() ? 'Gewählter Schwerpunkt: ' + selectedTopic.trim() : 'Gewählter Schwerpunkt: keiner',
               aiGuidance.trim() ? 'Zusatzhinweise des Lernenden: ' + aiGuidance.trim() : 'Zusatzhinweise des Lernenden: keine',
               proficiencyLevel
-                ? 'Selbsteinschaetzung Niveau: ' +
+                ? 'Selbsteinschätzung Niveau: ' +
                   (proficiencyLevel === 'low' ? 'schwach' : proficiencyLevel === 'medium' ? 'mittel' : 'gut')
-                : 'Selbsteinschaetzung Niveau: unbekannt',
+                : 'Selbsteinschätzung Niveau: unbekannt',
               materialContext
-                ? 'Dateiauszuege (mind. die Haelfte der Fragen muss sich hierauf beziehen — Begriffe, Fakten, Beispiele aus den Dateien):\n' +
+                ? 'Dateiauszüge (mind. die Hälfte der Fragen muss sich hierauf beziehen — Begriffe, Fakten, Beispiele aus den Dateien):\n' +
                   materialContext
                 : 'Dateien: keine hochgeladen — nutze realistische KV-Praxisbeispiele in den Fragestellungen.',
               WORKSHEET_EXERCISE_FIDELITY_RULES,
@@ -743,17 +743,17 @@ export function LearnPage() {
               'Die ERSTE Frage muss Multiple-Choice (mcq) ODER Wahr/Falsch (true_false) sein — leichter Einstieg.',
               'Insgesamt mindestens 2 Multiple-Choice-Fragen (mcq), jede mit 3-5 Optionen.',
               'Mindestens 1 Freitext-Frage (questionType "text", evaluation "exact" oder "contains").',
-              'Mindestens 1 Zuordnung (match) ODER 1 Wahr/Falsch (true_false) zusaetzlich zu den MCQs.',
+              'Mindestens 1 Zuordnung (match) ODER 1 Wahr/Falsch (true_false) zusätzlich zu den MCQs.',
               'Wahr/Falsch: questionType "true_false", expectedAnswer exakt "Wahr" oder "Falsch" (oder synonym true/false im JSON, wird normalisiert), optional options ["Wahr","Falsch"].',
               'Jede Multiple-Choice-Frage MUSS 3-5 Optionen enthalten.',
               'Mischformat: mcq, text, match und true_false sinnvoll verteilen (nicht nur ein Typ).',
-              'Fuer Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
-              'Fuer Freitext-Fragen setze questionType auf "text".',
-              'Fuer Zuordnungsfragen setze questionType auf "match", gib zwei gleich lange Arrays "matchLeft" (z. B. Begriffe) und "matchRight" (Definitionen); die richtige Zuordnung ist Index i zu Index i (expectedAnswer z. B. "0,1,2" fuer drei Paare oder weglassen).',
+              'Für Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
+              'Für Freitext-Fragen setze questionType auf "text".',
+              'Für Zuordnungsfragen setze questionType auf "match", gib zwei gleich lange Arrays "matchLeft" (z. B. Begriffe) und "matchRight" (Definitionen); die richtige Zuordnung ist Index i zu Index i (expectedAnswer z. B. "0,1,2" für drei Paare oder weglassen).',
               validationReason
-                ? 'Der vorige Versuch war ungueltig: ' + validationReason + ' Halte dich strikt an alle Regeln.'
+                ? 'Der vorige Versuch war ungültig: ' + validationReason + ' Halte dich strikt an alle Regeln.'
                 : 'Halte dich strikt an alle Regeln.',
-              'Antworte zuerst mit 1-2 kurzen Einleitungssaetzen und dann direkt mit dem Quiz-Block.',
+              'Antworte zuerst mit 1-2 kurzen Einleitungssätzen und dann direkt mit dem Quiz-Block.',
             ].join('\n\n'),
             createdAt: new Date().toISOString(),
           }
@@ -769,7 +769,7 @@ export function LearnPage() {
 
           const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
           if (!parsed.quiz) {
-            validationReason = 'Kein gueltiger Quiz-JSON-Block erhalten.'
+            validationReason = 'Kein gültiger Quiz-JSON-Block erhalten.'
             continue
           }
 
@@ -787,8 +787,8 @@ export function LearnPage() {
         if (!parsedQuiz) {
           throw new Error(
             validationReason
-              ? `Einstiegstest ungueltig: ${validationReason}`
-              : 'Kein gueltiger Einstiegstest von der KI erhalten.',
+              ? `Einstiegstest ungültig: ${validationReason}`
+              : 'Kein gültiger Einstiegstest von der KI erhalten.',
           )
         }
 
@@ -1082,7 +1082,7 @@ export function LearnPage() {
     const maxImages = profile?.subscription_plans?.max_images ?? null
     const usedImages = profile?.subscription_usages?.used_images ?? 0
     if (maxImages !== null && usedImages + 1 > maxImages) {
-      setWorksheetError('Du hast dein Abo-Limit für Bilder (Arbeitsblaetter) erreicht.')
+      setWorksheetError('Du hast dein Abo-Limit für Bilder (Arbeitsblätter) erreicht.')
       return
     }
 
@@ -1321,7 +1321,7 @@ export function LearnPage() {
 
   function openSettingsModal() {
     void refreshProfile().catch(() => {
-      // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
+      // Falls Refresh fehlschlägt, öffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
     })
     if (settingsCloseTimerRef.current) {
       window.clearTimeout(settingsCloseTimerRef.current)
@@ -1604,7 +1604,7 @@ export function LearnPage() {
                 type="button"
                 className="settings-close-button"
                 onClick={() => setLearnMaterialChoiceTarget(null)}
-                aria-label="Schliessen"
+                aria-label="Schließen"
               >
                 <span className="ui-icon settings-close-icon" aria-hidden="true" />
               </button>

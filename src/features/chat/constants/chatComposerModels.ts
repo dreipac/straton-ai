@@ -50,6 +50,39 @@ export function parseStoredComposerModelId(raw: string | null): ChatComposerMode
 }
 
 /** API-Modellstrings aus der Composer-Konfiguration (Admin KI-Tokens Filter, auch ohne bisherige Logs). */
+/** Abo: Modellwahl im Hauptchat (Profil → subscription_plans). */
+export type SubscriptionPlanChatModelFields = {
+  chat_allow_model_choice?: boolean | null
+  default_chat_model_id?: string | null
+}
+
+export type ChatModelPolicy = {
+  /** false = nur default_chat_model_id, kein Modell-Picker */
+  allowModelChoice: boolean
+  /** Erzwungenes Composer-Modell wenn allowModelChoice false */
+  forcedModelId: ChatComposerModelId
+}
+
+const DEFAULT_COMPOSER: ChatComposerModelId = 'gpt-5.4-mini'
+
+/**
+ * Liefert Regeln für den Chat-Composer aus dem Abo.
+ * Ohne Plan oder ohne Sperre: Nutzer darf wählen; forcedModelId bleibt Default (unbenutzt wenn allowModelChoice).
+ */
+export function getChatModelPolicyFromPlan(plan: SubscriptionPlanChatModelFields | null): ChatModelPolicy {
+  if (!plan) {
+    return { allowModelChoice: true, forcedModelId: DEFAULT_COMPOSER }
+  }
+  const allow = plan.chat_allow_model_choice !== false
+  const forced = parseStoredComposerModelId(
+    typeof plan.default_chat_model_id === 'string' ? plan.default_chat_model_id : null,
+  )
+  if (!allow) {
+    return { allowModelChoice: false, forcedModelId: forced }
+  }
+  return { allowModelChoice: true, forcedModelId: forced }
+}
+
 export function getComposerApiModelIdsForAdminFilter(): string[] {
   const ids = new Set<string>()
   for (const m of CHAT_COMPOSER_MODELS) {

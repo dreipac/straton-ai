@@ -10,6 +10,7 @@ import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/exce
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
+  type ChatModelPolicy,
   parseStoredComposerModelId,
 } from '../constants/chatComposerModels'
 import {
@@ -77,7 +78,12 @@ function createTemporaryThread(userId: string): ChatThread {
   }
 }
 
-export function useChat(userId: string | undefined, autoRemoveEmptyChats = true) {
+export function useChat(
+  userId: string | undefined,
+  autoRemoveEmptyChats = true,
+  /** Abo: Modellsperre; undefined = volle Auswahl (z. B. Gast). */
+  chatModelPolicy?: ChatModelPolicy,
+) {
   const { getPrompt } = useSystemPrompts()
   const [threads, setThreads] = useState<ChatThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
@@ -93,6 +99,9 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
   const removeTimersRef = useRef<Record<string, number>>({})
 
   function persistComposerModelId(id: ChatComposerModelId) {
+    if (chatModelPolicy && !chatModelPolicy.allowModelChoice) {
+      return
+    }
     setComposerModelId(id)
     try {
       localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, id)
@@ -100,6 +109,20 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
       /* ignore */
     }
   }
+
+  useEffect(() => {
+    if (!chatModelPolicy || chatModelPolicy.allowModelChoice) {
+      return
+    }
+    setComposerModelId(chatModelPolicy.forcedModelId)
+  }, [chatModelPolicy])
+
+  const effectiveComposerModelId: ChatComposerModelId =
+    chatModelPolicy && !chatModelPolicy.allowModelChoice
+      ? chatModelPolicy.forcedModelId
+      : composerModelId
+
+  const isChatModelLocked = Boolean(chatModelPolicy && !chatModelPolicy.allowModelChoice)
 
   const messages = activeThreadId ? (messagesByThreadId[activeThreadId] ?? []) : []
   const canSend = useMemo(() => !isSending, [isSending])
@@ -321,7 +344,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
       })
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Chat konnte nicht geloescht werden.')
+      setError(err instanceof Error ? err.message : 'Chat konnte nicht gelöscht werden.')
     }
   }
 
@@ -468,7 +491,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           finalAssistantContent = await sendMessageStreaming(nextMessages, {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
-            mainChatModelId: composerModelId,
+            mainChatModelId: effectiveComposerModelId,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -489,7 +512,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
         const { assistantMessage } = await sendMessage(nextMessages, {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
-          mainChatModelId: composerModelId,
+          mainChatModelId: effectiveComposerModelId,
         })
         finalAssistantContent = assistantMessage.content
       }
@@ -537,7 +560,7 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
           mergedAssistantMessage = {
             ...storedAssistantMessage,
             content: excelSpecModelLabel
-              ? `${excelResult.displayContent}\n\n_Modell fuer Excel-Spezifikation: ${excelSpecModelLabel}_`
+              ? `${excelResult.displayContent}\n\n_Modell für Excel-Spezifikation: ${excelSpecModelLabel}_`
               : excelResult.displayContent,
             metadata: { excelExport: excelResult.excelExport },
           }
@@ -632,7 +655,8 @@ export function useChat(userId: string | undefined, autoRemoveEmptyChats = true)
     deleteChat,
     selectChat,
     canSend,
-    composerModelId,
+    composerModelId: effectiveComposerModelId,
     setComposerModelId: persistComposerModelId,
+    isChatModelLocked,
   }
 }

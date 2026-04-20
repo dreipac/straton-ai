@@ -94,26 +94,26 @@ export function getMaterialTypeBadge(filename: string): { label: string; variant
   return { label, variant: 'other' }
 }
 
-/** Regeln fuer Einstiegstest / Kapitel: Fragen an echte Übungsinhalte koppeln, nicht an generische Theorie. */
+/** Regeln für Einstiegstest / Kapitel: Fragen an echte Übungsinhalte koppeln, nicht an generische Theorie. */
 export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
-  'UEBUNGS-TREUE (wenn die Dateiauszuege Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. MWSt-Satz, Betraege, Konten, Rabatte), Tabellen oder nummerierte Teilfragen enthalten):',
-  'Die Fragen und Aufgaben MUESSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Betraege wo moeglich, gleiche Art von Teilaufgabe (z. B. MWSt berechnen statt "Was ist die Hauptaufgabe der Buchhaltung").',
-  'VERBOTEN in diesem Fall: reine Definitions- oder "Was ist die Hauptfunktion von ..."-Fragen, wenn im Material bereits konkrete Übungen stehen — ausser EINER optionalen sehr kurzen Grundlagenfrage.',
-  'Prioritaet: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Rechnung 2024-0815 und Betrag CHF 1\'240.50: ..."), nicht das Thema nur allgemein abfragen.',
+  'ÜBUNGS-TREUE (wenn die Dateiauszüge Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. MWSt-Satz, Beträge, Konten, Rabatte), Tabellen oder nummerierte Teilfragen enthalten):',
+  'Die Fragen und Aufgaben MÜSSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Beträge wo möglich, gleiche Art von Teilaufgabe (z. B. MWSt berechnen statt "Was ist die Hauptaufgabe der Buchhaltung").',
+  'VERBOTEN in diesem Fall: reine Definitions- oder "Was ist die Hauptfunktion von ..."-Fragen, wenn im Material bereits konkrete Übungen stehen — außer EINER optionalen sehr kurzen Grundlagenfrage.',
+  'Priorität: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Rechnung 2024-0815 und Betrag CHF 1\'240.50: ..."), nicht das Thema nur allgemein abfragen.',
 ].join('\n')
 
 /**
- * Zusatzregeln fuer JSON-Lernkapitel (Steps): Modelle neigen sonst zu Meta-Fragen nur zum Kapitelnamen.
+ * Zusatzregeln für JSON-Lernkapitel (Steps): Modelle neigen sonst zu Meta-Fragen nur zum Kapitelnamen.
  */
 export const CHAPTER_LEARNING_FIDELITY_RULES = [
   'KAPITEL-INHALT (nicht nur Titel):',
-  'Wenn «Materialauszuege» oder «PERSOENLICHE UNTERLAGEN» im Prompt vorkommen: behandle sie als primaere Wahrheit — Begriffe, Zahlen, Tabellen und Aufgabenstellungen aus den Dateien vor generischen KV-Beispielen.',
-  'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. MWSt berechnen, Konten zuordnen, Geschaeftsbrief formuliert pruefen, konkrete Rechnungsposition) — der Titel ist nur die Ueberschrift, nicht der einzige Lerninhalt.',
-  'VERBOTEN bei question-Steps (prompt): Fragen, die nur den Kapiteltitel, "dieses Kapitel" oder "das Thema von Kapitel X" abfragen ohne Fachinhalt (z. B. "Worueber handelt dieses Kapitel?", "Was ist das Hauptthema?", "Nenne den Namen des Kapitels").',
-  'PFLICHT bei jeder Frage: Der prompt enthaelt pruefbare Details — Begriffe, Zahlen, Betraege, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem kaufmaennischen Fachgebiet (KV). Mindestens zwei konkrete Anker (z. B. konkreter Betrag, MWSt-Satz "8.1%", Kontonummer, Position in der Rechnung).',
-  'Erklaerungs-Steps: Felder "content" und "bullets" liefern echte Erklaerung (Definition, Schrittfolge, Rechnung, Beispiel). VERBOTEN: nur Floskeln wie "In diesem Kapitel lernst du ..." ohne technische Substanz.',
-  'Mindestens die Haelfte der Fragen pro Kapitel bezieht sich auf die Materialauszuege und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind — unabhaengig vom Fragetyp (mcq, text, match, true_false).',
-  'Jede Frage soll so formuliert sein, dass sie auch ohne Kenntnis des Kapiteltitels verstaendlich und beantwortbar ist (inhaltlich, nicht metakognitiv).',
+  'Wenn «Materialauszüge» oder «PERSÖNLICHE UNTERLAGEN» im Prompt vorkommen: behandle sie als primäre Wahrheit — Begriffe, Zahlen, Tabellen und Aufgabenstellungen aus den Dateien vor generischen KV-Beispielen.',
+  'Jedes Kapitel muss ein konkretes fachliches Teilthema vertiefen (z. B. MWSt berechnen, Konten zuordnen, Geschäftsbrief formuliert prüfen, konkrete Rechnungsposition) — der Titel ist nur die Überschrift, nicht der einzige Lerninhalt.',
+  'VERBOTEN bei question-Steps (prompt): Fragen, die nur den Kapiteltitel, "dieses Kapitel" oder "das Thema von Kapitel X" abfragen ohne Fachinhalt (z. B. "Worüber handelt dieses Kapitel?", "Was ist das Hauptthema?", "Nenne den Namen des Kapitels").',
+  'PFLICHT bei jeder Frage: Der prompt enthält prüfbare Details — Begriffe, Zahlen, Beträge, Tabellenwerte, Formeln, Zuordnungen oder kurze Szenarien aus dem kaufmännischen Fachgebiet (KV). Mindestens zwei konkrete Anker (z. B. konkreter Betrag, MWSt-Satz "8.1%", Kontonummer, Position in der Rechnung).',
+  'Erklärungs-Steps: Felder "content" und "bullets" liefern echte Erklärung (Definition, Schrittfolge, Rechnung, Beispiel). VERBOTEN: nur Floskeln wie "In diesem Kapitel lernst du ..." ohne technische Substanz.',
+  'Mindestens die Hälfte der Fragen pro Kapitel bezieht sich auf die Materialauszüge und/oder die Zeilen unter "Auswertungsgrundlage" (konkrete Testfragen, Schwachstellen), sobald diese mitgeliefert sind — unabhängig vom Fragetyp (mcq, text, match, true_false).',
+  'Jede Frage soll so formuliert sein, dass sie auch ohne Kenntnis des Kapiteltitels verständlich und beantwortbar ist (inhaltlich, nicht metakognitiv).',
 ].join('\n')
 
 /** Fallback; Laufzeit nutzt DB/Kontext bevorzugt. */
@@ -216,7 +216,7 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
   return { valid: true, reason: '' }
 }
 
-/** Kapitelfrage fuer gemeinsame Auswertung mit {@link evaluateInteractiveAnswer}. */
+/** Kapitelfrage für gemeinsame Auswertung mit {@link evaluateInteractiveAnswer}. */
 export function chapterQuestionToInteractiveQuestion(
   step: Extract<ChapterStep, { type: 'question' }>,
 ): InteractiveQuizQuestion {
@@ -581,7 +581,7 @@ export function isPlaceholderChapterTitle(title: string): boolean {
     return true
   }
   return (
-    t.includes('schwaechere bereiche') ||
+    t.includes('schwächere bereiche') ||
     t.includes('einstiegstest') ||
     t.includes('praxis-transfer') ||
     (t.includes('grundlagen') && t.includes('festigen')) ||
@@ -590,7 +590,7 @@ export function isPlaceholderChapterTitle(title: string): boolean {
 }
 
 /**
- * Fach- und titelneutrale Schritte (Lernstrategie / Pruefungsvorgehen), damit keine Meta-Fragen
+ * Fach- und titelneutrale Schritte (Lernstrategie / Prüfungsvorgehen), damit keine Meta-Fragen
  * zum Kapitelnamen entstehen — dieselben Texte traten vorher in buildRichFallbackChapterSteps auf.
  */
 function neutralPadStepTemplates(): ChapterStepWithoutId[] {
@@ -599,31 +599,31 @@ function neutralPadStepTemplates(): ChapterStepWithoutId[] {
       type: 'explanation',
       title: 'Kurz aktivieren',
       content:
-        'Bevor du weitergehst: gutes Lernen haengt weniger vom Kapitelnamen ab als davon, ob du Begriffe aktiv abrufst und in kleinen Schritten uebst.',
-      bullets: ['Kurz in eigenen Worten erklaeren', 'Beispiel suchen', 'Fehler als Hinweis nutzen'],
+        'Bevor du weitergehst: gutes Lernen hängt weniger vom Kapitelnamen ab als davon, ob du Begriffe aktiv abrufst und in kleinen Schritten übst.',
+      bullets: ['Kurz in eigenen Worten erklären', 'Beispiel suchen', 'Fehler als Hinweis nutzen'],
     },
     {
       type: 'question',
       questionType: 'mcq',
       prompt:
-        'Was ist eine bewaehrte Strategie, um neues Fachwissen dauerhaft zu sichern — unabhaengig vom aktuellen Kapiteltitel?',
+        'Was ist eine bewährte Strategie, um neues Fachwissen dauerhaft zu sichern — unabhängig vom aktuellen Kapiteltitel?',
       options: [
         'Nur den Text einmal lesen und nie wiederholen.',
-        'Aktiv abfragen, kurz erklaeren und in kleinen Schritten ueben.',
+        'Aktiv abfragen, kurz erklären und in kleinen Schritten ueben.',
         'Alles am Vorabend auswendig lernen.',
         'Auf Wiederholung komplett verzichten.',
       ],
-      expectedAnswer: 'Aktiv abfragen, kurz erklaeren und in kleinen Schritten ueben.',
+      expectedAnswer: 'Aktiv abfragen, kurz erklären und in kleinen Schritten ueben.',
       acceptableAnswers: ['aktiv abfragen', 'kleinen schritten'],
       evaluation: 'contains',
       hint: 'Denke an aktives Abrufen statt passiven Lesens.',
-      explanation: 'Spaced repetition und aktives Erklaeren festigen Wissen nachweislich besser.',
+      explanation: 'Spaced repetition und aktives Erklären festigen Wissen nachweislich besser.',
     },
     {
       type: 'question',
       questionType: 'text',
       prompt:
-        'Du steckst bei einer Aufgabe fest. Beschreibe in einem Satz einen sinnvollen naechsten Schritt (ohne den Kapiteltitel zu nennen).',
+        'Du steckst bei einer Aufgabe fest. Beschreibe in einem Satz einen sinnvollen nächsten Schritt (ohne den Kapiteltitel zu nennen).',
       expectedAnswer: 'Hinweis lesen, Problem in Teilschritte zerlegen, erneut versuchen.',
       acceptableAnswers: ['teilschritte', 'hinweis', 'zerlegen', 'erneut'],
       evaluation: 'contains',
@@ -633,8 +633,8 @@ function neutralPadStepTemplates(): ChapterStepWithoutId[] {
     {
       type: 'recap',
       title: 'Mini-Check',
-      content: 'Du hast kurze, inhaltsneutrale Uebungen bearbeitet. Im eigentlichen Kapitel geht es um Fachinhalte aus deinen Unterlagen und dem Test.',
-      bullets: ['Strategie geuebt', 'Weiter mit fachlichen Schritten'],
+      content: 'Du hast kurze, inhaltsneutrale Übungen bearbeitet. Im eigentlichen Kapitel geht es um Fachinhalte aus deinen Unterlagen und dem Test.',
+      bullets: ['Strategie geübt', 'Weiter mit fachlichen Schritten'],
     },
   ]
 }
@@ -656,8 +656,8 @@ export function buildRichFallbackChapterSteps(title: string, chapterIndex: numbe
       title: `Kapitel ${chapterIndex + 1}`,
       content: isPlaceholderChapterTitle(title)
         ? 'Die automatische Kapitelerstellung hat hier wenig Inhalt geliefert. Die folgenden Schritte sind bewusst fachneutral (Lernstrategie), bis echte Inhalte nachgeneriert werden.'
-        : `Dieser Block ergaenzt "${label}" mit kurzen, allgemeinen Uebungen. Fachliche Fragen kommen aus den vorherigen KI-Schritten oder deinen Unterlagen.`,
-      bullets: ['Keine Meta-Fragen zum Kapitelnamen', 'Fokus auf Vorgehen und Verstaendnis'],
+        : `Dieser Block ergänzt "${label}" mit kurzen, allgemeinen Übungen. Fachliche Fragen kommen aus den vorherigen KI-Schritten oder deinen Unterlagen.`,
+      bullets: ['Keine Meta-Fragen zum Kapitelnamen', 'Fokus auf Vorgehen und Verständnis'],
     },
     ...templates,
   ]
@@ -665,7 +665,7 @@ export function buildRichFallbackChapterSteps(title: string, chapterIndex: numbe
 }
 
 /**
- * Fehlende Schritte auffuellen, ohne bereits generierte KI-Schritte zu verwerfen.
+ * Fehlende Schritte auffüllen, ohne bereits generierte KI-Schritte zu verwerfen.
  */
 function buildPaddingSteps(chapterIndex: number, existingCount: number, needed: number): ChapterStep[] {
   const pool = neutralPadStepTemplates()
@@ -727,11 +727,11 @@ export function buildAdaptiveChapterPlaceholder(totalWrongQuestions: number): Ch
       {
         id: 'adaptive-placeholder-intro',
         type: 'explanation',
-        title: 'Adaptive Auswertung laeuft',
+        title: 'Adaptive Auswertung läuft',
         content:
           totalWrongQuestions > 0
             ? `Straton erstellt gerade ein Kapitel auf Basis von ${totalWrongQuestions} falsch beantworteten Frage(n).`
-            : 'Straton erstellt gerade ein adaptives Abschlusskapitel fuer dich.',
+            : 'Straton erstellt gerade ein adaptives Abschlusskapitel für dich.',
         bullets: ['Schwachstellen werden priorisiert', 'Praxisnahe Fragen werden vorbereitet'],
       },
       {

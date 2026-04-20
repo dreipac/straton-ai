@@ -42,16 +42,16 @@ export type SendMessageOptions = {
   useLearnPathModel?: boolean
   /**
    * Nutzer hat Excel/XLSX angefragt: OpenAI bekommt kurzen Hinweis, kein Excel-JSON.
-   * Spezifikation laeuft separat ueber {@link generateExcelSpecWithSonnet}.
+   * Spezifikation läuft separat über {@link generateExcelSpecWithSonnet}.
    */
   userRequestedExcel?: boolean
   /**
-   * Optional: OpenAI-Modellreihenfolge fuer `chat-completion` (z. B. Lernkapitel-Hilfe).
+   * Optional: OpenAI-Modellreihenfolge für `chat-completion` (z. B. Lernkapitel-Hilfe).
    * Edge Function: sonst budgetbasierte Standardliste.
    */
   openAiModels?: string[]
   /**
-   * Hauptchat: gewaehltes Modell (GPT vs. Claude). Wird bei `useLearnPathModel` ignoriert.
+   * Hauptchat: gewähltes Modell (GPT vs. Claude). Wird bei `useLearnPathModel` ignoriert.
    */
   mainChatModelId?: ChatComposerModelId
 }
@@ -176,7 +176,7 @@ export async function generateExcelFromSpec(input: {
   const path = typeof excelExport.path === 'string' ? excelExport.path : ''
   const fileName = typeof excelExport.fileName === 'string' ? excelExport.fileName : ''
   if (!bucket || !path || !fileName) {
-    throw new Error('Ungueltige Excel-Antwort.')
+    throw new Error('Ungültige Excel-Antwort.')
   }
 
   return {
@@ -185,10 +185,18 @@ export async function generateExcelFromSpec(input: {
   }
 }
 
-/** Begrenzt Sonnet-Ausgabe fuer Excel-Spec (Kosten). Edge `chat-completion` wertet `maxTokens` aus. */
+/** Begrenzt Sonnet-Ausgabe für Excel-Spec (Kosten). Edge `chat-completion` wertet `maxTokens` aus. */
 const EXCEL_SPEC_MAX_OUTPUT_TOKENS = 8192
-/** Harte Eingabegrenze fuer Excel-Spec (senkt TPM-Spitzen bei langen Paste-/Datei-Texten). */
+/** Harte Eingabegrenze für Excel-Spec (senkt TPM-Spitzen bei langen Paste-/Datei-Texten). */
 const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
+
+/**
+ * OpenAI Prompt Caching: stabiler Key pro identischem System-/Instruktions-Prefix (Routing + Trefferquote).
+ * @see https://platform.openai.com/docs/guides/prompt-caching
+ */
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v1'
+const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v1'
+const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -208,7 +216,13 @@ async function requestExcelSpecViaProvider(
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
     body: {
       provider,
-      ...(provider === 'openai' ? { openAiModels: ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] } : {}),
+      ...(provider === 'openai'
+        ? {
+            openAiModels: ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'],
+            promptCacheKey: OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC,
+            promptCacheRetention: '24h',
+          }
+        : {}),
       messages: [
         { role: 'system', content: buildExcelSpecSonnetSystemPrompt() },
         { role: 'user', content: prompt },
@@ -287,6 +301,8 @@ function buildChatCompletionRequestBody(
     const body: Record<string, unknown> = {
       provider: providerForLearnPath(),
       messages: gatewayMessages,
+      promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
+      promptCacheRetention: '24h',
     }
     if (options.openAiModels?.length) {
       body.openAiModels = options.openAiModels
@@ -304,6 +320,10 @@ function buildChatCompletionRequestBody(
   }
   if (meta.provider === 'anthropic' && meta.anthropicModel) {
     body.anthropicModel = meta.anthropicModel
+  }
+  if (meta.provider === 'openai') {
+    body.promptCacheKey = OPENAI_PROMPT_CACHE_KEY_MAIN
+    body.promptCacheRetention = '24h'
   }
   return body
 }
@@ -358,7 +378,7 @@ async function getAssistantReply(messages: ChatMessage[], options?: SendMessageO
 
     const content = data?.assistantMessage?.content
     if (typeof content !== 'string' || !content.trim()) {
-      throw new Error('Der KI-Provider hat keine gueltige Antwort geliefert.')
+      throw new Error('Der KI-Provider hat keine gültige Antwort geliefert.')
     }
 
     return content
@@ -487,7 +507,7 @@ async function consumeChatCompletionSse(
   }
   const trimmed = full.trim()
   if (!trimmed) {
-    throw new Error('Der KI-Provider hat keine gueltige Antwort geliefert.')
+    throw new Error('Der KI-Provider hat keine gültige Antwort geliefert.')
   }
   return trimmed
 }
@@ -506,7 +526,7 @@ export async function sendMessageStreaming(
   if (!usesGatewayAi()) {
     const text = await getMockAssistantReply(messages)
     if (typeof text !== 'string' || !text.trim()) {
-      throw new Error('Der KI-Provider hat keine gueltige Antwort geliefert.')
+      throw new Error('Der KI-Provider hat keine gültige Antwort geliefert.')
     }
     const step = Math.max(4, Math.ceil(text.length / 20))
     for (let i = step; i < text.length; i += step) {
@@ -609,7 +629,7 @@ export async function sendMessageStreaming(
     throw new Error(
       fromJson ||
         t.trim().slice(0, 400) ||
-        'Streaming nicht unterstuetzt — Edge Function «chat-completion» deployen.',
+        'Streaming nicht unterstützt — Edge Function «chat-completion» deployen.',
     )
   }
 
@@ -742,7 +762,7 @@ function mockFlashcardsFromOutline(outline: string): LearnFlashcard[] {
     {
       id: 'm1',
       question: `Was ist ein Kernpunkt in «${topic}»?`,
-      answer: 'Im Mock-Modus gibt es keine KI. Bitte OpenAI in .env aktivieren fuer echte Lernkarten.',
+      answer: 'Im Mock-Modus gibt es keine KI. Bitte OpenAI in .env aktivieren für echte Lernkarten.',
     },
     {
       id: 'm2',
@@ -755,7 +775,7 @@ function mockFlashcardsFromOutline(outline: string): LearnFlashcard[] {
 export async function generateLearnFlashcards(chapterOutline: string): Promise<LearnFlashcard[]> {
   const trimmed = chapterOutline.trim()
   if (!trimmed) {
-    throw new Error('Keine Kapiteldaten fuer Lernkarten vorhanden.')
+    throw new Error('Keine Kapiteldaten für Lernkarten vorhanden.')
   }
 
   if (!usesGatewayAi()) {
@@ -887,7 +907,7 @@ function mockWorksheetFromOutline(outline: string): LearnWorksheetItem[] {
 export async function generateLearnWorksheet(chapterOutline: string): Promise<LearnWorksheetItem[]> {
   const trimmed = chapterOutline.trim()
   if (!trimmed) {
-    throw new Error('Keine Kapiteldaten fuer Arbeitsblatt vorhanden.')
+    throw new Error('Keine Kapiteldaten für Arbeitsblatt vorhanden.')
   }
 
   if (!usesGatewayAi()) {

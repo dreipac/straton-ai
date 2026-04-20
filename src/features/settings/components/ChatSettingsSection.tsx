@@ -97,7 +97,7 @@ export function ChatSettingsSection({
           type="button"
           className={`ios-switch ${autoRemoveEmptyChats ? 'is-on' : ''}`}
           disabled={isUpdatingChatSetting}
-          aria-label="Auto Loeschen bei leeren Chats umschalten"
+          aria-label="Auto Löschen bei leeren Chats umschalten"
           aria-pressed={autoRemoveEmptyChats}
           onClick={() => {
             void onToggleAutoRemoveEmptyChats()

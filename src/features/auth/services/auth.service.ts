@@ -71,15 +71,15 @@ async function resolveCurrentSession(): Promise<Session | null> {
 }
 
 const PROFILE_SELECT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
 const PROFILE_SELECT_COMPAT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 /** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
 const PROFILE_SELECT_COMPAT_LEGACY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -134,8 +134,24 @@ type ProfileRow = {
   must_change_password_on_first_login?: boolean
   subscription_plan_id: string | null
   subscription_plans:
-    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
-    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }[]
+    | {
+        id: string
+        name: string
+        max_tokens: number | null
+        max_images: number | null
+        max_files: number | null
+        chat_allow_model_choice?: boolean | null
+        default_chat_model_id?: string | null
+      }
+    | {
+        id: string
+        name: string
+        max_tokens: number | null
+        max_images: number | null
+        max_files: number | null
+        chat_allow_model_choice?: boolean | null
+        default_chat_model_id?: string | null
+      }[]
     | null
   subscription_usages:
     | { used_tokens: number; used_images: number; used_files: number; last_reset_date: string | null }
@@ -201,7 +217,7 @@ export type UserProfile = {
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
   /** false = Chat-Einstiegs-Tour (Neuer Chat, Lernpfade) noch anzeigen */
   chat_onboarding_completed: boolean
-  /** false = Beta-Hinweis nach erster Tour noch nicht bestaetigt */
+  /** false = Beta-Hinweis nach erster Tour noch nicht bestätigt */
   beta_notice_seen: boolean
   /** Oberflächen-Einstellungen (Theme, Paletten, Emoji, …), aus Spalte ui_settings */
   ui_settings: UiSettingsV1
@@ -209,7 +225,15 @@ export type UserProfile = {
   must_change_password_on_first_login: boolean
   subscription_plan_id: string | null
   subscription_plans:
-    | { id: string; name: string; max_tokens: number | null; max_images: number | null; max_files: number | null }
+    | {
+        id: string
+        name: string
+        max_tokens: number | null
+        max_images: number | null
+        max_files: number | null
+        chat_allow_model_choice?: boolean | null
+        default_chat_model_id?: string | null
+      }
     | null
   subscription_usages: { used_tokens: number; used_images: number; used_files: number } | null
 }

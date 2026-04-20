@@ -33,7 +33,7 @@ export async function upsertSystemPrompt(key: SystemPromptKey, content: string):
   }
 }
 
-/** Entfernt DB-Zeile; Frontend faellt wieder auf Code-Defaults zurueck. */
+/** Entfernt DB-Zeile; Frontend fällt wieder auf Code-Defaults zurück. */
 export async function deleteSystemPromptOverride(key: SystemPromptKey): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.from('app_system_prompts').delete().eq('key', key)

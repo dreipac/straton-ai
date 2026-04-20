@@ -71,7 +71,7 @@ export function LearnEntryQuizModal(props: LearnEntryQuizModalProps) {
             <h2>{effectiveTopic || entryQuiz?.title || 'Thema'}</h2>
             <p>Einstiegstest</p>
           </div>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label="Einstiegstest schliessen">
+          <button type="button" className="settings-close-button" onClick={onClose} aria-label="Einstiegstest schließen">
             <span className="ui-icon settings-close-icon" aria-hidden="true" />
           </button>
         </header>

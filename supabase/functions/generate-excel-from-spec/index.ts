@@ -121,7 +121,7 @@ function isSimpleA1Range(s: string): boolean {
 }
 
 /**
- * KI liefert oft "Diagramme!A5:A9", "=B5:B9" oder falsche Keys — fuer Charts brauchen wir nur den A1-Teil.
+ * KI liefert oft "Diagramme!A5:A9", "=B5:B9" oder falsche Keys — für Charts brauchen wir nur den A1-Teil.
  */
 function normalizeChartRangeInput(raw: unknown): string | null {
   if (typeof raw !== 'string') {
@@ -162,7 +162,7 @@ function parseSpec(raw: unknown): ExcelSpecV1 {
   }
   const o = raw as Record<string, unknown>
   if (o.version !== 1) {
-    throw new Error('Nur version 1 wird unterstuetzt.')
+    throw new Error('Nur version 1 wird unterstützt.')
   }
   const fileName = typeof o.fileName === 'string' ? o.fileName.trim() : ''
   if (!fileName || !/^[a-zA-Z0-9._-]+\.xlsx$/i.test(fileName) || fileName.length > 120) {
@@ -172,13 +172,13 @@ function parseSpec(raw: unknown): ExcelSpecV1 {
     throw new Error('sheets muss ein nicht-leeres Array sein.')
   }
   if (o.sheets.length > MAX_SHEETS) {
-    throw new Error(`Maximal ${MAX_SHEETS} Bloetter.`)
+    throw new Error(`Maximal ${MAX_SHEETS} Blätter.`)
   }
 
   const sheets: SheetSpec[] = []
   for (const s of o.sheets) {
     if (!s || typeof s !== 'object') {
-      throw new Error('Ungueltiges Blatt.')
+      throw new Error('Ungültiges Blatt.')
     }
     const sh = s as Record<string, unknown>
     const name = typeof sh.name === 'string' ? sh.name.trim().slice(0, 31) : ''
@@ -203,7 +203,7 @@ function parseSpec(raw: unknown): ExcelSpecV1 {
       const parsedCharts: ChartInjectSpec[] = []
       for (const rawCh of sh.charts) {
         if (!rawCh || typeof rawCh !== 'object') {
-          throw new Error('Ungueltiges Diagramm-Objekt.')
+          throw new Error('Ungültiges Diagramm-Objekt.')
         }
         const c = rawCh as Record<string, unknown>
         const t = typeof c.type === 'string' ? c.type.trim().toLowerCase() : ''
@@ -333,8 +333,8 @@ function escapeRegexChars(s: string): string {
 }
 
 /**
- * OOXML/ExcelJS erwartet fuer gueltige .xlsx typischerweise englische Funktionsnamen
- * und Kommas als Argument-Trenner. Deutsche Namen (SUMME) loesen oft Reparatur-Dialoge aus.
+ * OOXML/ExcelJS erwartet für gültige .xlsx typischerweise englische Funktionsnamen
+ * und Kommas als Argument-Trenner. Deutsche Namen (SUMME) lösen oft Reparatur-Dialoge aus.
  */
 function convertGermanExcelFormulaToEnUsForOoxml(innerNoLeadingEquals: string): string {
   const pairs: Array<{ de: string; en: string }> = [
@@ -402,7 +402,7 @@ function convertGermanExcelFormulaToEnUsForOoxml(innerNoLeadingEquals: string): 
   return replaceSemicolonsOutsideDoubleQuotes(s)
 }
 
-/** Wandelt haeufige KI-Fehler (1D-Liste von Zellen) in echtes 2D-Zeilen-Array um. */
+/** Wandelt häufige KI-Fehler (1D-Liste von Zellen) in echtes 2D-Zeilen-Array um. */
 function normalizeRowsTo2D(rows: unknown): unknown[][] {
   if (!Array.isArray(rows) || rows.length === 0) {
     return []
@@ -427,7 +427,7 @@ function normalizeRowsTo2D(rows: unknown): unknown[][] {
     ) {
       return [row]
     }
-    throw new Error(`Ungueltige Zeilenstruktur in Zeile ${idx + 1}.`)
+    throw new Error(`Ungültige Zeilenstruktur in Zeile ${idx + 1}.`)
   })
 }
 
@@ -449,7 +449,7 @@ async function buildWorkbook(spec: ExcelSpecV1): Promise<Uint8Array> {
         }
         const coerced = coerceCellSpec(cell)
         if (!coerced || !isCellSpec(coerced)) {
-          throw new Error(`Ungueltige Zelle bei Zeile ${rIdx + 1}, Spalte ${cIdx + 1}.`)
+          throw new Error(`Ungültige Zelle bei Zeile ${rIdx + 1}, Spalte ${cIdx + 1}.`)
         }
         const addr = rIdx + 1
         const col = cIdx + 1
@@ -493,7 +493,7 @@ serve(async (req) => {
   const authHeader = req.headers.get('Authorization')
 
   if (!supabaseUrl || !supabaseAnonKey || !serviceKey) {
-    return jsonResponse({ error: 'Supabase-Konfiguration unvollstaendig.' }, 500)
+    return jsonResponse({ error: 'Supabase-Konfiguration unvollständig.' }, 500)
   }
   if (!authHeader) {
     return jsonResponse({ error: 'Nicht authentifiziert.' }, 401)
@@ -509,7 +509,7 @@ serve(async (req) => {
     error: authError,
   } = await userClient.auth.getUser()
   if (authError || !user) {
-    return jsonResponse({ error: 'Session ist ungueltig.' }, 401)
+    return jsonResponse({ error: 'Session ist ungültig.' }, 401)
   }
 
   try {
@@ -534,7 +534,7 @@ serve(async (req) => {
       return jsonResponse({ error: 'Nachricht nicht gefunden.' }, 404)
     }
     if (msg.thread_id !== threadId || msg.role !== 'assistant') {
-      return jsonResponse({ error: 'Ungueltige Nachricht.' }, 400)
+      return jsonResponse({ error: 'Ungültige Nachricht.' }, 400)
     }
 
     const { data: thread, error: thrErr } = await userClient

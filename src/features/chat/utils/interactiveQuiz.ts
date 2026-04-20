@@ -2,7 +2,7 @@ export type InteractiveQuizQuestion = {
   id: string
   prompt: string
   questionType?: 'mcq' | 'text' | 'match' | 'true_false'
-  /** Zuordnung: links Begriffe, rechts passende Definitionen (Index i gehoert zusammen). */
+  /** Zuordnung: links Begriffe, rechts passende Definitionen (Index i gehört zusammen). */
   matchLeft?: string[]
   matchRight?: string[]
   options?: string[]
@@ -84,7 +84,7 @@ function parseStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
-/** MCQ: erwartete Antwort oft als Index (`0`/`"1"`); UI speichert den gewaehlten Optionstext. */
+/** MCQ: erwartete Antwort oft als Index (`0`/`"1"`); UI speichert den gewählten Optionstext. */
 export function resolveMcqExpectedAnswer(rawExpected: string, options: string[]): string {
   const expected = rawExpected.trim()
   if (!expected) {
@@ -97,7 +97,7 @@ export function resolveMcqExpectedAnswer(rawExpected: string, options: string[])
   return expected
 }
 
-/** JSON-Felder `expectedAnswer` / acceptableAnswers koennen Zahl oder String sein. */
+/** JSON-Felder `expectedAnswer` / acceptableAnswers können Zahl oder String sein. */
 export function coerceQuizScalarToString(raw: unknown): string {
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return String(raw)
@@ -342,7 +342,7 @@ export function isMatchQuestion(question: InteractiveQuizQuestion | null | undef
   )
 }
 
-/** Antwortformat: Komma-getrennte Original-Indizes der rechten Karten, Zeile fuer Zeile links (z. B. 2,0,1). */
+/** Antwortformat: Komma-getrennte Original-Indizes der rechten Karten, Zeile für Zeile links (z. B. 2,0,1). */
 export function isMatchAnswerComplete(question: InteractiveQuizQuestion | null | undefined, answer: string): boolean {
   if (!isMatchQuestion(question) || !question) {
     return answer.trim().length > 0
@@ -381,7 +381,7 @@ function evaluateMatchAnswer(answer: string, question: InteractiveQuizQuestion):
   if (nums.some((x) => Number.isNaN(x)) || new Set(nums).size !== n || nums.some((x) => x < 0 || x >= n)) {
     return {
       isCorrect: false,
-      feedback: 'Die Zuordnung ist unvollstaendig oder ungueltig.',
+      feedback: 'Die Zuordnung ist unvollständig oder ungültig.',
     }
   }
   const expected = Array.from({ length: n }, (_, i) => i)

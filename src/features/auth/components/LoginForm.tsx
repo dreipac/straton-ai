@@ -17,7 +17,7 @@ export function LoginForm() {
     event.preventDefault()
 
     if (!email.trim() || !password.trim()) {
-      setFormError('Bitte E-Mail und Passwort ausfuellen.')
+      setFormError('Bitte E-Mail und Passwort ausfüllen.')
       return
     }
 

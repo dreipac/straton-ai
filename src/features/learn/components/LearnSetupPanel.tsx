@@ -235,7 +235,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
           <div className="learn-setup-step">
             <label>Thema aus Datei erkannt</label>
             <p className="learn-setup-info">
-              Die KI hat aus deinen Unterlagen folgendes Hauptthema erkannt. Im naechsten Schritt waehlst du dein Niveau.
+              Die KI hat aus deinen Unterlagen folgendes Hauptthema erkannt. Im nächsten Schritt waehlst du dein Niveau.
             </p>
             <div className="learn-topic-suggestions-panel">
               <p className="learn-topic-selection-info">
@@ -255,7 +255,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
 
         {setupStep === 3 ? (
           <div className="learn-setup-step">
-            <label>Selbsteinschaetzung</label>
+            <label>Selbsteinschätzung</label>
             <p className="learn-setup-info">Wie gut bist du in diesem Thema?</p>
             <div className="learn-proficiency-options" role="radiogroup" aria-label="Niveauauswahl">
               <button
@@ -314,7 +314,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
                 Zurück
               </SecondaryButton>
               <PrimaryButton type="button" onClick={onFinishSetup}>
-                Einrichtung abschliessen
+                Einrichtung abschließen
               </PrimaryButton>
             </div>
           </div>

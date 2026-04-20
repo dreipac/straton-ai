@@ -35,7 +35,7 @@ serve(async (req) => {
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-      return new Response(JSON.stringify({ error: 'Server-Konfiguration unvollstaendig.' }), {
+      return new Response(JSON.stringify({ error: 'Server-Konfiguration unvollständig.' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -85,7 +85,7 @@ serve(async (req) => {
     const lastName = toTrimmedString(body.lastName)
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return new Response(JSON.stringify({ error: 'Bitte eine gueltige E-Mail-Adresse eingeben.' }), {
+      return new Response(JSON.stringify({ error: 'Bitte eine gültige E-Mail-Adresse eingeben.' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })

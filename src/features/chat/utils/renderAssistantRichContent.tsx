@@ -13,7 +13,7 @@ type Block =
   | { type: 'blockquote'; lines: string[]; quoteKind: 'bible' | 'quran' | 'plain' }
   /** Markdown-Codeblock mit ``` */
   | { type: 'code'; language: string; code: string }
-  /** E-Mail-/Briefentwurf: ```email oder erkannter Fliesstext mit Betreff: */
+  /** E-Mail-/Briefentwurf: ```email oder erkannter Fließtext mit Betreff: */
   | { type: 'emailDraft'; body: string }
   /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
   | { type: 'table'; rows: string[][] }
@@ -381,7 +381,7 @@ function splitBetreffFromEmailBody(body: string): { subject?: string; rest: stri
   return { subject: m[1].trim(), rest }
 }
 
-/** Fliesstext mit «Betreff:» und typischer Mail (Fallback, wenn das Modell keinen ```email-Block nutzt). */
+/** Fließtext mit «Betreff:» und typischer Mail (Fallback, wenn das Modell keinen ```email-Block nutzt). */
 function promotePlainParagraphEmailDrafts(blocks: Block[]): Block[] {
   return blocks.map((b) => {
     if (b.type !== 'p') {

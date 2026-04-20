@@ -56,7 +56,7 @@
 }
 
 /* —— Action Bottom Sheet (Chat-Aktionen, wiederverwendbar) —— */
-/* Oeffnen/Schliessen nur mit transform + opacity (GPU-freundlich). */
+/* Öffnen/Schließen nur mit transform + opacity (GPU-freundlich). */
 
 .action-bottom-sheet-root {
   position: fixed;
@@ -297,6 +297,53 @@
   background: var(--color-border-subtle, #cbd5e1);
   opacity: 0.85;
   flex-shrink: 0;
+}
+
+.content-bottom-sheet-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Beta-Hinweis: etwas Luft unter dem Griff; Button direkt unter dem Text */
+.rename-bottom-sheet-panel.beta-notice-sheet-panel {
+  min-height: min(26vh, 54dvh);
+}
+
+.beta-notice-sheet-body-plain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding-top: 0;
+}
+
+.beta-notice-sheet-text {
+  margin: 0;
+  color: var(--color-text-secondary, #64748b);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.beta-notice-sheet-actions {
+  margin: 0;
+}
+
+.beta-notice-sheet-submit {
+  width: 100%;
+  justify-content: center;
+}
+
+:root[data-theme='dark'] .beta-notice-sheet-text {
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+.first-login-password-sheet-body {
+  padding-top: 0;
+}
+
+.first-login-password-sheet-form .first-login-password-intro {
+  margin-top: 0;
 }
 
 .rename-bottom-sheet-header {

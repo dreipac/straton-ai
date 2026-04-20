@@ -201,7 +201,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
               ? 'Mbyll cilësimet'
               : language === 'es-PE'
                 ? 'Cerrar ajustes'
-          : 'Einstellungen schliessen',
+          : 'Einstellungen schließen',
     settingsScreenTitle:
       language === 'en'
         ? 'Settings'
@@ -932,7 +932,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                 title="Abo-Modelle"
                 headingLevel="h3"
                 onClose={() => setIsPlansModalOpen(false)}
-                closeLabel="Abo-Modelle schliessen"
+                closeLabel="Abo-Modelle schließen"
               />
             </header>
             <section className="settings-body">

@@ -140,7 +140,7 @@ export const ProfileFullSheet = forwardRef<ProfileFullSheetHandle, ProfileFullSh
               <button
                 type="button"
                 className="profile-full-sheet-close"
-                aria-label="Schliessen"
+                aria-label="Schließen"
                 onClick={() => {
                   requestClose()
                 }}

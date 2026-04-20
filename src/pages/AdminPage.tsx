@@ -21,6 +21,7 @@ import {
   adminSetUserProfileNames,
   createSubscriptionPlan,
   deleteSubscriptionPlan,
+  updateSubscriptionPlan,
   deploySubscriptionAssignmentDrafts,
   listAdminAiTokenUsageSummary,
   listAdminUserLastAiUsage,
@@ -37,6 +38,11 @@ import {
   type SubscriptionPlanRow,
   type SubscriptionPlanShowcaseSlotRow,
 } from '../features/auth/services/admin.service'
+import {
+  CHAT_COMPOSER_MODELS,
+  type ChatComposerModelId,
+  parseStoredComposerModelId,
+} from '../features/chat/constants/chatComposerModels'
 import {
   adminSetBetaNoticeEnabled,
   getAppFeatureFlags,
@@ -87,11 +93,11 @@ type AdminSection = {
 }
 
 const sections: AdminSection[] = [
-  { id: 'overview', label: 'Uebersicht', title: 'Administrator Uebersicht', icon: generalIcon },
+  { id: 'overview', label: 'Übersicht', title: 'Administrator Übersicht', icon: generalIcon },
   { id: 'users', label: 'Nutzer', title: 'Nutzerverwaltung', icon: accountIcon },
   { id: 'tokenUsage', label: 'KI-Tokens', title: 'KI Token-Verbrauch', icon: aiIcon },
   { id: 'subscriptions', label: 'Abonnements', title: 'Abonnements verwalten', icon: cardsOutlineIcon },
-  { id: 'deployment', label: 'Deployment', title: 'Abo-Entwuerfe deployen', icon: sendIcon },
+  { id: 'deployment', label: 'Deployment', title: 'Abo-Entwürfe deployen', icon: sendIcon },
   { id: 'roles', label: 'Rollen', title: 'Rollen und Rechte', icon: accountIcon },
   { id: 'aiProviders', label: 'KI Provider', title: 'KI Provider konfigurieren', icon: aiIcon },
   { id: 'systemPrompts', label: 'KI Anweisungen', title: 'KI Systemanweisungen', icon: aiIcon },
@@ -131,8 +137,21 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxTokens, setNewPlanMaxTokens] = useState('')
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
+  const [newPlanAllowModelChoice, setNewPlanAllowModelChoice] = useState(true)
+  const [newPlanDefaultChatModelId, setNewPlanDefaultChatModelId] =
+    useState<ChatComposerModelId>('gpt-5.4-mini')
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const [editPlanDraft, setEditPlanDraft] = useState<{
+    id: string
+    name: string
+    maxTokens: string
+    maxImages: string
+    maxFiles: string
+    allowModelChoice: boolean
+    defaultChatModelId: ChatComposerModelId
+  } | null>(null)
+  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
   const [assigningUserId, setAssigningUserId] = useState<string | null>(null)
   const [userProfileNameDrafts, setUserProfileNameDrafts] = useState<
@@ -456,7 +475,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         if (!isMounted) {
           return
         }
-        setSubscriptionPlansError(getErrorMessage(err, 'Abo-Entwuerfe konnten nicht geladen werden.'))
+        setSubscriptionPlansError(getErrorMessage(err, 'Abo-Entwürfe konnten nicht geladen werden.'))
       }
     }
 
@@ -567,7 +586,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       await deleteSystemPromptOverride(key)
       await refresh()
     } catch (err) {
-      setPromptSaveError(getErrorMessage(err, 'Zuruecksetzen fehlgeschlagen.'))
+      setPromptSaveError(getErrorMessage(err, 'Zurücksetzen fehlgeschlagen.'))
     } finally {
       setPromptActionKey(null)
     }
@@ -616,6 +635,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxTokens,
         maxImages,
         maxFiles,
+        chatAllowModelChoice: newPlanAllowModelChoice,
+        defaultChatModelId: newPlanDefaultChatModelId,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -624,6 +645,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxTokens('')
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
+      setNewPlanAllowModelChoice(true)
+      setNewPlanDefaultChatModelId('gpt-5.4-mini')
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
     } finally {
@@ -631,8 +654,57 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleUpdateSubscriptionPlan() {
+    if (!editPlanDraft) {
+      return
+    }
+    const name = editPlanDraft.name.trim()
+    if (!name) {
+      return
+    }
+
+    const maxTokens = parseOptionalNonNegativeInt(editPlanDraft.maxTokens)
+    const maxImages = parseOptionalNonNegativeInt(editPlanDraft.maxImages)
+    const maxFiles = parseOptionalNonNegativeInt(editPlanDraft.maxFiles)
+
+    if (editPlanDraft.maxTokens.trim() && maxTokens === null) {
+      setSubscriptionPlansError('Max Tokens muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+    if (editPlanDraft.maxImages.trim() && maxImages === null) {
+      setSubscriptionPlansError('Max Bilder muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+    if (editPlanDraft.maxFiles.trim() && maxFiles === null) {
+      setSubscriptionPlansError('Max Dateien muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+
+    setSubscriptionPlansError(null)
+    setIsUpdatingPlan(true)
+    try {
+      const row = await updateSubscriptionPlan({
+        planId: editPlanDraft.id,
+        name,
+        maxTokens,
+        maxImages,
+        maxFiles,
+        chatAllowModelChoice: editPlanDraft.allowModelChoice,
+        defaultChatModelId: editPlanDraft.defaultChatModelId,
+      })
+      setSubscriptionPlans((prev) =>
+        prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
+      )
+      setEditPlanDraft(null)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsUpdatingPlan(false)
+    }
+  }
+
   async function handleDeleteSubscriptionPlan(planId: string) {
-    if (!window.confirm('Dieses Abo wirklich loeschen? Nutzer verlieren die Zuweisung (wird auf kein Abo gesetzt).')) {
+    if (!window.confirm('Dieses Abo wirklich löschen? Nutzer verlieren die Zuweisung (wird auf kein Abo gesetzt).')) {
       return
     }
     setSubscriptionPlansError(null)
@@ -648,7 +720,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         ),
       )
     } catch (err) {
-      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht geloescht werden.'))
+      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht gelöscht werden.'))
     } finally {
       setDeletingPlanId(null)
     }
@@ -686,7 +758,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         return next
       })
     } catch (err) {
-      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht geloescht werden.'))
+      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht gelöscht werden.'))
     } finally {
       setDeletingUserId(null)
     }
@@ -813,7 +885,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setSubscriptionDrafts({})
       setSelectedDraftPlanByUser({})
       if (deployedCount === 0) {
-        setSubscriptionPlansError('Keine Entwuerfe zum Deployen vorhanden.')
+        setSubscriptionPlansError('Keine Entwürfe zum Deployen vorhanden.')
       }
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Deployment fehlgeschlagen.'))
@@ -849,7 +921,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       await deleteUserFeedbackById(id)
       setFeedbackItems((prev) => prev.filter((row) => row.id !== id))
     } catch (err) {
-      setFeedbackError(getErrorMessage(err, 'Loeschen fehlgeschlagen.'))
+      setFeedbackError(getErrorMessage(err, 'Löschen fehlgeschlagen.'))
     } finally {
       setDeletingFeedbackId(null)
     }
@@ -948,7 +1020,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   return (
     <section className="settings-modal" role="dialog" aria-modal="true" aria-label="Administrator">
       <aside className="settings-sidebar">
-        <h2>Menue</h2>
+        <h2>Menü</h2>
         <nav className="settings-menu">
           {sections.map((section) => (
             <button
@@ -970,7 +1042,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             title={activeSectionConfig.title}
             headingLevel="h1"
             onClose={onClose}
-            closeLabel="Administrator schliessen"
+            closeLabel="Administrator schließen"
           />
         </header>
 
@@ -1056,14 +1128,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 {createUserInfo ? <p className="admin-ai-info">{createUserInfo}</p> : null}
               </div>
               <p className="admin-users-warning">
-                Achtung: Aenderungen in diesem Bereich koennen kritische Berechtigungen beeinflussen. Bitte nur mit
+                Achtung: Änderungen in diesem Bereich können kritische Berechtigungen beeinflussen. Bitte nur mit
                 Vorsicht bearbeiten.
               </p>
               <p className="admin-users-hint">
-                Alle Auth-Konten erscheinen in der Liste. Vor- und Nachname kannst du fuer die Beta vorbereiten
-                (&quot;Profil speichern&quot; — unabhaengig vom Abo). Das Haekchen &quot;Passwort bei Erstanmeldung
-                aendern&quot; ist nur sichtbar, solange sich der Nutzer noch nie angemeldet hat. Mit &quot;Nutzer
-                loeschen&quot; entfernst du Konto und zugehoerige Daten endgueltig (E-Mail-Bestaetigung im Dialog).
+                Alle Auth-Konten erscheinen in der Liste. Vor- und Nachname kannst du für die Beta vorbereiten
+                (&quot;Profil speichern&quot; — unabhängig vom Abo). Das Häkchen &quot;Passwort bei Erstanmeldung
+                ändern&quot; ist nur sichtbar, solange sich der Nutzer noch nie angemeldet hat. Mit &quot;Nutzer
+                löschen&quot; entfernst du Konto und zugehörige Daten endgültig (E-Mail-Bestätigung im Dialog).
               </p>
               {usersError ? <p className="error-text">{usersError}</p> : null}
               {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
@@ -1145,7 +1217,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 void handleToggleMustChangePassword(user.id, event.target.checked)
                               }}
                             />
-                            <span>Passwort bei Erstanmeldung aendern</span>
+                            <span>Passwort bei Erstanmeldung ändern</span>
                             {savingMustPwUserId === user.id ? <span aria-hidden="true"> …</span> : null}
                           </label>
                         ) : null}
@@ -1192,13 +1264,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             isDeployingDrafts ||
                             !user.email?.trim()
                           }
-                          title={!user.email?.trim() ? 'Keine E-Mail — Loeschen nicht moeglich' : undefined}
+                          title={!user.email?.trim() ? 'Keine E-Mail — Löschen nicht möglich' : undefined}
                           onClick={() => {
                             setDeleteUserEmailConfirm('')
                             setConfirmDeleteUserId(user.id)
                           }}
                         >
-                          Nutzer loeschen
+                          Nutzer löschen
                         </SecondaryButton>
                       </div>
                     </div>
@@ -1214,12 +1286,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             <div className="admin-users-panel">
               <p className="admin-users-warning">
                 Daten stammen aus der Tabelle <code>ai_token_usage</code> (von der Edge Function{' '}
-                <strong>chat-completion</strong> geschrieben).                 Oben: juengste Zeile pro Nutzer <strong>ohne</strong> Modus{' '}
-                <code>generate_title</code> (sonst ueberschreibt die OpenAI-Titel-Zeile den Chat mit Claude/OpenAI).
+                <strong>chat-completion</strong> geschrieben).                 Oben: jüngste Zeile pro Nutzer <strong>ohne</strong> Modus{' '}
+                <code>generate_title</code> (sonst überschreibt die OpenAI-Titel-Zeile den Chat mit Claude/OpenAI).
                 Unten: <strong>kumulierte</strong> Token nach Nutzer und
-                Modell. Geschaetzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewaehr). Voraussetzung:
+                Modell. Geschätzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewähr). Voraussetzung:
                 Migrationen inkl. <code>ai_token_usage</code> und Secret{' '}
-                <code>SUPABASE_SERVICE_ROLE_KEY</code> fuer die Function.
+                <code>SUPABASE_SERVICE_ROLE_KEY</code> für die Function.
               </p>
               {tokenUsageError ? <p className="error-text">{tokenUsageError}</p> : null}
               {isLoadingTokenUsage ? <p>Lade Token-Statistik…</p> : null}
@@ -1227,17 +1299,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 <>
                   {lastAiUsageSorted.length === 0 && tokenUsageRows.length === 0 ? (
                     <p className="admin-user-empty">
-                      Noch keine Eintraege. Nach Migration und KI-Nutzung erscheinen hier Werte.
+                      Noch keine Einträge. Nach Migration und KI-Nutzung erscheinen hier Werte.
                     </p>
                   ) : (
                     <>
                       <h3 className="admin-token-section-heading">Zuletzt protokolliertes Modell (je Nutzer)</h3>
                       <p className="admin-token-section-hint">
-                        Juengste Zeile aus <code>ai_token_usage</code> pro Nutzer ausser Chat-Titelgenerierung (
-                        <code>generate_title</code>). Spalte «Modell»: API-Rueckgabe.
+                        Jüngste Zeile aus <code>ai_token_usage</code> pro Nutzer außer Chat-Titelgenerierung (
+                        <code>generate_title</code>). Spalte «Modell»: API-Rückgabe.
                       </p>
                       {lastAiUsageSorted.length === 0 ? (
-                        <p className="admin-user-empty">Keine Zeilen fuer «zuletzt» (ungewoehnlich).</p>
+                        <p className="admin-user-empty">Keine Zeilen für «zuletzt» (ungewöhnlich).</p>
                       ) : (
                         <table className="admin-token-usage-table" aria-label="Letzter KI-Aufruf pro Nutzer">
                           <thead>
@@ -1312,7 +1384,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         Summen aller protokollierten Aufrufe, gruppiert nach Nutzer, Provider und Modell.
                       </p>
                       {tokenUsageRows.length === 0 ? (
-                        <p className="admin-user-empty">Keine aggregierten Eintraege.</p>
+                        <p className="admin-user-empty">Keine aggregierten Einträge.</p>
                       ) : (
                     <>
                       <div className="admin-token-toolbar">
@@ -1410,7 +1482,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             />
                           </div>
                           <p className="admin-token-filter-hint">
-                            Kostenfilter beziehen sich auf die geschaetzte Summe pro Zeile (Input+Output). Zeilen ohne
+                            Kostenfilter beziehen sich auf die geschätzte Summe pro Zeile (Input+Output). Zeilen ohne
                             bekannten Tarif werden bei gesetztem Min./Max.-Kostenfilter ausgeblendet.
                           </p>
                           <SecondaryButton
@@ -1424,12 +1496,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               setTokenUsageFilterCostMax('')
                             }}
                           >
-                            Filter zuruecksetzen
+                            Filter zurücksetzen
                           </SecondaryButton>
                         </div>
                       ) : null}
                       {tokenUsageFilteredRows.length === 0 ? (
-                        <p className="admin-user-empty">Keine Zeilen fuer die aktuellen Filter.</p>
+                        <p className="admin-user-empty">Keine Zeilen für die aktuellen Filter.</p>
                       ) : (
                         <>
                       <table className="admin-token-usage-table" aria-label="KI Token Verbrauch">
@@ -1541,7 +1613,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       </table>
                       {tokenUsageCostTotals.hasUnknownModel ? (
                         <p className="admin-token-cost-footnote">
-                          Kosten-Summen in der Fusszeile zaehlen nur Zeilen mit bekanntem Modelltarif (OpenAI/Anthropic
+                          Kosten-Summen in der Fußzeile zählen nur Zeilen mit bekanntem Modelltarif (OpenAI/Anthropic
                           in <code>aiModelPricing.ts</code>).
                         </p>
                       ) : null}
@@ -1558,7 +1630,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           {activeSection === 'subscriptions' ? (
             <div className="admin-subscriptions-panel">
               <p className="admin-users-warning">
-                Lege frei waehlbare Abo-Namen an und weise sie unter &quot;Nutzer&quot; einzelnen Konten zu.
+                Lege frei wählbare Abo-Namen an und weise sie unter &quot;Nutzer&quot; einzelnen Konten zu.
               </p>
               {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
               <div className="admin-subscriptions-create">
@@ -1579,32 +1651,60 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               {isLoadingSubscriptionPlans ? <p>Lade Abonnements…</p> : null}
               {!isLoadingSubscriptionPlans ? (
                 <ul className="admin-subscriptions-list" aria-label="Definierte Abonnements">
-                  {subscriptionPlans.map((plan) => (
+                  {subscriptionPlans.map((plan) => {
+                    const defaultLabel =
+                      CHAT_COMPOSER_MODELS.find((m) => m.id === (plan.default_chat_model_id as ChatComposerModelId))
+                        ?.label ?? (plan.default_chat_model_id ?? '—')
+                    return (
                     <li key={plan.id} className="admin-subscriptions-row">
                       <div className="admin-subscriptions-info">
                         <span className="admin-subscriptions-name">{plan.name}</span>
                         <p className="admin-subscriptions-meta">
                           Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder: {plan.max_images ?? 'unbegrenzt'} · Dateien:{' '}
                           {plan.max_files ?? 'unbegrenzt'}
+                          <br />
+                          Chat-Modell: {plan.chat_allow_model_choice ? 'Nutzer wählt' : 'fest'} · Standard: {defaultLabel}
                         </p>
                       </div>
-                      <SecondaryButton
-                        type="button"
-                        className="admin-subscriptions-delete"
-                        disabled={deletingPlanId === plan.id}
-                        onClick={() => void handleDeleteSubscriptionPlan(plan.id)}
-                      >
-                        {deletingPlanId === plan.id ? 'Loeschen…' : 'Loeschen'}
-                      </SecondaryButton>
+                      <div className="admin-subscriptions-row-actions">
+                        <SecondaryButton
+                          type="button"
+                          className="admin-subscriptions-edit"
+                          disabled={deletingPlanId === plan.id}
+                          onClick={() => {
+                            setSubscriptionPlansError(null)
+                            setEditPlanDraft({
+                              id: plan.id,
+                              name: plan.name,
+                              maxTokens: plan.max_tokens != null ? String(plan.max_tokens) : '',
+                              maxImages: plan.max_images != null ? String(plan.max_images) : '',
+                              maxFiles: plan.max_files != null ? String(plan.max_files) : '',
+                              allowModelChoice: plan.chat_allow_model_choice,
+                              defaultChatModelId: parseStoredComposerModelId(plan.default_chat_model_id ?? null),
+                            })
+                          }}
+                        >
+                          Bearbeiten
+                        </SecondaryButton>
+                        <SecondaryButton
+                          type="button"
+                          className="admin-subscriptions-delete"
+                          disabled={deletingPlanId === plan.id}
+                          onClick={() => void handleDeleteSubscriptionPlan(plan.id)}
+                        >
+                          {deletingPlanId === plan.id ? 'Löschen…' : 'Löschen'}
+                        </SecondaryButton>
+                      </div>
                     </li>
-                  ))}
+                    )
+                  })}
                 </ul>
               ) : null}
               {!isLoadingSubscriptionPlans && subscriptionPlans.length === 0 ? (
                 <p className="admin-user-empty">Noch keine Abonnements angelegt.</p>
               ) : null}
               <article className="settings-card">
-                <h3 className="admin-system-prompt-title">Sichtbare Abo-Modelle fuer Nutzer</h3>
+                <h3 className="admin-system-prompt-title">Sichtbare Abo-Modelle für Nutzer</h3>
                 <p className="admin-system-prompt-hint">
                   Bestimme hier die drei Abo-Modelle, die im Kauf-Modal der Nutzer sichtbar sind.
                 </p>
@@ -1689,7 +1789,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         setIsCreatePlanModalOpen(false)
                         setSubscriptionPlansError(null)
                       }}
-                      closeLabel="Abo erstellen schliessen"
+                      closeLabel="Abo erstellen schließen"
                     />
 
                     <form
@@ -1745,6 +1845,35 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         onChange={(event) => setNewPlanMaxFiles(event.target.value)}
                       />
 
+                      <label className="admin-subscriptions-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={newPlanAllowModelChoice}
+                          onChange={(event) => setNewPlanAllowModelChoice(event.target.checked)}
+                        />{' '}
+                        Nutzer dürfen das Chat-KI-Modell selbst wählen
+                      </label>
+
+                      {!newPlanAllowModelChoice ? (
+                        <>
+                          <label htmlFor="admin-new-subscription-default-chat-model">Festes Chat-Modell</label>
+                          <select
+                            id="admin-new-subscription-default-chat-model"
+                            className="admin-user-subscription-select"
+                            value={newPlanDefaultChatModelId}
+                            onChange={(event) =>
+                              setNewPlanDefaultChatModelId(event.target.value as ChatComposerModelId)
+                            }
+                          >
+                            {CHAT_COMPOSER_MODELS.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      ) : null}
+
                       <div className="rename-actions">
                         <SecondaryButton
                           type="button"
@@ -1764,15 +1893,152 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   </section>
                 </ModalShell>
               ) : null}
+
+              {editPlanDraft ? (
+                <ModalShell
+                  isOpen={Boolean(editPlanDraft)}
+                  onRequestClose={() => {
+                    setEditPlanDraft(null)
+                    setSubscriptionPlansError(null)
+                  }}
+                >
+                  <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Abo bearbeiten">
+                    <ModalHeader
+                      title="Abo bearbeiten"
+                      headingLevel="h3"
+                      className="rename-modal-header"
+                      onClose={() => {
+                        setEditPlanDraft(null)
+                        setSubscriptionPlansError(null)
+                      }}
+                      closeLabel="Abo bearbeiten schließen"
+                    />
+
+                    <form
+                      className="rename-form"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void handleUpdateSubscriptionPlan()
+                      }}
+                    >
+                      <label htmlFor="admin-edit-subscription-name">Name</label>
+                      <input
+                        id="admin-edit-subscription-name"
+                        type="text"
+                        value={editPlanDraft.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
+                        }
+                      />
+
+                      <label htmlFor="admin-edit-subscription-max-tokens">Max Tokens</label>
+                      <input
+                        id="admin-edit-subscription-max-tokens"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1}
+                        placeholder="leer = unbegrenzt"
+                        value={editPlanDraft.maxTokens}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
+                        }
+                      />
+
+                      <label htmlFor="admin-edit-subscription-max-images">Max Bilder</label>
+                      <input
+                        id="admin-edit-subscription-max-images"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1}
+                        placeholder="leer = unbegrenzt"
+                        value={editPlanDraft.maxImages}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
+                        }
+                      />
+
+                      <label htmlFor="admin-edit-subscription-max-files">Max Dateien</label>
+                      <input
+                        id="admin-edit-subscription-max-files"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1}
+                        placeholder="leer = unbegrenzt"
+                        value={editPlanDraft.maxFiles}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
+                        }
+                      />
+
+                      <label className="admin-subscriptions-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={editPlanDraft.allowModelChoice}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, allowModelChoice: event.target.checked } : null,
+                            )
+                          }
+                        />{' '}
+                        Nutzer dürfen das Chat-KI-Modell selbst wählen
+                      </label>
+
+                      {!editPlanDraft.allowModelChoice ? (
+                        <>
+                          <label htmlFor="admin-edit-subscription-default-chat-model">Festes Chat-Modell</label>
+                          <select
+                            id="admin-edit-subscription-default-chat-model"
+                            className="admin-user-subscription-select"
+                            value={editPlanDraft.defaultChatModelId}
+                            onChange={(event) =>
+                              setEditPlanDraft((prev) =>
+                                prev
+                                  ? { ...prev, defaultChatModelId: event.target.value as ChatComposerModelId }
+                                  : null,
+                              )
+                            }
+                          >
+                            {CHAT_COMPOSER_MODELS.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      ) : null}
+
+                      <div className="rename-actions">
+                        <SecondaryButton
+                          type="button"
+                          disabled={isUpdatingPlan}
+                          onClick={() => {
+                            setEditPlanDraft(null)
+                            setSubscriptionPlansError(null)
+                          }}
+                        >
+                          Abbrechen
+                        </SecondaryButton>
+                        <PrimaryButton type="submit" disabled={isUpdatingPlan || !editPlanDraft.name.trim()}>
+                          {isUpdatingPlan ? 'Speichern…' : 'Speichern'}
+                        </PrimaryButton>
+                      </div>
+                    </form>
+                  </section>
+                </ModalShell>
+              ) : null}
             </div>
           ) : null}
           {activeSection === 'deployment' ? (
             <div className="admin-subscriptions-panel">
               <p className="admin-users-warning">
-                Erst ein Deployment macht gespeicherte Abo-Entwuerfe fuer Nutzer sichtbar.
+                Erst ein Deployment macht gespeicherte Abo-Entwürfe für Nutzer sichtbar.
               </p>
               {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
-              <ul className="admin-subscriptions-list" aria-label="Abo-Entwuerfe">
+              <ul className="admin-subscriptions-list" aria-label="Abo-Entwürfe">
                 {Object.values(subscriptionDrafts).map((draft) => {
                   return (
                     <li key={draft.user_id} className="admin-subscriptions-row">
@@ -1787,14 +2053,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 })}
               </ul>
               {Object.keys(subscriptionDrafts).length === 0 ? (
-                <p className="admin-user-empty">Keine offenen Entwuerfe vorhanden.</p>
+                <p className="admin-user-empty">Keine offenen Entwürfe vorhanden.</p>
               ) : null}
               <PrimaryButton
                 type="button"
                 disabled={isDeployingDrafts || Object.keys(subscriptionDrafts).length === 0}
                 onClick={() => void handleDeploySubscriptionDrafts()}
               >
-                {isDeployingDrafts ? 'Deployment laeuft…' : 'Jetzt deployen'}
+                {isDeployingDrafts ? 'Deployment läuft…' : 'Jetzt deployen'}
               </PrimaryButton>
             </div>
           ) : null}
@@ -1806,8 +2072,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           {activeSection === 'aiProviders' ? (
             <article className="settings-card">
               <p>
-                KI-Provider-Keys werden aus Sicherheitsgruenden nicht mehr in der Datenbank gepflegt.
-                Bitte nutze Supabase Secrets fuer die Edge Function.
+                KI-Provider-Keys werden aus Sicherheitsgründen nicht mehr in der Datenbank gepflegt.
+                Bitte nutze Supabase Secrets für die Edge Function.
               </p>
               <div className="admin-ai-form">
                 <p>
@@ -1821,8 +2087,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <strong>ANTHROPIC_API_KEY</strong> — Lernpfad / Learn-Bereich (Claude Sonnet)
                   </li>
                   <li>
-                    <strong>SUPABASE_SERVICE_ROLE_KEY</strong> — fuer <strong>chat-completion</strong>: schreibt
-                    Token-Statistik in <code>ai_token_usage</code> (Admin-Menue «KI-Tokens»)
+                    <strong>SUPABASE_SERVICE_ROLE_KEY</strong> — für <strong>chat-completion</strong>: schreibt
+                    Token-Statistik in <code>ai_token_usage</code> (Admin-Menü «KI-Tokens»)
                   </li>
                   <li>
                     Optional: <strong>ANTHROPIC_MODEL</strong> — anderes Claude-Modell (Sonnet-Standard im Code)
@@ -1877,8 +2143,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           {activeSection === 'systemPrompts' ? (
             <div className="admin-system-prompts-panel">
               <p className="admin-users-warning">
-                Aenderungen gelten fuer alle angemeldeten Nutzer. Leere DB-Zeile = App nutzt Code-Standard nach
-                &quot;Zuruecksetzen&quot;. Nach Migration bitte Tabelle <code>app_system_prompts</code> anlegen.
+                Änderungen gelten für alle angemeldeten Nutzer. Leere DB-Zeile = App nutzt Code-Standard nach
+                &quot;Zurücksetzen&quot;. Nach Migration bitte Tabelle <code>app_system_prompts</code> anlegen.
               </p>
               {promptSaveError ? <p className="error-text">{promptSaveError}</p> : null}
               {promptsContextLoading ? <p>Lade Anweisungen...</p> : null}
@@ -1925,13 +2191,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       </div>
       {confirmDraftUserId ? (
         <ModalShell isOpen={Boolean(confirmDraftUserId)} onRequestClose={() => setConfirmDraftUserId(null)}>
-          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Entwurf speichern bestaetigen">
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Entwurf speichern bestätigen">
             <ModalHeader
               title="Abo als Entwurf speichern?"
               headingLevel="h3"
               className="rename-modal-header"
               onClose={() => setConfirmDraftUserId(null)}
-              closeLabel="Bestaetigung schliessen"
+              closeLabel="Bestätigung schließen"
             />
             <p>
               Diese Aenderung ist noch nicht live. Sie wird erst nach Deployment im Bereich &quot;Deployment&quot;
@@ -1966,9 +2232,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             }
           }}
         >
-          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Nutzer loeschen">
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Nutzer löschen">
             <ModalHeader
-              title="Nutzer endgueltig loeschen?"
+              title="Nutzer endgültig löschen?"
               headingLevel="h3"
               className="rename-modal-header"
               onClose={() => {
@@ -1977,18 +2243,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   setDeleteUserEmailConfirm('')
                 }
               }}
-              closeLabel="Dialog schliessen"
+              closeLabel="Dialog schließen"
             />
             <p>
-              Das Auth-Konto, Profil, Chats, Lernpfade, Feedback und weitere verknuepfte Daten werden unwiderruflich
+              Das Auth-Konto, Profil, Chats, Lernpfade, Feedback und weitere verknüpfte Daten werden unwiderruflich
               entfernt (soweit in der Datenbank mit CASCADE vorgesehen).
             </p>
             <p>
-              Gib zur Bestaetigung die E-Mail-Adresse ein:{' '}
+              Gib zur Bestätigung die E-Mail-Adresse ein:{' '}
               <strong>{deleteTargetUser.email ?? '—'}</strong>
             </p>
             <label className="admin-delete-email-label" htmlFor="admin-delete-email-confirm">
-              E-Mail bestaetigen
+              E-Mail bestätigen
             </label>
             <input
               id="admin-delete-email-confirm"
@@ -2017,7 +2283,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 disabled={!deleteEmailMatches || Boolean(deletingUserId)}
                 onClick={() => void handleDeleteUser(confirmDeleteUserId)}
               >
-                {deletingUserId ? 'Loeschen…' : 'Endgueltig loeschen'}
+                {deletingUserId ? 'Löschen…' : 'Endgültig löschen'}
               </PrimaryButton>
             </div>
           </section>

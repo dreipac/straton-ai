@@ -183,7 +183,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             selectedTopic +
             ' ' +
             evaluationSummary +
-            ' Uebung Aufgabe Berechnung Teilaufgabe'
+            ' Übung Aufgabe Berechnung Teilaufgabe'
           ).trim(),
           materials,
           materials.length > 0
@@ -206,22 +206,22 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             `Testergebnis: ${score}/${entryQuiz.questions.length}`,
             'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
             'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
-            'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklaerungen und interaktiven Fragen.',
-            'Erklaerungs-Steps (type explanation): im Feld "content" immer 2-5 Saetze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" koennen 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
-            'Wenn unten Materialauszuege vorliegen: mindestens die Haelfte der Fragen (alle Typen: mcq, text, match, true_false) pro Kapitel muss sich auf diese Auszuege beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Luecke fuellen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer faellt.',
+            'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklärungen und interaktiven Fragen.',
+            'Erklärungs-Steps (type explanation): im Feld "content" immer 2-5 Sätze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" können 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
+            'Wenn unten Materialauszüge vorliegen: mindestens die Hälfte der Fragen (alle Typen: mcq, text, match, true_false) pro Kapitel muss sich auf diese Auszüge beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Lücke füllen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer fällt.',
             WORKSHEET_EXERCISE_FIDELITY_RULES,
             CHAPTER_LEARNING_FIDELITY_RULES,
             'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches KV-/Büro-Szenario mit kurzer Loesungsidee).',
             'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
-            'Empfohlene Sequenz: warmup -> erklaerung -> frage -> erklaerung -> frage -> erklaerung -> frage -> recap.',
-            'Fragetypen mischen: mindestens je einige mcq, text, und zusaetzlich match (Zuordnung) und/oder true_false (Wahr/Falsch, expectedAnswer "Wahr" oder "Falsch") pro Kapitel — nicht nur mcq+text.',
-            'Ausgabeformat: Nur JSON-Array ohne Erklaerung.',
+            'Empfohlene Sequenz: warmup -> erklärung -> frage -> erklärung -> frage -> erklärung -> frage -> recap.',
+            'Fragetypen mischen: mindestens je einige mcq, text, und zusätzlich match (Zuordnung) und/oder true_false (Wahr/Falsch, expectedAnswer "Wahr" oder "Falsch") pro Kapitel — nicht nur mcq+text.',
+            'Ausgabeformat: Nur JSON-Array ohne Erklärung.',
             'Schema pro Kapitel (Beispiele): {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Wahr","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["A","B"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
-            'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten). Feld "explanation" optional: kurze Begruendung zur erwarteten Antwort.',
+            'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten). Feld "explanation" optional: kurze Begründung zur erwarteten Antwort.',
             `Auswertungsgrundlage:\n${evaluationSummary}`,
             chapterMaterialContext
-              ? 'Materialauszuege (Pflichtbezug fuer Erklaerungen und mindestens Haelfte der Fragen):\n' + chapterMaterialContext
-              : 'Materialauszuege: keine — nutze dann realistische KV-Praxisbeispiele in Erklaerungen und Aufgaben.',
+              ? 'Materialauszüge (Pflichtbezug für Erklärungen und mindestens Hälfte der Fragen):\n' + chapterMaterialContext
+              : 'Materialauszüge: keine — nutze dann realistische KV-Praxisbeispiele in Erklärungen und Aufgaben.',
           ].join('\n\n'),
           createdAt: new Date().toISOString(),
         }
@@ -262,8 +262,8 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         const generated = parseLearningChaptersFromText(parsedContent)
         const placeholderTitles = [
           `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
-          'Schwaechere Bereiche aus dem Einstiegstest vertiefen',
-          'Kurzer Praxis-Transfer fuer sichere Themen',
+          'Schwächere Bereiche aus dem Einstiegstest vertiefen',
+          'Kurzer Praxis-Transfer für sichere Themen',
         ]
         const nextLearningChapters =
           titlesFromBlueprints.length > 0

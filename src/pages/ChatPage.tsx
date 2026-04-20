@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -24,6 +25,10 @@ import {
   type ProfileFullSheetHandle,
 } from '../components/ui/bottom-sheet/ProfileFullSheet'
 import {
+  ContentBottomSheet,
+  type ContentBottomSheetHandle,
+} from '../components/ui/bottom-sheet/ContentBottomSheet'
+import {
   RenameBottomSheet,
   type RenameBottomSheetHandle,
 } from '../components/ui/bottom-sheet/RenameBottomSheet'
@@ -41,6 +46,7 @@ import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.se
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
+  getChatModelPolicyFromPlan,
   parseStoredComposerModelId,
 } from '../features/chat/constants/chatComposerModels'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
@@ -48,6 +54,7 @@ import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
+import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
@@ -70,6 +77,11 @@ export function ChatPage() {
   const DEFAULT_NO_PLAN_MAX_TOKENS = 100
   const MODAL_ANIMATION_MS = 220
   const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
+  const chatModelPolicy = useMemo(
+    () =>
+      user ? getChatModelPolicyFromPlan(profile?.subscription_plans ?? null) : getChatModelPolicyFromPlan(null),
+    [user, profile?.subscription_plans],
+  )
   const {
     threads,
     activeThreadId,
@@ -84,7 +96,8 @@ export function ChatPage() {
     selectChat,
     composerModelId,
     setComposerModelId,
-  } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true)
+    isChatModelLocked,
+  } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy)
   const [guestComposerModelId, setGuestComposerModelId] = useState<ChatComposerModelId>(() =>
     parseStoredComposerModelId(
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
@@ -126,7 +139,8 @@ export function ChatPage() {
   const tourBlockedByBeta = Boolean(
     user && profile && showBetaNoticeOnFirstLogin && !profile.beta_notice_seen,
   )
-  const showChatTour = Boolean(
+  const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(false)
+  const chatTourEligible = Boolean(
     user &&
       profile &&
       profile.chat_onboarding_completed === false &&
@@ -134,7 +148,9 @@ export function ChatPage() {
       profile.must_change_password_on_first_login !== true &&
       !tourBlockedByBeta,
   )
-  const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(false)
+  const [compactTourReveal, setCompactTourReveal] = useState(false)
+  const chatTourOverlayActive = chatTourEligible && (!isCompactMobileSidebarLayout || compactTourReveal)
+  const isMobileUiForBeta = useIsMobileViewport()
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
   const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
@@ -144,6 +160,7 @@ export function ChatPage() {
   const adminCloseTimerRef = useRef<number | null>(null)
   const renameCloseTimerRef = useRef<number | null>(null)
   const betaNoticeCloseTimerRef = useRef<number | null>(null)
+  const betaNoticeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
   const learnTourRef = useRef<HTMLButtonElement | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -222,6 +239,22 @@ export function ChatPage() {
   }, [])
 
   useEffect(() => {
+    if (!chatTourEligible) {
+      setCompactTourReveal(false)
+      return
+    }
+    setIsSidebarCollapsed(false)
+    setIsMobileSidebarOpen(true)
+    if (!isCompactMobileSidebarLayout) {
+      setCompactTourReveal(true)
+      return
+    }
+    setCompactTourReveal(false)
+    const tid = window.setTimeout(() => setCompactTourReveal(true), 420)
+    return () => window.clearTimeout(tid)
+  }, [chatTourEligible, isCompactMobileSidebarLayout])
+
+  useEffect(() => {
     return () => {
       if (settingsCloseTimerRef.current) {
         window.clearTimeout(settingsCloseTimerRef.current)
@@ -270,7 +303,7 @@ export function ChatPage() {
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (event.key !== 'Escape' || showChatTour) {
+      if (event.key !== 'Escape' || chatTourEligible) {
         return
       }
       setIsMobileSidebarOpen(false)
@@ -285,15 +318,7 @@ export function ChatPage() {
     return () => {
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [showChatTour, openMenuThreadId])
-
-  useEffect(() => {
-    if (!showChatTour) {
-      return
-    }
-    setIsSidebarCollapsed(false)
-    setIsMobileSidebarOpen(true)
-  }, [showChatTour])
+  }, [chatTourEligible, openMenuThreadId])
 
   useEffect(() => {
     const shouldShowBetaNotice = Boolean(
@@ -335,7 +360,7 @@ export function ChatPage() {
   function openSettingsModal(section: SettingsSectionId = 'general') {
     setSettingsInitialSection(section)
     void refreshProfile().catch(() => {
-      // Falls Refresh fehlschlaegt, oeffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
+      // Falls Refresh fehlschlägt, öffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
     })
     setIsMobileSidebarOpen(false)
     if (settingsCloseTimerRef.current) {
@@ -432,7 +457,22 @@ export function ChatPage() {
     }, MODAL_ANIMATION_MS)
   }
 
+  async function handleBetaNoticeSheetExitComplete() {
+    try {
+      if (betaNoticeShouldMarkSeen) {
+        await markBetaNoticeSeen()
+      }
+    } finally {
+      setIsBetaNoticeMounted(false)
+      setIsBetaNoticeVisible(false)
+    }
+  }
+
   async function closeBetaNoticeModal() {
+    if (isMobileUiForBeta && betaNoticeSheetRef.current) {
+      betaNoticeSheetRef.current.requestClose()
+      return
+    }
     setIsBetaNoticeVisible(false)
     try {
       if (betaNoticeShouldMarkSeen) {
@@ -478,7 +518,7 @@ export function ChatPage() {
 
   function handleSidebarHeaderToggleClick() {
     if (isCompactMobileSidebarLayout) {
-      if (showChatTour) {
+      if (chatTourEligible) {
         return
       }
       setIsMobileSidebarOpen(false)
@@ -602,7 +642,7 @@ export function ChatPage() {
                   type="button"
                   className="sidebar-toggle-button"
                   aria-label={
-                    isCompactMobileSidebarLayout ? 'Sidebar schliessen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
+                    isCompactMobileSidebarLayout ? 'Sidebar schließen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
                   }
                   onClick={handleSidebarHeaderToggleClick}
                 >
@@ -695,6 +735,7 @@ export function ChatPage() {
               tokenLimitReached={false}
               composerModelId={guestComposerModelId}
               onComposerModelChange={handleGuestComposerModel}
+              showComposerModelPicker
               onSendMessage={async () => {
                 navigate('/login')
               }}
@@ -704,7 +745,7 @@ export function ChatPage() {
         <button
           type="button"
           className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
-          aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
+          aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
           onClick={() => {
             setIsSidebarCollapsed(false)
             setIsMobileSidebarOpen((prev) => {
@@ -752,7 +793,7 @@ export function ChatPage() {
                 type="button"
                 className="sidebar-toggle-button"
                 aria-label={
-                  isCompactMobileSidebarLayout ? 'Sidebar schliessen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
+                  isCompactMobileSidebarLayout ? 'Sidebar schließen' : isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'
                 }
                 onClick={handleSidebarHeaderToggleClick}
               >
@@ -780,7 +821,7 @@ export function ChatPage() {
             ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
             type="button"
             className={`chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar${
-              showChatTour ? ' chat-onboarding-tour-block' : ''
+              chatTourEligible ? ' chat-onboarding-tour-block' : ''
             }`}
             onClick={() => {
               void handleCreateNewChat()
@@ -801,7 +842,7 @@ export function ChatPage() {
           <button
             ref={learnTourRef}
             type="button"
-            className={showChatTour ? 'chat-onboarding-tour-block' : undefined}
+            className={chatTourEligible ? 'chat-onboarding-tour-block' : undefined}
             onClick={() => {
               navigate('/learn')
               setIsMobileSidebarOpen(false)
@@ -942,7 +983,7 @@ export function ChatPage() {
             <button
               type="button"
               ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
-              className={`mobile-new-chat-fab${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+              className={`mobile-new-chat-fab${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
               aria-label="Neuer Chat"
               onClick={() => void handleCreateNewChat()}
             >
@@ -963,15 +1004,16 @@ export function ChatPage() {
           tokenLimitReached={tokenLimitReached}
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
+          showComposerModelPicker={!isChatModelLocked}
           onSendMessage={submitMessage}
         />
       </section>
       <button
         type="button"
         className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
-        aria-label={isMobileSidebarOpen ? 'Sidebar schliessen' : 'Sidebar oeffnen'}
+        aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
         onClick={() => {
-          if (showChatTour) {
+          if (chatTourEligible) {
             return
           }
           setIsSidebarCollapsed(false)
@@ -989,7 +1031,7 @@ export function ChatPage() {
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
         onClick={() => {
-          if (showChatTour) {
+          if (chatTourEligible) {
             return
           }
           setIsMobileSidebarOpen(false)
@@ -997,11 +1039,11 @@ export function ChatPage() {
         aria-hidden="true"
       />
 
-      {showChatTour ? (
+      {chatTourEligible ? (
         <ChatOnboardingTour
           newChatButtonRef={newChatTourRef}
           learnButtonRef={learnTourRef}
-          active
+          active={chatTourOverlayActive}
           onComplete={completeChatOnboarding}
         />
       ) : null}
@@ -1047,7 +1089,7 @@ export function ChatPage() {
                 ))}
                 <button
                   type="button"
-                  className={`profile-full-sheet-row${showChatTour ? ' chat-onboarding-tour-block' : ''}`}
+                  className={`profile-full-sheet-row${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
                   onClick={() => {
                     setMobileSheetMode('closed')
                     navigate('/learn')
@@ -1199,7 +1241,7 @@ export function ChatPage() {
               headingLevel="h3"
               className="rename-modal-header"
               onClose={closeRenameModal}
-              closeLabel="Chat bearbeiten schliessen"
+              closeLabel="Chat bearbeiten schließen"
             />
 
             <form className="rename-form" onSubmit={handleRenameSubmit}>
@@ -1222,34 +1264,58 @@ export function ChatPage() {
         </ModalShell>
       ) : null}
       {isBetaNoticeMounted ? (
-        <ModalShell isOpen={isBetaNoticeVisible} onRequestClose={() => void closeBetaNoticeModal()}>
-          <section className="rename-modal beta-notice-modal" role="dialog" aria-modal="true" aria-label="Beta Hinweis">
-            <header className="beta-notice-header">
-              <div className="beta-notice-brand">
-                <img className="ui-icon chat-brand-logo beta-notice-logo" src={logoSrc} alt="" aria-hidden="true" />
-                <h2>Straton</h2>
-              </div>
-              <button
-                type="button"
-                className="settings-close-button"
-                onClick={() => void closeBetaNoticeModal()}
-                aria-label="Beta Hinweis schliessen"
-              >
-                <span className="ui-icon settings-close-icon" aria-hidden="true" />
-              </button>
-            </header>
-            <h3 className="beta-notice-title">Beta Version</h3>
-            <p className="beta-notice-text">
-              Du nutzt aktuell eine Beta-Version. Inhalte, Funktionen und Design koennen sich in den naechsten
-              Updates noch aendern. Dein Feedback hilft uns sehr, Straton schneller und besser zu machen.
+        isMobileUiForBeta ? (
+          <ContentBottomSheet
+            ref={betaNoticeSheetRef}
+            open={isBetaNoticeVisible}
+            onExitComplete={() => void handleBetaNoticeSheetExitComplete()}
+            title="Beta Version"
+            closeOnBackdrop
+            allowEscape
+            showCloseButton={false}
+            panelClassName="beta-notice-sheet-panel"
+            bodyClassName="beta-notice-sheet-body-plain"
+          >
+            <p className="beta-notice-sheet-text">
+              Du nutzt aktuell eine Beta-Version. Inhalte, Funktionen und Design können sich in den nächsten
+              Updates noch ändern. Dein Feedback hilft uns sehr, Straton schneller und besser zu machen.
             </p>
-            <div className="rename-actions">
-              <PrimaryButton type="button" onClick={() => void closeBetaNoticeModal()}>
+            <div className="beta-notice-sheet-actions">
+              <PrimaryButton type="button" className="beta-notice-sheet-submit" onClick={() => void closeBetaNoticeModal()}>
                 Verstanden
               </PrimaryButton>
             </div>
-          </section>
-        </ModalShell>
+          </ContentBottomSheet>
+        ) : (
+          <ModalShell isOpen={isBetaNoticeVisible} onRequestClose={() => void closeBetaNoticeModal()}>
+            <section className="rename-modal beta-notice-modal" role="dialog" aria-modal="true" aria-label="Beta Hinweis">
+              <header className="beta-notice-header">
+                <div className="beta-notice-brand">
+                  <img className="ui-icon chat-brand-logo beta-notice-logo" src={logoSrc} alt="" aria-hidden="true" />
+                  <h2>Straton</h2>
+                </div>
+                <button
+                  type="button"
+                  className="settings-close-button"
+                  onClick={() => void closeBetaNoticeModal()}
+                  aria-label="Beta Hinweis schließen"
+                >
+                  <span className="ui-icon settings-close-icon" aria-hidden="true" />
+                </button>
+              </header>
+              <h3 className="beta-notice-title">Beta Version</h3>
+              <p className="beta-notice-text">
+                Du nutzt aktuell eine Beta-Version. Inhalte, Funktionen und Design können sich in den nächsten
+                Updates noch ändern. Dein Feedback hilft uns sehr, Straton schneller und besser zu machen.
+              </p>
+              <div className="rename-actions">
+                <PrimaryButton type="button" onClick={() => void closeBetaNoticeModal()}>
+                  Verstanden
+                </PrimaryButton>
+              </div>
+            </section>
+          </ModalShell>
+        )
       ) : null}
     </main>
   )

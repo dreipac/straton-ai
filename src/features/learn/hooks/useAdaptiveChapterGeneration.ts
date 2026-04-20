@@ -83,7 +83,7 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           : 'Keine explizit falschen Antworten vorhanden. Erzeuge adaptive Fragen auf Basis typischer Stolpersteine im Thema.'
 
       const adaptiveMaterialContext = formatRelevantMaterialContext(
-        `${effectiveTopic || getDisplayPathTitle(activePathTitle ?? '')} ${selectedTopic} Schwachstellen Training Uebung Aufgabe Berechnung`,
+        `${effectiveTopic || getDisplayPathTitle(activePathTitle ?? '')} ${selectedTopic} Schwachstellen Training Übung Aufgabe Berechnung`,
         materials,
         materials.length > 0
           ? {
@@ -99,22 +99,22 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
         id: crypto.randomUUID(),
         role: 'user',
         content: [
-          'Erstelle genau EIN Abschlusskapitel fuer Schwachstellen als JSON-Array mit genau 1 Kapitelobjekt.',
-          'Nur JSON ohne Erklaerung.',
-          'Das Kapitel muss 1 kurze Einfuehrung, dann 6-10 Fragen und am Ende 1 Recap enthalten.',
-          'In Erklaerungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Saetze) oder in den bullets.',
+          'Erstelle genau EIN Abschlusskapitel für Schwachstellen als JSON-Array mit genau 1 Kapitelobjekt.',
+          'Nur JSON ohne Erklärung.',
+          'Das Kapitel muss 1 kurze Einführung, dann 6-10 Fragen und am Ende 1 Recap enthalten.',
+          'In Erklärungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Sätze) oder in den bullets.',
           'Fokussiere auf erkannte Schwachstellen aus den falsch beantworteten Fragen.',
-          'Nutze vorhandene Unterlagen als primaere Quelle: mindestens die Haelfte der Fragen soll Inhalte aus den Materialauszuegen aufgreifen (Begriffe, Zusammenhaenge, Zuordnungen).',
+          'Nutze vorhandene Unterlagen als primäre Quelle: mindestens die Hälfte der Fragen soll Inhalte aus den Materialauszügen aufgreifen (Begriffe, Zusammenhänge, Zuordnungen).',
           WORKSHEET_EXERCISE_FIDELITY_RULES,
           CHAPTER_LEARNING_FIDELITY_RULES,
           `Thema: ${selectedTopic || effectiveTopic || 'KV Grundlagen'}`,
           `Schwachstellen aus bisherigem Lernverlauf:\n${weaknessSummary}`,
           adaptiveMaterialContext
-            ? `Materialauszuege (Fragen und Erklaerungen hierauf beziehen):\n${adaptiveMaterialContext}`
-            : 'Materialauszuege: keine — nutze realistische KV-Beispiele (kaufmaennischer Alltag) in Erklaerungen und Aufgaben.',
+            ? `Materialauszüge (Fragen und Erklärungen hierauf beziehen):\n${adaptiveMaterialContext}`
+            : 'Materialauszüge: keine — nutze realistische KV-Beispiele (kaufmännischer Alltag) in Erklärungen und Aufgaben.',
           'Fragetypen mischen: mcq, text, match und/oder true_false (expectedAnswer "Wahr" oder "Falsch").',
           'Schema pro Kapitel (Beispiele): {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
-          'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Saetzen Mini-Hilfe (ohne die Musterloesung zu verraten).',
+          'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).',
         ].join('\n\n'),
         createdAt: new Date().toISOString(),
       }

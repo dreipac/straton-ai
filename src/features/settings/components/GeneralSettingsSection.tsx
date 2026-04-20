@@ -35,7 +35,7 @@ export function GeneralSettingsSection({ language, onChangeLanguage }: GeneralSe
               ? 'Zgjidh gjuhën e preferuar për aplikacionin.'
               : language === 'es-PE'
                 ? 'Elige el idioma preferido para la aplicación.'
-          : 'Waehle die bevorzugte Sprache fuer die Anwendung.',
+          : 'Waehle die bevorzugte Sprache für die Anwendung.',
     activeLabel:
       language === 'en'
         ? 'active'

@@ -39,7 +39,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
       <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Arbeitsblatt">
         <header className="learn-flashcards-modal-header">
           <h2>Arbeitsblatt</h2>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schliessen">
+          <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">
             <span className="ui-icon settings-close-icon" aria-hidden="true" />
           </button>
         </header>

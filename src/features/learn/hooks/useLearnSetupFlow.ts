@@ -168,7 +168,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
 
   const handleContinueSetupStepThree = useCallback(() => {
     if (!proficiencyLevel) {
-      setError('Bitte waehle deine Selbsteinschaetzung aus.')
+      setError('Bitte wähle deine Selbsteinschätzung aus.')
       return
     }
     setError(null)
@@ -177,7 +177,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
 
   const handleFinishSetup = useCallback(() => {
     if (!proficiencyLevel) {
-      setError('Bitte waehle deine Selbsteinschaetzung aus.')
+      setError('Bitte wähle deine Selbsteinschätzung aus.')
       return
     }
     setError(null)

@@ -35,6 +35,8 @@ type ChatWindowProps = {
   tokenLimitReached?: boolean
   composerModelId: ChatComposerModelId
   onComposerModelChange: (id: ChatComposerModelId) => void
+  /** Abo ohne Modellwahl: false = Composer-Modell-Picker ausblenden. */
+  showComposerModelPicker?: boolean
   onSendMessage: (content: string) => Promise<void>
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
@@ -64,6 +66,7 @@ export function ChatWindow({
   tokenLimitReached = false,
   composerModelId,
   onComposerModelChange,
+  showComposerModelPicker = true,
   onSendMessage,
   onCancelSend,
 }: ChatWindowProps) {
@@ -237,7 +240,7 @@ export function ChatWindow({
         streamingIdForCleanup = message.id
         streamingAssistantIdsRef.current.add(message.id)
 
-        /** Nach API-Wartezeit: nur kurzes Einblenden — alte Werte wirkten wie zusaetzliche Ladezeit. */
+        /** Nach API-Wartezeit: nur kurzes Einblenden — alte Werte wirkten wie zusätzliche Ladezeit. */
         const charsPerSecond = 320
         const durationMs = Math.min(900, Math.max(120, (fullContent.length / charsPerSecond) * 1000))
         const start = performance.now()
@@ -375,7 +378,7 @@ export function ChatWindow({
         [key]: {
           value: current.value,
           status: 'incorrect',
-          feedback: 'KI Bewertung momentan nicht erreichbar. Bitte erneut pruefen.',
+          feedback: 'KI Bewertung momentan nicht erreichbar. Bitte erneut prüfen.',
         },
       }))
     } finally {
@@ -593,7 +596,7 @@ export function ChatWindow({
       <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
         {tokenLimitReached ? (
           <p className="chat-limit-banner" role="alert">
-            Dein Token-Limit fuer heute ist erreicht. Du kannst morgen wieder schreiben.
+            Dein Token-Limit für heute ist erreicht. Du kannst morgen wieder schreiben.
           </p>
         ) : null}
         <div className="chat-empty-compose">
@@ -624,11 +627,13 @@ export function ChatWindow({
               >
                 <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
               </button>
-              <ChatComposerModelPicker
-                value={composerModelId}
-                onChange={onComposerModelChange}
-                disabled={isSending || tokenLimitReached}
-              />
+              {showComposerModelPicker ? (
+                <ChatComposerModelPicker
+                  value={composerModelId}
+                  onChange={onComposerModelChange}
+                  disabled={isSending || tokenLimitReached}
+                />
+              ) : null}
               {excelCommandSelected ? (
                 <button
                   type="button"
@@ -756,7 +761,7 @@ export function ChatWindow({
     <section className={`chat-panel${tokenLimitReached ? ' has-limit-banner' : ''}`}>
       {tokenLimitReached ? (
         <p className="chat-limit-banner" role="alert">
-          Dein Token-Limit fuer heute ist erreicht. Du kannst morgen wieder schreiben.
+          Dein Token-Limit für heute ist erreicht. Du kannst morgen wieder schreiben.
         </p>
       ) : null}
       <div className="chat-messages" ref={messagesScrollRef}>
@@ -836,7 +841,7 @@ export function ChatWindow({
               ) : null}
 
               {hasInteractiveQuiz ? (
-                <section className="interactive-quiz-block" aria-label="Interaktive Pruefungsfragen">
+                <section className="interactive-quiz-block" aria-label="Interaktive Prüfungsfragen">
                   {parsed?.quiz?.title ? <h4 className="interactive-quiz-title">{parsed.quiz.title}</h4> : null}
 
                   {parsed?.quiz?.questions.map((question) => {
@@ -873,7 +878,7 @@ export function ChatWindow({
                           <button
                             type="button"
                             className={`interactive-quiz-check ${statusClass}`}
-                            aria-label="Antwort pruefen"
+                            aria-label="Antwort prüfen"
                             onClick={() => {
                               void checkQuizAnswer(message, question.id)
                             }}
@@ -935,11 +940,13 @@ export function ChatWindow({
           >
             <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
           </button>
-          <ChatComposerModelPicker
-            value={composerModelId}
-            onChange={onComposerModelChange}
-            disabled={isSending || tokenLimitReached}
-          />
+          {showComposerModelPicker ? (
+            <ChatComposerModelPicker
+              value={composerModelId}
+              onChange={onComposerModelChange}
+              disabled={isSending || tokenLimitReached}
+            />
+          ) : null}
           {excelCommandSelected ? (
             <button
               type="button"

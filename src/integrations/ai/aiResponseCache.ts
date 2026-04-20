@@ -1,6 +1,6 @@
 /**
- * Clientseitiger Cache fuer KI-Hilfsantworten (gleicher Input → gleiche Antwort).
- * Bewusst NICHT fuer Hauptchat sendMessage — dort aendert sich der Kontext staendig.
+ * Clientseitiger Cache für KI-Hilfsantworten (gleicher Input → gleiche Antwort).
+ * Bewusst NICHT für Hauptchat sendMessage — dort ändert sich der Kontext ständig.
  */
 
 const STORAGE_KEY = 'straton-ai-response-cache-v1'
@@ -145,7 +145,7 @@ export function clearAiResponseCache() {
   }
 }
 
-/** Liest Cache oder fuehrt fetcher aus; bei Erfolg speichern (Fehler werden nicht gecacht). */
+/** Liest Cache oder führt fetcher aus; bei Erfolg speichern (Fehler werden nicht gecacht). */
 export async function getOrSetCachedResponse<T>(
   namespace: string,
   keyParts: string[],

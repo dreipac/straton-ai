@@ -7,7 +7,7 @@ type ModalHeaderProps = {
   /** Mobil: Zurück-Button links (vor dem Titel) */
   onBack?: () => void
   backLabel?: string
-  /** false z. B. im ProfileFullSheet: Schliessen nur in der Sheet-Kopfzeile */
+  /** false z. B. im ProfileFullSheet: Schließen nur in der Sheet-Kopfzeile */
   showCloseButton?: boolean
 }
 

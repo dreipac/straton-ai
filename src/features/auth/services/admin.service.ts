@@ -22,6 +22,8 @@ export type SubscriptionPlanRow = {
   max_tokens: number | null
   max_images: number | null
   max_files: number | null
+  chat_allow_model_choice: boolean
+  default_chat_model_id: string | null
   created_at: string
 }
 
@@ -223,7 +225,9 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('subscription_plans')
-    .select('id, name, max_tokens, max_images, max_files, created_at')
+    .select(
+      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+    )
     .order('name', { ascending: true })
 
   if (error) {
@@ -233,17 +237,31 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   return (data ?? []) as SubscriptionPlanRow[]
 }
 
+const ALLOWED_DEFAULT_CHAT_MODEL_IDS = new Set(['gpt-5.4-mini', 'claude-sonnet-4-6', 'claude-opus-4-7'])
+
+function normalizeDefaultChatModelId(raw: string | null): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return null
+  }
+  const t = raw.trim()
+  return ALLOWED_DEFAULT_CHAT_MODEL_IDS.has(t) ? t : null
+}
+
 export async function createSubscriptionPlan(params: {
   name: string
   maxTokens: number | null
   maxImages: number | null
   maxFiles: number | null
+  chatAllowModelChoice?: boolean
+  defaultChatModelId?: string | null
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
   if (!trimmed) {
     throw new Error('Name darf nicht leer sein.')
   }
+  const chatAllow = params.chatAllowModelChoice !== false
+  const defaultModel = normalizeDefaultChatModelId(params.defaultChatModelId ?? null)
   const { data, error } = await supabase
     .from('subscription_plans')
     .insert({
@@ -251,8 +269,54 @@ export async function createSubscriptionPlan(params: {
       max_tokens: params.maxTokens,
       max_images: params.maxImages,
       max_files: params.maxFiles,
+      chat_allow_model_choice: chatAllow,
+      default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
     })
-    .select('id, name, max_tokens, max_images, max_files, created_at')
+    .select(
+      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+    )
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data as SubscriptionPlanRow
+}
+
+export async function updateSubscriptionPlan(params: {
+  planId: string
+  name: string
+  maxTokens: number | null
+  maxImages: number | null
+  maxFiles: number | null
+  chatAllowModelChoice: boolean
+  defaultChatModelId: string | null
+}): Promise<SubscriptionPlanRow> {
+  const supabase = getSupabaseClient()
+  const trimmed = params.name.trim()
+  if (!trimmed) {
+    throw new Error('Name darf nicht leer sein.')
+  }
+  const chatAllow = params.chatAllowModelChoice
+  let defaultModel = normalizeDefaultChatModelId(params.defaultChatModelId)
+  if (!chatAllow && defaultModel === null) {
+    defaultModel = 'gpt-5.4-mini'
+  }
+  const { data, error } = await supabase
+    .from('subscription_plans')
+    .update({
+      name: trimmed,
+      max_tokens: params.maxTokens,
+      max_images: params.maxImages,
+      max_files: params.maxFiles,
+      chat_allow_model_choice: chatAllow,
+      default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
+    })
+    .eq('id', params.planId)
+    .select(
+      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+    )
     .single()
 
   if (error) {

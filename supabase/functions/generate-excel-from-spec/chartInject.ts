@@ -46,7 +46,7 @@ function absolutizeA1Range(range: string): string {
   const fix = (cell: string) => {
     const m = cell.match(/^(\$?)([A-Za-z]{1,3})(\$?)(\d{1,7})$/i)
     if (!m) {
-      throw new Error(`Ungueltiger Zellbezug: ${cell}`)
+      throw new Error(`Ungültiger Zellbezug: ${cell}`)
     }
     return `$${m[2].toUpperCase()}$${m[4]}`
   }
@@ -56,7 +56,7 @@ function absolutizeA1Range(range: string): string {
   if (p.length === 2) {
     return `${fix(p[0])}:${fix(p[1])}`
   }
-  throw new Error(`Ungueltiger Bereich: ${range}`)
+  throw new Error(`Ungültiger Bereich: ${range}`)
 }
 
 function nextNumericSuffix(files: string[], re: RegExp): number {
@@ -168,7 +168,7 @@ function appendContentTypeOverride(contentTypesXml: string, partName: string, co
 }
 
 /**
- * OOXML: drawing muss NACH pageMargins/pageSetup stehen — direkt nach sheetData fuehrt zu Reparatur / kaputtem sheet2.
+ * OOXML: drawing muss NACH pageMargins/pageSetup stehen — direkt nach sheetData führt zu Reparatur / kaputtem sheet2.
  */
 function ensureWorksheetDrawing(
   sheetXml: string,
@@ -178,7 +178,7 @@ function ensureWorksheetDrawing(
     return { xml: sheetXml, changed: false }
   }
   if (!/<\/worksheet>/i.test(sheetXml)) {
-    throw new Error('Worksheet-XML ohne schliessendes worksheet-Tag.')
+    throw new Error('Worksheet-XML ohne schließendes worksheet-Tag.')
   }
   const xml = sheetXml.replace(
     /<\/worksheet>/i,
@@ -226,8 +226,8 @@ function appendWorksheetDrawingRel(
 export type SheetWithCharts = { name: string; charts?: ChartInjectSpec[] }
 
 /**
- * Fuegt Diagramme in eine von ExcelJS geschriebene .xlsx ein.
- * Reihenfolge der Bloetter muss mit spec.sheets uebereinstimmen.
+ * Fügt Diagramme in eine von ExcelJS geschriebene .xlsx ein.
+ * Reihenfolge der Blätter muss mit spec.sheets übereinstimmen.
  */
 export async function injectChartsIntoXlsx(
   xlsxBytes: Uint8Array,
@@ -261,7 +261,7 @@ export async function injectChartsIntoXlsx(
     let sheetXml = await sheetFile.async('string')
     if (/<drawing\s+r:id="/i.test(sheetXml)) {
       throw new Error(
-        `Blatt "${sheetSpec.name}" hat bereits ein drawing — zusaetzliche Diagramme werden noch nicht zusammengefuehrt.`,
+        `Blatt "${sheetSpec.name}" hat bereits ein drawing — zusätzliche Diagramme werden noch nicht zusammengeführt.`,
       )
     }
 

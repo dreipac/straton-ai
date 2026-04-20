@@ -17,8 +17,8 @@ export type ActionBottomSheetItem = {
   variant?: 'default' | 'danger'
   onClick: () => void
   /**
-   * false = nach Klick kein animiertes Schliessen (Sheet bleibt offen bis Parent es abklemmt).
-   * Standard: animiert schliessen wie beim Backdrop.
+   * false = nach Klick kein animiertes Schließen (Sheet bleibt offen bis Parent es abklemmt).
+   * Standard: animiert schließen wie beim Backdrop.
    */
   closeSheetAfter?: boolean
 }

@@ -68,7 +68,7 @@ export function getAssistantMessageDisplayContent(message: ChatMessage): string 
 
 /**
  * Die KI liefert `rows` oft falsch als 1D-Liste von Zellen statt 2D (Zeilen aus Zellen).
- * Ohne Normalisierung schlaegt der Excel-Export fehl → kein Download.
+ * Ohne Normalisierung schlägt der Excel-Export fehl → kein Download.
  */
 /** Entfernt fehlerhaftes =@ in Formelstrings (KI); gleiche Logik wie Edge Function. */
 function cleanKiFormulaField(formula: string): string {
@@ -179,7 +179,7 @@ function sanitizeSpecJsonChunk(chunk: string): string {
 }
 
 /**
- * Erstes top-level `{ ... }` — KI setzt oft noch Saetze vor das JSON innerhalb der Marker.
+ * Erstes top-level `{ ... }` — KI setzt oft noch Sätze vor das JSON innerhalb der Marker.
  * Einfaches first/last-`}` bricht bei `}` in Formelstrings.
  */
 function extractBalancedJsonObject(s: string): string | null {

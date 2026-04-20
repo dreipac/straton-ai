@@ -767,7 +767,7 @@
   word-break: break-word;
 }
 
-/* Editierbar wie frueherer Fliesstext — keine sichtbaren Eingabe-Rahmen */
+/* Editierbar wie frueherer Fließtext — keine sichtbaren Eingabe-Rahmen */
 .chat-email-draft-subject-input {
   width: 100%;
   min-width: 0;
@@ -2452,3 +2452,4 @@ button.chat-onboarding-tour-block {
   color: var(--color-text-secondary);
   line-height: 1.5;
 }
+

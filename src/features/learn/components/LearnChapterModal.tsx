@@ -107,7 +107,7 @@ function buildQuestionInfoPanelText(blueprint: ChapterBlueprint | null, step: Ch
     return prior
   }
   if (step.questionType === 'mcq') {
-    return 'Wähle die passende Option. Wenn du unsicher bist: schliesse zuerst eindeutig falsche Antworten aus.'
+    return 'Wähle die passende Option. Wenn du unsicher bist: schließe zuerst eindeutig falsche Antworten aus.'
   }
   if (step.questionType === 'true_false') {
     return 'Entscheide dich für Wahr oder Falsch. Achte auf Formulierungen wie «immer», «nie» — oft sind sie ein Hinweis.'
@@ -339,7 +339,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
               <img src={newMessageIcon} alt="" width={18} height={18} aria-hidden="true" />
               <span>Fragen</span>
             </button>
-            <button type="button" className="settings-close-button" onClick={onClose} aria-label="Lernkapitel schliessen">
+            <button type="button" className="settings-close-button" onClick={onClose} aria-label="Lernkapitel schließen">
               <span className="ui-icon settings-close-icon" aria-hidden="true" />
             </button>
           </div>
@@ -470,7 +470,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
             </article>
           ) : (
             <article className="learn-chapter-step-card">
-              <p className="learn-chapter-step-label">{activeChapterStep.type === 'recap' ? 'Zusammenfassung' : 'Erklaerung'}</p>
+              <p className="learn-chapter-step-label">{activeChapterStep.type === 'recap' ? 'Zusammenfassung' : 'Erklärung'}</p>
               <h3>{activeChapterStep.title}</h3>
               <p>{activeChapterStep.content}</p>
               {activeChapterStep.bullets && activeChapterStep.bullets.length > 0 ? (
@@ -556,7 +556,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                 }}
                 disabled={!canSubmitChapterQuestionAnswer(activeChapterStep, currentChapterAnswer) || isEvaluatingChapterStep}
               >
-                {isEvaluatingChapterStep ? 'Wird bewertet...' : 'Antwort pruefen'}
+                {isEvaluatingChapterStep ? 'Wird bewertet...' : 'Antwort prüfen'}
               </PrimaryButton>
             ) : null}
             <PrimaryButton

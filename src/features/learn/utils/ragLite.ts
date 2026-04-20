@@ -3,9 +3,9 @@ import type { UploadedMaterial } from '../services/learn.persistence'
 type RetrievalOptions = {
   maxChunks?: number
   maxChars?: number
-  /** Groessere Fenster + mehr Ueberlappung: mehr zusammenhaengender Kontext pro Ausschnitt. */
+  /** Größere Fenster + mehr Überlappung: mehr zusammenhängender Kontext pro Ausschnitt. */
   denseChunks?: boolean
-  /** Klarstellung fuer die KI: Inhalte aus den Dateien vor Generik bevorzugen. */
+  /** Klarstellung für die KI: Inhalte aus den Dateien vor Generik bevorzugen. */
   emphasizePersonalSources?: boolean
 }
 
@@ -24,7 +24,7 @@ const STOPWORDS = new Set([
   'eine',
   'mit',
   'ohne',
-  'fuer',
+  'für',
   'für',
   'ist',
   'sind',
@@ -74,7 +74,7 @@ const STOPWORDS = new Set([
   'hier',
   'alle',
   'mehr',
-  'ueber',
+  'über',
   'über',
 ])
 
@@ -104,7 +104,7 @@ function tokenize(raw: string): string[] {
   })
 }
 
-/** Query-Terme inkl. kurzer Mehrwort-Phrasen (Bigramme) fuer besseren Themabezug. */
+/** Query-Terme inkl. kurzer Mehrwort-Phrasen (Bigramme) für besseren Themabezug. */
 function expandQueryTerms(query: string): { terms: string[]; bigramPhrases: string[] } {
   const words = rawWords(query)
   const terms = [...new Set(tokenize(query))]
@@ -154,7 +154,7 @@ function chunkText(text: string, size = 720, overlap = 140): string[] {
   return chunks
 }
 
-/** Erst Absaetze, dann Fenster — weniger mitten im Satz/Konzept geschnitten. */
+/** Erst Absätze, dann Fenster — weniger mitten im Satz/Konzept geschnitten. */
 function chunkParagraphs(text: string, maxChunkSize: number, overlap: number): string[] {
   const paragraphs = splitIntoParagraphs(text)
   const sources = paragraphs.length > 0 ? paragraphs : [text.replace(/\s+/g, ' ').trim()].filter(Boolean)
@@ -324,7 +324,7 @@ function firstChunkPerMaterial(allChunks: MaterialChunk[]): MaterialChunk[] {
   return out
 }
 
-/** Ergaenzt fehlende Dateien mit je einem ersten Absatz-Chunk (bessere Mehr-Datei-Abdeckung). */
+/** Ergänzt fehlende Dateien mit je einem ersten Absatz-Chunk (bessere Mehr-Datei-Abdeckung). */
 function appendMissingMaterials(selected: MaterialChunk[], allChunks: MaterialChunk[], maxChunks: number): MaterialChunk[] {
   if (selected.length >= maxChunks) {
     return selected.slice(0, maxChunks)
@@ -396,9 +396,9 @@ export function formatRelevantMaterialContext(
   }
   if (options?.emphasizePersonalSources) {
     return [
-      'PERSOENLICHE UNTERLAGEN (hoechste Prioritaet):',
-      'Nutze Begriffe, Zahlen, Tabellen, Aufgabenstellungen und Beispiele aus den Auszuegen — nicht paraphrasieren, wenn der Originalwortlaut pruefbar ist.',
-      'Wenn der Auszug Uebungsaufgaben enthaelt: orientiere Fragen und Erklaerungen daran (gleiche oder leicht variierte Werte/Szenarien).',
+      'PERSÖNLICHE UNTERLAGEN (höchste Priorität):',
+      'Nutze Begriffe, Zahlen, Tabellen, Aufgabenstellungen und Beispiele aus den Auszügen — nicht paraphrasieren, wenn der Originalwortlaut prüfbar ist.',
+      'Wenn der Auszug Übungsaufgaben enthält: orientiere Fragen und Erklärungen daran (gleiche oder leicht variierte Werte/Szenarien).',
       'Vermeide generische Ersatzbeispiele, wenn der Auszug schon konkrete Inhalte liefert.',
       '',
       body,
@@ -409,7 +409,7 @@ export function formatRelevantMaterialContext(
 }
 
 /**
- * Kombiniert Kapitel-Umriss mit relevanten Rohauszuegen — fuer Lernkarten/Arbeitsblatt im Modus «personalisiert».
+ * Kombiniert Kapitel-Umriss mit relevanten Rohauszügen — für Lernkarten/Arbeitsblatt im Modus «personalisiert».
  */
 export function mergeOutlineWithPersonalMaterialContext(
   chapterOutline: string,
@@ -434,7 +434,7 @@ export function mergeOutlineWithPersonalMaterialContext(
     '',
     '---',
     '',
-    'KAPITEL-UMRISS (aus bereits generierten Lernschritten — mit den Auszuegen oben verknuepfen):',
+    'KAPITEL-UMRISS (aus bereits generierten Lernschritten — mit den Auszügen oben verknüpfen):',
     trimmedOutline,
   ].join('\n')
 }
