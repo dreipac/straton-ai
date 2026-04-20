@@ -1,4 +1,5 @@
 import cleanIcon from '../../../assets/icons/clean.svg'
+import { AI_CHAT_MEMORY_MAX_CHARS } from '../../chat/constants/aiChatMemory'
 
 type SettingsLanguage = 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
 
@@ -13,6 +14,12 @@ type ChatSettingsSectionProps = {
   disableCleanup: boolean
   onToggleAutoRemoveEmptyChats: () => Promise<void>
   onCleanupEmptyChats: () => Promise<void>
+  /** Persönlicher Kontext über alle Hauptchats (KI merkt sich z. B. Vorlieben). */
+  aiChatMemoryEnabled: boolean
+  hasAiChatMemoryNotes: boolean
+  disableAiChatMemoryActions: boolean
+  onToggleAiChatMemory: () => Promise<void>
+  onClearAiChatMemory: () => Promise<void>
 }
 
 function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: string } {
@@ -61,6 +68,11 @@ export function ChatSettingsSection({
   disableCleanup,
   onToggleAutoRemoveEmptyChats,
   onCleanupEmptyChats,
+  aiChatMemoryEnabled,
+  hasAiChatMemoryNotes,
+  disableAiChatMemoryActions,
+  onToggleAiChatMemory,
+  onClearAiChatMemory,
 }: ChatSettingsSectionProps) {
   const emojiLabels = assistantEmojiCopy(language)
 
@@ -87,6 +99,43 @@ export function ChatSettingsSection({
           </span>
         </button>
       </div>
+      <div className="chat-setting-divider" />
+      <div className="chat-setting-row">
+        <div className="chat-setting-copy">
+          <h3>Persönlicher KI-Speicher</h3>
+          <p>
+            Die KI kann sich über alle Chats hinweg Notizen zu dir merken (Name, Interessen, Schwächen). Neuen Chats
+            wird dieser Kontext automatisch mitgegeben. Gespeichert wird höchstens etwa{' '}
+            {AI_CHAT_MEMORY_MAX_CHARS.toLocaleString('de-DE')} Zeichen; beim Aktualisieren werden ältere oder weniger
+            wichtige Punkte zusammengefasst oder entfernt.
+          </p>
+        </div>
+        <button
+          type="button"
+          className={`ios-switch ${aiChatMemoryEnabled ? 'is-on' : ''}`}
+          disabled={disableAiChatMemoryActions}
+          aria-label="Persönlichen KI-Speicher umschalten"
+          aria-pressed={aiChatMemoryEnabled}
+          onClick={() => {
+            void onToggleAiChatMemory()
+          }}
+        >
+          <span className="ios-switch-track" aria-hidden="true">
+            <span className="ios-switch-thumb" />
+          </span>
+        </button>
+      </div>
+      <div className="chat-setting-divider" />
+      <button
+        type="button"
+        className="chat-cleanup-button"
+        disabled={disableAiChatMemoryActions || !hasAiChatMemoryNotes}
+        onClick={() => {
+          void onClearAiChatMemory()
+        }}
+      >
+        Gespeicherten KI-Speicher löschen
+      </button>
       <div className="chat-setting-divider" />
       <div className="chat-setting-row">
         <div className="chat-setting-copy">

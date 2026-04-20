@@ -97,7 +97,10 @@ export function ChatPage() {
     composerModelId,
     setComposerModelId,
     isChatModelLocked,
-  } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy)
+  } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
+    persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
+    onProfileMemoryUpdated: refreshProfile,
+  })
   const [guestComposerModelId, setGuestComposerModelId] = useState<ChatComposerModelId>(() =>
     parseStoredComposerModelId(
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,

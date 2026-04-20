@@ -17,6 +17,7 @@ import {
   generateChatTitleWithAi,
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
+  mergePersistedAiChatMemoryAfterTurn,
   sendMessage,
   sendMessageStreaming,
   usesGatewayAi,
@@ -83,6 +84,11 @@ export function useChat(
   autoRemoveEmptyChats = true,
   /** Abo: Modellsperre; undefined = volle Auswahl (z. B. Gast). */
   chatModelPolicy?: ChatModelPolicy,
+  options?: {
+    /** false: kein automatisches Aktualisieren des KI-Nutzer-Speichers nach Antworten */
+    persistAiChatMemory?: boolean
+    onProfileMemoryUpdated?: () => void | Promise<void>
+  },
 ) {
   const { getPrompt } = useSystemPrompts()
   const [threads, setThreads] = useState<ChatThread[]>([])
@@ -630,6 +636,21 @@ export function useChat(
             })
           } catch {
             // Keep provisional title when title generation fails.
+          }
+        })()
+      }
+
+      const persistMemory = options?.persistAiChatMemory !== false
+      if (usesGatewayAi() && userId && persistMemory) {
+        void (async () => {
+          try {
+            await mergePersistedAiChatMemoryAfterTurn({
+              userMessage: trimmed,
+              assistantMessage: mergedAssistantMessage.content,
+            })
+            await options?.onProfileMemoryUpdated?.()
+          } catch {
+            /* optional */
           }
         })()
       }

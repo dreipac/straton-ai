@@ -309,6 +309,7 @@ function buildChatCompletionRequestBody(
       messages: gatewayMessages,
       promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
       promptCacheRetention: '24h',
+      includeProfileMemory: false,
       openAiModels: options.openAiModels?.length
         ? [...options.openAiModels]
         : [...LEARN_PATH_OPENAI_MODELS],
@@ -320,6 +321,7 @@ function buildChatCompletionRequestBody(
   const body: Record<string, unknown> = {
     provider: meta.provider,
     messages: gatewayMessages,
+    includeProfileMemory: true,
   }
   if (meta.provider === 'openai' && meta.openAiModels?.length) {
     body.openAiModels = [...meta.openAiModels]
@@ -400,6 +402,33 @@ export async function sendMessage(
   const content = await getAssistantReply(messages, options)
   return {
     assistantMessage: createAssistantMessage(content),
+  }
+}
+
+/** Nach einem Hauptchat-Turn: Nutzerprofil-Kontext aktualisieren (Edge `merge_ai_chat_memory`). */
+export async function mergePersistedAiChatMemoryAfterTurn(input: {
+  userMessage: string
+  assistantMessage: string
+}): Promise<void> {
+  if (!usesGatewayAi()) {
+    return
+  }
+  const supabase = getSupabaseClient()
+  const { error, response } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      mode: 'merge_ai_chat_memory',
+      provider: 'openai',
+      payload: {
+        userMessage: input.userMessage,
+        assistantMessage: input.assistantMessage,
+      },
+    },
+  })
+  if (error) {
+    console.warn(
+      '[chat] merge_ai_chat_memory:',
+      await messageFromFunctionsInvokeFailure(error, response),
+    )
   }
 }
 

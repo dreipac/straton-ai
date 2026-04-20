@@ -79,6 +79,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     updateLanguage,
     updateEmail,
     updateUiSettings,
+    updateAiChatMemory,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
   const [isNarrowSettings, setIsNarrowSettings] = useState(() =>
@@ -687,6 +688,31 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     }
   }
 
+  async function handleToggleAiChatMemory() {
+    if (!user) {
+      return
+    }
+    const enabled = profile?.ai_chat_memory_enabled !== false
+    try {
+      setIsUpdatingChatSetting(true)
+      await updateAiChatMemory({ ai_chat_memory_enabled: !enabled })
+    } finally {
+      setIsUpdatingChatSetting(false)
+    }
+  }
+
+  async function handleClearAiChatMemory() {
+    if (!user) {
+      return
+    }
+    try {
+      setIsUpdatingChatSetting(true)
+      await updateAiChatMemory({ ai_chat_memory: null })
+    } finally {
+      setIsUpdatingChatSetting(false)
+    }
+  }
+
   async function handleCleanupEmptyChats() {
     if (!user) {
       return
@@ -837,6 +863,11 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             disableCleanup={!user}
             onToggleAutoRemoveEmptyChats={handleToggleAutoRemoveEmptyChats}
             onCleanupEmptyChats={handleCleanupEmptyChats}
+            aiChatMemoryEnabled={profile?.ai_chat_memory_enabled !== false}
+            hasAiChatMemoryNotes={Boolean((profile?.ai_chat_memory ?? '').trim())}
+            disableAiChatMemoryActions={!user || isUpdatingChatSetting}
+            onToggleAiChatMemory={handleToggleAiChatMemory}
+            onClearAiChatMemory={handleClearAiChatMemory}
           />
         ) : null}
         {activeSection === 'status' ? (

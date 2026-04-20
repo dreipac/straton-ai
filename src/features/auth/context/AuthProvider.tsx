@@ -17,6 +17,7 @@ import {
   replaceUiSettingsByUserId,
   signInWithEmailPassword,
   signOut,
+  updateAiChatMemoryByUserId,
   updateAutoRemoveEmptyChatsByUserId,
   updateLanguageByUserId,
   completeChatOnboardingByUserId,
@@ -252,6 +253,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  async function updateAiChatMemory(patch: {
+    ai_chat_memory?: string | null
+    ai_chat_memory_enabled?: boolean
+  }) {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await updateAiChatMemoryByUserId(user.id, patch)
+    setProfile(nextProfile)
+  }
+
   async function updateEmail(email: string) {
     if (!user) {
       return
@@ -315,6 +329,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     completeChatOnboarding,
     markBetaNoticeSeen,
     updateUiSettings,
+    updateAiChatMemory,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

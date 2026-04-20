@@ -1,4 +1,5 @@
 import type { AuthChangeEvent, PostgrestError, Session, User } from '@supabase/supabase-js'
+import { AI_CHAT_MEMORY_MAX_CHARS } from '../../chat/constants/aiChatMemory'
 import { getSupabaseClient, prepareAuthStorageForSignIn } from '../../../integrations/supabase/client'
 import { extractProfileNamesFromAuthUser } from '../utils/userDisplay'
 import { parseUiSettings, type UiSettingsV1 } from '../../settings/uiSettings'
@@ -70,7 +71,12 @@ async function resolveCurrentSession(): Promise<Session | null> {
   return null
 }
 
+/** Volle Profil-Spalten inkl. KI-Speicher (`20260425120000_profiles_ai_chat_memory`). */
 const PROFILE_SELECT =
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
+
+/** Ohne KI-Speicher-Spalten — wenn Migration noch nicht ausgerollt. */
+const PROFILE_SELECT_WITHOUT_AI_MEMORY =
   'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id ), subscription_usages ( used_tokens, used_images, used_files, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
@@ -95,6 +101,14 @@ function isMissingMustChangePasswordColumnError(err: unknown): boolean {
   }
   const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
   return msg.includes('must_change_password_on_first_login')
+}
+
+function isMissingAiChatMemoryColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
+  return msg.includes('ai_chat_memory')
 }
 
 async function updateProfileReturningNoUiSettingsPatch(
@@ -157,6 +171,8 @@ type ProfileRow = {
     | { used_tokens: number; used_images: number; used_files: number; last_reset_date: string | null }
     | { used_tokens: number; used_images: number; used_files: number; last_reset_date: string | null }[]
     | null
+  ai_chat_memory?: string | null
+  ai_chat_memory_enabled?: boolean | null
 }
 
 function currentUtcDateString(): string {
@@ -205,6 +221,13 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     subscription_plan_id: data.subscription_plan_id,
     subscription_plans: plan,
     subscription_usages: usage,
+    ai_chat_memory:
+      typeof data.ai_chat_memory === 'string'
+        ? data.ai_chat_memory.length > AI_CHAT_MEMORY_MAX_CHARS
+          ? data.ai_chat_memory.slice(0, AI_CHAT_MEMORY_MAX_CHARS)
+          : data.ai_chat_memory
+        : null,
+    ai_chat_memory_enabled: data.ai_chat_memory_enabled !== false,
   }
 }
 
@@ -236,6 +259,10 @@ export type UserProfile = {
       }
     | null
   subscription_usages: { used_tokens: number; used_images: number; used_files: number } | null
+  /** Aus profiles.ai_chat_memory; für persönlichen Hauptchat-Kontext. */
+  ai_chat_memory: string | null
+  /** false: kein Lesen/Aktualisieren des Nutzer-Speichers */
+  ai_chat_memory_enabled: boolean
 }
 
 /**
@@ -330,6 +357,13 @@ export function getUserFromSession(session: Session | null): User | null {
 export async function getProfileByUserId(userId: string): Promise<UserProfile | null> {
   const supabase = getSupabaseClient()
   let { data, error } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', userId).maybeSingle()
+  if (error && isMissingAiChatMemoryColumnError(error)) {
+    ;({ data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_WITHOUT_AI_MEMORY)
+      .eq('id', userId)
+      .maybeSingle())
+  }
   if (error && isMissingUiSettingsColumnError(error)) {
     ;({ data, error } = await supabase
       .from('profiles')
@@ -347,6 +381,26 @@ export async function getProfileByUserId(userId: string): Promise<UserProfile | 
       .eq('id', userId)
       .maybeSingle())
   }
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
+export async function updateAiChatMemoryByUserId(
+  userId: string,
+  patch: { ai_chat_memory?: string | null; ai_chat_memory_enabled?: boolean },
+): Promise<UserProfile | null> {
+  let payload = patch
+  if (typeof patch.ai_chat_memory === 'string' && patch.ai_chat_memory.length > AI_CHAT_MEMORY_MAX_CHARS) {
+    payload = {
+      ...patch,
+      ai_chat_memory: patch.ai_chat_memory.slice(0, AI_CHAT_MEMORY_MAX_CHARS),
+    }
+  }
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, payload)
 
   if (error) {
     throw error

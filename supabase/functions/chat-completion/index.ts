@@ -298,8 +298,12 @@ function normalizeMode(
   | 'generate_title'
   | 'generate_topic_suggestions'
   | 'generate_flashcards'
-  | 'generate_worksheet' {
+  | 'generate_worksheet'
+  | 'merge_ai_chat_memory' {
   const v = typeof value === 'string' ? value.trim() : value
+  if (v === 'merge_ai_chat_memory') {
+    return 'merge_ai_chat_memory'
+  }
   if (v === 'evaluate_quiz') {
     return 'evaluate_quiz'
   }
@@ -1344,6 +1348,134 @@ async function generateTopicSuggestionsWithAi(
   return { suggestions, usage }
 }
 
+/** Mit `src/features/chat/constants/aiChatMemory.ts` (AI_CHAT_MEMORY_MAX_CHARS) übereinstimmen. */
+const MAX_AI_CHAT_MEMORY_CHARS = 6000
+
+function clipAiChatMemoryText(raw: string): string {
+  const t = raw.trim()
+  if (t.length <= MAX_AI_CHAT_MEMORY_CHARS) {
+    return t
+  }
+  return t.slice(0, MAX_AI_CHAT_MEMORY_CHARS)
+}
+
+function stripOuterMarkdownFence(raw: string): string {
+  let t = raw.trim()
+  if (t.startsWith('```')) {
+    const firstNl = t.indexOf('\n')
+    if (firstNl !== -1) {
+      t = t.slice(firstNl + 1)
+    }
+    const lastFence = t.lastIndexOf('```')
+    if (lastFence !== -1) {
+      t = t.slice(0, lastFence)
+    }
+  }
+  return t.trim()
+}
+
+function injectAiChatMemoryIntoMessages(messages: InputMessage[], memoryText: string): InputMessage[] {
+  const block: InputMessage = {
+    role: 'system',
+    content: [
+      'Langfristiger Nutzerkontext (über Chats gespeichert; vertraulich behandeln):',
+      memoryText,
+      'Nutze diese Angaben nur, wenn sie zur aktuellen Frage passen; wiederhole sie nicht in jeder Antwort wortwörtlich.',
+    ].join('\n\n'),
+  }
+  if (messages.length > 0 && messages[0].role === 'system') {
+    return [messages[0], block, ...messages.slice(1)]
+  }
+  return [block, ...messages]
+}
+
+async function handleMergeAiChatMemory(
+  userClient: SupabaseClient,
+  admin: SupabaseClient | null,
+  userId: string,
+  body: unknown,
+  apiKey: string,
+): Promise<Response> {
+  const payload =
+    body && typeof body === 'object'
+      ? (body as { payload?: unknown }).payload
+      : undefined
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+  const userMessage = typeof p?.userMessage === 'string' ? p.userMessage.trim().slice(0, 12000) : ''
+  const assistantMessage =
+    typeof p?.assistantMessage === 'string' ? p.assistantMessage.trim().slice(0, 48000) : ''
+
+  if (!userMessage || !assistantMessage) {
+    return jsonResponse({ error: 'Ungültige Daten für Speicher-Merge.' }, 400)
+  }
+
+  const { data: row, error: rowErr } = await userClient
+    .from('profiles')
+    .select('ai_chat_memory, ai_chat_memory_enabled')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (rowErr) {
+    console.error('[chat-completion] merge memory profile read', rowErr.message)
+    return jsonResponse({ error: 'Profil konnte nicht gelesen werden.' }, 500)
+  }
+  if (!row) {
+    return jsonResponse({ error: 'Profil nicht gefunden.' }, 404)
+  }
+  if (row.ai_chat_memory_enabled === false) {
+    const stored = typeof row.ai_chat_memory === 'string' ? row.ai_chat_memory : ''
+    return jsonResponse({
+      skipped: true,
+      ai_chat_memory: clipAiChatMemoryText(stored),
+    })
+  }
+
+  const previousFull = typeof row.ai_chat_memory === 'string' ? row.ai_chat_memory.trim() : ''
+  const previous = clipAiChatMemoryText(previousFull)
+
+  const mergeMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Du pflegst eine kurze Merkliste über den Nutzer für einen persönlichen Chat-Assistenten.',
+        'Regeln:',
+        '- Ausgabe NUR als Stichpunkte auf Deutsch, Zeilen mit «- ».',
+        `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_CHARS} Zeichen haben.`,
+        '- Wenn das Limit erreicht wäre: zusammenfassen, Dubletten entfernen, weniger Relevantes / Altes streichen; wichtige und aktuelle Punkte behalten.',
+        '- KEINE Passwörter, API-Schlüssel, vollständigen Adressen oder sensible Gesundheitsdetails.',
+        '- Nur zuverlässige Infos aus dem Gespräch; nichts erfinden.',
+        '- Wenn nichts Neues hinzukommt, gib die bisherigen Notizen fast unverändert zurück.',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        previous ? `Bisherige Notizen:\n${previous}` : 'Bisherige Notizen: (leer)',
+        '',
+        'Neueste Nutzernachricht:',
+        userMessage,
+        '',
+        'Neueste Assistentenantwort:',
+        assistantMessage,
+      ].join('\n'),
+    },
+  ]
+
+  const usage = await callOpenAi(mergeMessages, apiKey, ['gpt-5-mini', 'gpt-4o-mini'], undefined)
+  await tryLogTokenUsage(admin, userId, 'openai', 'merge_ai_chat_memory', usage)
+
+  let nextMemory = clipAiChatMemoryText(stripOuterMarkdownFence(usage.text))
+
+  const { error: upErr } = await userClient.from('profiles').update({ ai_chat_memory: nextMemory }).eq('id', userId)
+
+  if (upErr) {
+    console.error('[chat-completion] merge memory profile write', upErr.message)
+    return jsonResponse({ error: 'Speicher konnte nicht gespeichert werden.' }, 500)
+  }
+
+  return jsonResponse({ ai_chat_memory: nextMemory })
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -1407,6 +1539,8 @@ serve(async (req) => {
       promptCacheKey?: unknown
       /** Optional: `24h` nur wenn das gewählte OpenAI-Modell extended caching unterstützt. */
       promptCacheRetention?: unknown
+      /** Nur bei `true`: gespeicherten Nutzer-Kontext für den Hauptchat einfügen (nicht Excel/Lernpfad). */
+      includeProfileMemory?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
@@ -1417,6 +1551,12 @@ serve(async (req) => {
     if (mode === 'chat' && outlinePreview) {
       mode = 'generate_flashcards'
     }
+
+    if (mode === 'merge_ai_chat_memory') {
+      const apiKeyMerge = await getProviderApiKey('openai')
+      return await handleMergeAiChatMemory(userClient, admin, user.id, body, apiKeyMerge)
+    }
+
     let provider = normalizeProvider(body.provider)
     if (mode === 'chat' && planChatFields && planChatFields.chat_allow_model_choice === false) {
       const lockedId = parseLockedComposerModelId(planChatFields.default_chat_model_id)
@@ -1552,9 +1692,25 @@ serve(async (req) => {
       return jsonResponse({ title })
     }
 
+    const includeProfileMemory = body.includeProfileMemory === true
+    let chatMessages = messages
+    if (mode === 'chat' && includeProfileMemory) {
+      const { data: memRow } = await userClient
+        .from('profiles')
+        .select('ai_chat_memory, ai_chat_memory_enabled')
+        .eq('id', user.id)
+        .maybeSingle()
+      const enabled = memRow && memRow.ai_chat_memory_enabled !== false
+      const memRaw = typeof memRow?.ai_chat_memory === 'string' ? memRow.ai_chat_memory.trim() : ''
+      const memText = clipAiChatMemoryText(memRaw)
+      if (enabled && memText.length > 0) {
+        chatMessages = injectAiChatMemoryIntoMessages(messages, memText)
+      }
+    }
+
     if (body.stream === true && mode === 'chat' && provider === 'openai') {
       const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
-      return await handleOpenAiChatStream(user.id, admin, messages, apiKey, openAiModels, openAiPc)
+      return await handleOpenAiChatStream(user.id, admin, chatMessages, apiKey, openAiModels, openAiPc)
     }
 
     const rawMax = body.maxTokens
@@ -1571,12 +1727,12 @@ serve(async (req) => {
     const chatUsage =
       provider === 'anthropic'
         ? await callAnthropicFirstSuccessful(
-            messages,
+            chatMessages,
             apiKey,
             buildAnthropicChatModelChain(anthropicModelChat),
             chatMaxTokens ?? 8192,
           )
-        : await callOpenAi(messages, apiKey, openAiModels, openAiChatPc)
+        : await callOpenAi(chatMessages, apiKey, openAiModels, openAiChatPc)
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
 
