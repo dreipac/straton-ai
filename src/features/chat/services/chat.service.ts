@@ -37,7 +37,7 @@ export type SendMessageOptions = {
   /** Ersetzt den Standard-Basisblock (Straton / Quiz-JSON-Regeln). */
   interactiveQuizPrompt?: string
   /**
-   * Lernpfad / Learn-UI: Antwort über OpenAI GPT-5 mini (Edge). Ohne Flag: OpenAI für den Hauptchat.
+   * Lernpfad / Learn-UI: Antwort über OpenAI (Edge), Standardkette {@link LEARN_PATH_OPENAI_MODELS}. Ohne Flag: Hauptchat.
    */
   useLearnPathModel?: boolean
   /**
@@ -46,8 +46,8 @@ export type SendMessageOptions = {
    */
   userRequestedExcel?: boolean
   /**
-   * Optional: OpenAI-Modellreihenfolge für `chat-completion` (z. B. Lernkapitel-Hilfe).
-   * Edge Function: sonst budgetbasierte Standardliste.
+   * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
+   * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
    */
   openAiModels?: string[]
   /**
@@ -65,6 +65,12 @@ type EvaluateQuizAnswerResult = {
   isCorrect: boolean
   feedback: string
 }
+
+/** Lernpfad, Lernkarten, Arbeitsblätter, Quiz-Auswertung, Thema-Vorschläge, Kapitel-Hilfe: primär GPT-5.4. */
+export const LEARN_PATH_OPENAI_MODELS = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] as const
+
+/** @deprecated Alias — gleiche Kette wie {@link LEARN_PATH_OPENAI_MODELS}. */
+export const LEARN_CHAPTER_HELP_OPENAI_MODELS = LEARN_PATH_OPENAI_MODELS
 
 type GatewayMessage = {
   role: 'system' | 'user' | 'assistant'
@@ -287,7 +293,7 @@ function providerForMainChat(): 'openai' {
   return 'openai'
 }
 
-/** Lernpfad (Setup, Kapitel, Karten, Arbeitsblatt, Quiz-Bewertung, …): OpenAI GPT-5 mini über Edge `callOpenAi`. */
+/** Lernpfad (Setup, Kapitel, Karten, Arbeitsblatt, Quiz-Bewertung, …): OpenAI über Edge (`LEARN_PATH_OPENAI_MODELS`). */
 function providerForLearnPath(): 'openai' {
   return 'openai'
 }
@@ -303,9 +309,9 @@ function buildChatCompletionRequestBody(
       messages: gatewayMessages,
       promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
       promptCacheRetention: '24h',
-    }
-    if (options.openAiModels?.length) {
-      body.openAiModels = options.openAiModels
+      openAiModels: options.openAiModels?.length
+        ? [...options.openAiModels]
+        : [...LEARN_PATH_OPENAI_MODELS],
     }
     return body
   }
@@ -396,9 +402,6 @@ export async function sendMessage(
     assistantMessage: createAssistantMessage(content),
   }
 }
-
-/** Primärmodell für den Hilfe-Chat im Lernkapitel-Modal (Edge `chat-completion`). */
-export const LEARN_CHAPTER_HELP_OPENAI_MODELS = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] as const
 
 /**
  * Kurzer Hilfe-Chat zum aktuellen Lernkapitel-Schritt (kein Thread in der Haupt-Chat-UI).
@@ -728,6 +731,7 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
         body: {
           mode: 'generate_topic_suggestions',
           provider: providerForLearnPath(),
+          openAiModels: [...LEARN_PATH_OPENAI_MODELS],
           payload: {
             topic: normalizedTopic,
           },
@@ -792,6 +796,7 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
         body: {
           mode: 'generate_flashcards',
           provider: providerForLearnPath(),
+          openAiModels: [...LEARN_PATH_OPENAI_MODELS],
           payload: {
             chapterOutline: trimmed,
           },
@@ -924,6 +929,7 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
         body: {
           mode: 'generate_worksheet',
           provider: providerForLearnPath(),
+          openAiModels: [...LEARN_PATH_OPENAI_MODELS],
           payload: {
             chapterOutline: trimmed,
           },
@@ -988,6 +994,7 @@ export async function evaluateQuizAnswerWithAi(
         body: {
           mode: 'evaluate_quiz',
           provider: providerForLearnPath(),
+          openAiModels: [...LEARN_PATH_OPENAI_MODELS],
           payload: {
             question: input.question.prompt,
             expectedAnswer: input.question.expectedAnswer,

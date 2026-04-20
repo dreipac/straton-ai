@@ -116,6 +116,7 @@ function openAiRatesForEstimate(model: string): UsdRates | null {
     tryMatch((s) => s.includes('gpt-4o-2024-05-13'), { inPerM: 5, outPerM: 15 }) ??
     tryMatch((s) => s.includes('gpt-4o') && !s.includes('mini'), { inPerM: 2.5, outPerM: 10 }) ??
     tryMatch((s) => s.includes('gpt-5-nano'), { inPerM: 0.05, outPerM: 0.4 }) ??
+    tryMatch((s) => s === 'gpt-5.4', { inPerM: 4, outPerM: 16 }) ??
     tryMatch((s) => s.includes('gpt-5.4-mini'), { inPerM: 0.75, outPerM: 4.5 }) ??
     tryMatch((s) => s.includes('gpt-5-mini'), { inPerM: 0.25, outPerM: 2 }) ??
     tryMatch((s) => s.includes('gpt-5-pro'), { inPerM: 15, outPerM: 120 }) ??
@@ -256,7 +257,7 @@ function normalizeProvider(value: unknown): Provider {
   return value === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-/** Optional: Modellreihenfolge für OpenAI-Chat (z. B. Lernkapitel-Hilfe = `gpt-5.4-mini`). */
+/** Optional: Modellreihenfolge für OpenAI-Chat (Client sendet für Lernpfad z. B. `gpt-5.4` zuerst). */
 function sanitizeOpenAiModelsOverride(value: unknown): string[] | null {
   if (!Array.isArray(value)) {
     return null

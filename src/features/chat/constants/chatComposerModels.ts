@@ -85,6 +85,8 @@ export function getChatModelPolicyFromPlan(plan: SubscriptionPlanChatModelFields
 
 export function getComposerApiModelIdsForAdminFilter(): string[] {
   const ids = new Set<string>()
+  /** Zusätzlich: Lernpfad / Lernkarten / Arbeitsblätter (nicht im Chat-Composer). */
+  ids.add('gpt-5.4')
   for (const m of CHAT_COMPOSER_MODELS) {
     if (m.provider === 'openai' && m.openAiModels?.length) {
       for (const id of m.openAiModels) {
