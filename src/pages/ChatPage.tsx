@@ -1176,10 +1176,8 @@ export function ChatPage() {
               label: 'Löschen',
               iconSrc: deleteIcon,
               variant: 'danger',
-              closeSheetAfter: false,
               onClick: async () => {
                 const id = openMenuThreadId
-                closeThreadActionMenu()
                 if (id) {
                   await deleteChat(id)
                 }
