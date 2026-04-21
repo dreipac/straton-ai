@@ -1088,8 +1088,10 @@
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    border: 1px solid var(--color-border);
-    background: var(--color-surface-elevated);
+    border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+    background: color-mix(in srgb, var(--color-surface-elevated) 68%, transparent);
+    backdrop-filter: blur(18px) saturate(165%);
+    -webkit-backdrop-filter: blur(18px) saturate(165%);
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
     padding: 0;
     z-index: 80;
@@ -1106,8 +1108,8 @@
   }
 
   .mobile-sidebar-pill.is-open {
-    background: var(--color-surface-elevated);
-    border-color: var(--color-border);
+    background: color-mix(in srgb, var(--color-surface-elevated) 72%, transparent);
+    border-color: color-mix(in srgb, var(--color-border) 65%, transparent);
     transform: translate3d(calc(var(--mobile-sidebar-width) - 0.2rem), 0, 0);
   }
 
