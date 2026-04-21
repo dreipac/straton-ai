@@ -1606,19 +1606,86 @@
 }
 
 @media (max-width: 860px) {
-  .chat-panel {
-    grid-template-rows: minmax(0, 1fr) auto auto;
-    gap: 0.7rem;
-    /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
-    padding:
-      env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  /*
+   * Chat mit Nachrichten: volle Höhe scrollen; Composer + Hinweis schweben unten (über Home-Indicator),
+   * Text läuft optisch „durch“ bis hinter die Leiste — Innenabstand unten nur fürs Scroll-Ende.
+   */
+  .chat-panel:not(.is-empty) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 0;
+    padding: env(safe-area-inset-top, 0px) 0.65rem 0;
+    box-sizing: border-box;
+  }
+
+  .chat-panel.has-limit-banner:not(.is-empty) {
+    grid-template-rows: unset;
+    grid-template-columns: unset;
+  }
+
+  .chat-panel:not(.is-empty) .chat-limit-banner {
+    flex-shrink: 0;
+  }
+
+  .chat-panel:not(.is-empty) .chat-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-bottom: calc(9rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .chat-panel:not(.is-empty) > p.error-text {
+    flex-shrink: 0;
+    margin: 0.35rem 0 0;
+    padding: 0 0.25rem;
+  }
+
+  .chat-panel:not(.is-empty) form.chat-input-row {
+    position: fixed;
+    left: max(0.65rem, env(safe-area-inset-left, 0px));
+    right: max(0.65rem, env(safe-area-inset-right, 0px));
+    bottom: calc(2.35rem + env(safe-area-inset-bottom, 0px));
+    z-index: 24;
+    width: auto;
+    max-width: min(760px, calc(100vw - 1.3rem));
+    margin: 0 auto;
+    justify-self: unset;
+    box-sizing: border-box;
+    box-shadow:
+      0 10px 36px rgba(15, 23, 42, 0.18),
+      0 2px 10px rgba(15, 23, 42, 0.08);
+  }
+
+  .chat-panel:not(.is-empty) > p.chat-input-hint {
+    position: fixed;
+    left: max(0.65rem, env(safe-area-inset-left, 0px));
+    right: max(0.65rem, env(safe-area-inset-right, 0px));
+    bottom: max(0.32rem, env(safe-area-inset-bottom, 0px));
+    z-index: 23;
+    max-width: min(22rem, calc(100vw - 1.3rem));
+    margin-left: auto;
+    margin-right: auto;
+    pointer-events: none;
+    padding: 0 0.5rem;
+  }
+
+  .chat-panel:not(.is-empty) .chat-messages-inner {
+    padding-bottom: calc(9.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-panel.is-empty {
+    display: grid;
+    grid-template-rows: 1fr;
+    gap: 0.7rem;
     place-items: stretch;
     align-content: stretch;
-    grid-template-rows: 1fr;
     min-height: 0;
+    padding:
+      env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-panel.is-empty .chat-empty-compose {
@@ -1662,16 +1729,6 @@
     justify-self: stretch;
     align-self: stretch;
     align-items: flex-start;
-  }
-
-  .chat-panel:not(.is-empty) .chat-input-row {
-    position: sticky;
-    bottom: 0.32rem;
-    z-index: 6;
-  }
-
-  .chat-panel:not(.is-empty) .chat-messages {
-    padding-bottom: 0.25rem;
   }
 
   .chat-messages {
@@ -2559,24 +2616,9 @@ button.chat-onboarding-tour-block {
     padding-top: 0;
   }
 
-  /* Letzte Zeilen beim Scrollen über Composer/Home-Indicator erreichbar */
-  .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-messages {
-    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
-  }
-
   .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-hint {
     margin-bottom: 0;
     padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
-  }
-
-  /*
-   * Sticky + overflow auf Vorfahren (chat-main) kann auf iOS/PWA den Composer falsch verankern.
-   * Grid-Zeilen (messages | composer | hint) reichen aus.
-   */
-  .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-row {
-    position: static;
-    bottom: auto;
-    z-index: auto;
   }
 }
 
