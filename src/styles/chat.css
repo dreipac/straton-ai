@@ -826,14 +826,7 @@
   color: #164e63;
   font-size: 0.93rem;
   line-height: 1.56;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    Segoe UI,
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+  font-family: inherit;
   resize: none;
   overflow-y: auto;
   white-space: pre-wrap;
@@ -856,14 +849,7 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    Segoe UI,
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+  font-family: inherit;
   font-size: 0.93rem;
   line-height: 1.56;
   color: #164e63;

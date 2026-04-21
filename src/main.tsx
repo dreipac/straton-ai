@@ -1,5 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource-variable/inter'
+import '@fontsource-variable/inter/wght-italic.css'
 import App from './App.tsx'
 import {
   ACCENT_STORAGE_KEY,
@@ -21,6 +23,7 @@ import {
   readPersistedLearnPathTitleColorMode,
 } from './features/settings/constants/learnPathTitleColor'
 import { initViewportDebug } from './utils/viewportDebug'
+import { subscribeSidebarScaleViewportSync } from './features/settings/uiSettings'
 import { syncThemeColorMeta } from './utils/themeColorMeta'
 import './styles/theme.css'
 import './styles/base.css'
@@ -44,10 +47,7 @@ document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' 
 document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
 syncThemeColorMeta()
 
-const persistedSidebarScale = window.localStorage.getItem('straton-sidebar-scale')
-const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
-const initialSidebarScale = isMobileSidebarScaleLocked ? '100' : persistedSidebarScale === '100' ? '100' : '75'
-document.documentElement.dataset.sidebarScale = initialSidebarScale
+subscribeSidebarScaleViewportSync()
 
 const persistedChatBackground = window.localStorage.getItem('straton-chat-background')
 const initialChatBackground = persistedChatBackground === 'space-stars' ? 'space-stars' : 'space-dark'

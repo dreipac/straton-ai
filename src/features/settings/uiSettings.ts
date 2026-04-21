@@ -8,6 +8,38 @@ import { syncThemeColorMeta } from '../../utils/themeColorMeta'
 export type ThemeMode = 'light' | 'dark' | 'pink-glass'
 export type ChatBackgroundMode = 'space-dark' | 'space-stars'
 
+/** Gleicher Breakpoint wie Chat/Sidebar mobil (`layout.css` / Settings). */
+export const SIDEBAR_SCALE_MOBILE_LOCK_MQ = '(max-width: 860px)' as const
+
+export function parseStoredSidebarPreference(): '100' | '75' {
+  const raw = window.localStorage.getItem('straton-sidebar-scale')
+  return raw === '100' ? '100' : '75'
+}
+
+/** Nur Anzeige: mobil immer 100 %, Desktop = gespeicherte Nutzerwahl. Schreibt nicht nach localStorage. */
+export function applySidebarPreferenceToDocument(preference: '100' | '75'): void {
+  const locked = window.matchMedia(SIDEBAR_SCALE_MOBILE_LOCK_MQ).matches
+  document.documentElement.dataset.sidebarScale = locked ? '100' : preference
+}
+
+/** Nur die gewünschte Sidebar-Skalierung persistieren — nie «100» nur wegen Mobil-Viewport. */
+export function persistSidebarPreferenceToStorage(preference: '100' | '75'): void {
+  window.localStorage.setItem('straton-sidebar-scale', preference)
+}
+
+/** Bei Fensterbreiten-Wechsel: DOM anpassen, localStorage unverändert (enthält Desktop-Präferenz). */
+export function subscribeSidebarScaleViewportSync(): () => void {
+  const mq = window.matchMedia(SIDEBAR_SCALE_MOBILE_LOCK_MQ)
+  const sync = () => {
+    applySidebarPreferenceToDocument(parseStoredSidebarPreference())
+  }
+  sync()
+  mq.addEventListener('change', sync)
+  return () => {
+    mq.removeEventListener('change', sync)
+  }
+}
+
 export type UiSettingsV1 = {
   theme: ThemeMode
   sidebarScale: '100' | '75'
@@ -74,15 +106,13 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
 
 /** DOM + localStorage (wie bisherige SettingsPage-Effekte). */
 export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
-  const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
   const baseTheme = settings.theme === 'light' ? 'light' : 'dark'
   document.documentElement.dataset.theme = baseTheme
   document.documentElement.dataset.themeVariant = settings.theme === 'pink-glass' ? 'pink-glass' : ''
   window.localStorage.setItem('straton-theme', settings.theme)
 
-  const effectiveSidebarScale = isMobileSidebarScaleLocked ? '100' : settings.sidebarScale
-  document.documentElement.dataset.sidebarScale = effectiveSidebarScale
-  window.localStorage.setItem('straton-sidebar-scale', effectiveSidebarScale)
+  persistSidebarPreferenceToStorage(settings.sidebarScale)
+  applySidebarPreferenceToDocument(settings.sidebarScale)
 
   document.documentElement.dataset.chatBackground = settings.chatBackground
   window.localStorage.setItem('straton-chat-background', settings.chatBackground)

@@ -21,7 +21,11 @@ import {
   readAssistantEmojisEnabled,
   writeAssistantEmojisEnabled,
 } from '../features/chat/constants/chatAssistantStyle'
-import type { UiSettingsV1 } from '../features/settings/uiSettings'
+import {
+  applySidebarPreferenceToDocument,
+  persistSidebarPreferenceToStorage,
+  type UiSettingsV1,
+} from '../features/settings/uiSettings'
 import { syncThemeColorMeta } from '../utils/themeColorMeta'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
@@ -99,10 +103,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       : 'dark'
   })
   const [sidebarScale, setSidebarScale] = useState<'100' | '75'>(() => {
-    const isMobileSidebarScaleLocked = window.matchMedia('(max-width: 860px)').matches
-    if (isMobileSidebarScaleLocked) {
-      return '100'
-    }
     const persistedScale = window.localStorage.getItem('straton-sidebar-scale')
     return persistedScale === '100' ? '100' : '75'
   })
@@ -491,15 +491,11 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   }, [themeMode])
 
   useEffect(() => {
-    if (isNarrowSettings && sidebarScale !== '100') {
-      setSidebarScale('100')
+    applySidebarPreferenceToDocument(sidebarScale)
+    if (!isNarrowSettings) {
+      persistSidebarPreferenceToStorage(sidebarScale)
     }
-  }, [isNarrowSettings, sidebarScale])
-
-  useEffect(() => {
-    document.documentElement.dataset.sidebarScale = sidebarScale
-    window.localStorage.setItem('straton-sidebar-scale', sidebarScale)
-  }, [sidebarScale])
+  }, [sidebarScale, isNarrowSettings])
 
   useEffect(() => {
     document.documentElement.dataset.chatBackground = chatBackground
