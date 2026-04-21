@@ -789,6 +789,31 @@ button.profile-full-sheet-row:focus-visible {
     0 0 0 1px rgba(148, 163, 184, 0.08);
 }
 
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-panel {
+  background: var(--color-surface);
+  box-shadow:
+    0 -8px 36px var(--color-shadow-strong),
+    0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-backdrop {
+  background: var(--color-overlay);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-close {
+  background: color-mix(in srgb, var(--color-surface-elevated) 90%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-title,
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-name,
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-row {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .profile-full-sheet-plan {
+  color: var(--color-text-muted);
+}
+
 :root[data-theme='dark'] .profile-full-sheet-backdrop {
   background: rgba(0, 0, 0, 0.55);
 }

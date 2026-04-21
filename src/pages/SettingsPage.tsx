@@ -12,6 +12,7 @@ import { ModalShell } from '../components/ui/modal/ModalShell'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
 import { AiSettingsSection } from '../features/settings/components/AiSettingsSection'
 import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
+import { ChatInvitationsSection } from '../features/settings/components/ChatInvitationsSection'
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
 import { FeedbackSettingsSection } from '../features/settings/components/FeedbackSettingsSection'
 import { GeneralSettingsSection } from '../features/settings/components/GeneralSettingsSection'
@@ -24,6 +25,8 @@ import {
 import {
   applySidebarPreferenceToDocument,
   persistSidebarPreferenceToStorage,
+  themeModeToDatasetVariant,
+  type ThemeMode,
   type UiSettingsV1,
 } from '../features/settings/uiSettings'
 import { syncThemeColorMeta } from '../utils/themeColorMeta'
@@ -51,7 +54,15 @@ import {
   MESSAGE_BOX_STORAGE_KEY,
 } from '../features/settings/constants/messageBoxPalettes'
 
-export type SettingsSectionId = 'general' | 'chat' | 'personalize' | 'ai' | 'status' | 'feedback' | 'account'
+export type SettingsSectionId =
+  | 'general'
+  | 'chat'
+  | 'invitations'
+  | 'personalize'
+  | 'ai'
+  | 'status'
+  | 'feedback'
+  | 'account'
 
 type SettingsSection = {
   id: SettingsSectionId
@@ -96,10 +107,13 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     const narrow = window.matchMedia('(max-width: 860px)').matches
     return narrow && initialSection !== 'general' ? 'detail' : 'menu'
   })
-  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'pink-glass'>(() => {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const persistedTheme = window.localStorage.getItem('straton-theme')
-    return persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'
-      ? persistedTheme
+    return persistedTheme === 'light' ||
+      persistedTheme === 'dark' ||
+      persistedTheme === 'pink-glass' ||
+      persistedTheme === 'black'
+      ? (persistedTheme as ThemeMode)
       : 'dark'
   })
   const [sidebarScale, setSidebarScale] = useState<'100' | '75'>(() => {
@@ -273,6 +287,34 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                 : language === 'es-PE'
                   ? 'Ajustes de chat'
                   : 'Chat Einstellungen',
+      icon: newMessageIcon,
+    },
+    {
+      id: 'invitations',
+      label:
+        language === 'en'
+          ? 'Invitations'
+          : language === 'hr'
+            ? 'Pozivnice'
+            : language === 'it'
+              ? 'Inviti'
+              : language === 'sq'
+                ? 'Ftesat'
+                : language === 'es-PE'
+                  ? 'Invitaciones'
+                  : 'Einladungen',
+      title:
+        language === 'en'
+          ? 'Chat invitations'
+          : language === 'hr'
+            ? 'Pozivnice za chat'
+            : language === 'it'
+              ? 'Inviti alla chat'
+              : language === 'sq'
+                ? 'Ftesat për chat'
+                : language === 'es-PE'
+                  ? 'Invitaciones al chat'
+                  : 'Einladungen zu Chats',
       icon: newMessageIcon,
     },
     {
@@ -485,7 +527,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   useEffect(() => {
     const baseTheme = themeMode === 'light' ? 'light' : 'dark'
     document.documentElement.dataset.theme = baseTheme
-    document.documentElement.dataset.themeVariant = themeMode === 'pink-glass' ? 'pink-glass' : ''
+    document.documentElement.dataset.themeVariant = themeModeToDatasetVariant(themeMode)
     window.localStorage.setItem('straton-theme', themeMode)
     syncThemeColorMeta()
   }, [themeMode])
@@ -866,6 +908,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             onClearAiChatMemory={handleClearAiChatMemory}
           />
         ) : null}
+        {activeSection === 'invitations' ? <ChatInvitationsSection userId={user?.id} /> : null}
         {activeSection === 'status' ? (
           <ErrorStatusSettingsSection
             language={language}

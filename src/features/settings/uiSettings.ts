@@ -5,7 +5,7 @@ import { applyMessageBoxPalette, DEFAULT_MESSAGE_BOX_PALETTE_ID } from './consta
 import { writeAssistantEmojisEnabled } from '../chat/constants/chatAssistantStyle'
 import { syncThemeColorMeta } from '../../utils/themeColorMeta'
 
-export type ThemeMode = 'light' | 'dark' | 'pink-glass'
+export type ThemeMode = 'light' | 'dark' | 'pink-glass' | 'black'
 export type ChatBackgroundMode = 'space-dark' | 'space-stars'
 
 /** Gleicher Breakpoint wie Chat/Sidebar mobil (`layout.css` / Settings). */
@@ -64,7 +64,18 @@ export function defaultUiSettings(): UiSettingsV1 {
   }
 }
 
-const THEMES: ThemeMode[] = ['light', 'dark', 'pink-glass']
+const THEMES: ThemeMode[] = ['light', 'dark', 'pink-glass', 'black']
+
+/** `data-theme-variant` für dokument-weite Styles (Hell = leer). */
+export function themeModeToDatasetVariant(mode: ThemeMode): '' | 'pink-glass' | 'black' {
+  if (mode === 'pink-glass') {
+    return 'pink-glass'
+  }
+  if (mode === 'black') {
+    return 'black'
+  }
+  return ''
+}
 
 function isThemeMode(v: unknown): v is ThemeMode {
   return typeof v === 'string' && (THEMES as string[]).includes(v)
@@ -108,7 +119,7 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
 export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
   const baseTheme = settings.theme === 'light' ? 'light' : 'dark'
   document.documentElement.dataset.theme = baseTheme
-  document.documentElement.dataset.themeVariant = settings.theme === 'pink-glass' ? 'pink-glass' : ''
+  document.documentElement.dataset.themeVariant = themeModeToDatasetVariant(settings.theme)
   window.localStorage.setItem('straton-theme', settings.theme)
 
   persistSidebarPreferenceToStorage(settings.sidebarScale)

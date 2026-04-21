@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
 import {
@@ -28,8 +29,10 @@ import {
   deleteChatThread,
   listChatThreads,
   listMessagesByThreadIds,
+  mapMessage,
   touchChatThread,
   updateChatThreadTitle,
+  type ChatMessageRow,
 } from '../services/chat.persistence'
 import type { ChatMessage, ChatThread } from '../types'
 const TEMP_THREAD_PREFIX = 'temp-thread-'
@@ -245,6 +248,49 @@ export function useChat(
   }, [userId, refreshThreadsFromServer])
 
   useEffect(() => {
+    if (!userId) {
+      return
+    }
+    const supabase = getSupabaseClient()
+    const channel = supabase
+      .channel(`chat-messages-live-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          const row = payload.new as ChatMessageRow
+          if (!row?.id || !row.thread_id) {
+            return
+          }
+          const mapped = mapMessage(row)
+          setMessagesByThreadId((prev) => {
+            const list = prev[row.thread_id] ?? []
+            if (list.some((m) => m.id === mapped.id)) {
+              return prev
+            }
+            const merged = [...list, mapped].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+            return { ...prev, [row.thread_id]: merged }
+          })
+          setThreads((prev) => {
+            const has = prev.some((t) => t.id === row.thread_id)
+            if (!has) {
+              return prev
+            }
+            const updated = prev.map((t) =>
+              t.id === row.thread_id ? { ...t, updatedAt: new Date().toISOString() } : t,
+            )
+            return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [userId])
+
+  useEffect(() => {
     return () => {
       Object.values(removeTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId)
@@ -263,7 +309,7 @@ export function useChat(
     if (!autoRemoveEmptyChats) {
       try {
         const persistedThread = await createChatThread(userId, 'Neuer Chat')
-        setThreads((prev) => [persistedThread, ...prev])
+        setThreads((prev) => [{ ...persistedThread, membershipRole: 'owner' as const }, ...prev])
         setMessagesByThreadId((prev) => ({
           ...prev,
           [persistedThread.id]: prev[persistedThread.id] ?? [],
@@ -391,7 +437,8 @@ export function useChat(
         }
 
         const persistedThread = await createChatThread(userId, 'Neuer Chat')
-        setThreads((prev) => [persistedThread, ...prev])
+        const ownerThread = { ...persistedThread, membershipRole: 'owner' as const }
+        setThreads((prev) => [ownerThread, ...prev])
         setMessagesByThreadId((prev) => ({
           ...prev,
           [persistedThread.id]: prev[persistedThread.id] ?? [],
@@ -399,7 +446,7 @@ export function useChat(
         setActiveThreadId(persistedThread.id)
 
         threadId = persistedThread.id
-        activeThread = persistedThread
+        activeThread = ownerThread
         isTemporaryThread = false
       }
 
@@ -420,7 +467,7 @@ export function useChat(
 
         setThreads((prev) => {
           const withoutTemporary = prev.filter((thread) => thread.id !== temporaryThreadId)
-          return [persistedThread, ...withoutTemporary]
+          return [{ ...persistedThread, membershipRole: 'owner' as const }, ...withoutTemporary]
         })
 
         setMessagesByThreadId((prev) => {
@@ -433,6 +480,8 @@ export function useChat(
 
         threadId = persistedThread.id
         setActiveThreadId(persistedThread.id)
+        activeThread = { ...persistedThread, membershipRole: 'owner' as const }
+        isTemporaryThread = false
       }
 
       if (!threadId) {
@@ -441,6 +490,11 @@ export function useChat(
       }
 
       const targetThreadId = threadId
+      const aclThread =
+        threads.find((t) => t.id === targetThreadId) ??
+        (activeThread?.id === targetThreadId ? activeThread : undefined)
+      const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
+
       const storedUserMessage = await createChatMessage(targetThreadId, 'user', trimmed)
 
       const currentMessages = messagesByThreadId[targetThreadId] ?? []
@@ -451,21 +505,24 @@ export function useChat(
         [targetThreadId]: nextMessages,
       }))
 
-      const shouldRename = activeThread?.title === 'Neuer Chat' || isTemporaryThread
-      const provisionalTitle = shouldRename ? createChatTitle(trimmed) : activeThread?.title
+      const shouldRename =
+        (aclThread?.title === 'Neuer Chat' || isTemporaryThread) && userOwnsThread
+      const provisionalTitle = shouldRename ? createChatTitle(trimmed) : aclThread?.title
 
-      if (provisionalTitle && shouldRename) {
+      if (provisionalTitle && shouldRename && userOwnsThread) {
         await updateChatThreadTitle(targetThreadId, provisionalTitle)
       }
 
-      await touchChatThread(targetThreadId)
+      if (userOwnsThread) {
+        await touchChatThread(targetThreadId)
+      }
 
       setThreads((prev) => {
         const updated = prev.map((thread) =>
           thread.id === targetThreadId
             ? {
                 ...thread,
-                title: provisionalTitle ?? thread.title,
+                title: userOwnsThread ? (provisionalTitle ?? thread.title) : thread.title,
                 updatedAt: new Date().toISOString(),
               }
             : thread,
@@ -591,7 +648,9 @@ export function useChat(
         }
       })
 
-      await touchChatThread(targetThreadId)
+      if (userOwnsThread) {
+        await touchChatThread(targetThreadId)
+      }
 
       setThreads((prev) => {
         const updated = prev.map((thread) =>
@@ -605,7 +664,7 @@ export function useChat(
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
 
-      if (shouldRename) {
+      if (shouldRename && userOwnsThread) {
         void (async () => {
           try {
             const { title } = await generateChatTitleWithAi([

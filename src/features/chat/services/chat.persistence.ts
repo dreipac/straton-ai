@@ -9,7 +9,7 @@ type ChatThreadRow = {
   updated_at: string
 }
 
-type ChatMessageRow = {
+export type ChatMessageRow = {
   id: string
   thread_id: string
   role: ChatRole
@@ -47,7 +47,7 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
   return { excelExport: { bucket, path, fileName } }
 }
 
-function mapMessage(row: ChatMessageRow): ChatMessage {
+export function mapMessage(row: ChatMessageRow): ChatMessage {
   return {
     id: row.id,
     threadId: row.thread_id,
@@ -58,19 +58,50 @@ function mapMessage(row: ChatMessageRow): ChatMessage {
   }
 }
 
+type MemberThreadJoinRow = {
+  role: string
+  chat_threads: ChatThreadRow | ChatThreadRow[] | null
+}
+
 export async function listChatThreads(userId: string): Promise<ChatThread[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
-    .from('chat_threads')
-    .select('id, user_id, title, created_at, updated_at')
+    .from('chat_thread_members')
+    .select(
+      `
+      role,
+      chat_threads (
+        id,
+        user_id,
+        title,
+        created_at,
+        updated_at
+      )
+    `,
+    )
     .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
 
   if (error) {
     throw error
   }
 
-  return (data ?? []).map((row) => mapThread(row as ChatThreadRow))
+  const rows = (data ?? []) as MemberThreadJoinRow[]
+  const threads: ChatThread[] = []
+  for (const row of rows) {
+    const nested = row.chat_threads
+    const threadRow = Array.isArray(nested) ? nested[0] : nested
+    if (!threadRow) {
+      continue
+    }
+    const role = row.role === 'owner' || row.role === 'member' ? row.role : undefined
+    threads.push({
+      ...mapThread(threadRow as ChatThreadRow),
+      membershipRole: role,
+    })
+  }
+
+  threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return threads
 }
 
 export async function listMessagesByThreadIds(threadIds: string[]): Promise<ChatMessage[]> {

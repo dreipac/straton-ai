@@ -177,3 +177,60 @@
   --input-field-border-idle: rgba(244, 114, 182, 0.22);
   --input-field-shadow-focus: 0 14px 40px rgba(18, 6, 28, 0.55);
 }
+
+/* OLED / Tiefschwarz: noch dunkler als Standard-Dunkel, ohne Pink-Tönung */
+:root[data-theme='dark'][data-theme-variant='black'] {
+  --color-bg-app: #000000;
+  --color-text-app: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #8b9aaf;
+  --color-border: #1e222b;
+  --color-border-strong: #2a303c;
+  --color-surface: #070709;
+  --color-surface-soft: #0c0c0f;
+  --color-surface-elevated: #121218;
+  --color-shadow-strong: rgba(0, 0, 0, 0.72);
+  --color-shadow-soft: rgba(0, 0, 0, 0.55);
+  --color-overlay: rgba(0, 0, 0, 0.72);
+  --color-link: #cbd5e1;
+  --color-link-hover: #ffffff;
+  --interactive-hover-bg: #1a1d26;
+  --interactive-hover-border: #2f3644;
+  --interactive-hover-text: #f8fafc;
+  --interactive-hover-bg-dark: #1f232e;
+  --interactive-hover-border-dark: #3d4656;
+  --interactive-hover-text-dark: #f8fafc;
+
+  --color-success-bg: #0f2419;
+  --color-success-text: #bbf7d0;
+  --color-success-border: #22543a;
+  --color-success-spinner: #86efac;
+  --color-success-spinner-soft: #4ade80;
+
+  --color-close-hover-bg: #3f1515;
+  --color-close-hover-icon: #fca5a5;
+  --color-danger-text: #f87171;
+  --color-danger-bg-soft: #2a1515;
+  --color-danger-border: #6b2828;
+
+  --settings-modal-bg: var(--color-surface);
+  --settings-sidebar-bg: #050506;
+  --settings-body-bg: var(--color-surface);
+  --settings-card-bg: var(--color-surface-soft);
+  --app-background: #000000;
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --scrollbar-track: rgba(51, 65, 85, 0.35);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.48);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.58);
+
+  --chat-user-bubble-bg-dark: var(--color-surface-elevated);
+  --chat-user-bubble-border-dark: var(--color-border-strong);
+  --chat-user-bubble-text-dark: var(--color-text-app);
+
+  --input-field-bg: #050506;
+  --input-field-text: var(--color-text-app);
+  --input-field-placeholder: var(--color-text-muted);
+  --input-field-border-idle: rgba(255, 255, 255, 0.09);
+  --input-field-shadow-focus: 0 12px 36px rgba(0, 0, 0, 0.65);
+}

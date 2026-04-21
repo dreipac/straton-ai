@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -17,6 +18,7 @@ import learnIcon from '../assets/icons/learn.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
+import userAddIcon from '../assets/icons/userAdd.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ActionBottomSheet } from '../components/ui/bottom-sheet/ActionBottomSheet'
@@ -51,22 +53,53 @@ import {
 } from '../features/chat/constants/chatComposerModels'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
+import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
+import {
+  endChatThreadSharing,
+  isThreadOwner,
+  listChatThreadMembersPublic,
+  type ChatThreadMemberPublic,
+} from '../features/chat/services/chat.collaboration'
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
+import { useToast } from '../components/toast/ToastProvider'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
 
 /** Gleicher Breakpoint wie `layout.css` Mobile-Sidebar (`max-width: 860px`). */
 const COMPACT_MOBILE_SIDEBAR_MAX_PX = 860
 
+/** Pastell-Akzente für Toolbar-Avatare (stabil pro userId). */
+const CHAT_TOOLBAR_AVATAR_ACCENTS = [
+  '#e0e7ff',
+  '#dbeafe',
+  '#cffafe',
+  '#d1fae5',
+  '#fef9c3',
+  '#ffedd5',
+  '#fce7f3',
+  '#ede9fe',
+  '#f3e8ff',
+]
+
+function toolbarAvatarAccentForUser(userId: string): string {
+  let n = 0
+  for (let i = 0; i < userId.length; i++) {
+    n = (n + userId.charCodeAt(i) * (i + 19)) % 2147483647
+  }
+  const idx = Math.abs(n) % CHAT_TOOLBAR_AVATAR_ACCENTS.length
+  return CHAT_TOOLBAR_AVATAR_ACCENTS[idx]
+}
+
 /** Menüpunkt-Labels wie in den Desktop-Einstellungen (DE), Reihenfolge: Konto zuerst. */
 const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[] = [
   { id: 'account', label: 'Konto' },
   { id: 'general', label: 'Allgemein' },
   { id: 'chat', label: 'Chat Einstellungen' },
+  { id: 'invitations', label: 'Einladungen' },
   { id: 'personalize', label: 'Personalisieren' },
   { id: 'ai', label: 'KI Provider' },
   { id: 'status', label: 'Status' },
@@ -77,6 +110,9 @@ export function ChatPage() {
   const DEFAULT_NO_PLAN_MAX_TOKENS = 100
   const MODAL_ANIMATION_MS = 220
   const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
+  const { push: pushToast } = useToast()
+  /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
+  const isNarrowViewport = useIsMobileViewport()
   const chatModelPolicy = useMemo(
     () =>
       user ? getChatModelPolicyFromPlan(profile?.subscription_plans ?? null) : getChatModelPolicyFromPlan(null),
@@ -101,6 +137,162 @@ export function ChatPage() {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
   })
+  const activeThread = useMemo(
+    () => threads.find((t) => t.id === activeThreadId),
+    [threads, activeThreadId],
+  )
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [endSharingConfirmOpen, setEndSharingConfirmOpen] = useState(false)
+  /** Desktop: Overlay bleibt gemountet, `isOpen` steuert modal-fade — so Ein- und Ausblend-Animation. */
+  const [endSharingDesktopMounted, setEndSharingDesktopMounted] = useState(false)
+  const [endSharingDesktopOpen, setEndSharingDesktopOpen] = useState(false)
+  const endSharingDesktopCloseTimerRef = useRef<number | null>(null)
+  const [threadMembers, setThreadMembers] = useState<ChatThreadMemberPublic[]>([])
+  const [threadMembersLoading, setThreadMembersLoading] = useState(false)
+  const [shareActionBusy, setShareActionBusy] = useState(false)
+  const canInviteToActiveChat = Boolean(
+    user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
+  )
+  const hasCollaborators = useMemo(
+    () => threadMembers.some((m) => m.role === 'member'),
+    [threadMembers],
+  )
+
+  const refreshThreadMembers = useCallback(async () => {
+    if (!activeThread?.id || !canInviteToActiveChat) {
+      return
+    }
+    setThreadMembersLoading(true)
+    try {
+      const list = await listChatThreadMembersPublic(activeThread.id)
+      setThreadMembers(list)
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Mitglieder konnten nicht geladen werden.')
+    } finally {
+      setThreadMembersLoading(false)
+    }
+  }, [activeThread?.id, canInviteToActiveChat, pushToast])
+
+  useEffect(() => {
+    if (!canInviteToActiveChat || !activeThread?.id) {
+      setThreadMembers([])
+      return
+    }
+    void refreshThreadMembers()
+  }, [canInviteToActiveChat, activeThread?.id, refreshThreadMembers])
+
+  useEffect(() => {
+    return () => {
+      if (endSharingDesktopCloseTimerRef.current !== null) {
+        window.clearTimeout(endSharingDesktopCloseTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!canInviteToActiveChat && endSharingDesktopMounted) {
+      if (endSharingDesktopCloseTimerRef.current !== null) {
+        window.clearTimeout(endSharingDesktopCloseTimerRef.current)
+        endSharingDesktopCloseTimerRef.current = null
+      }
+      setEndSharingDesktopMounted(false)
+      setEndSharingDesktopOpen(false)
+    }
+  }, [canInviteToActiveChat, endSharingDesktopMounted])
+
+  function displayNameForMember(m: ChatThreadMemberPublic): string {
+    const s = [m.firstName, m.lastName].filter(Boolean).join(' ').trim()
+    return s || 'Mitglied'
+  }
+
+  function letterForMemberLabel(label: string): string {
+    const t = label.trim()
+    return t ? t[0].toUpperCase() : '?'
+  }
+
+  function handleEndSharingSheetExitComplete() {
+    setEndSharingConfirmOpen(false)
+  }
+
+  function openEndSharingDesktopModal() {
+    if (endSharingDesktopCloseTimerRef.current !== null) {
+      window.clearTimeout(endSharingDesktopCloseTimerRef.current)
+      endSharingDesktopCloseTimerRef.current = null
+    }
+    setEndSharingDesktopMounted(true)
+    setEndSharingDesktopOpen(false)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        setEndSharingDesktopOpen(true)
+      })
+    })
+  }
+
+  function closeEndSharingDesktopModal() {
+    if (endSharingDesktopCloseTimerRef.current !== null) {
+      window.clearTimeout(endSharingDesktopCloseTimerRef.current)
+    }
+    setEndSharingDesktopOpen(false)
+    endSharingDesktopCloseTimerRef.current = window.setTimeout(() => {
+      setEndSharingDesktopMounted(false)
+      endSharingDesktopCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
+  function closeEndSharingConfirm() {
+    if (isNarrowViewport && endSharingSheetRef.current) {
+      endSharingSheetRef.current.requestClose()
+      return
+    }
+    closeEndSharingDesktopModal()
+  }
+
+  async function confirmEndSharing() {
+    if (!activeThread?.id) {
+      return
+    }
+    setShareActionBusy(true)
+    try {
+      await endChatThreadSharing(activeThread.id)
+      await refreshThreadMembers()
+      pushToast('Freigabe beendet.')
+      if (isNarrowViewport) {
+        endSharingSheetRef.current?.requestClose()
+      } else {
+        closeEndSharingDesktopModal()
+      }
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Freigabe konnte nicht beendet werden.')
+    } finally {
+      setShareActionBusy(false)
+    }
+  }
+
+  function handleShareChipClick() {
+    if (!activeThread?.id) {
+      return
+    }
+    if (hasCollaborators) {
+      if (isNarrowViewport) {
+        setEndSharingConfirmOpen(true)
+      } else {
+        openEndSharingDesktopModal()
+      }
+      return
+    }
+    setInviteModalOpen(true)
+  }
+
+  const toolbarAvatars = useMemo(() => {
+    const max = 6
+    /** Eigenes Avatar nur anzeigen, wenn der Chat freigegeben ist (mind. ein weiterer Teilnehmer). */
+    const membersForToolbar = hasCollaborators
+      ? threadMembers
+      : threadMembers.filter((m) => m.userId !== user?.id)
+    const list = membersForToolbar.slice(0, max)
+    const overflow = membersForToolbar.length - list.length
+    return { list, overflow }
+  }, [threadMembers, hasCollaborators, user?.id])
   const [guestComposerModelId, setGuestComposerModelId] = useState<ChatComposerModelId>(() =>
     parseStoredComposerModelId(
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
@@ -122,6 +314,11 @@ export function ChatPage() {
   const [isAdminMounted, setIsAdminMounted] = useState(false)
   const [isAdminVisible, setIsAdminVisible] = useState(false)
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
+  const threadForMenu = useMemo(
+    () => (openMenuThreadId ? threads.find((t) => t.id === openMenuThreadId) : undefined),
+    [openMenuThreadId, threads],
+  )
+  const ownsThreadForMenu = Boolean(user && threadForMenu && isThreadOwner(threadForMenu, user.id))
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
     null,
   )
@@ -153,7 +350,6 @@ export function ChatPage() {
   )
   const [compactTourReveal, setCompactTourReveal] = useState(false)
   const chatTourOverlayActive = chatTourEligible && (!isCompactMobileSidebarLayout || compactTourReveal)
-  const isMobileUiForBeta = useIsMobileViewport()
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
   const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
@@ -164,6 +360,7 @@ export function ChatPage() {
   const renameCloseTimerRef = useRef<number | null>(null)
   const betaNoticeCloseTimerRef = useRef<number | null>(null)
   const betaNoticeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+  const endSharingSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
   const learnTourRef = useRef<HTMLButtonElement | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -472,7 +669,7 @@ export function ChatPage() {
   }
 
   async function closeBetaNoticeModal() {
-    if (isMobileUiForBeta && betaNoticeSheetRef.current) {
+    if (isNarrowViewport && betaNoticeSheetRef.current) {
       betaNoticeSheetRef.current.requestClose()
       return
     }
@@ -998,6 +1195,61 @@ export function ChatPage() {
       </aside>
 
       <section className="chat-main">
+        {canInviteToActiveChat ? (
+          <div className="chat-main-toolbar">
+            <div className="chat-main-toolbar-share-row">
+              {!threadMembersLoading && toolbarAvatars.list.length > 0 ? (
+                <div className="chat-main-toolbar-avatars" aria-label="Teilnehmer im Chat">
+                  {toolbarAvatars.list.map((m, index) => {
+                    const name = displayNameForMember(m)
+                    const accent = toolbarAvatarAccentForUser(m.userId)
+                    return (
+                      <div
+                        key={m.userId}
+                        className="chat-main-toolbar-avatar-wrap"
+                        style={{
+                          zIndex: index + 1,
+                          ['--chat-toolbar-avatar-accent' as string]: accent,
+                        }}
+                        title={name}
+                      >
+                        {m.avatarUrl ? (
+                          <img
+                            className="chat-main-toolbar-avatar-img"
+                            src={m.avatarUrl}
+                            alt=""
+                          />
+                        ) : (
+                          <span className="chat-main-toolbar-avatar-fallback" aria-hidden="true">
+                            {letterForMemberLabel(name)}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {toolbarAvatars.overflow > 0 ? (
+                    <span className="chat-main-toolbar-avatar-overflow">+{toolbarAvatars.overflow}</span>
+                  ) : null}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="chat-main-invite-chip"
+                onClick={() => handleShareChipClick()}
+                disabled={shareActionBusy}
+                aria-label={hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}
+              >
+                <img
+                  className="ui-icon ui-icon-md chat-main-invite-chip-icon"
+                  src={hasCollaborators ? deleteIcon : userAddIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span>{hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
         <ChatWindow
           threadKey={activeThreadId}
           messages={messages}
@@ -1011,6 +1263,78 @@ export function ChatPage() {
           onSendMessage={submitMessage}
         />
       </section>
+
+      <InviteToChatModal
+        isOpen={inviteModalOpen}
+        threadId={activeThread?.id ?? null}
+        threadTitle={activeThread?.title ?? ''}
+        onClose={() => setInviteModalOpen(false)}
+        onSent={() => void refreshThreadMembers()}
+      />
+      {endSharingDesktopMounted && !isNarrowViewport ? (
+        <ModalShell
+          isOpen={endSharingDesktopOpen}
+          onRequestClose={closeEndSharingConfirm}
+          className="invite-chat-modal-wrap"
+        >
+          <div
+            className="rename-modal invite-chat-modal chat-end-sharing-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Freigabe beenden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ModalHeader title="Freigabe beenden" headingLevel="h3" closeLabel="Schließen" onClose={closeEndSharingConfirm} />
+            <p className="chat-end-sharing-confirm-text">
+              Alle eingeladenen Nutzer verlieren den Zugriff auf diesen Chat. Ausstehende Einladungen werden
+              zurückgezogen.
+            </p>
+            <div className="chat-end-sharing-confirm-actions">
+              <SecondaryButton type="button" onClick={closeEndSharingConfirm} disabled={shareActionBusy}>
+                Abbrechen
+              </SecondaryButton>
+              <button
+                type="button"
+                className="ui-button chat-end-sharing-danger-btn"
+                disabled={shareActionBusy}
+                onClick={() => void confirmEndSharing()}
+              >
+                {shareActionBusy ? 'Wird beendet…' : 'Freigabe beenden'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      ) : null}
+      {endSharingConfirmOpen && isNarrowViewport ? (
+        <ContentBottomSheet
+          ref={endSharingSheetRef}
+          open={endSharingConfirmOpen}
+          onExitComplete={handleEndSharingSheetExitComplete}
+          title="Freigabe beenden"
+          closeOnBackdrop={!shareActionBusy}
+          allowEscape={!shareActionBusy}
+          showCloseButton={false}
+          panelClassName="chat-end-sharing-bottom-sheet-panel"
+        >
+          <p className="chat-end-sharing-confirm-text">
+            Alle eingeladenen Nutzer verlieren den Zugriff auf diesen Chat. Ausstehende Einladungen werden
+            zurückgezogen.
+          </p>
+          <div className="chat-end-sharing-confirm-actions chat-end-sharing-confirm-actions--sheet">
+            <SecondaryButton type="button" onClick={closeEndSharingConfirm} disabled={shareActionBusy}>
+              Abbrechen
+            </SecondaryButton>
+            <button
+              type="button"
+              className="ui-button chat-end-sharing-danger-btn"
+              disabled={shareActionBusy}
+              onClick={() => void confirmEndSharing()}
+            >
+              {shareActionBusy ? 'Wird beendet…' : 'Freigabe beenden'}
+            </button>
+          </div>
+        </ContentBottomSheet>
+      ) : null}
       <button
         type="button"
         className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
@@ -1163,29 +1487,37 @@ export function ChatPage() {
           title={threads.find((t) => t.id === openMenuThreadId)?.title}
           onClose={closeThreadActionMenu}
           actions={[
-            {
-              id: 'edit',
-              label: 'Bearbeiten',
-              iconSrc: editIcon,
-              onClick: () => {
-                const targetThread = threads.find((thread) => thread.id === openMenuThreadId)
-                if (targetThread) {
-                  openRenameModal(targetThread)
-                }
-              },
-            },
-            {
-              id: 'delete',
-              label: 'Löschen',
-              iconSrc: deleteIcon,
-              variant: 'danger',
-              onClick: async () => {
-                const id = openMenuThreadId
-                if (id) {
-                  await deleteChat(id)
-                }
-              },
-            },
+            ...(ownsThreadForMenu
+              ? [
+                  {
+                    id: 'edit',
+                    label: 'Bearbeiten',
+                    iconSrc: editIcon,
+                    onClick: () => {
+                      const targetThread = threads.find((thread) => thread.id === openMenuThreadId)
+                      if (targetThread) {
+                        openRenameModal(targetThread)
+                      }
+                    },
+                  },
+                ]
+              : []),
+            ...(ownsThreadForMenu
+              ? [
+                  {
+                    id: 'delete',
+                    label: 'Löschen',
+                    iconSrc: deleteIcon,
+                    variant: 'danger' as const,
+                    onClick: async () => {
+                      const id = openMenuThreadId
+                      if (id) {
+                        await deleteChat(id)
+                      }
+                    },
+                  },
+                ]
+              : []),
           ]}
         />
       ) : null}
@@ -1195,30 +1527,34 @@ export function ChatPage() {
           className="thread-menu-context-global"
           style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
         >
-          <MenuItem
-            iconSrc={editIcon}
-            onClick={() => {
-              const targetThread = threads.find((thread) => thread.id === openMenuThreadId)
-              if (targetThread) {
-                openRenameModal(targetThread)
-              }
-            }}
-          >
-            Bearbeiten
-          </MenuItem>
-          <MenuItem
-            iconSrc={deleteIcon}
-            danger
-            onClick={async () => {
-              const id = openMenuThreadId
-              closeThreadActionMenu()
-              if (id) {
-                await deleteChat(id)
-              }
-            }}
-          >
-            Löschen
-          </MenuItem>
+          {ownsThreadForMenu ? (
+            <MenuItem
+              iconSrc={editIcon}
+              onClick={() => {
+                const targetThread = threads.find((thread) => thread.id === openMenuThreadId)
+                if (targetThread) {
+                  openRenameModal(targetThread)
+                }
+              }}
+            >
+              Bearbeiten
+            </MenuItem>
+          ) : null}
+          {ownsThreadForMenu ? (
+            <MenuItem
+              iconSrc={deleteIcon}
+              danger
+              onClick={async () => {
+                const id = openMenuThreadId
+                closeThreadActionMenu()
+                if (id) {
+                  await deleteChat(id)
+                }
+              }}
+            >
+              Löschen
+            </MenuItem>
+          ) : null}
         </ContextMenu>
       ) : null}
       {editingThread && isMobileViewport() ? (
@@ -1265,7 +1601,7 @@ export function ChatPage() {
         </ModalShell>
       ) : null}
       {isBetaNoticeMounted ? (
-        isMobileUiForBeta ? (
+        isNarrowViewport ? (
           <ContentBottomSheet
             ref={betaNoticeSheetRef}
             open={isBetaNoticeVisible}

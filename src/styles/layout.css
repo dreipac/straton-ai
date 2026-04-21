@@ -599,6 +599,23 @@
     linear-gradient(160deg, #120a18 0%, #1a1022 56%, #100914 100%);
 }
 
+/* OLED/Tiefschwarz: Gradient aus Theme-Palette — Standard-Dunkel bleibt „Space Navy“ */
+:root[data-theme='dark'][data-theme-variant='black'] .chat-main::before {
+  background:
+    radial-gradient(
+      120% 90% at 50% -10%,
+      color-mix(in srgb, var(--color-surface-elevated) 42%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg-app) 35%, transparent) 45%,
+      transparent 74%
+    ),
+    linear-gradient(
+      160deg,
+      var(--app-background) 0%,
+      color-mix(in srgb, var(--color-surface-soft) 65%, var(--app-background)) 56%,
+      var(--app-background) 100%
+    );
+}
+
 .chat-main::after {
   content: '';
   position: absolute;
@@ -1131,6 +1148,25 @@
   background: #171b22;
 }
 
+/* Black: Sidebar folgt theme.css — sonst bleibt #171b22, nur die Karte nutzt Variablen → optischer Sprung */
+:root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar {
+  border-right-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-top {
+  border-bottom-color: var(--color-border);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-bottom {
+  border-top-color: var(--color-border);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-profile-card {
+  background: var(--color-surface-soft);
+  border-color: var(--color-border);
+}
+
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-sidebar {
   background: rgba(35, 17, 45, 0.62);
   border-right-color: rgba(244, 114, 182, 0.28);
@@ -1322,6 +1358,18 @@
     box-shadow: none;
   }
 
+  :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-footer-dock {
+    background: linear-gradient(
+      to bottom,
+      rgba(7, 7, 9, 0) 0%,
+      rgba(7, 7, 9, 0) 8%,
+      rgba(7, 7, 9, 0.32) 38%,
+      rgba(7, 7, 9, 0.78) 74%,
+      var(--color-surface) 100%
+    );
+    box-shadow: none;
+  }
+
   :root[data-theme='dark'] .mobile-new-chat-fab {
     background: var(--accent-gradient);
     background-size: 150% 150%;
@@ -1361,6 +1409,12 @@
   :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-sidebar-profile-badge.chat-sidebar-profile-card {
     background: rgba(48, 24, 62, 0.5);
     border-color: rgba(244, 114, 182, 0.2);
+  }
+
+  :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-profile-badge.chat-sidebar-profile-card {
+    background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
+    border-color: var(--color-border);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   }
 }
 

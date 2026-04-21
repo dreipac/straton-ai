@@ -3,17 +3,17 @@ import { ACCENT_PALETTES } from '../constants/accentPalettes'
 import { HOVER_PALETTES } from '../constants/hoverPalettes'
 import type { LearnPathTitleColorMode } from '../constants/learnPathTitleColor'
 import { MESSAGE_BOX_PALETTES } from '../constants/messageBoxPalettes'
-import type { ChatBackgroundMode } from '../uiSettings'
+import type { ChatBackgroundMode, ThemeMode } from '../uiSettings'
 
 type PersonalizeSettingsSectionProps = {
-  themeMode: 'light' | 'dark' | 'pink-glass'
+  themeMode: ThemeMode
   sidebarScale: '100' | '75'
   chatBackground: ChatBackgroundMode
   accentPaletteId: string
   hoverPaletteId: string
   messageBoxPaletteId: string
   learnPathTitleColorMode: LearnPathTitleColorMode
-  onChangeThemeMode: (nextThemeMode: 'light' | 'dark' | 'pink-glass') => void
+  onChangeThemeMode: (nextThemeMode: ThemeMode) => void
   onChangeSidebarScale: (nextScale: '100' | '75') => void
   onChangeChatBackground: (nextMode: ChatBackgroundMode) => void
   onChangeAccentPalette: (nextPaletteId: string) => void
@@ -74,6 +74,16 @@ export function PersonalizeSettingsSection({
           >
             <span className="personalize-theme-preview is-pink-glass" />
             <span>Pink Glass</span>
+          </button>
+          <button
+            type="button"
+            className={`personalize-theme-tile ${themeMode === 'black' ? 'is-active' : ''}`}
+            onClick={() => onChangeThemeMode('black')}
+            role="radio"
+            aria-checked={themeMode === 'black'}
+          >
+            <span className="personalize-theme-preview is-black" />
+            <span>Black</span>
           </button>
         </div>
       </div>

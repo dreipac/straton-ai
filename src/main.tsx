@@ -23,7 +23,11 @@ import {
   readPersistedLearnPathTitleColorMode,
 } from './features/settings/constants/learnPathTitleColor'
 import { initViewportDebug } from './utils/viewportDebug'
-import { subscribeSidebarScaleViewportSync } from './features/settings/uiSettings'
+import {
+  subscribeSidebarScaleViewportSync,
+  themeModeToDatasetVariant,
+  type ThemeMode,
+} from './features/settings/uiSettings'
 import { syncThemeColorMeta } from './utils/themeColorMeta'
 import './styles/theme.css'
 import './styles/base.css'
@@ -35,16 +39,20 @@ import './styles/learn.css'
 import './styles/settings.css'
 import './styles/auth.css'
 import './styles/mobile.css'
+import './styles/toast.css'
 
 initViewportDebug()
 
 const persistedTheme = window.localStorage.getItem('straton-theme')
-const initialThemeMode =
-  persistedTheme === 'light' || persistedTheme === 'dark' || persistedTheme === 'pink-glass'
-    ? persistedTheme
+const initialThemeMode: ThemeMode =
+  persistedTheme === 'light' ||
+  persistedTheme === 'dark' ||
+  persistedTheme === 'pink-glass' ||
+  persistedTheme === 'black'
+    ? (persistedTheme as ThemeMode)
     : 'dark'
 document.documentElement.dataset.theme = initialThemeMode === 'light' ? 'light' : 'dark'
-document.documentElement.dataset.themeVariant = initialThemeMode === 'pink-glass' ? 'pink-glass' : ''
+document.documentElement.dataset.themeVariant = themeModeToDatasetVariant(initialThemeMode)
 syncThemeColorMeta()
 
 subscribeSidebarScaleViewportSync()

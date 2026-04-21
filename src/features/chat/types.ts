@@ -27,4 +27,6 @@ export type ChatThread = {
   updatedAt: string
   isTemporary?: boolean
   isRemoving?: boolean
+  /** gesetzt wenn Thread über Mitgliedschaft (nicht nur Ersteller-Zeile) geladen wurde */
+  membershipRole?: 'owner' | 'member'
 }
