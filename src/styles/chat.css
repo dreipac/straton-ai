@@ -2594,6 +2594,38 @@ button.chat-onboarding-tour-block {
     padding-top: calc(env(safe-area-inset-top, 0px) + 0.35rem);
   }
 
+  /*
+   * Oberer Screen-Fade (Schwarz → transparent), analog zur Sidebar-Footer-Leiste:
+   * Nachrichten bleiben unter der Notch sichtbar, der Verlauf verbessert die Lesbarkeit der Systemleiste.
+   */
+  .chat-main--share-toolbar > .chat-panel::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: calc(env(safe-area-inset-top, 0px) + 4.25rem);
+    z-index: 76;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.88) 0%,
+      rgba(0, 0, 0, 0.48) 28%,
+      rgba(0, 0, 0, 0.16) 58%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+
+  :root[data-theme='light'] .chat-main--share-toolbar > .chat-panel::before {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.42) 0%,
+      rgba(0, 0, 0, 0.2) 38%,
+      rgba(0, 0, 0, 0.06) 74%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+
   .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-hint {
     margin-bottom: 0;
     padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
