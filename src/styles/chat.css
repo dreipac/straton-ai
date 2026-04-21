@@ -2549,6 +2549,35 @@ button.chat-onboarding-tour-block {
   :root[data-theme='dark'] .chat-main--share-toolbar .chat-main-toolbar-share-row {
     filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.45));
   }
+
+  /*
+   * Oberes Safe Area sitzt bereits über .chat-main padding + schwebende Leiste.
+   * Zusätzliches env(safe-area-inset-top) auf .chat-panel (mobil) hat den Bereich für
+   * Nachrichten + Composer massiv verkürzt — unterer Teil (Eingabe) wirkt abgeschnitten.
+   */
+  .chat-main--share-toolbar .chat-panel {
+    padding-top: 0;
+  }
+
+  /* Letzte Zeilen beim Scrollen über Composer/Home-Indicator erreichbar */
+  .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-messages {
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-hint {
+    margin-bottom: 0;
+    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  /*
+   * Sticky + overflow auf Vorfahren (chat-main) kann auf iOS/PWA den Composer falsch verankern.
+   * Grid-Zeilen (messages | composer | hint) reichen aus.
+   */
+  .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-row {
+    position: static;
+    bottom: auto;
+    z-index: auto;
+  }
 }
 
 .chat-main-toolbar-share-row {
