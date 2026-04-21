@@ -747,6 +747,8 @@
   .chat-app-shell {
     --mobile-sidebar-width: min(86vw, 340px);
     --mobile-sidebar-transition-ms: 520ms;
+    /** Schwebende Sidebar-Pill + Freigabe-Leiste (safe area / Dynamic Island / Batterie) */
+    --chat-floating-ui-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 0.65rem);
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     min-height: 0;
@@ -1078,8 +1080,8 @@
 
   .mobile-sidebar-pill {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 0.7rem);
-    left: 0.75rem;
+    top: var(--chat-floating-ui-top);
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
     width: 44px;
     height: 44px;
     display: inline-flex;

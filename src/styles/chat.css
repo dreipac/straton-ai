@@ -2519,6 +2519,38 @@ button.chat-onboarding-tour-block {
   gap: 0.5rem;
 }
 
+/* Mobile / PWA: Freigabe-Leiste schwebend unter Safe Area (nicht unter Status/Batterie) */
+@media (max-width: 860px) {
+  .chat-main--share-toolbar {
+    padding-top: calc(var(--chat-floating-ui-top) + 2.45rem);
+  }
+
+  .chat-main--share-toolbar .chat-main-toolbar {
+    position: fixed;
+    top: var(--chat-floating-ui-top);
+    left: max(0.65rem, env(safe-area-inset-left, 0px));
+    right: max(0.65rem, env(safe-area-inset-right, 0px));
+    padding: 0;
+    margin: 0;
+    justify-content: flex-end;
+    align-items: center;
+    z-index: 78;
+    gap: 0.5rem;
+    pointer-events: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .chat-main--share-toolbar .chat-main-toolbar-share-row {
+    pointer-events: auto;
+    filter: drop-shadow(0 4px 14px rgba(15, 23, 42, 0.18));
+  }
+
+  :root[data-theme='dark'] .chat-main--share-toolbar .chat-main-toolbar-share-row {
+    filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.45));
+  }
+}
+
 .chat-main-toolbar-share-row {
   display: inline-flex;
   align-items: center;

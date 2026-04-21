@@ -1194,7 +1194,7 @@ export function ChatPage() {
         </div>
       </aside>
 
-      <section className="chat-main">
+      <section className={`chat-main${canInviteToActiveChat ? ' chat-main--share-toolbar' : ''}`}>
         {canInviteToActiveChat ? (
           <div className="chat-main-toolbar">
             <div className="chat-main-toolbar-share-row">
