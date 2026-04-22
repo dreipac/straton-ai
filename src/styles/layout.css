@@ -17,6 +17,21 @@
   transition: grid-template-columns 220ms ease;
 }
 
+/*
+ * Tablet/Laptop (nicht Mobil): Sidebar proportional zur Viewport-Breite — schmalere Fenster
+ * behalten mehr Platz für den Chat (Standard 308px nur bei großzügiger Breite).
+ */
+@media (min-width: 861px) {
+  .chat-app-shell,
+  .chat-app-shell-guest {
+    --sidebar-width: clamp(232px, 18vw + 108px, 308px);
+  }
+
+  .chat-app-shell.is-sidebar-collapsed {
+    --sidebar-width: clamp(56px, 5vw + 44px, 72px);
+  }
+}
+
 .chat-sidebar {
   height: 100%;
   min-height: 0;
@@ -580,6 +595,9 @@
   height: 100%;
   padding: 0;
   overflow: hidden;
+  /* Container für Typo/Pille: skaliert nach *Hauptspalte*, nicht nach voller Fensterbreite (vw) */
+  container-type: inline-size;
+  container-name: straton-chat-main;
 }
 
 .chat-main::before {
@@ -684,6 +702,8 @@
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 1rem;
+  container-type: inline-size;
+  container-name: straton-chat-main;
 }
 
 .guest-chat-header {

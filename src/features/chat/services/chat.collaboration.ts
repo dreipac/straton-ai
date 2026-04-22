@@ -63,14 +63,19 @@ export async function inviteUserToChatThread(threadId: string, inviteeEmail: str
   return String(data ?? '')
 }
 
-export async function acceptChatInvitation(invitationId: string): Promise<void> {
+export async function acceptChatInvitation(invitationId: string): Promise<string> {
   const supabase = getSupabaseClient()
-  const { error } = await supabase.rpc('accept_chat_invitation', {
+  const { data, error } = await supabase.rpc('accept_chat_invitation', {
     p_invitation_id: invitationId,
   })
   if (error) {
     throw new Error(error.message || 'Beitreten fehlgeschlagen.')
   }
+  const threadId = data as string | null
+  if (!threadId) {
+    throw new Error('Beitreten fehlgeschlagen.')
+  }
+  return threadId
 }
 
 export async function declineChatInvitation(invitationId: string): Promise<void> {

@@ -26,13 +26,32 @@ export function ChatInvitationSubscriptions() {
           filter: `invitee_user_id=eq.${user.id}`,
         },
         (payload) => {
-          const row = payload.new as { status?: string }
-          if (row?.status !== 'pending') {
+          const row = payload.new as { id?: string; status?: string; inviter_id?: string }
+          if (row?.status !== 'pending' || row.id === undefined || row.id === '') {
             return
           }
-          push(
-            'Einladung: Du wurdest zu einem gemeinsamen Chat eingeladen. Unter Einstellungen → Einladungen kannst du beitreten.',
-          )
+          const invitationId = row.id
+          void (async () => {
+            let inviterFirstName = ''
+            let inviterLastName = ''
+            if (row.inviter_id) {
+              const { data, error } = await supabase
+                .from('profiles')
+                .select('first_name, last_name')
+                .eq('id', row.inviter_id)
+                .maybeSingle()
+              if (!error && data) {
+                inviterFirstName = data.first_name?.trim() ?? ''
+                inviterLastName = data.last_name?.trim() ?? ''
+              }
+            }
+            push({
+              variant: 'chat-invite',
+              invitationId,
+              inviterFirstName,
+              inviterLastName,
+            })
+          })()
         },
       )
       .subscribe()

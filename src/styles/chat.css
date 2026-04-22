@@ -1,7 +1,7 @@
 .chat-panel {
   display: grid;
   grid-template-rows: 1fr auto auto;
-  gap: 0.9rem;
+  gap: clamp(0.65rem, 1vw + 0.45rem, 0.9rem);
   height: 100%;
   min-height: 0;
 }
@@ -11,6 +11,12 @@
   grid-template-rows: 1fr;
   place-items: center;
   align-content: center;
+}
+
+/* Abstand Eingabe-Pille / Hinweis zum unteren Fensterrand (Desktop: sonst „klebt“ die Leiste) */
+.chat-panel:not(.is-empty) {
+  padding-bottom: 1rem;
+  box-sizing: border-box;
 }
 
 .chat-welcome {
@@ -73,19 +79,56 @@
 }
 
 .chat-empty-compose {
-  width: min(760px, calc(100% - 2rem));
+  width: min(clamp(500px, 28vw + 300px, 760px), calc(100% - 2rem));
   display: grid;
-  gap: 0.9rem;
+  gap: clamp(0.65rem, 1.2vw + 0.4rem, 0.9rem);
 }
 
 .chat-empty-title {
   margin: 0;
   text-align: left;
   color: #1e293b;
-  font-size: clamp(1.4rem, 2.4vw, 2rem);
-  line-height: 1.2;
+  /* Fallback ohne Container-Query: mit Viewport wieder anwachsen */
+  font-size: clamp(1rem, 0.45rem + 0.65vw, 1.85rem);
+  line-height: 1.22;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: min(42rem, 100%);
+}
+
+/*
+ * Desktop: Begrüßung + Eingabe an *Chat-Spalte* (cqi) — wächst auf breitem Hauptbereich mit,
+ * bleibt auf schmalen Laptops moderat (niedriges Min, hohes Max im clamp).
+ */
+@media (min-width: 861px) {
+  @supports (font-size: 1cqi) {
+    .chat-main .chat-panel.is-empty .chat-empty-title,
+    .chat-main-guest .chat-panel.is-empty .chat-empty-title {
+      font-size: clamp(1.02rem, 0.28rem + 2.65cqi, 1.95rem);
+    }
+
+    .chat-main .chat-panel .chat-input-row,
+    .chat-main-guest .chat-panel .chat-input-row {
+      width: min(clamp(500px, 76cqi, 760px), 100%);
+    }
+
+    .chat-main .chat-panel.is-empty .chat-empty-compose,
+    .chat-main-guest .chat-panel.is-empty .chat-empty-compose {
+      width: min(clamp(500px, 76cqi, 760px), calc(100% - 2rem));
+    }
+
+    :root[data-sidebar-scale='75'] .chat-main .chat-panel .chat-input-row {
+      width: min(clamp(460px, 72cqi, 700px), 100%);
+    }
+
+    :root[data-sidebar-scale='75'] .chat-main .chat-panel.is-empty .chat-empty-compose {
+      width: min(clamp(460px, 72cqi, 700px), calc(100% - 2rem));
+    }
+
+    :root[data-sidebar-scale='75'] .chat-main .chat-panel.is-empty .chat-empty-title {
+      font-size: clamp(1rem, 0.26rem + 2.35cqi, 1.75rem);
+    }
+  }
 }
 
 .chat-input-hint {
@@ -1057,7 +1100,7 @@
 }
 
 .chat-panel {
-  --chat-input-radius: 38px;
+  --chat-input-radius: clamp(26px, 1.35vw + 14px, 38px);
   --chat-chip-radius: 16px;
   /* Composer: Anhang + Senden (Light) — gleiche Fläche wie .chat-input-row button, Icons bleiben über --icon-filter lesbar */
   --chat-composer-action-bg: #f1f5f9;
@@ -1067,14 +1110,14 @@
 }
 
 .chat-input-row {
-  --chat-composer-icon-size: 26px;
+  --chat-composer-icon-size: clamp(20px, 0.55vw + 14px, 26px);
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 0.55rem;
-  width: min(760px, 100%);
+  gap: clamp(0.38rem, 0.45vw + 0.24rem, 0.55rem);
+  width: min(clamp(500px, 28vw + 300px, 760px), 100%);
   justify-self: center;
-  padding: 0.45rem 0.5rem;
+  padding: clamp(0.3rem, 0.42vw + 0.22rem, 0.48rem) clamp(0.36rem, 0.5vw + 0.28rem, 0.52rem);
   border-radius: var(--chat-input-radius);
   border: 1px solid #d9e2ef;
   background: #ffffff;
@@ -1085,7 +1128,7 @@
 }
 
 .chat-panel:not(.is-empty) .chat-input-row {
-  margin-bottom: 0.22rem;
+  margin-bottom: 0.4rem;
 }
 
 .chat-input-row::after {
@@ -1424,25 +1467,41 @@
 }
 
 .chat-input-row--stacked textarea.chat-input {
-  min-height: 48px;
-  padding-top: 0.72rem;
-  padding-bottom: 0.72rem;
+  min-height: clamp(38px, 2.2vw + 28px, 48px);
+  padding-top: clamp(0.45rem, 0.5vw + 0.34rem, 0.72rem);
+  padding-bottom: clamp(0.45rem, 0.5vw + 0.34rem, 0.72rem);
+}
+
+/* Desktop/Laptop: gestapelte Pille — Abstände (Breite leerer Chat: base + cqi oben, nicht vw bis 760px) */
+@media (min-width: 861px) {
+  .chat-input-row--stacked {
+    gap: clamp(0.3rem, 0.45vw + 0.2rem, 0.42rem);
+    padding: clamp(0.38rem, 0.55vw + 0.26rem, 0.55rem) clamp(0.48rem, 0.65vw + 0.34rem, 0.6rem)
+      clamp(0.4rem, 0.55vw + 0.28rem, 0.55rem);
+  }
+
+  .chat-model-picker-trigger {
+    min-height: clamp(38px, 1.8vw + 30px, 44px);
+    font-size: clamp(0.72rem, 0.62rem + 0.35vw, 0.78rem);
+    padding-top: clamp(0.28rem, 0.35vw + 0.18rem, 0.35rem);
+    padding-bottom: clamp(0.28rem, 0.35vw + 0.18rem, 0.35rem);
+  }
 }
 
 .chat-input-row--stacked .chat-attach-button {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: clamp(38px, 1.65vw + 26px, 44px);
+  height: clamp(38px, 1.65vw + 26px, 44px);
+  min-width: clamp(38px, 1.65vw + 26px, 44px);
+  min-height: clamp(38px, 1.65vw + 26px, 44px);
   border-radius: 50%;
 }
 
 /* Kreis-Button (Senden) — Light: gleiche Lesbarkeit wie Anhang (kein dunkler Kreis unter --icon-filter) */
 .chat-input-row--stacked > button[type='submit'] {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: clamp(38px, 1.65vw + 26px, 44px);
+  height: clamp(38px, 1.65vw + 26px, 44px);
+  min-width: clamp(38px, 1.65vw + 26px, 44px);
+  min-height: clamp(38px, 1.65vw + 26px, 44px);
   border-radius: 50%;
   order: 3;
   margin-right: 0.15rem;
@@ -1611,7 +1670,7 @@
     gap: 0.7rem;
     /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
     padding:
-      env(safe-area-inset-top, 0px) 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+      env(safe-area-inset-top, 0px) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-panel.is-empty {
@@ -1666,7 +1725,7 @@
 
   .chat-panel:not(.is-empty) .chat-input-row {
     position: sticky;
-    bottom: 0.32rem;
+    bottom: 0.55rem;
     z-index: 6;
   }
 
@@ -1748,6 +1807,15 @@
     max-width: 22rem;
     margin-left: auto;
     margin-right: auto;
+  }
+
+  /* Mobile: KI-Hinweis unter der Pill ausblenden (Chat hat Inhalt / Composer fokussiert im leeren Chat) */
+  .chat-panel:not(.is-empty) .chat-input-hint {
+    display: none;
+  }
+
+  .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-input-hint {
+    display: none;
   }
 
   /* Kein Akzent-Streifen unten, kein Rand (auch ohne Fokus) */
@@ -2334,7 +2402,7 @@
   }
 
   :root[data-sidebar-scale='75'] .chat-empty-compose {
-    width: min(700px, calc(100% - 2rem));
+    width: min(clamp(460px, 62vw + 180px, 700px), calc(100% - 2rem));
   }
 
   :root[data-sidebar-scale='75'] .chat-message {
@@ -2359,10 +2427,10 @@
   }
 
   :root[data-sidebar-scale='75'] .chat-input-row {
-    --chat-composer-icon-size: 24px;
-    width: min(700px, 100%);
-    padding: 0.34rem 0.4rem;
-    gap: 0.42rem;
+    --chat-composer-icon-size: clamp(20px, 0.45vw + 15px, 24px);
+    width: min(clamp(460px, 62vw + 180px, 700px), 100%);
+    padding: clamp(0.3rem, 0.35vw + 0.22rem, 0.38rem) clamp(0.34rem, 0.42vw + 0.26rem, 0.42rem);
+    gap: clamp(0.34rem, 0.35vw + 0.26rem, 0.42rem);
   }
 
   :root[data-sidebar-scale='75'] .chat-input-row textarea.chat-input {
@@ -2388,7 +2456,7 @@
   }
 
   :root[data-sidebar-scale='75'] .chat-empty-title {
-    font-size: clamp(1.36rem, 1.24rem + 0.5vw, 1.7rem);
+    font-size: clamp(1rem, 0.52rem + 0.55vw, 1.72rem);
   }
 
   :root[data-sidebar-scale='75'] .chat-input-hint {
@@ -2587,7 +2655,7 @@ button.chat-onboarding-tour-block {
    * Seiten & unten wie globale mobile .chat-Regel.
    */
   .chat-main--share-toolbar .chat-panel {
-    padding: 0 0.65rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-main--share-toolbar .chat-panel.is-empty {
@@ -2749,6 +2817,134 @@ button.chat-onboarding-tour-block {
 :root[data-theme='dark'] .chat-main-invite-chip:hover:enabled {
   background: var(--interactive-hover-bg-dark);
   color: var(--interactive-hover-text-dark);
+}
+
+.chat-toolbar-participants-anchor {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.chat-main-toolbar-avatars-trigger {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-main-toolbar-avatars-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent, #6366f1) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-participants-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 96;
+  min-width: min(100vw - 2rem, 420px);
+  max-width: min(100vw - 2rem, 520px);
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: var(--color-surface-elevated);
+  box-shadow:
+    0 2px 10px var(--color-shadow-soft),
+    0 18px 40px var(--color-shadow-strong);
+}
+
+.chat-participants-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-participants-strip--sheet {
+  padding: 0.15rem 0 0.35rem;
+}
+
+.chat-participants-bottom-sheet-body {
+  padding-top: 0.25rem;
+}
+
+.rename-bottom-sheet-panel.chat-participants-bottom-sheet-panel .content-bottom-sheet-body {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.chat-participants-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.28rem;
+  flex: 0 0 auto;
+  min-width: 4.25rem;
+  max-width: 7.5rem;
+}
+
+.chat-participants-card-avatar-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.chat-participants-card-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.chat-participants-card-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--chat-toolbar-avatar-accent, var(--color-surface-soft));
+  color: var(--color-text-secondary);
+}
+
+.chat-participants-card-fn {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--color-text-app);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-participants-card-ln {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--color-text-secondary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-end-sharing-confirm-modal .chat-end-sharing-confirm-text {

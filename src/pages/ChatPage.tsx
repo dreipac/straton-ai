@@ -66,6 +66,7 @@ import { hapticLightImpact } from '../utils/haptics'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
 import { useToast } from '../components/toast/ToastProvider'
+import { getSupabaseClient } from '../integrations/supabase/client'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
 
@@ -129,6 +130,7 @@ export function ChatPage() {
     createNewChat,
     renameChat,
     deleteChat,
+    leaveSharedChatAsMember,
     selectChat,
     composerModelId,
     setComposerModelId,
@@ -153,13 +155,24 @@ export function ChatPage() {
   const canInviteToActiveChat = Boolean(
     user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
   )
+  /** Owner oder eingeladenes Mitglied — Toolbar-Avatare & Mitgliederliste */
+  const isPersistedThreadParticipant = Boolean(
+    activeThread &&
+      !activeThread.isTemporary &&
+      user &&
+      (activeThread.membershipRole === 'owner' || activeThread.membershipRole === 'member'),
+  )
+  const showCollaborationToolbar = isPersistedThreadParticipant
   const hasCollaborators = useMemo(
     () => threadMembers.some((m) => m.role === 'member'),
     [threadMembers],
   )
+  const [participantsOpen, setParticipantsOpen] = useState(false)
+  const participantsAnchorRef = useRef<HTMLDivElement | null>(null)
+  const participantsSheetRef = useRef<ContentBottomSheetHandle | null>(null)
 
   const refreshThreadMembers = useCallback(async () => {
-    if (!activeThread?.id || !canInviteToActiveChat) {
+    if (!activeThread?.id || !isPersistedThreadParticipant) {
       return
     }
     setThreadMembersLoading(true)
@@ -171,15 +184,76 @@ export function ChatPage() {
     } finally {
       setThreadMembersLoading(false)
     }
-  }, [activeThread?.id, canInviteToActiveChat, pushToast])
+  }, [activeThread?.id, isPersistedThreadParticipant, pushToast])
 
   useEffect(() => {
-    if (!canInviteToActiveChat || !activeThread?.id) {
+    if (!isPersistedThreadParticipant || !activeThread?.id) {
       setThreadMembers([])
       return
     }
     void refreshThreadMembers()
-  }, [canInviteToActiveChat, activeThread?.id, refreshThreadMembers])
+  }, [isPersistedThreadParticipant, activeThread?.id, refreshThreadMembers])
+
+  useEffect(() => {
+    if (!activeThread?.id || !user?.id || !isPersistedThreadParticipant) {
+      return
+    }
+    const supabase = getSupabaseClient()
+    const channel = supabase
+      .channel(`chat-thread-members-live-${activeThread.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_thread_members',
+          filter: `thread_id=eq.${activeThread.id}`,
+        },
+        () => {
+          void refreshThreadMembers()
+        },
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [activeThread?.id, user?.id, isPersistedThreadParticipant, refreshThreadMembers])
+
+  useEffect(() => {
+    setParticipantsOpen(false)
+  }, [activeThread?.id])
+
+  useEffect(() => {
+    if (!participantsOpen || isNarrowViewport) {
+      return
+    }
+    function handlePointerDown(e: MouseEvent | TouchEvent) {
+      const el = participantsAnchorRef.current
+      if (!el?.contains(e.target as Node)) {
+        setParticipantsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('touchstart', handlePointerDown, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('touchstart', handlePointerDown, true)
+    }
+  }, [participantsOpen, isNarrowViewport])
+
+  useEffect(() => {
+    if (!participantsOpen || isNarrowViewport) {
+      return
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setParticipantsOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [participantsOpen, isNarrowViewport])
 
   useEffect(() => {
     return () => {
@@ -208,6 +282,39 @@ export function ChatPage() {
   function letterForMemberLabel(label: string): string {
     const t = label.trim()
     return t ? t[0].toUpperCase() : '?'
+  }
+
+  function renderParticipantsStrip(extraClassName?: string) {
+    return (
+      <div
+        className={['chat-participants-strip', extraClassName].filter(Boolean).join(' ')}
+        role="list"
+      >
+        {membersForToolbarFull.map((m) => {
+          const fn = (m.firstName ?? '').trim() || '–'
+          const ln = (m.lastName ?? '').trim()
+          const accent = toolbarAvatarAccentForUser(m.userId)
+          return (
+            <div key={m.userId} className="chat-participants-card" role="listitem">
+              <div
+                className="chat-participants-card-avatar-wrap"
+                style={{ ['--chat-toolbar-avatar-accent' as string]: accent }}
+              >
+                {m.avatarUrl ? (
+                  <img src={m.avatarUrl} alt="" className="chat-participants-card-avatar-img" />
+                ) : (
+                  <span className="chat-participants-card-avatar-fallback" aria-hidden="true">
+                    {letterForMemberLabel(displayNameForMember(m))}
+                  </span>
+                )}
+              </div>
+              <span className="chat-participants-card-fn">{fn}</span>
+              <span className="chat-participants-card-ln">{ln || '\u00a0'}</span>
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   function handleEndSharingSheetExitComplete() {
@@ -272,6 +379,7 @@ export function ChatPage() {
     if (!activeThread?.id) {
       return
     }
+    setParticipantsOpen(false)
     if (hasCollaborators) {
       if (isNarrowViewport) {
         setEndSharingConfirmOpen(true)
@@ -283,16 +391,34 @@ export function ChatPage() {
     setInviteModalOpen(true)
   }
 
+  function handleToolbarAvatarsClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    e.stopPropagation()
+    if (membersForToolbarFull.length === 0) {
+      return
+    }
+    if (isNarrowViewport) {
+      setParticipantsOpen(true)
+    } else {
+      setParticipantsOpen((open) => !open)
+    }
+  }
+
+  function handleParticipantsSheetExitComplete() {
+    setParticipantsOpen(false)
+  }
+
+  /** Gleiche Filterlogik wie Toolbar-Stapel; für Popover/Sheet alle Teilnehmer */
+  const membersForToolbarFull = useMemo(() => {
+    return hasCollaborators ? threadMembers : threadMembers.filter((m) => m.userId !== user?.id)
+  }, [threadMembers, hasCollaborators, user?.id])
+
   const toolbarAvatars = useMemo(() => {
     const max = 6
-    /** Eigenes Avatar nur anzeigen, wenn der Chat freigegeben ist (mind. ein weiterer Teilnehmer). */
-    const membersForToolbar = hasCollaborators
-      ? threadMembers
-      : threadMembers.filter((m) => m.userId !== user?.id)
-    const list = membersForToolbar.slice(0, max)
-    const overflow = membersForToolbar.length - list.length
+    const list = membersForToolbarFull.slice(0, max)
+    const overflow = membersForToolbarFull.length - list.length
     return { list, overflow }
-  }, [threadMembers, hasCollaborators, user?.id])
+  }, [membersForToolbarFull])
+
   const [guestComposerModelId, setGuestComposerModelId] = useState<ChatComposerModelId>(() =>
     parseStoredComposerModelId(
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
@@ -319,6 +445,13 @@ export function ChatPage() {
     [openMenuThreadId, threads],
   )
   const ownsThreadForMenu = Boolean(user && threadForMenu && isThreadOwner(threadForMenu, user.id))
+  /** Freigegebenen Chat als eingeladenes Mitglied nur für sich aus der Liste entfernen */
+  const canLeaveSharedChatForMenu = Boolean(
+    user &&
+      threadForMenu &&
+      !threadForMenu.isTemporary &&
+      threadForMenu.membershipRole === 'member',
+  )
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
     null,
   )
@@ -1194,59 +1327,83 @@ export function ChatPage() {
         </div>
       </aside>
 
-      <section className={`chat-main${canInviteToActiveChat ? ' chat-main--share-toolbar' : ''}`}>
-        {canInviteToActiveChat ? (
+      <section className={`chat-main${showCollaborationToolbar ? ' chat-main--share-toolbar' : ''}`}>
+        {showCollaborationToolbar ? (
           <div className="chat-main-toolbar">
             <div className="chat-main-toolbar-share-row">
               {!threadMembersLoading && toolbarAvatars.list.length > 0 ? (
-                <div className="chat-main-toolbar-avatars" aria-label="Teilnehmer im Chat">
-                  {toolbarAvatars.list.map((m, index) => {
-                    const name = displayNameForMember(m)
-                    const accent = toolbarAvatarAccentForUser(m.userId)
-                    return (
-                      <div
-                        key={m.userId}
-                        className="chat-main-toolbar-avatar-wrap"
-                        style={{
-                          zIndex: index + 1,
-                          ['--chat-toolbar-avatar-accent' as string]: accent,
-                        }}
-                        title={name}
-                      >
-                        {m.avatarUrl ? (
-                          <img
-                            className="chat-main-toolbar-avatar-img"
-                            src={m.avatarUrl}
-                            alt=""
-                          />
-                        ) : (
-                          <span className="chat-main-toolbar-avatar-fallback" aria-hidden="true">
-                            {letterForMemberLabel(name)}
-                          </span>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {toolbarAvatars.overflow > 0 ? (
-                    <span className="chat-main-toolbar-avatar-overflow">+{toolbarAvatars.overflow}</span>
+                <div ref={participantsAnchorRef} className="chat-toolbar-participants-anchor">
+                  <button
+                    type="button"
+                    className="chat-main-toolbar-avatars-trigger"
+                    onClick={handleToolbarAvatarsClick}
+                    aria-expanded={participantsOpen}
+                    aria-haspopup="dialog"
+                    aria-label="Alle Teilnehmer anzeigen"
+                  >
+                    <div className="chat-main-toolbar-avatars" aria-hidden="true">
+                      {toolbarAvatars.list.map((m, index) => {
+                        const name = displayNameForMember(m)
+                        const accent = toolbarAvatarAccentForUser(m.userId)
+                        return (
+                          <div
+                            key={m.userId}
+                            className="chat-main-toolbar-avatar-wrap"
+                            style={{
+                              zIndex: index + 1,
+                              ['--chat-toolbar-avatar-accent' as string]: accent,
+                            }}
+                            title={name}
+                          >
+                            {m.avatarUrl ? (
+                              <img
+                                className="chat-main-toolbar-avatar-img"
+                                src={m.avatarUrl}
+                                alt=""
+                              />
+                            ) : (
+                              <span className="chat-main-toolbar-avatar-fallback" aria-hidden="true">
+                                {letterForMemberLabel(name)}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {toolbarAvatars.overflow > 0 ? (
+                        <span className="chat-main-toolbar-avatar-overflow">
+                          +{toolbarAvatars.overflow}
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                  {participantsOpen && !isNarrowViewport ? (
+                    <div
+                      className="chat-participants-popover"
+                      role="dialog"
+                      aria-label="Teilnehmer im Chat"
+                    >
+                      {renderParticipantsStrip()}
+                    </div>
                   ) : null}
                 </div>
               ) : null}
-              <button
-                type="button"
-                className="chat-main-invite-chip"
-                onClick={() => handleShareChipClick()}
-                disabled={shareActionBusy}
-                aria-label={hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}
-              >
-                <img
-                  className="ui-icon ui-icon-md chat-main-invite-chip-icon"
-                  src={hasCollaborators ? deleteIcon : userAddIcon}
-                  alt=""
-                  aria-hidden="true"
-                />
-                <span>{hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}</span>
-              </button>
+              {canInviteToActiveChat ? (
+                <button
+                  type="button"
+                  className="chat-main-invite-chip"
+                  onClick={() => handleShareChipClick()}
+                  disabled={shareActionBusy}
+                  aria-label={hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}
+                >
+                  <img
+                    className="ui-icon ui-icon-md chat-main-invite-chip-icon"
+                    src={hasCollaborators ? deleteIcon : userAddIcon}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span>{hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}</span>
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1333,6 +1490,19 @@ export function ChatPage() {
               {shareActionBusy ? 'Wird beendet…' : 'Freigabe beenden'}
             </button>
           </div>
+        </ContentBottomSheet>
+      ) : null}
+      {isNarrowViewport && showCollaborationToolbar ? (
+        <ContentBottomSheet
+          ref={participantsSheetRef}
+          open={participantsOpen}
+          onExitComplete={handleParticipantsSheetExitComplete}
+          title="Teilnehmer"
+          showCloseButton={false}
+          panelClassName="chat-participants-bottom-sheet-panel"
+          bodyClassName="chat-participants-bottom-sheet-body"
+        >
+          {renderParticipantsStrip('chat-participants-strip--sheet')}
         </ContentBottomSheet>
       ) : null}
       <button
@@ -1518,6 +1688,24 @@ export function ChatPage() {
                   },
                 ]
               : []),
+            ...(canLeaveSharedChatForMenu
+              ? [
+                  {
+                    id: 'leave-share',
+                    label: 'Für mich entfernen',
+                    iconSrc: logoutIcon,
+                    variant: 'danger' as const,
+                    onClick: async () => {
+                      const id = openMenuThreadId
+                      closeThreadActionMenu()
+                      if (id) {
+                        await leaveSharedChatAsMember(id)
+                        pushToast('Freigegebener Chat entfernt. Du hast keinen Zugriff mehr.')
+                      }
+                    },
+                  },
+                ]
+              : []),
           ]}
         />
       ) : null}
@@ -1553,6 +1741,22 @@ export function ChatPage() {
               }}
             >
               Löschen
+            </MenuItem>
+          ) : null}
+          {canLeaveSharedChatForMenu ? (
+            <MenuItem
+              iconSrc={logoutIcon}
+              danger
+              onClick={async () => {
+                const id = openMenuThreadId
+                closeThreadActionMenu()
+                if (id) {
+                  await leaveSharedChatAsMember(id)
+                  pushToast('Freigegebener Chat entfernt. Du hast keinen Zugriff mehr.')
+                }
+              }}
+            >
+              Für mich entfernen
             </MenuItem>
           ) : null}
         </ContextMenu>

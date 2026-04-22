@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
-import { CHAT_THREADS_REFRESH_EVENT } from '../constants/events'
+import {
+  CHAT_THREADS_REFRESH_EVENT,
+  type ChatThreadsRefreshDetail,
+} from '../constants/events'
 import {
   hasExcelSpecMarkers,
   normalizeExcelSpecForExport,
@@ -27,6 +30,7 @@ import {
   createChatMessage,
   createChatThread,
   deleteChatThread,
+  leaveSharedChatThreadMembership,
   listChatThreads,
   listMessagesByThreadIds,
   mapMessage,
@@ -137,7 +141,11 @@ export function useChat(
   const canSend = useMemo(() => !isSending, [isSending])
 
   const refreshThreadsFromServer = useCallback(
-    async (currentUserId: string, preserveActiveThread: boolean) => {
+    async (
+      currentUserId: string,
+      preserveActiveThread: boolean,
+      preferThreadId?: string | null,
+    ) => {
       const nextThreads = await listChatThreads(currentUserId)
       if (nextThreads.length > 0) {
         const allMessages = await listMessagesByThreadIds(nextThreads.map((thread) => thread.id))
@@ -148,6 +156,12 @@ export function useChat(
 
       setThreads(nextThreads)
       setActiveThreadId((currentId) => {
+        if (
+          preferThreadId &&
+          nextThreads.some((thread) => thread.id === preferThreadId)
+        ) {
+          return preferThreadId
+        }
         if (!preserveActiveThread) {
           return null
         }
@@ -237,8 +251,13 @@ export function useChat(
     }
     const currentUserId = userId
 
-    function handleThreadsRefresh() {
-      void refreshThreadsFromServer(currentUserId, true)
+    function handleThreadsRefresh(ev: Event) {
+      let prefer: string | undefined
+      const ce = ev as CustomEvent<ChatThreadsRefreshDetail>
+      if (ce.detail && typeof ce.detail.selectThreadId === 'string' && ce.detail.selectThreadId) {
+        prefer = ce.detail.selectThreadId
+      }
+      void refreshThreadsFromServer(currentUserId, true, prefer)
     }
 
     window.addEventListener(CHAT_THREADS_REFRESH_EVENT, handleThreadsRefresh as EventListener)
@@ -397,6 +416,43 @@ export function useChat(
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Chat konnte nicht gelöscht werden.')
+    }
+  }
+
+  async function leaveSharedChatAsMember(threadId: string) {
+    if (!userId) {
+      return
+    }
+
+    const targetThread = threads.find((thread) => thread.id === threadId)
+    if (
+      targetThread?.isTemporary ||
+      targetThread?.membershipRole !== 'member'
+    ) {
+      return
+    }
+
+    setError(null)
+
+    try {
+      await leaveSharedChatThreadMembership(threadId, userId)
+
+      setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+
+      setMessagesByThreadId((prev) => {
+        const nextState = { ...prev }
+        delete nextState[threadId]
+        return nextState
+      })
+
+      setActiveThreadId((currentId) => {
+        if (currentId !== threadId) {
+          return currentId
+        }
+        return null
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Freigabe konnte nicht beendet werden.')
     }
   }
 
@@ -733,6 +789,7 @@ export function useChat(
     createNewChat,
     renameChat,
     deleteChat,
+    leaveSharedChatAsMember,
     selectChat,
     canSend,
     composerModelId: effectiveComposerModelId,

@@ -2,6 +2,13 @@
   --sidebar-width: 300px;
 }
 
+/* Gleiche proportionale Sidebar wie Chat (Lernpfad nutzt dieselbe Shell; collapsed bleibt layout.css) */
+@media (min-width: 861px) {
+  .learn-shell {
+    --sidebar-width: clamp(232px, 18vw + 108px, 300px);
+  }
+}
+
 .learn-main {
   padding: clamp(1rem, 1.1vw + 0.75rem, 1.85rem) clamp(1rem, 1.4vw + 0.65rem, 2rem);
   overflow-y: auto;

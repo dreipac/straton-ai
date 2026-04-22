@@ -191,6 +191,20 @@ export async function deleteChatThread(threadId: string): Promise<void> {
   }
 }
 
+/** Eingeladenes Mitglied entfernt nur seine Zeile — Chat bleibt für andere bestehen (RLS: user_id = auth.uid()). */
+export async function leaveSharedChatThreadMembership(threadId: string, userId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase
+    .from('chat_thread_members')
+    .delete()
+    .eq('thread_id', threadId)
+    .eq('user_id', userId)
+
+  if (error) {
+    throw error
+  }
+}
+
 export async function deleteEmptyChatThreadsByUserId(userId: string): Promise<number> {
   const supabase = getSupabaseClient()
 

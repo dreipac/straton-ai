@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
-import { CHAT_THREADS_REFRESH_EVENT } from '../../chat/constants/events'
+import {
+  CHAT_THREADS_REFRESH_EVENT,
+  type ChatThreadsRefreshDetail,
+} from '../../chat/constants/events'
 import {
   acceptChatInvitation,
   declineChatInvitation,
@@ -43,8 +46,12 @@ export function ChatInvitationsSection({ userId }: ChatInvitationsSectionProps) 
   async function handleAccept(id: string) {
     setBusyId(id)
     try {
-      await acceptChatInvitation(id)
-      window.dispatchEvent(new Event(CHAT_THREADS_REFRESH_EVENT))
+      const threadId = await acceptChatInvitation(id)
+      window.dispatchEvent(
+        new CustomEvent<ChatThreadsRefreshDetail>(CHAT_THREADS_REFRESH_EVENT, {
+          detail: { selectThreadId: threadId },
+        }),
+      )
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Beitreten fehlgeschlagen.')
