@@ -1670,7 +1670,7 @@
     gap: 0.7rem;
     /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
     padding:
-      env(safe-area-inset-top, 0px) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      env(safe-area-inset-top, 0px) 0.65rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-panel.is-empty {
@@ -1692,6 +1692,11 @@
     gap: 1rem;
     box-sizing: border-box;
     padding: 0 0.5rem;
+  }
+
+  /* Neuer Chat: bei Tastatur/Fokus wie „Chat mit Inhalt“ — Pille ans untere Ende, nicht in der Mitte über der Tastatur */
+  .chat-panel.is-empty .chat-empty-compose:focus-within {
+    justify-content: flex-end;
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -1725,7 +1730,7 @@
 
   .chat-panel:not(.is-empty) .chat-input-row {
     position: sticky;
-    bottom: 0.55rem;
+    bottom: 0.35rem;
     z-index: 6;
   }
 
@@ -2655,7 +2660,7 @@ button.chat-onboarding-tour-block {
    * Seiten & unten wie globale mobile .chat-Regel.
    */
   .chat-main--share-toolbar .chat-panel {
-    padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    padding: 0 0.65rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-main--share-toolbar .chat-panel.is-empty {
