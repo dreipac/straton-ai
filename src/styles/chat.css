@@ -84,17 +84,6 @@
   gap: clamp(0.65rem, 1.2vw + 0.4rem, 0.9rem);
 }
 
-/* Desktop / breit: Spacer nur für Mobil-Animation; Kinder wie zuvor im Grid der Compose-Fläche */
-@media (min-width: 861px) {
-  .chat-empty-leading-spacer {
-    display: none;
-  }
-
-  .chat-empty-body {
-    display: contents;
-  }
-}
-
 .chat-empty-title {
   margin: 0;
   text-align: left;
@@ -1691,51 +1680,22 @@
     min-height: 0;
   }
 
+  /*
+   * Leerer Chat: Begrüßung oben, Composer unten — kein Wechsel center ↔ flex-end beim Fokus,
+   * sonst springt die Seite (Viewport-Scroll + Layoutumbruch).
+   */
   .chat-panel.is-empty .chat-empty-compose {
     min-height: 100%;
     width: 100%;
     max-width: min(760px, 100%);
     justify-self: center;
-    display: grid;
-    grid-template-rows: 1fr auto;
-    align-items: stretch;
-    column-gap: 0;
-    row-gap: 0;
-    box-sizing: border-box;
-    padding: 0 0.5rem;
-    transition:
-      grid-template-rows 0.42s cubic-bezier(0.25, 0.82, 0.3, 1),
-      padding-bottom 0.42s cubic-bezier(0.25, 0.82, 0.3, 1);
-  }
-
-  .chat-panel.is-empty .chat-empty-leading-spacer {
-    min-height: 0;
-    overflow: hidden;
-    pointer-events: none;
-  }
-
-  .chat-panel.is-empty .chat-empty-body {
     display: flex;
     flex-direction: column;
+    justify-content: flex-start;
     align-items: flex-start;
     gap: 1rem;
-    min-height: 0;
-    width: 100%;
-  }
-
-  /*
-   * Neuer Chat: Zeile über dem Block schrumpft animiert (statt hart center → flex-end).
-   * padding-bottom: Abstand zur Tastatur-/Accessory-Leiste.
-   */
-  .chat-panel.is-empty .chat-empty-compose:focus-within {
-    grid-template-rows: 0fr auto;
-    padding-bottom: max(1.05rem, calc(0.35rem + env(safe-area-inset-bottom, 0px)));
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .chat-panel.is-empty .chat-empty-compose {
-      transition: none;
-    }
+    box-sizing: border-box;
+    padding: 0 0.5rem max(1.05rem, calc(0.35rem + env(safe-area-inset-bottom, 0px)));
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -1748,7 +1708,7 @@
 
   .chat-panel.is-empty .chat-input-row.is-centered {
     align-self: stretch;
-    margin-top: 0;
+    margin-top: auto;
     margin-bottom: 0;
     position: static;
     bottom: auto;
