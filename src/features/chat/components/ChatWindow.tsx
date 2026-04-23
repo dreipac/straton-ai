@@ -146,6 +146,36 @@ export function ChatWindow({
     }
   }, [])
 
+  /**
+   * iOS PWA / Mobile: Wenn die Tastatur offen ist, schrumpft `visualViewport` — das Layout-Viewport
+   * bleibt aber hoch; die Pille würde optisch unter der Tastatur landen. `innerHeight - offsetTop - height`
+   * liefert die verdeckte Fläche am unteren Rand; als padding-bottom hebt die Pille mit.
+   */
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) {
+      return
+    }
+    const key = '--chat-visual-keyboard-inset'
+    function sync() {
+      const v = window.visualViewport
+      if (!v) {
+        return
+      }
+      const innerH = window.innerHeight
+      const overlap = Math.max(0, innerH - v.offsetTop - v.height)
+      document.documentElement.style.setProperty(key, `${overlap}px`)
+    }
+    sync()
+    vv.addEventListener('resize', sync)
+    vv.addEventListener('scroll', sync)
+    return () => {
+      vv.removeEventListener('resize', sync)
+      vv.removeEventListener('scroll', sync)
+      document.documentElement.style.removeProperty(key)
+    }
+  }, [])
+
   const MAX_INPUT_HEIGHT_PX = 220
 
   function adjustComposeHeight() {

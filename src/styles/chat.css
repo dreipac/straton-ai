@@ -1670,7 +1670,8 @@
     gap: 0.7rem;
     /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
     padding:
-      env(safe-area-inset-top, 0px) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      env(safe-area-inset-top, 0px) 0.65rem
+      calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
   .chat-panel.is-empty {
@@ -1849,13 +1850,15 @@
   @media (display-mode: standalone), (display-mode: fullscreen) {
     .chat-panel {
       padding:
-        env(safe-area-inset-top, 0px) 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
+        env(safe-area-inset-top, 0px) 0.65rem
+        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
     /* Neuer Chat: Panel-Boden minimal enger als bei Threads + kein zweites safe-area im Compose */
     .chat-panel.is-empty {
       padding:
-        env(safe-area-inset-top, 0px) 0.65rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
+        env(safe-area-inset-top, 0px) 0.65rem
+        calc(0.4rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
     .chat-panel:not(.is-empty) .chat-input-row {
@@ -2704,17 +2707,18 @@ button.chat-onboarding-tour-block {
    * Seiten & unten wie globale mobile .chat-Regel.
    */
   .chat-main--share-toolbar .chat-panel {
-    padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
   @media (display-mode: standalone), (display-mode: fullscreen) {
     .chat-main--share-toolbar .chat-panel {
-      padding: 0 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
+      padding: 0 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
     .chat-main--share-toolbar .chat-panel.is-empty {
       padding:
-        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
+        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem
+        calc(0.4rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
   }
 
