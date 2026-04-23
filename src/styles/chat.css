@@ -1668,7 +1668,10 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    /* Safe Area unten hier (mobil kein #root-padding); sonst wirkt die Höhe unter dem Home-Indicator zu kurz */
+    /*
+     * Unten: Safe Area + festes Padding + optional `--chat-visual-keyboard-inset` (JS / visualViewport),
+     * wenn die Tastatur den sichtbaren Bereich überdeckt — ohne Änderung an globalen dvh/lvh-Werten.
+     */
     padding:
       env(safe-area-inset-top, 0px) 0.65rem
       calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
@@ -1854,11 +1857,11 @@
         calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
-    /* Neuer Chat: Panel-Boden minimal enger als bei Threads + kein zweites safe-area im Compose */
+    /* Neuer Chat: etwas Luft für Pille + KI-Hinweis; Keyboard-Abstand kommt über --chat-visual-keyboard-inset */
     .chat-panel.is-empty {
       padding:
         env(safe-area-inset-top, 0px) 0.65rem
-        calc(0.4rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
     .chat-panel:not(.is-empty) .chat-input-row {
@@ -1866,7 +1869,11 @@
     }
 
     .chat-panel.is-empty .chat-empty-compose {
-      padding: 0 0.5rem 0.1rem;
+      padding: 0 0.5rem 0.22rem;
+    }
+
+    .chat-panel.is-empty .chat-input-hint {
+      margin-top: 0.08rem;
     }
   }
 
@@ -2718,7 +2725,7 @@ button.chat-onboarding-tour-block {
     .chat-main--share-toolbar .chat-panel.is-empty {
       padding:
         calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem
-        calc(0.4rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
   }
 
