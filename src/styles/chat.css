@@ -1677,11 +1677,17 @@
       calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
+  /*
+   * Leerer Chat: Kein `--chat-visual-keyboard-inset` am Panel — der Flex-Block mit min-height:100%
+   * verhält sich anders als der Thread mit sticky-Composer; das Inset liegt nur auf .chat-empty-compose.
+   */
   .chat-panel.is-empty {
     place-items: stretch;
     align-content: stretch;
     grid-template-rows: 1fr;
     min-height: 0;
+    padding:
+      env(safe-area-inset-top, 0px) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
   /*
@@ -1699,8 +1705,11 @@
     align-items: stretch;
     gap: 1rem;
     box-sizing: border-box;
-    /* Nur kleiner Innenabstand — Safe Area liegt bereits am .chat-panel (sonst doppelte Home-Indicator-Lücke auf iPhone). */
-    padding: 0 0.5rem 0.28rem;
+    /*
+     * Tastatur: Inset hier (unter Pille + Hinweis), nicht am äußeren Panel — sonst greift es auf iOS im leeren Chat oft nicht.
+     * Safe Area nur am Panel.
+     */
+    padding: 0 0.5rem calc(0.28rem + var(--chat-visual-keyboard-inset, 0px));
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -1842,8 +1851,19 @@
     display: none;
   }
 
+  /*
+   * Hinweis bei Fokus ausblenden, aber Platzbelegung beibehalten — sonst kollabiert die Zeile während die
+   * Tastatur einfährt und das Layout/inset stimmen nicht mehr (normaler Chat nutzt sticky, neuer Chat nicht).
+   */
   .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-input-hint {
-    display: none;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+    min-height: 2.65rem;
+    margin: 0 auto;
+    padding: 0 0.85rem;
+    color: transparent;
   }
 
   /*
@@ -1857,11 +1877,10 @@
         calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
     }
 
-    /* Neuer Chat: etwas Luft für Pille + KI-Hinweis; Keyboard-Abstand kommt über --chat-visual-keyboard-inset */
+    /* Leerer Chat: kein Keyboard-Inset am Panel (siehe .chat-empty-compose). */
     .chat-panel.is-empty {
       padding:
-        env(safe-area-inset-top, 0px) 0.65rem
-        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+        env(safe-area-inset-top, 0px) 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
     }
 
     .chat-panel:not(.is-empty) .chat-input-row {
@@ -1869,7 +1888,7 @@
     }
 
     .chat-panel.is-empty .chat-empty-compose {
-      padding: 0 0.5rem 0.22rem;
+      padding: 0 0.5rem calc(0.22rem + var(--chat-visual-keyboard-inset, 0px));
     }
 
     .chat-panel.is-empty .chat-input-hint {
@@ -2717,6 +2736,12 @@ button.chat-onboarding-tour-block {
     padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
+  /* Neuer Chat: kein Keyboard-Inset am Panel — gleiche Logik wie global .chat-panel.is-empty */
+  .chat-main--share-toolbar .chat-panel.is-empty {
+    padding:
+      calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
   @media (display-mode: standalone), (display-mode: fullscreen) {
     .chat-main--share-toolbar .chat-panel {
       padding: 0 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
@@ -2724,13 +2749,8 @@ button.chat-onboarding-tour-block {
 
     .chat-main--share-toolbar .chat-panel.is-empty {
       padding:
-        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem
-        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
     }
-  }
-
-  .chat-main--share-toolbar .chat-panel.is-empty {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 0.35rem);
   }
 
   /*
