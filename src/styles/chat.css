@@ -1709,7 +1709,8 @@
      * Tastatur: Inset hier (unter Pille + Hinweis), nicht am äußeren Panel — sonst greift es auf iOS im leeren Chat oft nicht.
      * Safe Area nur am Panel.
      */
-    padding: 0 0.5rem calc(0.28rem + var(--chat-visual-keyboard-inset, 0px));
+    /* Inset leicht unter 100 % skalieren — Messwert wirkt im Flex-Layout oft etwas großzügig vs. sticky-Thread */
+    padding: 0 0.5rem calc(0.1rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88));
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -1888,7 +1889,7 @@
     }
 
     .chat-panel.is-empty .chat-empty-compose {
-      padding: 0 0.5rem calc(0.22rem + var(--chat-visual-keyboard-inset, 0px));
+      padding: 0 0.5rem calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88));
     }
 
     .chat-panel.is-empty .chat-input-hint {

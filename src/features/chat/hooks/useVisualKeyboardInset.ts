@@ -29,8 +29,8 @@ export function useVisualKeyboardInset(): void {
 
     function apply() {
       const px = obscuredBottomPx()
-      /** Kleiner Puffer: sonst schneidet iOS die Pille / Accessory-Leiste noch an. */
-      const padded = px > 0 ? px + 10 : 0
+      /** Kleiner Puffer; zu groß = zu viel Luft zur Tastatur im leeren Chat (Inset liegt dort am Compose). */
+      const padded = px > 0 ? px + 4 : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
