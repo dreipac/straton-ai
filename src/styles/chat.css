@@ -1696,7 +1696,7 @@
     gap: 1rem;
     box-sizing: border-box;
     /* Nur kleiner Innenabstand — Safe Area liegt bereits am .chat-panel (sonst doppelte Home-Indicator-Lücke auf iPhone). */
-    padding: 0 0.5rem 0.16rem;
+    padding: 0 0.5rem 0.28rem;
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -1855,15 +1855,15 @@
     /* Neuer Chat: Panel-Boden minimal enger als bei Threads + kein zweites safe-area im Compose */
     .chat-panel.is-empty {
       padding:
-        env(safe-area-inset-top, 0px) 0.65rem calc(0.26rem + env(safe-area-inset-bottom, 0px));
+        env(safe-area-inset-top, 0px) 0.65rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
     }
 
     .chat-panel:not(.is-empty) .chat-input-row {
-      bottom: 0.32rem;
+      bottom: 0.38rem;
     }
 
     .chat-panel.is-empty .chat-empty-compose {
-      padding: 0 0.5rem 0;
+      padding: 0 0.5rem 0.1rem;
     }
   }
 
@@ -2714,7 +2714,7 @@ button.chat-onboarding-tour-block {
 
     .chat-main--share-toolbar .chat-panel.is-empty {
       padding:
-        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(0.26rem + env(safe-area-inset-bottom, 0px));
+        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
     }
   }
 
