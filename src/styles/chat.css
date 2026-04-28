@@ -64,7 +64,8 @@
   justify-self: stretch;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
+  /* Kein CSS-smooth: sonst wirkt auch programmatisches scrollTo «weich» (z. B. nach Chat-Öffnen). */
+  scroll-behavior: auto;
   padding: 1.1rem 0 0;
 }
 
@@ -87,13 +88,41 @@
 .chat-empty-title {
   margin: 0;
   text-align: left;
-  color: #1e293b;
   /* Fallback ohne Container-Query: mit Viewport wieder anwachsen */
   font-size: clamp(1rem, 0.45rem + 0.65vw, 1.85rem);
   line-height: 1.22;
   font-weight: 600;
   white-space: normal;
   max-width: min(42rem, 100%);
+}
+
+/* Hellmodus: Vorname-Zeile schwarz, Frage grau */
+.chat-empty-title-greet {
+  color: #0f172a;
+}
+
+.chat-empty-title-ask {
+  color: #64748b;
+}
+
+/* Desktop: Leerzeichen vor der Frage (eine Zeile) */
+@media (min-width: 861px) {
+  .chat-empty-title-ask::before {
+    content: ' ';
+  }
+}
+
+/* Darkmode: erste Zeile weiss, Frage weiss 30 % Deckkraft */
+:root[data-theme='dark'] .chat-empty-title-greet {
+  color: #ffffff;
+}
+
+:root[data-theme='dark'] .chat-empty-title-ask {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-empty-title-ask {
+  color: rgba(253, 186, 210, 0.55);
 }
 
 /*
@@ -191,20 +220,9 @@
   animation: chat-message-latest-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Senden-Button: during.svg während KI-Antwort */
+/* during.svg: Größe unten bei Submit-Button (höhere Spezifität — sonst setzt .chat-input-row > button .chat-send-icon) */
 .chat-send-icon--during {
-  animation: chat-send-during-pulse 0.85s ease-in-out infinite alternate;
-}
-
-@keyframes chat-send-during-pulse {
-  from {
-    opacity: 0.82;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  animation: none;
 }
 
 .chat-message--pending {
@@ -257,6 +275,10 @@
   background: color-mix(in srgb, #94a3b8 75%, #60a5fa);
 }
 
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-pending-loader-dot {
+  background: color-mix(in srgb, #fda4af 58%, #94a3b8);
+}
+
 :root[data-theme='dark'] .chat-send-icon--during {
   filter: invert(1) brightness(1.05);
 }
@@ -267,10 +289,6 @@
   }
 
   .chat-message--latest {
-    animation: none;
-  }
-
-  .chat-send-icon--during {
     animation: none;
   }
 
@@ -1102,6 +1120,8 @@
 .chat-panel {
   --chat-input-radius: clamp(26px, 1.35vw + 14px, 38px);
   --chat-chip-radius: 16px;
+  --chat-composer-corner-top-left: rgba(148, 163, 184, 0.82);
+  --chat-composer-corner-bottom-right: rgba(148, 163, 184, 0.82);
   /* Composer: Anhang + Senden (Light) — gleiche Fläche wie .chat-input-row button, Icons bleiben über --icon-filter lesbar */
   --chat-composer-action-bg: #f1f5f9;
   --chat-composer-action-bg-hover: #e8eef5;
@@ -1111,6 +1131,7 @@
 
 .chat-input-row {
   --chat-composer-icon-size: clamp(22px, 0.55vw + 16px, 28px);
+  --chat-composer-surface: #ffffff;
   position: relative;
   display: flex;
   align-items: flex-end;
@@ -1119,11 +1140,20 @@
   justify-self: center;
   padding: clamp(0.3rem, 0.42vw + 0.22rem, 0.48rem) clamp(0.36rem, 0.5vw + 0.28rem, 0.52rem);
   border-radius: var(--chat-input-radius);
-  border: 1px solid #d9e2ef;
-  background: #ffffff;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--chat-composer-surface), var(--chat-composer-surface)) padding-box,
+    radial-gradient(132% 132% at -2% -2%, var(--chat-composer-corner-top-left) 0%, color-mix(in srgb, var(--chat-composer-corner-top-left) 32%, transparent) 34%, transparent 64%) border-box,
+    radial-gradient(132% 132% at 102% 102%, var(--chat-composer-corner-bottom-right) 0%, color-mix(in srgb, var(--chat-composer-corner-bottom-right) 32%, transparent) 34%, transparent 64%) border-box;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
     0 8px 18px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  transition: box-shadow 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Senden-Ring darf kurz über den Composer-Rand hinaus — nur während Versand */
+.chat-input-row.is-sending {
   overflow: visible;
 }
 
@@ -1147,6 +1177,7 @@
     opacity 180ms ease,
     transform 220ms ease;
   pointer-events: none;
+  display: none;
 }
 
 .chat-input-row.is-centered {
@@ -1154,23 +1185,21 @@
 }
 
 .chat-input-row:focus-within {
-  border-color: color-mix(in srgb, #bfd0ea 75%, #2563eb 25%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 12px 32px color-mix(in srgb, #2563eb 14%, rgba(15, 23, 42, 0.1));
 }
 
 .chat-input-row:focus-within::after {
-  opacity: 1;
-  transform: scaleX(1);
+  opacity: 0;
+  transform: scaleX(0.92);
 }
 
 .chat-input-row.is-sending {
   opacity: 0.96;
   transition:
     opacity 0.28s ease,
-    box-shadow 0.28s ease,
-    border-color 0.28s ease;
+    box-shadow 0.38s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .chat-input-row.is-sending:focus-within {
@@ -1182,6 +1211,10 @@
 @media (prefers-reduced-motion: reduce) {
   .chat-input-row.is-sending {
     opacity: 1;
+  }
+
+  .chat-input-row {
+    transition: none;
   }
 }
 
@@ -1474,6 +1507,14 @@
 
 /* Desktop/Laptop: gestapelte Pille — Abstände (Breite leerer Chat: base + cqi oben, nicht vw bis 760px) */
 @media (min-width: 861px) {
+  /*
+   * KI-Modell-Dropdown sitzt absolute nach oben (.chat-slash-menu); basis .chat-input-row hat overflow:hidden
+   * fürs Pill-Rendering — sonst wird das Menü am oberen Rand der Pille abgeschnitten.
+   */
+  .chat-input-row.chat-input-row--stacked {
+    overflow: visible;
+  }
+
   .chat-input-row--stacked {
     gap: clamp(0.3rem, 0.45vw + 0.2rem, 0.42rem);
     padding: clamp(0.38rem, 0.55vw + 0.26rem, 0.55rem) clamp(0.48rem, 0.65vw + 0.34rem, 0.6rem)
@@ -1505,16 +1546,20 @@
   border-radius: 50%;
   order: 3;
   margin-right: 0.15rem;
-  border: 1px solid var(--chat-composer-action-border);
-  background: var(--chat-composer-action-bg);
-  color: #334155;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  border: none;
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #ffffff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 4px 12px rgba(15, 23, 42, 0.18);
 }
 
 .chat-input-row--stacked > button[type='submit']:hover:enabled {
-  border-color: var(--chat-composer-action-border-hover);
-  background: var(--chat-composer-action-bg-hover);
-  color: var(--interactive-hover-text);
+  border: none;
+  /* Explizit: sonst greift .chat-input-row > button:hover mit neutralem --interactive-hover-bg */
+  background: var(--accent-gradient);
+  filter: brightness(1.12) saturate(1.03);
+  color: var(--accent-fab-fg, #ffffff);
 }
 
 :root[data-theme='dark'] .chat-attach-button {
@@ -1533,15 +1578,108 @@
 /* Wie Anhang: kein sichtbarer Kreisrand (1px #3b4351 wirkte im Dark zu hell) */
 :root[data-theme='dark'] .chat-input-row--stacked > button[type='submit'] {
   border: none !important;
-  background: #202732;
-  color: #e2e8f0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #ffffff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 4px 12px rgba(0, 0, 0, 0.26);
 }
 
 :root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:hover:enabled {
   border: none !important;
-  background: var(--interactive-hover-bg);
-  color: var(--interactive-hover-text);
+  background: var(--accent-gradient);
+  filter: brightness(1.12) saturate(1.03);
+  color: var(--accent-fab-fg, #ffffff);
+}
+
+/*
+ * Ring bleibt am Send-Button: kein transform/scale (sonst «löst» sich der Ring ab).
+ * Nur box-shadow-Spread am Rand — aufbauen und wieder einziehen.
+ */
+@keyframes chat-send-button-ring-attached {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  32% {
+    box-shadow: 0 0 0 5px
+      color-mix(
+        in srgb,
+        color-mix(in srgb, var(--accent-ring-base, #6366f1) 40%, #ffffff 60%) 45%,
+        transparent
+      );
+  }
+  58% {
+    box-shadow: 0 0 0 2px
+      color-mix(
+        in srgb,
+        color-mix(in srgb, var(--accent-ring-base, #6366f1) 40%, #ffffff 60%) 28%,
+        transparent
+      );
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Akzent-Ring nur mobil (Send-Button + Neuer-Chat-FAB) — Desktop ohne Ring-Animation */
+@media (max-width: 860px) {
+  .chat-input-row--stacked.is-sending > button[type='submit'] {
+    position: relative;
+    isolation: isolate;
+    overflow: visible;
+  }
+
+  .chat-input-row--stacked.is-sending > button[type='submit'] .chat-send-icon {
+    position: relative;
+    z-index: 1;
+  }
+
+  .chat-input-row--stacked.is-sending > button[type='submit']::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: transparent;
+    pointer-events: none;
+    z-index: 0;
+    animation: chat-send-button-ring-attached 0.62s cubic-bezier(0.42, 0, 0.2, 1) forwards;
+  }
+
+  /* Mobile Sidebar: «Neuer Chat» FAB — gleicher Accent-Ring wie Senden */
+  .mobile-new-chat-fab.is-new-chat-pending {
+    isolation: isolate;
+    overflow: visible;
+  }
+
+  .mobile-new-chat-fab.is-new-chat-pending > span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mobile-new-chat-fab.is-new-chat-pending::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: transparent;
+    pointer-events: none;
+    z-index: 0;
+    animation: chat-send-button-ring-attached 0.62s cubic-bezier(0.42, 0, 0.2, 1) forwards;
+  }
+}
+
+@media (max-width: 860px) and (prefers-reduced-motion: reduce) {
+  .chat-input-row--stacked.is-sending > button[type='submit']::before {
+    animation: none;
+    box-shadow: none;
+  }
+
+  .mobile-new-chat-fab.is-new-chat-pending::before {
+    animation: none;
+    box-shadow: none;
+  }
 }
 
 .chat-attachment-chips {
@@ -1664,6 +1802,16 @@
   --ui-icon-size: var(--chat-composer-icon-size);
 }
 
+/* Senden: Icon-Farbe folgt Akzent-FAB (--composer-send-icon-filter), nicht globalem --icon-filter */
+.chat-input-row > button[type='submit'] .chat-send-icon {
+  filter: var(--composer-send-icon-filter, brightness(0) invert(1));
+}
+
+.chat-input-row > button[type='submit'] .chat-send-icon.chat-send-icon--during {
+  --ui-icon-size: calc(var(--chat-composer-icon-size) * 0.88);
+  animation: none;
+}
+
 @media (max-width: 860px) {
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
@@ -1719,11 +1867,17 @@
     margin: 0;
     width: 100%;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     justify-content: center;
-    text-align: center;
+    text-align: left;
     font-size: clamp(1.28rem, 5.8vw, 1.68rem);
     line-height: 1.22;
+  }
+
+  .chat-empty-title-ask {
+    display: block;
+    width: 100%;
   }
 
   .chat-panel.is-empty .chat-empty-compose > .error-text {
@@ -1757,8 +1911,10 @@
 
   .chat-panel.is-empty.has-limit-banner .chat-empty-title {
     flex: 0 1 auto;
-    display: block;
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
   }
 
   .chat-panel:not(.is-empty) .chat-input-row {
@@ -1804,12 +1960,29 @@
     white-space: normal;
   }
 
+  /*
+   * Eck-Highlights etwas länger als Desktop (132 %), aber zurückhaltender als ein Full-Bleed-Glow.
+   */
   .chat-input-row {
     width: 100%;
     min-height: 50px;
     padding: 0.35rem 0.4rem;
-    border: none;
-    box-shadow: none;
+    background:
+      linear-gradient(var(--chat-composer-surface), var(--chat-composer-surface)) padding-box,
+      radial-gradient(
+          168% 168% at -2% -2%,
+          var(--chat-composer-corner-top-left) 0%,
+          color-mix(in srgb, var(--chat-composer-corner-top-left) 32%, transparent) 36%,
+          transparent 74%
+        )
+        border-box,
+      radial-gradient(
+          168% 168% at 102% 102%,
+          var(--chat-composer-corner-bottom-right) 0%,
+          color-mix(in srgb, var(--chat-composer-corner-bottom-right) 32%, transparent) 36%,
+          transparent 74%
+        )
+        border-box;
   }
 
   .chat-input-row textarea.chat-input {
@@ -1830,10 +2003,10 @@
 
   .chat-input-row--stacked .chat-attach-button,
   .chat-input-row--stacked > button[type='submit'] {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 41px;
+    height: 41px;
+    min-width: 41px;
+    min-height: 41px;
   }
 
   .chat-input-hint {
@@ -1904,8 +2077,17 @@
 
   .chat-input-row:focus-within,
   .chat-input-row.is-sending:focus-within {
-    border: none;
-    box-shadow: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 12px 32px color-mix(in srgb, #2563eb 14%, rgba(15, 23, 42, 0.1));
+  }
+
+  /* Mobil: Pink-Glass — kein blauer Fokus-Schimmer (#2563eb) auf der Message Box */
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row:focus-within,
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row.is-sending:focus-within {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 12px 34px color-mix(in srgb, rgba(253, 164, 175, 0.38) 44%, rgba(40, 10, 24, 0.44));
   }
 
   .chat-welcome {
@@ -2240,10 +2422,6 @@
   color: #cbd5e1;
 }
 
-:root[data-theme='dark'] .chat-empty-title {
-  color: #f3f4f6;
-}
-
 :root[data-theme='dark'] .chat-input-hint {
   color: #9ca3af;
 }
@@ -2270,6 +2448,17 @@
   opacity: 0.55;
 }
 
+.chat-input-row--stacked > button[type='submit']:disabled {
+  /* --accent-ring-base: echtes Hex (nicht --accent-gradient): color-mix mit Verlauf ist ungültig */
+  background: color-mix(in srgb, var(--accent-ring-base, #6366f1) 72%, #0f172a 28%) !important;
+  color: var(--accent-fab-fg, #ffffff) !important;
+  border-color: transparent !important;
+}
+
+.chat-input-row--stacked > button[type='submit']:disabled .chat-send-icon {
+  opacity: 0.78;
+}
+
 :root[data-theme='dark'] .chat-input-row > button:disabled,
 :root[data-theme='dark'] .chat-input-row .chat-attach-button:disabled,
 :root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:disabled {
@@ -2279,19 +2468,21 @@
 }
 
 :root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:disabled {
+  background: color-mix(in srgb, var(--accent-ring-base, #6366f1) 68%, #020617 32%) !important;
+  color: var(--accent-fab-fg, #ffffff) !important;
   border: none !important;
 }
 
 :root[data-theme='dark'] .chat-input-row {
-  border-color: #303744;
-  background: #151a22;
+  --chat-composer-corner-top-left: rgba(148, 163, 184, 0.42);
+  --chat-composer-corner-bottom-right: rgba(148, 163, 184, 0.42);
+  --chat-composer-surface: #151a22;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 8px 20px rgba(0, 0, 0, 0.24);
 }
 
 :root[data-theme='dark'] .chat-input-row:focus-within {
-  border-color: color-mix(in srgb, #46516a 78%, #38bdf8 22%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 12px 36px color-mix(in srgb, #38bdf8 12%, rgba(0, 0, 0, 0.4));
@@ -2354,49 +2545,85 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attachment-chip {
-  border-color: color-mix(in srgb, #f472b6 32%, #4a3d55);
+  border-color: color-mix(in srgb, #fb7185 38%, rgba(56, 14, 34, 0.65));
   background: linear-gradient(
     160deg,
-    color-mix(in srgb, #f472b6 11%, rgba(30, 22, 38, 0.92)) 0%,
-    color-mix(in srgb, #a855f7 8%, #1e1a24) 100%
+    color-mix(in srgb, #fda4af 14%, rgba(48, 12, 30, 0.92)) 0%,
+    color-mix(in srgb, #f472b6 12%, rgba(36, 8, 22, 0.94)) 100%
   );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 2px 8px rgba(20, 10, 28, 0.4);
+    0 2px 8px rgba(28, 8, 18, 0.38);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attachment-chip-icon {
-  background: color-mix(in srgb, #f472b6 14%, rgba(255, 255, 255, 0.05));
+  background: color-mix(in srgb, #fda4af 16%, rgba(255, 255, 255, 0.05));
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row {
-  background: rgba(45, 22, 56, 0.62);
-  border-color: rgba(244, 114, 182, 0.3);
+  --chat-composer-corner-top-left: rgba(254, 205, 211, 0.5);
+  --chat-composer-corner-bottom-right: rgba(251, 113, 133, 0.44);
+  /* Warmes Pink, R deutlich > B */
+  --chat-composer-surface: rgba(54, 12, 30, 0.78);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-saturation));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 24px rgba(36, 12, 46, 0.42);
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 10px 26px rgba(52, 10, 26, 0.4);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row:focus-within {
-  border-color: rgba(249, 168, 212, 0.55);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 14px 38px color-mix(in srgb, rgba(244, 114, 182, 0.35) 45%, rgba(36, 12, 46, 0.55));
+    0 14px 38px color-mix(in srgb, rgba(251, 113, 133, 0.38) 48%, rgba(44, 10, 24, 0.52));
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row textarea.chat-input {
+  color: #fdf2f8;
+  caret-color: #f9a8d4;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row textarea.chat-input::placeholder {
+  color: rgba(251, 182, 206, 0.46);
+}
+
+/* Ohne :not([type='submit']): Senden soll Akzent/Gradient behalten */
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row > button:not([type='submit']) {
+  border-color: rgba(251, 113, 133, 0.26);
+  background: rgba(44, 10, 26, 0.6);
+  color: #fdf2f8;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row > button:not([type='submit']):hover:enabled {
+  border-color: rgba(249, 168, 212, 0.38);
+  background: rgba(236, 72, 153, 0.26);
+  color: #ffffff;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attach-button {
+  border: none !important;
+  background: rgba(46, 10, 28, 0.74) !important;
+  color: #fdf2f8 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attach-button:hover:enabled {
+  border: none !important;
+  background: rgba(236, 72, 153, 0.32) !important;
+  color: #ffffff !important;
 }
 
 /* OLED/Tiefschwarz: Composer aus theme.css — gleiches Problem wie bei Standard-Dunkel + feste Hex */
 :root[data-theme='dark'][data-theme-variant='black'] .chat-input-row {
-  border-color: var(--color-border);
-  background: var(--input-field-bg);
+  --chat-composer-corner-top-left: color-mix(in srgb, var(--color-border-strong) 75%, transparent);
+  --chat-composer-corner-bottom-right: color-mix(in srgb, var(--color-border-strong) 75%, transparent);
+  --chat-composer-surface: var(--input-field-bg);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.02),
     0 8px 20px var(--color-shadow-strong);
 }
 
 :root[data-theme='dark'][data-theme-variant='black'] .chat-input-row:focus-within {
-  border-color: var(--color-border-strong);
   box-shadow: var(--input-field-shadow-focus);
 }
 
@@ -2423,6 +2650,11 @@
   border-color: transparent !important;
 }
 
+:root[data-theme='dark'][data-theme-variant='black'] .chat-input-row--stacked > button[type='submit']:disabled {
+  background: color-mix(in srgb, var(--accent-ring-base, #6366f1) 66%, #000000 34%) !important;
+  color: var(--accent-fab-fg, #ffffff) !important;
+}
+
 :root[data-theme='dark'][data-theme-variant='black'] .chat-attachment-chip {
   border-color: var(--color-border-strong);
   background: linear-gradient(
@@ -2445,25 +2677,84 @@
   color: var(--color-text-app);
 }
 
-/* Nach Dark/Pink-Glass-Defaults: Mobile ohne Rand und ohne Akzentlinie (Standard + Fokus) */
-@media (max-width: 860px) {
-  :root[data-theme='dark'] .chat-input-row,
-  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row,
+/*
+ * Desktop: Composer nur ebene Fläche (keine Eck-Highlights), ohne Rand — Schatten nur bei Fokus.
+ * Mobil: unverändert mehrteiliger Hintergrund / Rand wie in den Basisregeln.
+ */
+@media (min-width: 861px) {
+  .chat-input-row {
+    background: var(--chat-composer-surface);
+    border: none;
+    box-shadow: none;
+  }
+
+  .chat-input-row:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 12px 32px color-mix(in srgb, #2563eb 14%, rgba(15, 23, 42, 0.1));
+  }
+
+  .chat-input-row.is-sending:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.85),
+      0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  :root[data-theme='dark'] .chat-input-row {
+    border: none;
+    box-shadow: none;
+  }
+
+  :root[data-theme='dark'] .chat-input-row:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 36px color-mix(in srgb, #38bdf8 12%, rgba(0, 0, 0, 0.4));
+  }
+
+  :root[data-theme='dark'] .chat-input-row.is-sending:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 36px color-mix(in srgb, #38bdf8 12%, rgba(0, 0, 0, 0.4));
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: none;
+    box-shadow: none;
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 14px 38px color-mix(in srgb, rgba(251, 113, 133, 0.38) 48%, rgba(40, 10, 26, 0.54));
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row.is-sending:focus-within {
+    border: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 14px 38px color-mix(in srgb, rgba(251, 113, 133, 0.38) 48%, rgba(40, 10, 26, 0.54));
+  }
+
   :root[data-theme='dark'][data-theme-variant='black'] .chat-input-row {
     border: none;
     box-shadow: none;
   }
 
-  :root[data-theme='dark'] .chat-input-row::after {
-    display: none;
-  }
-
-  :root[data-theme='dark'] .chat-input-row:focus-within,
-  :root[data-theme='dark'] .chat-input-row.is-sending:focus-within,
-  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row:focus-within,
   :root[data-theme='dark'][data-theme-variant='black'] .chat-input-row:focus-within {
     border: none;
-    box-shadow: none;
+    box-shadow: var(--input-field-shadow-focus);
+  }
+
+  :root[data-theme='dark'][data-theme-variant='black'] .chat-input-row.is-sending:focus-within {
+    border: none;
+    box-shadow: var(--input-field-shadow-focus);
   }
 }
 
@@ -2473,6 +2764,14 @@
 
 :root[data-theme='dark'] .chat-welcome p {
   color: #9ca3af;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-welcome h1 {
+  color: #fff7fb;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-welcome p {
+  color: rgba(251, 182, 206, 0.72);
 }
 
 @media (min-width: 861px) {

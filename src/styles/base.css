@@ -38,6 +38,8 @@
   );
   /* Mobile FAB «Chat»: Vordergrund auf Akzentfläche (wird von applyAccentPalette gesetzt) */
   --accent-fab-fg: #ffffff;
+  /* Senden-Icon auf Akzent-Kreis (Monochrom-SVG → wird von applyAccentPalette gesetzt) */
+  --composer-send-icon-filter: brightness(0) invert(1);
 }
 
 /*

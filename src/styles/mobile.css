@@ -229,10 +229,32 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-panel {
-  background: rgba(24, 18, 32, 0.94);
+  background: rgba(56, 14, 34, 0.94);
   box-shadow:
-    0 -12px 40px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(244, 114, 182, 0.12);
+    0 -12px 44px rgba(18, 4, 12, 0.52),
+    0 0 0 1px rgba(253, 186, 210, 0.24);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-backdrop {
+  background: rgba(12, 4, 10, 0.58);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-handle {
+  background: rgba(251, 182, 206, 0.42);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-title {
+  color: rgba(216, 168, 188, 0.92);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-action {
+  background: linear-gradient(180deg, rgba(78, 22, 44, 0.94) 0%, rgba(56, 14, 34, 0.92) 100%);
+  color: #fff5f9;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .action-bottom-sheet-action.is-danger {
+  background: linear-gradient(180deg, rgba(92, 26, 38, 0.86) 0%, rgba(62, 16, 30, 0.88) 100%);
+  color: #fecdd3;
 }
 
 /* —— Rename Bottom Sheet (Mobile Chat umbenennen, ~70vh) —— */
@@ -504,10 +526,46 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-panel {
-  background: rgba(24, 18, 32, 0.94);
+  background: rgba(56, 14, 34, 0.94);
   box-shadow:
-    0 -12px 40px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(244, 114, 182, 0.12);
+    0 -12px 44px rgba(18, 4, 12, 0.52),
+    0 0 0 1px rgba(253, 186, 210, 0.24);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-backdrop {
+  background: rgba(12, 4, 10, 0.58);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-handle {
+  background: rgba(251, 182, 206, 0.42);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-heading {
+  color: #fff5f9;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-label {
+  color: #d8a8bc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-input {
+  border-color: rgba(251, 113, 133, 0.3);
+  background: rgba(48, 12, 30, 0.9);
+  color: #fff5f9;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-input:focus-visible {
+  border-color: rgba(251, 182, 206, 0.55);
+  box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.22);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-bottom-sheet-close {
+  color: rgba(216, 168, 188, 0.92);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .beta-notice-sheet-text,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .deploy-update-copy {
+  color: rgba(216, 168, 188, 0.88);
 }
 
 /* —— Profil Vollbild-Sheet (Mobile Sidebar-Badge) —— */
@@ -671,8 +729,8 @@
   justify-content: center;
   font-size: 1.65rem;
   font-weight: 700;
-  background: linear-gradient(145deg, #e2e8f0, #cbd5e1);
-  color: #334155;
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #ffffff);
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.1);
 }
 
@@ -832,8 +890,9 @@ button.profile-full-sheet-row:focus-visible {
 }
 
 :root[data-theme='dark'] .profile-full-sheet-avatar-fallback {
-  background: linear-gradient(145deg, #334155, #1e293b);
-  color: #e2e8f0;
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #ffffff);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 
 :root[data-theme='dark'] .profile-full-sheet-name {
@@ -887,14 +946,35 @@ button.profile-full-sheet-row:focus-visible {
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-panel {
-  background: rgba(22, 11, 30, 0.97);
+  background: rgba(52, 12, 32, 0.97);
   box-shadow:
-    0 -8px 36px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(244, 114, 182, 0.14);
+    0 -8px 40px rgba(18, 4, 12, 0.52),
+    0 0 0 1px rgba(253, 186, 210, 0.22);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-backdrop {
+  background: rgba(12, 4, 10, 0.58);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-close {
-  background: rgba(48, 24, 62, 0.75);
+  background: rgba(82, 22, 46, 0.8);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-title,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-name {
+  color: #fff5f9;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-plan {
+  color: #d8a8bc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-row {
+  color: #fff5f9;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .profile-full-sheet-row-chevron {
+  color: rgba(251, 182, 206, 0.48);
 }
 
 @media (prefers-reduced-motion: reduce) {

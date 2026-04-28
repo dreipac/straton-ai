@@ -148,6 +148,54 @@ export const ACCENT_PALETTES: AccentPalette[] = [
     lineGradient:
       'linear-gradient(90deg, rgba(51, 65, 85, 0), #334155 18%, #475569 58%, rgba(100, 116, 139, 0))',
   },
+  {
+    id: 'solid-blue',
+    label: 'Solid Blue',
+    gradient: '#2563eb',
+    lineGradient: 'linear-gradient(90deg, rgba(37, 99, 235, 0), #2563eb 50%, rgba(37, 99, 235, 0))',
+  },
+  {
+    id: 'solid-violet',
+    label: 'Solid Violet',
+    gradient: '#8b5cf6',
+    lineGradient: 'linear-gradient(90deg, rgba(139, 92, 246, 0), #8b5cf6 50%, rgba(139, 92, 246, 0))',
+  },
+  {
+    id: 'solid-emerald',
+    label: 'Solid Emerald',
+    gradient: '#10b981',
+    lineGradient: 'linear-gradient(90deg, rgba(16, 185, 129, 0), #10b981 50%, rgba(16, 185, 129, 0))',
+  },
+  {
+    id: 'solid-rose',
+    label: 'Solid Rose',
+    gradient: '#f43f5e',
+    lineGradient: 'linear-gradient(90deg, rgba(244, 63, 94, 0), #f43f5e 50%, rgba(244, 63, 94, 0))',
+  },
+  {
+    id: 'solid-amber',
+    label: 'Solid Amber',
+    gradient: '#f59e0b',
+    lineGradient: 'linear-gradient(90deg, rgba(245, 158, 11, 0), #f59e0b 50%, rgba(245, 158, 11, 0))',
+  },
+  {
+    id: 'solid-slate',
+    label: 'Solid Slate',
+    gradient: '#475569',
+    lineGradient: 'linear-gradient(90deg, rgba(71, 85, 105, 0), #475569 50%, rgba(71, 85, 105, 0))',
+  },
+  {
+    id: 'solid-pink',
+    label: 'Pink',
+    gradient: '#ec4899',
+    lineGradient: 'linear-gradient(90deg, rgba(236, 72, 153, 0), #ec4899 50%, rgba(236, 72, 153, 0))',
+  },
+  {
+    id: 'solid-pink-light',
+    label: 'Helles Pink',
+    gradient: '#f9a8d4',
+    lineGradient: 'linear-gradient(90deg, rgba(249, 168, 212, 0), #f9a8d4 50%, rgba(249, 168, 212, 0))',
+  },
 ]
 
 export const DEFAULT_ACCENT_PALETTE_ID = ACCENT_PALETTES[0].id
@@ -161,10 +209,18 @@ export const ACCENT_FAB_FOREGROUND: Record<string, string> = {
   peach: '#0f172a',
   neon: '#0f172a',
   lime: '#0f172a',
+  'solid-amber': '#0f172a',
+  'solid-pink-light': '#0f172a',
 }
 
 export function getAccentPaletteById(accentId: string | null | undefined): AccentPalette {
   return ACCENT_PALETTES.find((palette) => palette.id === accentId) ?? ACCENT_PALETTES[0]
+}
+
+/** Erstes Hex aus Gradient oder Solid — für CSS-Ringe/Schatten (kein `<color>` aus Verlauf möglich). */
+export function accentRingBaseHexFromPaletteGradient(gradient: string): string {
+  const m = gradient.match(/#[0-9a-fA-F]{6}/)
+  return m ? m[0].toLowerCase() : '#6366f1'
 }
 
 export function applyAccentPalette(accentId: string | null | undefined) {
@@ -172,9 +228,13 @@ export function applyAccentPalette(accentId: string | null | undefined) {
   document.documentElement.dataset.accent = palette.id
   document.documentElement.style.setProperty('--accent-gradient', palette.gradient)
   document.documentElement.style.setProperty('--accent-gradient-line', palette.lineGradient)
+  const fabFg = ACCENT_FAB_FOREGROUND[palette.id] ?? '#ffffff'
+  document.documentElement.style.setProperty('--accent-fab-fg', fabFg)
+  document.documentElement.style.setProperty('--accent-ring-base', accentRingBaseHexFromPaletteGradient(palette.gradient))
+  /** Monochrom-SVG auf Senden: weiss bei dunklem FAB-Vordergrund, sonst wie UI-Icons (--icon-filter). */
   document.documentElement.style.setProperty(
-    '--accent-fab-fg',
-    ACCENT_FAB_FOREGROUND[palette.id] ?? '#ffffff',
+    '--composer-send-icon-filter',
+    ACCENT_FAB_FOREGROUND[palette.id] ? 'var(--icon-filter)' : 'brightness(0) invert(1)',
   )
   return palette.id
 }

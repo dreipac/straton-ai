@@ -22,6 +22,7 @@ import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../../learn/utils/documentParser'
+import { hapticLightImpact } from '../../../utils/haptics'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import { ChatComposerModelPicker } from './ChatComposerModelPicker'
 import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
@@ -56,6 +57,37 @@ type QuizAnswerState = {
   value: string
   status: QuizAnswerStatus
   feedback: string
+}
+
+/** Data-URL aus gespeichertem `[BildData:id]…[/BildData]` (lokale Preview-Map fehlt nach Reload). */
+function extractBildDataUrlFromStoredContent(content: string, imageId: string): string | undefined {
+  if (!imageId || !content.includes('[BildData:')) {
+    return undefined
+  }
+  const escaped = imageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`\\[BildData:${escaped}\\]\\s*([\\s\\S]*?)\\s*\\[/BildData\\]`, 'm')
+  const m = content.match(re)
+  const raw = m?.[1]?.trim()
+  if (raw && raw.startsWith('data:')) {
+    return raw
+  }
+  return undefined
+}
+
+function extractDateiFileNamesFromContent(content: string): string[] {
+  if (!content.includes('[Datei:')) {
+    return []
+  }
+  const names: string[] = []
+  const re = /\[Datei:\s*([^\]]+)\]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content)) !== null) {
+    const label = String(m[1] ?? '').trim()
+    if (label) {
+      names.push(label)
+    }
+  }
+  return names
 }
 
 export function ChatWindow({
@@ -95,7 +127,6 @@ export function ChatWindow({
   /** Laufende Schreib-Animation: darf nicht vom „Sofort“-Zweig überschrieben werden. */
   const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
-  const prevThreadKeyForScrollRef = useRef<string | null>(threadKey)
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
   const isAssistantReplyStillAnimating = (() => {
@@ -124,18 +155,16 @@ export function ChatWindow({
       ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content.length}`
       : ''
 
-  /** Sanft zum Ende der Liste scrollen (neue Nachricht, längere Antwort, Sende-Ende). */
+  /** Liste immer ohne Scroll-Animation ans Ende (Chat öffnen, Laden, neue Nachricht). */
   useEffect(() => {
     const el = messagesScrollRef.current
-    const switchedThread = prevThreadKeyForScrollRef.current !== threadKey
-    prevThreadKeyForScrollRef.current = threadKey
     if (!el || messages.length === 0) {
       return
     }
     requestAnimationFrame(() => {
       el.scrollTo({
         top: el.scrollHeight,
-        behavior: switchedThread ? 'auto' : 'smooth',
+        behavior: 'auto',
       })
     })
   }, [threadKey, lastMessageFingerprint, isSending, messages.length])
@@ -431,6 +460,8 @@ export function ChatWindow({
       return
     }
 
+    hapticLightImpact()
+
     const textPart = draft.trim()
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
     const baseContent = [textPart, attachmentPart].filter(Boolean).join('\n\n')
@@ -605,7 +636,8 @@ export function ChatWindow({
         ) : null}
         <div className="chat-empty-compose">
           <h2 className="chat-empty-title">
-            Wie kann ich dir heute helfen, {greetingName}?
+            <span className="chat-empty-title-greet">Hallo {greetingName},</span>
+            <span className="chat-empty-title-ask">Wie kann ich dir heute helfen?</span>
           </h2>
           {error ? <p className="error-text">{error}</p> : null}
           <form
@@ -787,6 +819,15 @@ export function ChatWindow({
             ? stripExcelSpecBlock(rawAssistantDisplay)
             : stripAttachmentBlocksForDisplay(message.content)
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(message.content) : []
+          const savedDateiNames =
+            message.role === 'user' ? extractDateiFileNamesFromContent(message.content) : []
+          const hasReloadedImageSrc =
+            message.role === 'user' &&
+            pastedImageIds.some(
+              (id) =>
+                Boolean(sentPastedImagePreviews[id]) ||
+                Boolean(extractBildDataUrlFromStoredContent(message.content, id)),
+            )
           const showExcelFallbackText =
             isAssistant &&
             Boolean(message.metadata?.excelExport) &&
@@ -805,15 +846,32 @@ export function ChatWindow({
               className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}`}
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
-              {message.role === 'user' && pastedImageIds.length > 0 ? (
+              {hasReloadedImageSrc ? (
                 <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
                   {pastedImageIds.map((imageId) => {
-                    const src = sentPastedImagePreviews[imageId]
+                    const src =
+                      sentPastedImagePreviews[imageId] ??
+                      extractBildDataUrlFromStoredContent(message.content, imageId)
                     if (!src) {
                       return null
                     }
                     return <img key={imageId} className="chat-user-inline-image" src={src} alt="Eingefügtes Bild" />
                   })}
+                </div>
+              ) : null}
+              {message.role === 'user' && savedDateiNames.length > 0 ? (
+                <div className="chat-user-saved-attachments chat-attachment-chips" aria-label="Angehängte Dateien">
+                  {savedDateiNames.map((name, fileIndex) => (
+                    <span
+                      key={`${message.id}-datei-${fileIndex}`}
+                      className="chat-attachment-chip chat-attachment-chip--saved-file"
+                    >
+                      <span className="chat-attachment-chip-icon" aria-hidden="true">
+                        <img src={fileIcon} alt="" width={15} height={15} />
+                      </span>
+                      <span className="chat-attachment-chip-name">{name}</span>
+                    </span>
+                  ))}
                 </div>
               ) : null}
               {displayContent ? (

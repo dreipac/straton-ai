@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
@@ -22,6 +23,9 @@ type AccountSettingsSectionProps = {
   } | null
   isSavingAccount: boolean
   isSavingEmail: boolean
+  isAvatarBusy: boolean
+  avatarError: string | null
+  disableAvatarActions: boolean
   emailSaveDisabled: boolean
   emailMessage: string | null
   emailError: string | null
@@ -30,6 +34,8 @@ type AccountSettingsSectionProps = {
   onEmailChange: (value: string) => void
   onSaveEmail: () => void
   onOpenPlansModal: () => void
+  onAvatarFileSelected: (file: File) => void
+  onRemoveAvatar: () => void
 }
 
 export function AccountSettingsSection({
@@ -43,6 +49,9 @@ export function AccountSettingsSection({
   subscriptionUsage,
   isSavingAccount,
   isSavingEmail,
+  isAvatarBusy,
+  avatarError,
+  disableAvatarActions,
   emailSaveDisabled,
   emailMessage,
   emailError,
@@ -51,7 +60,10 @@ export function AccountSettingsSection({
   onEmailChange,
   onSaveEmail,
   onOpenPlansModal,
+  onAvatarFileSelected,
+  onRemoveAvatar,
 }: AccountSettingsSectionProps) {
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const avatarFallback = (firstNameDraft.trim()[0] || lastNameDraft.trim()[0] || '?').toUpperCase()
 
   const normalizedDraft = emailDraft.trim().toLowerCase()
@@ -67,12 +79,59 @@ export function AccountSettingsSection({
   return (
     <section className="account-settings-panel">
       <div className="account-settings-profile-layout">
-        <div className="account-settings-avatar account-settings-avatar--large" aria-hidden="true">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" />
-          ) : (
-            <span>{avatarFallback}</span>
-          )}
+        <div className="account-settings-avatar-column">
+          <div className="account-settings-avatar account-settings-avatar--large" aria-hidden="true">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" />
+            ) : (
+              <span>{avatarFallback}</span>
+            )}
+          </div>
+          <div className="account-settings-avatar-actions">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="account-settings-avatar-input-hidden"
+              aria-label="Profilbild auswählen"
+              disabled={disableAvatarActions || isAvatarBusy}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) {
+                  onAvatarFileSelected(file)
+                }
+                event.target.value = ''
+              }}
+            />
+            <SecondaryButton
+              type="button"
+              className="account-settings-avatar-upload-btn"
+              disabled={disableAvatarActions || isAvatarBusy}
+              onClick={() => {
+                avatarInputRef.current?.click()
+              }}
+            >
+              {isAvatarBusy ? 'Wird hochgeladen…' : 'Profilbild hochladen'}
+            </SecondaryButton>
+            <p className="account-settings-avatar-coming-soon">Bald verfügbar</p>
+            {avatarUrl ? (
+              <button
+                type="button"
+                className="account-settings-avatar-remove"
+                disabled={disableAvatarActions || isAvatarBusy}
+                onClick={() => {
+                  onRemoveAvatar()
+                }}
+              >
+                Profilbild entfernen
+              </button>
+            ) : null}
+          </div>
+          {avatarError ? (
+            <p className="account-settings-avatar-error" role="alert">
+              {avatarError}
+            </p>
+          ) : null}
         </div>
         <div className="account-settings-form">
           <label htmlFor="settings-first-name">Vorname</label>

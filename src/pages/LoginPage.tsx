@@ -1,13 +1,19 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { Navigate } from 'react-router-dom'
 import loginPicture from '../assets/png/picture-1.png'
 import { LoginForm } from '../features/auth/components/LoginForm'
 import { useAuth } from '../features/auth/context/useAuth'
 
-const loginLogoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
-
 export function LoginPage() {
   const { user, profile } = useAuth()
+  const themeVariant = useDocumentThemeVariant()
+  const loginLogoSrc = useMemo(() => {
+    const base = import.meta.env.BASE_URL
+    return themeVariant === 'pink-glass'
+      ? `${base}assets/logo/Straton-pink.png`
+      : `${base}assets/logo/Straton.png`
+  }, [themeVariant])
 
   /* iOS/PWA: Seite nicht wegrutschen / grauen Hintergrund zeigen; bei Tastatur-Fokus wieder normal */
   useEffect(() => {

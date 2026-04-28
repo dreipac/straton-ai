@@ -162,8 +162,8 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .thread-menu {
-  background: rgba(42, 21, 52, 0.72);
-  border-color: rgba(244, 114, 182, 0.32);
+  background: rgba(58, 14, 34, 0.76);
+  border-color: rgba(253, 164, 175, 0.34);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-saturation));
 }

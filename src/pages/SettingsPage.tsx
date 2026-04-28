@@ -91,6 +91,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     isConfigured,
     updateAutoRemoveEmptyChats,
     updateProfileNames,
+    uploadProfileAvatar,
+    removeProfileAvatar,
     updateLanguage,
     updateEmail,
     updateUiSettings,
@@ -161,6 +163,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   const [isSavingEmail, setIsSavingEmail] = useState(false)
   const [emailMessage, setEmailMessage] = useState<string | null>(null)
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [isAvatarBusy, setIsAvatarBusy] = useState(false)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
   const [visibleSubscriptionPlans, setVisibleSubscriptionPlans] = useState<VisibleSubscriptionPlan[]>([])
   const [isLoadingVisibleSubscriptionPlans, setIsLoadingVisibleSubscriptionPlans] = useState(false)
   const [isPlansModalOpen, setIsPlansModalOpen] = useState(false)
@@ -682,6 +686,34 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     }
   }, [activeSection])
 
+  function handleAvatarFileSelected(file: File) {
+    setAvatarError(null)
+    void (async () => {
+      try {
+        setIsAvatarBusy(true)
+        await uploadProfileAvatar(file)
+      } catch (err) {
+        setAvatarError(err instanceof Error ? err.message : 'Profilbild konnte nicht gespeichert werden.')
+      } finally {
+        setIsAvatarBusy(false)
+      }
+    })()
+  }
+
+  function handleRemoveAvatar() {
+    setAvatarError(null)
+    void (async () => {
+      try {
+        setIsAvatarBusy(true)
+        await removeProfileAvatar()
+      } catch (err) {
+        setAvatarError(err instanceof Error ? err.message : 'Profilbild konnte nicht entfernt werden.')
+      } finally {
+        setIsAvatarBusy(false)
+      }
+    })()
+  }
+
   async function handleSaveEmail() {
     if (!user || !isConfigured) {
       return
@@ -939,6 +971,9 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             subscriptionUsage={profile?.subscription_usages ?? null}
             isSavingAccount={isSavingAccount}
             isSavingEmail={isSavingEmail}
+            isAvatarBusy={isAvatarBusy}
+            avatarError={avatarError}
+            disableAvatarActions={!isConfigured || !user}
             emailSaveDisabled={!isConfigured || !user}
             emailMessage={emailMessage}
             emailError={emailError}
@@ -951,6 +986,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             }}
             onSaveEmail={handleSaveEmail}
             onOpenPlansModal={() => setIsPlansModalOpen(true)}
+            onAvatarFileSelected={handleAvatarFileSelected}
+            onRemoveAvatar={handleRemoveAvatar}
           />
         ) : null}
       </section>

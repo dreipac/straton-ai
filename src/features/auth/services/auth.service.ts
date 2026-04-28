@@ -449,6 +449,122 @@ export async function updateProfileNamesByUserId(
   return mapProfileRow(data as ProfileRow)
 }
 
+const AVATAR_BUCKET = 'avatars'
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+
+function mapAvatarStorageError(err: unknown): Error {
+  const raw =
+    err && typeof err === 'object' && 'message' in err
+      ? String((err as { message?: string }).message ?? '')
+      : err instanceof Error
+        ? err.message
+        : String(err)
+  if (/bucket not found/i.test(raw)) {
+    return new Error(
+      'Profilbild-Speicher fehlt: In Supabase ist der Storage-Bucket „avatars“ nicht angelegt. Im Dashboard unter Storage einen öffentlichen Bucket „avatars“ erstellen oder die Migration `20260428153000_avatars_public_bucket.sql` auf das Projekt anwenden.',
+    )
+  }
+  return err instanceof Error ? err : new Error(raw || 'Speichern des Profilbildes ist fehlgeschlagen.')
+}
+
+function avatarExtensionFromFile(file: File): string {
+  const t = file.type.toLowerCase()
+  if (t === 'image/jpeg' || t === 'image/jpg') {
+    return 'jpg'
+  }
+  if (t === 'image/png') {
+    return 'png'
+  }
+  if (t === 'image/webp') {
+    return 'webp'
+  }
+  if (t === 'image/gif') {
+    return 'gif'
+  }
+  return 'jpg'
+}
+
+/** Lädt ein Profilbild in Storage und setzt profiles.avatar_url (öffentliche URL). */
+export async function uploadProfileAvatarByUserId(userId: string, file: File): Promise<UserProfile | null> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Nur Bilddateien sind erlaubt.')
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    throw new Error('Bild darf maximal 2 MB groß sein.')
+  }
+
+  const supabase = getSupabaseClient()
+  const ext = avatarExtensionFromFile(file)
+  const path = `${userId}/avatar.${ext}`
+
+  const { data: existing, error: listError } = await supabase.storage.from(AVATAR_BUCKET).list(userId)
+  if (listError) {
+    throw mapAvatarStorageError(listError)
+  }
+  if (existing?.length) {
+    const paths = existing.map((f) => `${userId}/${f.name}`)
+    const { error: removeError } = await supabase.storage.from(AVATAR_BUCKET).remove(paths)
+    if (removeError) {
+      throw mapAvatarStorageError(removeError)
+    }
+  }
+
+  const contentType =
+    file.type || (ext === 'jpg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : `image/${ext}`)
+
+  const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(path, file, {
+    upsert: true,
+    contentType,
+    cacheControl: '3600',
+  })
+
+  if (uploadError) {
+    throw mapAvatarStorageError(uploadError)
+  }
+
+  const { data: pub } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path)
+  const publicUrl = pub.publicUrl
+
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    avatar_url: publicUrl,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
+/** Entfernt Profilbild-Dateien im Storage und setzt avatar_url auf null. */
+export async function removeProfileAvatarByUserId(userId: string): Promise<UserProfile | null> {
+  const supabase = getSupabaseClient()
+  const { data: existing, error: listError } = await supabase.storage.from(AVATAR_BUCKET).list(userId)
+  if (listError) {
+    const msg = String((listError as { message?: string }).message ?? '')
+    if (!/bucket not found/i.test(msg)) {
+      throw mapAvatarStorageError(listError)
+    }
+    /* Bucket nie angelegt: Profil-Eintrag trotzdem leeren */
+  } else if (existing?.length) {
+    const paths = existing.map((f) => `${userId}/${f.name}`)
+    const { error: removeError } = await supabase.storage.from(AVATAR_BUCKET).remove(paths)
+    if (removeError) {
+      throw mapAvatarStorageError(removeError)
+    }
+  }
+
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    avatar_url: null,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
 function isProfileNameEmpty(profile: UserProfile | null): boolean {
   if (!profile) {
     return true

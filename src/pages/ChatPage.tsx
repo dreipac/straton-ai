@@ -63,6 +63,7 @@ import {
 import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
+import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
 import { useToast } from '../components/toast/ToastProvider'
@@ -152,6 +153,8 @@ export function ChatPage() {
   const [threadMembers, setThreadMembers] = useState<ChatThreadMemberPublic[]>([])
   const [threadMembersLoading, setThreadMembersLoading] = useState(false)
   const [shareActionBusy, setShareActionBusy] = useState(false)
+  /** Mobile «Neuer Chat» FAB: gleicher Ring wie Senden während createNewChat läuft */
+  const [isNewChatPending, setIsNewChatPending] = useState(false)
   const canInviteToActiveChat = Boolean(
     user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
   )
@@ -472,7 +475,11 @@ export function ChatPage() {
   const tourBlockedByBeta = Boolean(
     user && profile && showBetaNoticeOnFirstLogin && !profile.beta_notice_seen,
   )
-  const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(false)
+  const [isCompactMobileSidebarLayout, setIsCompactMobileSidebarLayout] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`).matches,
+  )
   const chatTourEligible = Boolean(
     user &&
       profile &&
@@ -834,13 +841,18 @@ export function ChatPage() {
   }
 
   async function handleCreateNewChat() {
-    await createNewChat()
-    closeThreadActionMenu()
-    setIsProfileMenuOpen(false)
-    if (isCompactMobileSidebarLayout) {
-      profileFullSheetRef.current?.requestClose()
+    setIsNewChatPending(true)
+    try {
+      await createNewChat()
+      closeThreadActionMenu()
+      setIsProfileMenuOpen(false)
+      if (isCompactMobileSidebarLayout) {
+        profileFullSheetRef.current?.requestClose()
+      }
+      setIsMobileSidebarOpen(false)
+    } finally {
+      setIsNewChatPending(false)
     }
-    setIsMobileSidebarOpen(false)
   }
 
   function closeThreadActionMenu() {
@@ -947,7 +959,13 @@ export function ChatPage() {
   const tokenLimitReachedByUsage = hasTokenLimit && maxTokensToday !== null && usedTokensToday >= maxTokensToday
   const tokenLimitReachedByError = hasTokenLimit && (error ?? '').toLowerCase().includes('token limit')
   const tokenLimitReached = tokenLimitReachedByUsage || tokenLimitReachedByError
-  const logoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
+  const themeVariant = useDocumentThemeVariant()
+  const logoSrc = useMemo(() => {
+    const base = import.meta.env.BASE_URL
+    return themeVariant === 'pink-glass'
+      ? `${base}assets/logo/Straton-pink.png`
+      : `${base}assets/logo/Straton.png`
+  }, [themeVariant])
 
   if (!user) {
     return (
@@ -963,13 +981,15 @@ export function ChatPage() {
                 <div className="chat-brand">
                   <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                   <h2>Straton</h2>
-                  <button
-                    type="button"
-                    className="chat-beta-badge chat-beta-badge-button"
-                    onClick={() => openBetaNoticeModal(false)}
-                  >
-                    Beta
-                  </button>
+                  {!isCompactMobileSidebarLayout ? (
+                    <button
+                      type="button"
+                      className="chat-beta-badge chat-beta-badge-button"
+                      onClick={() => openBetaNoticeModal(false)}
+                    >
+                      Beta
+                    </button>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -1114,13 +1134,15 @@ export function ChatPage() {
               <div className="chat-brand">
                 <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                 <h2>Straton</h2>
-                <button
-                  type="button"
-                  className="chat-beta-badge chat-beta-badge-button"
-                  onClick={() => openBetaNoticeModal(false)}
-                >
-                  Beta
-                </button>
+                {!isCompactMobileSidebarLayout ? (
+                  <button
+                    type="button"
+                    className="chat-beta-badge chat-beta-badge-button"
+                    onClick={() => openBetaNoticeModal(false)}
+                  >
+                    Beta
+                  </button>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1316,7 +1338,9 @@ export function ChatPage() {
             <button
               type="button"
               ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
-              className={`mobile-new-chat-fab${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
+              className={`mobile-new-chat-fab${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
+                isNewChatPending ? ' is-new-chat-pending' : ''
+              }`}
               aria-label="Neuer Chat"
               onClick={() => void handleCreateNewChat()}
             >

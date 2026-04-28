@@ -1,4 +1,5 @@
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import { useMemo, type MouseEvent as ReactMouseEvent } from 'react'
+import { useDocumentThemeVariant } from '../../../hooks/useDocumentThemeVariant'
 import settingsIcon from '../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import statusIcon from '../../../assets/icons/status.svg'
@@ -46,7 +47,13 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     subscriptionPlanName,
   } = props
 
-  const logoSrc = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
+  const themeVariant = useDocumentThemeVariant()
+  const logoSrc = useMemo(() => {
+    const base = import.meta.env.BASE_URL
+    return themeVariant === 'pink-glass'
+      ? `${base}assets/logo/Straton-pink.png`
+      : `${base}assets/logo/Straton.png`
+  }, [themeVariant])
 
   const expandFromCollapsed = () => {
     hapticLightImpact()

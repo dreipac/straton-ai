@@ -7,7 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:login": "npx supabase login",
+    "db:link": "npx supabase link",
+    "db:push": "npx supabase db push",
+    "db:pull": "npx supabase db pull",
+    "db:pull:storage": "npx supabase db pull --schema storage",
+    "db:status": "npx supabase migration list"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

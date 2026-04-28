@@ -62,7 +62,7 @@
   isolation: isolate;
   overflow: hidden;
   background: transparent;
-  color: #f8fafc;
+  color: var(--accent-fab-fg, #f8fafc);
   border-color: transparent;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
   transition:
@@ -76,7 +76,8 @@
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background-image: var(--accent-gradient);
+  /* background (nicht background-image): Vollfarben = Hex — als background-image ungueltig */
+  background: var(--accent-gradient);
   background-size: 200% 100%;
   background-position: 0% 50%;
   opacity: 1;
@@ -131,11 +132,11 @@
 :root[data-theme='dark'] .ui-button-primary {
   background: transparent;
   border-color: transparent;
-  color: #f8fafc;
+  color: var(--accent-fab-fg, #f8fafc);
 }
 
 :root[data-theme='dark'] .ui-button-primary::before {
-  background-image: var(--accent-gradient);
+  background: var(--accent-gradient);
 }
 
 :root[data-theme='dark'] .ui-button-secondary {

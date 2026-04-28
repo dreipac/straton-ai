@@ -40,6 +40,9 @@ export function PersonalizeSettingsSection({
   onChangeLearnPathTitleColorMode,
   showSidebarScaleOption = true,
 }: PersonalizeSettingsSectionProps) {
+  const gradientAccents = ACCENT_PALETTES.filter((palette) => !palette.id.startsWith('solid-'))
+  const solidAccents = ACCENT_PALETTES.filter((palette) => palette.id.startsWith('solid-'))
+
   return (
     <div className="personalize-panel">
       <div className="personalize-theme-row">
@@ -148,8 +151,9 @@ export function PersonalizeSettingsSection({
       <div className="settings-section-divider" />
       <div className="personalize-accent-row">
         <p className="personalize-subtitle">Akzentfarbe</p>
-        <div className="personalize-accent-grid" role="radiogroup" aria-label="Akzentfarbe auswählen">
-          {ACCENT_PALETTES.map((palette) => (
+        <p className="personalize-accent-subtitle">Verläufe</p>
+        <div className="personalize-accent-grid" role="radiogroup" aria-label="Akzentfarbe Verlauf auswählen">
+          {gradientAccents.map((palette) => (
             <button
               key={palette.id}
               type="button"
@@ -161,7 +165,25 @@ export function PersonalizeSettingsSection({
               aria-label={palette.label}
               title={palette.label}
             >
-              <span className="personalize-accent-preview" style={{ backgroundImage: palette.gradient }} />
+              <span className="personalize-accent-preview" style={{ background: palette.gradient }} />
+            </button>
+          ))}
+        </div>
+        <p className="personalize-accent-subtitle">Vollfarben</p>
+        <div className="personalize-accent-grid" role="radiogroup" aria-label="Akzentfarbe Vollfarbe auswählen">
+          {solidAccents.map((palette) => (
+            <button
+              key={palette.id}
+              type="button"
+              className={`personalize-accent-tile ${accentPaletteId === palette.id ? 'is-active' : ''}`}
+              onClick={() => onChangeAccentPalette(palette.id)}
+              style={{ '--tile-gradient': palette.gradient } as CSSProperties}
+              role="radio"
+              aria-checked={accentPaletteId === palette.id}
+              aria-label={palette.label}
+              title={palette.label}
+            >
+              <span className="personalize-accent-preview" style={{ background: palette.gradient }} />
             </button>
           ))}
         </div>

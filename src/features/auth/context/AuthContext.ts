@@ -13,6 +13,10 @@ export type AuthContextValue = {
   refreshProfile: () => Promise<void>
   updateAutoRemoveEmptyChats: (enabled: boolean) => Promise<void>
   updateProfileNames: (firstName: string, lastName: string) => Promise<void>
+  /** Profilbild in Supabase Storage hochladen und Profil aktualisieren */
+  uploadProfileAvatar: (file: File) => Promise<void>
+  /** Profilbild entfernen */
+  removeProfileAvatar: () => Promise<void>
   updateLanguage: (language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE') => Promise<void>
   updateEmail: (email: string) => Promise<void>
   /** Chat-Einstiegs-Tour als abgeschlossen in Supabase speichern */

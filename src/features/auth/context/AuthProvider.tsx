@@ -24,6 +24,8 @@ import {
   markBetaNoticeSeenByUserId,
   updateAuthEmail,
   updateProfileNamesByUserId,
+  uploadProfileAvatarByUserId,
+  removeProfileAvatarByUserId,
   type UiSettingsV1,
 } from '../services/auth.service'
 
@@ -243,6 +245,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  async function uploadProfileAvatar(file: File) {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await uploadProfileAvatarByUserId(user.id, file)
+    setProfile(nextProfile)
+  }
+
+  async function removeProfileAvatar() {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await removeProfileAvatarByUserId(user.id)
+    setProfile(nextProfile)
+  }
+
   async function updateLanguage(language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE') {
     if (!user) {
       return
@@ -324,6 +346,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     refreshProfile,
     updateAutoRemoveEmptyChats,
     updateProfileNames,
+    uploadProfileAvatar,
+    removeProfileAvatar,
     updateLanguage,
     updateEmail,
     completeChatOnboarding,
