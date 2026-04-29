@@ -16,6 +16,17 @@ import {
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import { getChatComposerModelMeta } from '../constants/chatComposerModels'
+import type { ChatReplyMode } from '../constants/chatReplyMode'
+import type { ChatThinkingMode } from '../constants/chatThinkingMode'
+import {
+  getChatThinkingClarifyUiReminder,
+  getChatThinkingWorkflowInstruction,
+} from '../constants/chatThinkingInstruction'
+import {
+  getChatComfortToneInstruction,
+  getChatStrictToneInstruction,
+  getChatTruthfulnessInstruction,
+} from '../constants/chatTruthAndTone'
 import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 
@@ -54,6 +65,14 @@ export type SendMessageOptions = {
    * Hauptchat: gewähltes Modell (GPT vs. Claude). Wird bei `useLearnPathModel` ignoriert.
    */
   mainChatModelId?: ChatComposerModelId
+  /**
+   * Hauptchat: Comfort (warm, mehr Emoji) vs. Strict (kühl, sachlich). Wird bei `useLearnPathModel` ignoriert.
+   */
+  chatReplyMode?: ChatReplyMode
+  /**
+   * Hauptchat: Thinking nutzt Claude Sonnet 4.6, klärt per Rückfragen (max. 2 Runden), ohne Profil-Speicher.
+   */
+  chatThinkingMode?: ChatThinkingMode
 }
 
 type EvaluateQuizAnswerInput = {
@@ -75,6 +94,13 @@ export const LEARN_CHAPTER_HELP_OPENAI_MODELS = LEARN_PATH_OPENAI_MODELS
 type GatewayMessage = {
   role: 'system' | 'user' | 'assistant'
   content: string
+}
+
+/** Thinking-Modus: immer dieses Modell (Sonnet 4.6), unabhängig von der Composer-Modellwahl. */
+const THINKING_ROUTE_MODEL_ID = 'claude-sonnet-4-6' satisfies ChatComposerModelId
+
+function isMainChatThinking(options?: SendMessageOptions): boolean {
+  return Boolean(!options?.useLearnPathModel && options?.chatThinkingMode === 'thinking')
 }
 
 const MAX_CHAT_TITLE_LENGTH = 42
@@ -125,14 +151,33 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
-  const mainChatBrevity = options?.useLearnPathModel ? '' : getAssistantMainChatBrevityInstruction()
+  const isMainChat = !options?.useLearnPathModel
+  const mainChatBrevity = isMainChat ? getAssistantMainChatBrevityInstruction() : ''
+  const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
+  const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
+  const toneBlock =
+    isMainChat && replyTone === 'strict'
+      ? getChatStrictToneInstruction()
+      : isMainChat && replyTone === 'comfort'
+        ? getChatComfortToneInstruction()
+        : ''
+  const thinkingBlock =
+    isMainChat && options?.chatThinkingMode === 'thinking'
+      ? getChatThinkingWorkflowInstruction()
+      : ''
+  const thinkingClarifyUiReminder =
+    isMainChat && options?.chatThinkingMode === 'thinking' ? getChatThinkingClarifyUiReminder() : ''
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     mainChatBrevity,
-    getAssistantMarkdownFormattingInstruction(),
-    getAssistantEmojiStyleInstruction(),
+    truthBlock,
+    toneBlock,
+    thinkingBlock,
+    getAssistantMarkdownFormattingInstruction({ replyTone }),
+    getAssistantEmojiStyleInstruction({ replyTone }),
+    thinkingClarifyUiReminder,
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -317,11 +362,14 @@ function buildChatCompletionRequestBody(
     return body
   }
 
-  const meta = getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+  const thinking = isMainChatThinking(options)
+  const meta = thinking
+    ? getChatComposerModelMeta(THINKING_ROUTE_MODEL_ID)
+    : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     provider: meta.provider,
     messages: gatewayMessages,
-    includeProfileMemory: true,
+    includeProfileMemory: thinking ? false : true,
   }
   if (meta.provider === 'openai' && meta.openAiModels?.length) {
     body.openAiModels = [...meta.openAiModels]
@@ -586,8 +634,11 @@ export async function sendMessageStreaming(
     return content.trim()
   }
 
-  const mainMeta = getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
-  if (mainMeta.provider === 'anthropic') {
+  const thinkingMain = !options.useLearnPathModel && options.chatThinkingMode === 'thinking'
+  const streamMeta = thinkingMain
+    ? getChatComposerModelMeta(THINKING_ROUTE_MODEL_ID)
+    : getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
+  if (streamMeta.provider === 'anthropic') {
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }

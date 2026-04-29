@@ -1170,7 +1170,7 @@
   align-items: flex-start;
   gap: 0.4rem;
   width: 100%;
-  max-width: min(220px, 100%);
+  max-width: min(26rem, 100%);
 }
 
 .account-settings-avatar-remove {
@@ -1198,7 +1198,7 @@
   margin: 0;
   font-size: 0.84rem;
   color: #b91c1c;
-  max-width: min(220px, 100%);
+  max-width: min(26rem, 100%);
 }
 
 .account-settings-profile-layout {
@@ -1466,13 +1466,6 @@
   color: #64748b;
 }
 
-.account-settings-panel p.account-settings-avatar-coming-soon {
-  margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  color: #64748b;
-}
-
 .account-settings-panel p.account-settings-email-success {
   margin: 0;
   font-size: 0.84rem;
@@ -1629,6 +1622,65 @@
 
 .admin-token-filter-reset {
   justify-self: start;
+}
+
+.admin-token-user-log-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.admin-token-user-log {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--color-surface-soft, #f8fafc);
+  overflow: hidden;
+}
+
+.admin-token-user-log > summary {
+  list-style: none;
+}
+
+.admin-token-user-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-token-user-log-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+}
+
+.admin-token-user-log-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.admin-token-user-log-summary-email {
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-user-log-summary-stats {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary, #475569);
+}
+
+.admin-token-log-detail-table {
+  margin: 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  font-size: 0.82rem;
+}
+
+.admin-token-log-detail-table th,
+.admin-token-log-detail-table td {
+  padding: 0.38rem 0.45rem;
 }
 
 .admin-feedback-panel {
@@ -2559,6 +2611,15 @@
   color: var(--color-text-muted);
 }
 
+:root[data-theme='dark'] .admin-token-user-log {
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
+}
+
+:root[data-theme='dark'] .admin-token-log-detail-table {
+  border-top-color: var(--color-border);
+}
+
 :root[data-theme='dark'] .account-settings-form label {
   color: var(--color-text-secondary);
 }
@@ -2573,10 +2634,6 @@
 }
 
 :root[data-theme='dark'] .account-settings-panel p.account-settings-email-hint {
-  color: var(--color-text-muted);
-}
-
-:root[data-theme='dark'] .account-settings-panel p.account-settings-avatar-coming-soon {
   color: var(--color-text-muted);
 }
 
@@ -2664,10 +2721,6 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-hint {
-  color: #c4b5d0;
-}
-
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-avatar-coming-soon {
   color: #c4b5d0;
 }
 

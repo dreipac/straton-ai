@@ -18,6 +18,16 @@ import {
   parseStoredComposerModelId,
 } from '../constants/chatComposerModels'
 import {
+  CHAT_REPLY_MODE_STORAGE_KEY,
+  type ChatReplyMode,
+  parseStoredChatReplyMode,
+} from '../constants/chatReplyMode'
+import {
+  CHAT_THINKING_MODE_STORAGE_KEY,
+  type ChatThinkingMode,
+  parseStoredChatThinkingMode,
+} from '../constants/chatThinkingMode'
+import {
   generateChatTitleWithAi,
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
@@ -26,6 +36,11 @@ import {
   sendMessageStreaming,
   usesGatewayAi,
 } from '../services/chat.service'
+import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import {
+  parseThinkingClarifyContent,
+  shouldOpenThinkingFallbackPopup,
+} from '../utils/thinkingClarify'
 import {
   createChatMessage,
   createChatThread,
@@ -109,6 +124,19 @@ export function useChat(
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
     ),
   )
+  const [chatReplyMode, setChatReplyMode] = useState<ChatReplyMode>(() =>
+    parseStoredChatReplyMode(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_REPLY_MODE_STORAGE_KEY) : null,
+    ),
+  )
+  const [chatThinkingMode, setChatThinkingMode] = useState<ChatThinkingMode>(() =>
+    parseStoredChatThinkingMode(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_THINKING_MODE_STORAGE_KEY) : null,
+    ),
+  )
+  const [thinkingClarifyDialog, setThinkingClarifyDialog] = useState<ThinkingClarifyDialogState | null>(
+    null,
+  )
   const removeTimersRef = useRef<Record<string, number>>({})
 
   function persistComposerModelId(id: ChatComposerModelId) {
@@ -118,6 +146,24 @@ export function useChat(
     setComposerModelId(id)
     try {
       localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, id)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function persistChatReplyMode(mode: ChatReplyMode) {
+    setChatReplyMode(mode)
+    try {
+      localStorage.setItem(CHAT_REPLY_MODE_STORAGE_KEY, mode)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function persistChatThinkingMode(mode: ChatThinkingMode) {
+    setChatThinkingMode(mode)
+    try {
+      localStorage.setItem(CHAT_THINKING_MODE_STORAGE_KEY, mode)
     } catch {
       /* ignore */
     }
@@ -310,6 +356,15 @@ export function useChat(
   }, [userId])
 
   useEffect(() => {
+    setThinkingClarifyDialog((prev) => {
+      if (!prev || prev.threadId === activeThreadId) {
+        return prev
+      }
+      return null
+    })
+  }, [activeThreadId])
+
+  useEffect(() => {
     return () => {
       Object.values(removeTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId)
@@ -457,6 +512,7 @@ export function useChat(
   }
 
   function selectChat(threadId: string) {
+    setThinkingClarifyDialog(null)
     if (autoRemoveEmptyChats && activeThreadId && activeThreadId !== threadId) {
       const activeThread = threads.find((thread) => thread.id === activeThreadId)
       const hasMessages = (messagesByThreadId[activeThreadId]?.length ?? 0) > 0
@@ -477,6 +533,7 @@ export function useChat(
       return
     }
 
+    setThinkingClarifyDialog(null)
     setError(null)
     let threadId = activeThreadId
 
@@ -611,6 +668,8 @@ export function useChat(
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
             mainChatModelId: effectiveComposerModelId,
+            chatReplyMode,
+            chatThinkingMode,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -632,6 +691,8 @@ export function useChat(
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
           mainChatModelId: effectiveComposerModelId,
+          chatReplyMode,
+          chatThinkingMode,
         })
         finalAssistantContent = assistantMessage.content
       }
@@ -704,6 +765,29 @@ export function useChat(
         }
       })
 
+      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel) {
+        const rawAssistant = mergedAssistantMessage.content
+        if (!hasExcelSpecMarkers(rawAssistant)) {
+          const clarify = parseThinkingClarifyContent(rawAssistant)
+          if (clarify.kind === 'clarify') {
+            setThinkingClarifyDialog({
+              kind: 'structured',
+              threadId: targetThreadId,
+              messageId: mergedAssistantMessage.id,
+              introMarkdown: clarify.introMarkdown,
+              payload: clarify.payload,
+            })
+          } else if (shouldOpenThinkingFallbackPopup(rawAssistant)) {
+            setThinkingClarifyDialog({
+              kind: 'freeText',
+              threadId: targetThreadId,
+              messageId: mergedAssistantMessage.id,
+              previewText: rawAssistant.trim(),
+            })
+          }
+        }
+      }
+
       if (userOwnsThread) {
         await touchChatThread(targetThreadId)
       }
@@ -756,7 +840,8 @@ export function useChat(
       }
 
       const persistMemory = options?.persistAiChatMemory !== false
-      if (usesGatewayAi() && userId && persistMemory) {
+      const skipMemoryMergeForThinkingTurn = chatThinkingMode === 'thinking'
+      if (usesGatewayAi() && userId && persistMemory && !skipMemoryMergeForThinkingTurn) {
         void (async () => {
           try {
             await mergePersistedAiChatMemoryAfterTurn({
@@ -795,5 +880,11 @@ export function useChat(
     composerModelId: effectiveComposerModelId,
     setComposerModelId: persistComposerModelId,
     isChatModelLocked,
+    chatReplyMode,
+    setChatReplyMode: persistChatReplyMode,
+    chatThinkingMode,
+    setChatThinkingMode: persistChatThinkingMode,
+    thinkingClarifyDialog,
+    dismissThinkingClarify: () => setThinkingClarifyDialog(null),
   }
 }

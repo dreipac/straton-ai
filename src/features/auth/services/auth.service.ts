@@ -461,7 +461,7 @@ function mapAvatarStorageError(err: unknown): Error {
         : String(err)
   if (/bucket not found/i.test(raw)) {
     return new Error(
-      'Profilbild-Speicher fehlt: In Supabase ist der Storage-Bucket „avatars“ nicht angelegt. Im Dashboard unter Storage einen öffentlichen Bucket „avatars“ erstellen oder die Migration `20260428153000_avatars_public_bucket.sql` auf das Projekt anwenden.',
+      'Profilbild-Speicher fehlt: In Supabase ist der Storage-Bucket „avatars“ nicht angelegt. Im Dashboard unter Storage einen öffentlichen Bucket „avatars“ erstellen oder die Migration `20260430200000_avatars_storage_public_bucket.sql` auf das Projekt anwenden.',
     )
   }
   return err instanceof Error ? err : new Error(raw || 'Speichern des Profilbildes ist fehlgeschlagen.')

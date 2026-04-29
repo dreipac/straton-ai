@@ -51,7 +51,18 @@ import {
   getChatModelPolicyFromPlan,
   parseStoredComposerModelId,
 } from '../features/chat/constants/chatComposerModels'
+import {
+  CHAT_REPLY_MODE_STORAGE_KEY,
+  type ChatReplyMode,
+  parseStoredChatReplyMode,
+} from '../features/chat/constants/chatReplyMode'
+import {
+  CHAT_THINKING_MODE_STORAGE_KEY,
+  type ChatThinkingMode,
+  parseStoredChatThinkingMode,
+} from '../features/chat/constants/chatThinkingMode'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
+import { ChatToolbarReplyModeSelect } from '../features/chat/components/ChatToolbarReplyModeSelect'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import {
@@ -64,6 +75,7 @@ import { useChat } from '../features/chat/hooks/useChat'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
+import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
 import { useToast } from '../components/toast/ToastProvider'
@@ -103,7 +115,6 @@ const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[
   { id: 'chat', label: 'Chat Einstellungen' },
   { id: 'invitations', label: 'Einladungen' },
   { id: 'personalize', label: 'Personalisieren' },
-  { id: 'ai', label: 'KI Provider' },
   { id: 'status', label: 'Status' },
   { id: 'feedback', label: 'Feedback' },
 ]
@@ -115,6 +126,8 @@ export function ChatPage() {
   const { push: pushToast } = useToast()
   /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
   const isNarrowViewport = useIsMobileViewport()
+  /** Wie Freigabe-Leiste: max-width 860px — Comfort/Strict nativ in der Oberleiste. */
+  const isChatToolbarMobile = useChatToolbarMobileViewport()
   const chatModelPolicy = useMemo(
     () =>
       user ? getChatModelPolicyFromPlan(profile?.subscription_plans ?? null) : getChatModelPolicyFromPlan(null),
@@ -136,6 +149,12 @@ export function ChatPage() {
     composerModelId,
     setComposerModelId,
     isChatModelLocked,
+    chatReplyMode,
+    setChatReplyMode,
+    chatThinkingMode,
+    setChatThinkingMode,
+    thinkingClarifyDialog,
+    dismissThinkingClarify,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
@@ -166,6 +185,8 @@ export function ChatPage() {
       (activeThread.membershipRole === 'owner' || activeThread.membershipRole === 'member'),
   )
   const showCollaborationToolbar = isPersistedThreadParticipant
+  const showFloatingChatToolbar =
+    showCollaborationToolbar || (Boolean(user) && isChatToolbarMobile && !showCollaborationToolbar)
   const hasCollaborators = useMemo(
     () => threadMembers.some((m) => m.role === 'member'),
     [threadMembers],
@@ -427,11 +448,39 @@ export function ChatPage() {
       typeof window !== 'undefined' ? localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY) : null,
     ),
   )
+  const [guestChatReplyMode, setGuestChatReplyMode] = useState<ChatReplyMode>(() =>
+    parseStoredChatReplyMode(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_REPLY_MODE_STORAGE_KEY) : null,
+    ),
+  )
+  const [guestChatThinkingMode, setGuestChatThinkingMode] = useState<ChatThinkingMode>(() =>
+    parseStoredChatThinkingMode(
+      typeof window !== 'undefined' ? localStorage.getItem(CHAT_THINKING_MODE_STORAGE_KEY) : null,
+    ),
+  )
 
   function handleGuestComposerModel(id: ChatComposerModelId) {
     setGuestComposerModelId(id)
     try {
       localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, id)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function handleGuestChatReplyMode(mode: ChatReplyMode) {
+    setGuestChatReplyMode(mode)
+    try {
+      localStorage.setItem(CHAT_REPLY_MODE_STORAGE_KEY, mode)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function handleGuestChatThinkingMode(mode: ChatThinkingMode) {
+    setGuestChatThinkingMode(mode)
+    try {
+      localStorage.setItem(CHAT_THINKING_MODE_STORAGE_KEY, mode)
     } catch {
       /* ignore */
     }
@@ -1057,7 +1106,19 @@ export function ChatPage() {
           </div>
         </aside>
 
-        <section className="chat-main chat-main-guest">
+        <section
+          className={`chat-main chat-main-guest${isChatToolbarMobile ? ' chat-main--share-toolbar' : ''}`}
+        >
+          {isChatToolbarMobile ? (
+            <div className="chat-main-toolbar">
+              <div className="chat-main-toolbar-share-row">
+                <ChatToolbarReplyModeSelect
+                  value={guestChatReplyMode}
+                  onChange={handleGuestChatReplyMode}
+                />
+              </div>
+            </div>
+          ) : null}
           <header className="guest-chat-header">
             <h1>Straton</h1>
             <div className="guest-chat-actions">
@@ -1089,6 +1150,11 @@ export function ChatPage() {
               composerModelId={guestComposerModelId}
               onComposerModelChange={handleGuestComposerModel}
               showComposerModelPicker
+              chatReplyMode={guestChatReplyMode}
+              onChatReplyModeChange={handleGuestChatReplyMode}
+              showReplyModePicker={!isChatToolbarMobile}
+              chatThinkingMode={guestChatThinkingMode}
+              onChatThinkingModeChange={handleGuestChatThinkingMode}
               onSendMessage={async () => {
                 navigate('/login')
               }}
@@ -1351,11 +1417,18 @@ export function ChatPage() {
         </div>
       </aside>
 
-      <section className={`chat-main${showCollaborationToolbar ? ' chat-main--share-toolbar' : ''}`}>
-        {showCollaborationToolbar ? (
+      <section className={`chat-main${showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}`}>
+        {showFloatingChatToolbar ? (
           <div className="chat-main-toolbar">
             <div className="chat-main-toolbar-share-row">
-              {!threadMembersLoading && toolbarAvatars.list.length > 0 ? (
+              {isChatToolbarMobile && user ? (
+                <ChatToolbarReplyModeSelect
+                  value={chatReplyMode}
+                  onChange={setChatReplyMode}
+                  disabled={isSending}
+                />
+              ) : null}
+              {showCollaborationToolbar && !threadMembersLoading && toolbarAvatars.list.length > 0 ? (
                 <div ref={participantsAnchorRef} className="chat-toolbar-participants-anchor">
                   <button
                     type="button"
@@ -1411,7 +1484,7 @@ export function ChatPage() {
                   ) : null}
                 </div>
               ) : null}
-              {canInviteToActiveChat ? (
+              {showCollaborationToolbar && canInviteToActiveChat ? (
                 <button
                   type="button"
                   className="chat-main-invite-chip"
@@ -1441,6 +1514,14 @@ export function ChatPage() {
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
           showComposerModelPicker={!isChatModelLocked}
+          chatReplyMode={chatReplyMode}
+          onChatReplyModeChange={setChatReplyMode}
+          showReplyModePicker={!isChatToolbarMobile}
+          chatThinkingMode={chatThinkingMode}
+          onChatThinkingModeChange={setChatThinkingMode}
+          thinkingClarifyDialog={thinkingClarifyDialog}
+          onDismissThinkingClarify={dismissThinkingClarify}
+          onSubmitThinkingClarifyAnswer={(text) => void submitMessage(text)}
           onSendMessage={submitMessage}
         />
       </section>

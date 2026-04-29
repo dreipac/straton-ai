@@ -65,6 +65,22 @@ export type AdminUserLastAiUsageRow = {
   last_used_at: string
 }
 
+/** Einzelner protokollierter KI-Aufruf (Zeile in `ai_token_usage`). */
+export type AdminAiTokenUsageLogRow = {
+  id: string
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  mode: string
+  input_tokens: number
+  output_tokens: number
+  estimated_cost_usd: number
+  created_at: string
+}
+
 export type AdminCreateUserPayload = {
   email: string
   temporaryPassword: string
@@ -84,6 +100,17 @@ function toSafeInt(value: unknown): number {
   if (typeof value === 'string' && value.trim()) {
     const n = Number(value)
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+  }
+  return 0
+}
+
+function toSafeUsd(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, value)
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    return Number.isFinite(n) ? Math.max(0, n) : 0
   }
   return 0
 }
@@ -129,6 +156,34 @@ export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRo
     input_tokens: toSafeInt(row.input_tokens),
     output_tokens: toSafeInt(row.output_tokens),
     last_used_at: typeof row.last_used_at === 'string' ? row.last_used_at : String(row.last_used_at ?? ''),
+  }))
+}
+
+/** Einzelaufrufe neueste zuerst; Standard max. 8000 Zeilen (Server-Obergrenze 20000). */
+export async function listAdminAiTokenUsageLog(limit = 8000): Promise<AdminAiTokenUsageLogRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_log', {
+    p_limit: Math.min(20000, Math.max(1, Math.floor(limit))),
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    estimated_cost_usd: toSafeUsd(row.estimated_cost_usd),
+    created_at: typeof row.created_at === 'string' ? row.created_at : String(row.created_at ?? ''),
   }))
 }
 

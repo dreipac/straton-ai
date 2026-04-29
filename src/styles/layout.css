@@ -783,6 +783,8 @@
     --mobile-sidebar-transition-ms: 520ms;
     /** Schwebende Sidebar-Pill + Freigabe-Leiste (safe area / Dynamic Island / Batterie) */
     --chat-floating-ui-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 0.65rem);
+    /** Eine Höhe für Sidebar-Button und Modus/Freigabe-Pille (optisch bündig) */
+    --chat-mobile-floating-pill-height: 2.75rem;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     min-height: 0;
@@ -1127,8 +1129,10 @@
     position: fixed;
     top: var(--chat-floating-ui-top);
     left: max(0.75rem, env(safe-area-inset-left, 0px));
-    width: 44px;
-    height: 44px;
+    width: var(--chat-mobile-floating-pill-height, 2.75rem);
+    height: var(--chat-mobile-floating-pill-height, 2.75rem);
+    min-width: var(--chat-mobile-floating-pill-height, 2.75rem);
+    min-height: var(--chat-mobile-floating-pill-height, 2.75rem);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1149,7 +1153,7 @@
   }
 
   .mobile-sidebar-pill-icon {
-    --ui-icon-size: 25px;
+    --ui-icon-size: clamp(20px, calc(var(--chat-mobile-floating-pill-height, 2.75rem) * 0.5), 26px);
   }
 
   .mobile-sidebar-pill.is-open {

@@ -113,7 +113,6 @@ export function AccountSettingsSection({
             >
               {isAvatarBusy ? 'Wird hochgeladen…' : 'Profilbild hochladen'}
             </SecondaryButton>
-            <p className="account-settings-avatar-coming-soon">Bald verfügbar</p>
             {avatarUrl ? (
               <button
                 type="button"

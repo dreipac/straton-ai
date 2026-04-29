@@ -24,8 +24,19 @@ import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../../learn/utils/documentParser'
 import { hapticLightImpact } from '../../../utils/haptics'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
+import type { ChatReplyMode } from '../constants/chatReplyMode'
+import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import { ChatComposerModelPicker } from './ChatComposerModelPicker'
+import { ChatComposerReplyModePicker } from './ChatComposerReplyModePicker'
+import { ChatComposerThinkingModePicker } from './ChatComposerThinkingModePicker'
+import { ThinkingClarifyModal } from './ThinkingClarifyModal'
 import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
+import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import {
+  messageContainsCompleteThinkingClarifyBlock,
+  stripThinkingClarifyMarkersForDisplay,
+} from '../utils/thinkingClarify'
+import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
 
 type ChatWindowProps = {
   /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
@@ -39,6 +50,16 @@ type ChatWindowProps = {
   onComposerModelChange: (id: ChatComposerModelId) => void
   /** Abo ohne Modellwahl: false = Composer-Modell-Picker ausblenden. */
   showComposerModelPicker?: boolean
+  chatReplyMode: ChatReplyMode
+  onChatReplyModeChange: (mode: ChatReplyMode) => void
+  chatThinkingMode: ChatThinkingMode
+  onChatThinkingModeChange: (mode: ChatThinkingMode) => void
+  /** Auf schmalen Viewports sitzt der Comfort/Strict-Schalter in der Oberleiste (`ChatToolbarReplyModeSelect`). */
+  showReplyModePicker?: boolean
+  /** Thinking-Rückfragen (Popup über der Message Box). */
+  thinkingClarifyDialog?: ThinkingClarifyDialogState | null
+  onDismissThinkingClarify?: () => void
+  onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
   onSendMessage: (content: string) => Promise<void>
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
@@ -100,6 +121,14 @@ export function ChatWindow({
   composerModelId,
   onComposerModelChange,
   showComposerModelPicker = true,
+  chatReplyMode,
+  onChatReplyModeChange,
+  chatThinkingMode,
+  onChatThinkingModeChange,
+  showReplyModePicker = true,
+  thinkingClarifyDialog = null,
+  onDismissThinkingClarify = () => {},
+  onSubmitThinkingClarifyAnswer = async () => {},
   onSendMessage,
   onCancelSend,
 }: ChatWindowProps) {
@@ -626,6 +655,28 @@ export function ChatWindow({
       .trim()
   }
 
+  const thinkingClarifyOverlay =
+    thinkingClarifyDialog?.kind === 'structured' ? (
+      <ThinkingClarifyModal
+        key={thinkingClarifyDialog.messageId}
+        payload={thinkingClarifyDialog.payload}
+        introMarkdown={thinkingClarifyDialog.introMarkdown}
+        onDismiss={onDismissThinkingClarify}
+        onSubmit={(text) => {
+          void onSubmitThinkingClarifyAnswer(text)
+        }}
+      />
+    ) : thinkingClarifyDialog?.kind === 'freeText' ? (
+      <ThinkingClarifyFreeTextModal
+        key={thinkingClarifyDialog.messageId}
+        previewText={thinkingClarifyDialog.previewText}
+        onDismiss={onDismissThinkingClarify}
+        onSubmit={(text) => {
+          void onSubmitThinkingClarifyAnswer(text)
+        }}
+      />
+    ) : null
+
   if (isEmptyState) {
     return (
       <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
@@ -640,6 +691,7 @@ export function ChatWindow({
             <span className="chat-empty-title-ask">Wie kann ich dir heute helfen?</span>
           </h2>
           {error ? <p className="error-text">{error}</p> : null}
+          {thinkingClarifyOverlay}
           <form
             className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
             onSubmit={handleSubmit}
@@ -670,6 +722,18 @@ export function ChatWindow({
                   disabled={isSending || tokenLimitReached}
                 />
               ) : null}
+              {showReplyModePicker ? (
+                <ChatComposerReplyModePicker
+                  value={chatReplyMode}
+                  onChange={onChatReplyModeChange}
+                  disabled={isSending || tokenLimitReached}
+                />
+              ) : null}
+              <ChatComposerThinkingModePicker
+                value={chatThinkingMode}
+                onChange={onChatThinkingModeChange}
+                disabled={isSending || tokenLimitReached}
+              />
               {excelCommandSelected ? (
                 <button
                   type="button"
@@ -815,8 +879,16 @@ export function ChatWindow({
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
+          const assistantAfterExcel = stripExcelSpecBlock(rawAssistantDisplay)
+          const thinkingClarifyStreaming =
+            isAssistant &&
+            chatThinkingMode === 'thinking' &&
+            Boolean(message.metadata?.liveStream) &&
+            !messageContainsCompleteThinkingClarifyBlock(message.content)
           const displayContent = isAssistant
-            ? stripExcelSpecBlock(rawAssistantDisplay)
+            ? chatThinkingMode === 'thinking'
+              ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
+              : assistantAfterExcel
             : stripAttachmentBlocksForDisplay(message.content)
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(message.content) : []
           const savedDateiNames =
@@ -874,7 +946,11 @@ export function ChatWindow({
                   ))}
                 </div>
               ) : null}
-              {displayContent ? (
+              {thinkingClarifyStreaming ? (
+                <p className="chat-thinking-stream-hint" role="status">
+                  KI formuliert eine Rückfrage…
+                </p>
+              ) : displayContent ? (
                 isAssistant ? (
                   <div className="chat-message-body chat-message-body--rich">{renderAssistantRichContent(displayContent)}</div>
                 ) : (
@@ -979,10 +1055,12 @@ export function ChatWindow({
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      <form
-        className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
-        onSubmit={handleSubmit}
-      >
+      <div className="chat-composer-stack">
+        {thinkingClarifyOverlay}
+        <form
+          className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+          onSubmit={handleSubmit}
+        >
         <input
           ref={fileInputRef}
           type="file"
@@ -1009,6 +1087,18 @@ export function ChatWindow({
               disabled={isSending || tokenLimitReached}
             />
           ) : null}
+          {showReplyModePicker ? (
+            <ChatComposerReplyModePicker
+              value={chatReplyMode}
+              onChange={onChatReplyModeChange}
+              disabled={isSending || tokenLimitReached}
+            />
+          ) : null}
+          <ChatComposerThinkingModePicker
+            value={chatThinkingMode}
+            onChange={onChatThinkingModeChange}
+            disabled={isSending || tokenLimitReached}
+          />
           {excelCommandSelected ? (
             <button
               type="button"
@@ -1123,10 +1213,11 @@ export function ChatWindow({
             aria-hidden="true"
           />
         </button>
-      </form>
-      <p className="chat-input-hint">
-        Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
-      </p>
+        </form>
+        <p className="chat-input-hint">
+          Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
+        </p>
+      </div>
     </section>
   )
 }

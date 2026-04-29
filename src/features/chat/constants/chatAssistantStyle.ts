@@ -27,12 +27,26 @@ export function getAssistantMainChatBrevityInstruction(): string {
   ].join('\n')
 }
 
+type ReplyToneOption = 'comfort' | 'strict' | undefined
+
 /** Strukturierte Markdown-Antworten (Überschriften, Listen, Quellen). */
-export function getAssistantMarkdownFormattingInstruction(): string {
-  const emojiTitles = readAssistantEmojisEnabled()
-  const headingRule = emojiTitles
-    ? '- Jede Überschrift mit ## und ### muss genau ein passendes Emoji unmittelbar nach den Rauten haben (z. B. "## 💡 Titel", "### 📝 Details"). Keine ##- oder ###-Zeile ohne Emoji im Titel.'
-    : '- Abschnitte mit ## Überschrift. Unterabschnitte mit ###.'
+export function getAssistantMarkdownFormattingInstruction(options?: {
+  replyTone?: ReplyToneOption
+}): string {
+  const replyTone = options?.replyTone
+  let headingRule: string
+  if (replyTone === 'strict') {
+    headingRule =
+      '- Überschriften mit ## und ### ohne Emojis; knapp und sachlich (Strict-Modus).'
+  } else if (replyTone === 'comfort') {
+    headingRule =
+      '- Jede Überschrift mit ## und ### muss genau ein passendes Emoji unmittelbar nach den Rauten haben (z. B. "## 💡 Titel", "### 📝 Details"). Keine ##- oder ###-Zeile ohne Emoji im Titel.'
+  } else {
+    const emojiTitles = readAssistantEmojisEnabled()
+    headingRule = emojiTitles
+      ? '- Jede Überschrift mit ## und ### muss genau ein passendes Emoji unmittelbar nach den Rauten haben (z. B. "## 💡 Titel", "### 📝 Details"). Keine ##- oder ###-Zeile ohne Emoji im Titel.'
+      : '- Abschnitte mit ## Überschrift. Unterabschnitte mit ###.'
+  }
   return [
     'Antwort-Format (Markdown, gut lesbar und tokenbewusst):',
     '- Pflicht: Beginne mit genau einer Zeile `## …` als kurze, inhaltliche Überschrift zum Thema (kein «Hier ist die Antwort»).',
@@ -53,7 +67,24 @@ export function getAssistantMarkdownFormattingInstruction(): string {
 }
 
 /** Wird an den System-Prompt angehängt (Chat-Gateway). */
-export function getAssistantEmojiStyleInstruction(): string {
+export function getAssistantEmojiStyleInstruction(options?: {
+  replyTone?: ReplyToneOption
+}): string {
+  const replyTone = options?.replyTone
+  if (replyTone === 'strict') {
+    return [
+      'Antwort-Stil (Strict):',
+      'Keine Emojis in Überschriften; im Fließtext höchstens sehr selten ein Emoji, nur wenn es ohne Mehrdeutigkeit hilft.',
+      'Keine Emoji-Ketten; keine Zeilen nur aus Symbolen.',
+    ].join('\n')
+  }
+  if (replyTone === 'comfort') {
+    return [
+      'Antwort-Stil (Comfort):',
+      'Nutze viele passende Emojis: in jeder ##/###-Überschrift genau eines (siehe Format-Regeln), zusätzlich häufig und freundlich im Fließtext und in Listen, wo es zum warmen Ton passt.',
+      'Emoji unterstützen Nähe und Lesbarkeit, ersetzen aber keine Fakten.',
+    ].join('\n')
+  }
   if (readAssistantEmojisEnabled()) {
     return [
       'Antwort-Stil (Emoji):',

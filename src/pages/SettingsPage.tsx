@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import accountIcon from '../assets/icons/account.svg'
-import aiIcon from '../assets/icons/ai.svg'
 import generalIcon from '../assets/icons/general.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import personalizeIcon from '../assets/icons/personalize.svg'
@@ -10,7 +9,6 @@ import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
-import { AiSettingsSection } from '../features/settings/components/AiSettingsSection'
 import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
 import { ChatInvitationsSection } from '../features/settings/components/ChatInvitationsSection'
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
@@ -59,7 +57,6 @@ export type SettingsSectionId =
   | 'chat'
   | 'invitations'
   | 'personalize'
-  | 'ai'
   | 'status'
   | 'feedback'
   | 'account'
@@ -348,34 +345,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                   ? 'Personalización'
                   : 'Personalisierung',
       icon: personalizeIcon,
-    },
-    {
-      id: 'ai',
-      label:
-        language === 'en'
-          ? 'AI Provider'
-          : language === 'hr'
-            ? 'AI pruzatelj'
-            : language === 'it'
-              ? 'Provider AI'
-              : language === 'sq'
-                ? 'Ofruesi AI'
-                : language === 'es-PE'
-                  ? 'Proveedor de IA'
-                  : 'KI Provider',
-      title:
-        language === 'en'
-          ? 'AI Integrations'
-          : language === 'hr'
-            ? 'AI integracije'
-            : language === 'it'
-              ? 'Integrazioni AI'
-              : language === 'sq'
-                ? 'Integrimet AI'
-                : language === 'es-PE'
-                  ? 'Integraciones de IA'
-                  : 'KI Integrationen',
-      icon: aiIcon,
     },
     {
       id: 'status',
@@ -898,9 +867,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       <section className="settings-body">
         {activeSection === 'general' ? (
           <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
-        ) : null}
-        {activeSection === 'ai' ? (
-          <AiSettingsSection />
         ) : null}
         {activeSection === 'personalize' ? (
           <PersonalizeSettingsSection

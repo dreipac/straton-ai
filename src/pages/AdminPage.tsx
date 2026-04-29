@@ -23,6 +23,7 @@ import {
   deleteSubscriptionPlan,
   updateSubscriptionPlan,
   deploySubscriptionAssignmentDrafts,
+  listAdminAiTokenUsageLog,
   listAdminAiTokenUsageSummary,
   listAdminUserLastAiUsage,
   listAdminUsers,
@@ -31,6 +32,7 @@ import {
   listSubscriptionPlanShowcaseSlots,
   saveSubscriptionAssignmentDraft,
   saveSubscriptionPlanShowcaseSlots,
+  type AdminAiTokenUsageLogRow,
   type AdminAiTokenUsageRow,
   type AdminUserLastAiUsageRow,
   type AdminUser,
@@ -171,6 +173,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
   const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
+  const [tokenUsageLogRows, setTokenUsageLogRows] = useState<AdminAiTokenUsageLogRow[]>([])
   const [lastAiUsageRows, setLastAiUsageRows] = useState<AdminUserLastAiUsageRow[]>([])
   const [isLoadingTokenUsage, setIsLoadingTokenUsage] = useState(false)
   const [tokenUsageError, setTokenUsageError] = useState<string | null>(null)
@@ -201,6 +204,37 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return tb - ta
     })
   }, [lastAiUsageRows])
+
+  const tokenUsageLogByUser = useMemo(() => {
+    const map = new Map<string, AdminAiTokenUsageLogRow[]>()
+    for (const row of tokenUsageLogRows) {
+      const list = map.get(row.user_id) ?? []
+      list.push(row)
+      map.set(row.user_id, list)
+    }
+    for (const [, list] of map) {
+      list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    }
+    return map
+  }, [tokenUsageLogRows])
+
+  const tokenUsageLogUserIdsSorted = useMemo(() => {
+    const ids = [...tokenUsageLogByUser.keys()]
+    function labelFor(uid: string): string {
+      const rows = tokenUsageLogByUser.get(uid)
+      const head = rows?.[0]
+      if (!head) {
+        return uid
+      }
+      const name = [head.first_name, head.last_name].filter(Boolean).join(' ').trim()
+      if (name) {
+        return name
+      }
+      return head.email?.trim() ?? uid
+    }
+    ids.sort((a, b) => labelFor(a).localeCompare(labelFor(b), 'de'))
+    return ids
+  }, [tokenUsageLogByUser])
 
   const tokenUsageUserOptions = useMemo(() => {
     const byId = new Map<string, AdminAiTokenUsageRow>()
@@ -497,19 +531,22 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       try {
         setIsLoadingTokenUsage(true)
         setTokenUsageError(null)
-        const [summary, lastByUser] = await Promise.all([
+        const [summary, lastByUser, logRows] = await Promise.all([
           listAdminAiTokenUsageSummary(),
           listAdminUserLastAiUsage(),
+          listAdminAiTokenUsageLog(),
         ])
         if (isMounted) {
           setTokenUsageRows(summary)
           setLastAiUsageRows(lastByUser)
+          setTokenUsageLogRows(logRows)
         }
       } catch (err) {
         if (isMounted) {
           setTokenUsageError(getErrorMessage(err, 'Token-Statistik konnte nicht geladen werden.'))
           setTokenUsageRows([])
           setLastAiUsageRows([])
+          setTokenUsageLogRows([])
         }
       } finally {
         if (isMounted) {
@@ -985,6 +1022,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return row.email?.trim() || row.user_id
   }
 
+  function formatTokenLogPerson(row: AdminAiTokenUsageLogRow): string {
+    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    if (name) {
+      return name
+    }
+    return row.email?.trim() || row.user_id
+  }
+
   function formatLastAiPerson(row: AdminUserLastAiUsageRow): string {
     const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
     if (name) {
@@ -1377,6 +1422,104 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             })}
                           </tbody>
                         </table>
+                      )}
+
+                      <h3 className="admin-token-section-heading">Anfragen-Protokoll (je Nutzer aufklappbar)</h3>
+                      <p className="admin-token-section-hint">
+                        Jede Zeile ist ein KI-Aufruf. <strong>Kosten (USD)</strong> aus der Datenbank (
+                        <code>estimated_cost_usd</code> beim Aufruf). Es werden global die neuesten Einträge geladen
+                        (Standard: 8000 Zeilen, Obergrenze 20 000) — bei sehr viel Verlauf erscheint nicht die komplette
+                        Historie.
+                      </p>
+                      {tokenUsageLogRows.length === 0 ? (
+                        <p className="admin-user-empty">Keine Einzelaufrufe im geladenen Ausschnitt.</p>
+                      ) : (
+                        <div
+                          className="admin-token-user-log-list"
+                          role="list"
+                          aria-label="KI-Anfragen gruppiert nach Nutzer"
+                        >
+                          {tokenUsageLogUserIdsSorted.map((userId) => {
+                            const rows = tokenUsageLogByUser.get(userId) ?? []
+                            const head = rows[0]
+                            if (!head) {
+                              return null
+                            }
+                            let sumIn = 0
+                            let sumOut = 0
+                            let sumUsd = 0
+                            for (const r of rows) {
+                              sumIn += r.input_tokens
+                              sumOut += r.output_tokens
+                              sumUsd += r.estimated_cost_usd
+                            }
+                            const sumTok = sumIn + sumOut
+                            return (
+                              <details key={userId} className="admin-token-user-log" role="listitem">
+                                <summary className="admin-token-user-log-summary">
+                                  <span className="admin-token-user-log-summary-main">
+                                    <strong>{formatTokenLogPerson(head)}</strong>
+                                    <span className="admin-token-user-log-summary-email">{head.email ?? '—'}</span>
+                                  </span>
+                                  <span className="admin-token-user-log-summary-stats">
+                                    {rows.length} Anfrage{rows.length === 1 ? '' : 'n'} ·{' '}
+                                    {formatTokenInt(sumTok)} Tok. · {formatUsdEstimate(sumUsd, true)}
+                                  </span>
+                                </summary>
+                                <table
+                                  className="admin-token-usage-table admin-token-log-detail-table"
+                                  aria-label={`Anfragen für ${formatTokenLogPerson(head)}`}
+                                >
+                                  <thead>
+                                    <tr>
+                                      <th scope="col">Zeit (UTC)</th>
+                                      <th scope="col">Modus</th>
+                                      <th scope="col">Provider</th>
+                                      <th scope="col">Modell</th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Input
+                                      </th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Output
+                                      </th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Σ Tokens
+                                      </th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Kosten
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((r) => {
+                                      const lineSum = r.input_tokens + r.output_tokens
+                                      return (
+                                        <tr key={r.id}>
+                                          <td>
+                                            <time dateTime={r.created_at}>{formatFeedbackDate(r.created_at)}</time>
+                                          </td>
+                                          <td>
+                                            <code className="admin-token-model">{r.mode}</code>
+                                          </td>
+                                          <td>{r.provider}</td>
+                                          <td>
+                                            <code className="admin-token-model">{r.model}</code>
+                                          </td>
+                                          <td className="admin-token-usage-num">{formatTokenInt(r.input_tokens)}</td>
+                                          <td className="admin-token-usage-num">{formatTokenInt(r.output_tokens)}</td>
+                                          <td className="admin-token-usage-num">{formatTokenInt(lineSum)}</td>
+                                          <td className="admin-token-usage-num">
+                                            {formatUsdEstimate(r.estimated_cost_usd, true)}
+                                          </td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </details>
+                            )
+                          })}
+                        </div>
                       )}
 
                       <h3 className="admin-token-section-heading">Kumulierte Tokens (nach Nutzer und Modell)</h3>

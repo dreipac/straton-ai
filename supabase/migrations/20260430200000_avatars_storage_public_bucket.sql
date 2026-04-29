@@ -1,14 +1,12 @@
--- Öffentlicher Bucket für Profilbilder: URL in profiles.avatar_url, Lesen für alle (img-Tags).
--- Schreiben nur im eigenen Ordner auth.uid()/…
---
--- Anwenden auf das Remote-Projekt: einmal `npm run db:login`, `npm run db:link`, dann `npm run db:push`
--- (oder SQL hier im Dashboard → SQL Editor einfügen und ausführen).
+-- Öffentlicher Storage-Bucket für Profilbilder (profiles.avatar_url = öffentliche URL).
+-- Lesen: für alle. Schreiben: nur im eigenen Ordner auth.uid()/…
+-- Idempotent: `supabase db push` bzw. SQL im Dashboard.
 
 insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do update set
   name = excluded.name,
-  public = excluded.public;
+  public = true;
 
 drop policy if exists "avatars_select_public" on storage.objects;
 drop policy if exists "avatars_insert_own" on storage.objects;
