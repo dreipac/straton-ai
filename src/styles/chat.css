@@ -3192,51 +3192,97 @@ button.chat-onboarding-tour-block {
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
   }
 
+  /*
+   * Oberleiste: kein „Chip im Chip“ — nur Beschriftung, eine gemeinsame Glas-Pille.
+   */
   .chat-main--share-toolbar .chat-main-invite-chip {
     border: none;
     box-shadow: none;
     background: transparent;
-    padding: 0.3rem 0.58rem;
+    padding: 0.15rem 0.35rem;
     font-size: 0.78rem;
+    gap: 0.32rem;
+    border-radius: 0;
+    margin: 0;
   }
 
-  /* Native <select> wie Invite-Chip; iOS/PWA nutzt System-Picker */
+  /* Klare Trennlinie vor Freigeben (Modus | · | Freigeben) */
+  .chat-main--share-toolbar .chat-main-toolbar-share-row .chat-main-invite-chip:not(:first-child) {
+    border-left: 1px solid color-mix(in srgb, var(--color-text-app) 22%, transparent);
+    padding-left: 0.55rem;
+    margin-left: 0.2rem;
+  }
+
+  :root[data-theme='light'] .chat-main--share-toolbar .chat-main-toolbar-share-row .chat-main-invite-chip:not(:first-child) {
+    border-left-color: color-mix(in srgb, var(--color-text-app) 18%, transparent);
+  }
+
+  .chat-main--share-toolbar .chat-main-invite-chip .chat-main-invite-chip-icon {
+    --ui-icon-size: clamp(15px, 3.6vw, 18px);
+    flex-shrink: 0;
+    opacity: 0.92;
+  }
+
+  .chat-main--share-toolbar .chat-main-invite-chip:hover:enabled,
+  .chat-main--share-toolbar .chat-main-invite-chip:active:enabled {
+    background: transparent;
+    color: var(--color-text-app);
+    opacity: 0.85;
+  }
+
+  :root[data-theme='dark'] .chat-main--share-toolbar .chat-main-invite-chip {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-theme='dark'] .chat-main--share-toolbar .chat-main-invite-chip:hover:enabled {
+    background: transparent;
+    color: var(--color-text-app);
+    opacity: 0.85;
+  }
+
+  /*
+   * Native <select> in der Glas-Pille — gleiche Schriftgröße wie Freigeben-Chip.
+   * Kein sichtbarer Focus-Ring bei Touch / kein hängender Fokus (blur nach Auswahl im TSX).
+   */
   .chat-toolbar-reply-mode-select {
     appearance: none;
     -webkit-appearance: none;
     margin: 0;
-    max-width: min(40vw, 9.5rem);
+    max-width: min(42vw, 8rem);
     cursor: pointer;
     display: inline-block;
     vertical-align: middle;
-    padding: 0.3rem 1.35rem 0.3rem 0.58rem;
-    border-radius: 9px;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0;
     border: none;
-    background: var(--color-surface-soft);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.38rem center;
-    background-size: 11px 11px;
+    outline: none;
+    background: transparent;
+    background-image: none;
     color: var(--color-text-app);
     font-size: 0.78rem;
     font-weight: 600;
     font-family: inherit;
     line-height: 1.2;
-    box-shadow: 0 1px 2px var(--color-shadow-soft);
-    transition:
-      background 140ms ease,
-      color 140ms ease;
+    box-shadow: none;
+    transition: opacity 140ms ease;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 
-  .chat-main--share-toolbar .chat-main-toolbar-share-row .chat-toolbar-reply-mode-select {
-    background-color: var(--color-surface-soft);
-    box-shadow: 0 1px 2px var(--color-shadow-soft);
+  .chat-toolbar-reply-mode-select:focus,
+  .chat-toolbar-reply-mode-select:focus-visible,
+  .chat-toolbar-reply-mode-select:active {
+    outline: none;
+    box-shadow: none;
   }
 
-  .chat-toolbar-reply-mode-select:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-link-hover) 55%, transparent);
-    outline-offset: 2px;
+  @media (hover: hover) and (pointer: fine) {
+    .chat-toolbar-reply-mode-select:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--color-link-hover) 55%, transparent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
   }
 
   .chat-toolbar-reply-mode-select:disabled {
@@ -3245,12 +3291,9 @@ button.chat-onboarding-tour-block {
   }
 
   :root[data-theme='dark'] .chat-toolbar-reply-mode-select {
-    background-color: color-mix(in srgb, var(--color-surface-elevated) 88%, transparent);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  }
-
-  :root[data-theme='dark'] .chat-main--share-toolbar .chat-main-toolbar-share-row .chat-toolbar-reply-mode-select {
-    background-color: color-mix(in srgb, var(--color-surface-elevated) 88%, transparent);
+    background: transparent;
+    background-image: none;
+    color: var(--color-text-app);
   }
 
   /* Scroll-Inhalt: oben Platz unter schwebender Leiste; beim Hochscrollen laufen Nachrichten unter die Notch */

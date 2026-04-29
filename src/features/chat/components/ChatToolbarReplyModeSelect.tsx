@@ -26,6 +26,8 @@ export function ChatToolbarReplyModeSelect({
         if (next === 'comfort' || next === 'strict') {
           onChange(next)
         }
+        /* iOS: Fokus lösen, sonst bleibt ein Rahmen/Fokuszustand und blockiert Folge-Taps */
+        event.currentTarget.blur()
       }}
     >
       {CHAT_REPLY_MODE_OPTIONS.map((opt) => (
