@@ -41,12 +41,19 @@ import {
   type SubscriptionPlanShowcaseSlotRow,
 } from '../features/auth/services/admin.service'
 import {
+  SUBSCRIPTION_IMAGE_GENERATION_MODELS,
+  labelForSubscriptionImageGenerationModel,
+  parseSubscriptionImageGenerationModelId,
+  type SubscriptionImageGenerationModelId,
+} from '../features/auth/constants/subscriptionImageGenerationModels'
+import {
   CHAT_COMPOSER_MODELS,
   type ChatComposerModelId,
   parseStoredComposerModelId,
 } from '../features/chat/constants/chatComposerModels'
 import {
   adminSetBetaNoticeEnabled,
+  adminSetDeployedAppVersion,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
@@ -140,6 +147,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
   const [newPlanAllowModelChoice, setNewPlanAllowModelChoice] = useState(true)
+  const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
+    useState<SubscriptionImageGenerationModelId>('gpt_image_1')
   const [newPlanDefaultChatModelId, setNewPlanDefaultChatModelId] =
     useState<ChatComposerModelId>('gpt-5.4-mini')
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
@@ -150,6 +159,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     maxTokens: string
     maxImages: string
     maxFiles: string
+    imageGenerationModel: SubscriptionImageGenerationModelId
     allowModelChoice: boolean
     defaultChatModelId: ChatComposerModelId
   } | null>(null)
@@ -172,6 +182,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
+  const [deployedAppVersion, setDeployedAppVersion] = useState('')
+  const [deployedAppVersionDraft, setDeployedAppVersionDraft] = useState('')
+  const [isSavingDeployedAppVersion, setIsSavingDeployedAppVersion] = useState(false)
+  const [deployedAppVersionInfo, setDeployedAppVersionInfo] = useState<string | null>(null)
   const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
   const [tokenUsageLogRows, setTokenUsageLogRows] = useState<AdminAiTokenUsageLogRow[]>([])
   const [lastAiUsageRows, setLastAiUsageRows] = useState<AdminUserLastAiUsageRow[]>([])
@@ -364,11 +378,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           return
         }
         setBetaNoticeEnabled(flags.show_beta_notice_on_first_login)
+        const nextVersion = flags.deployed_app_version ?? ''
+        setDeployedAppVersion(nextVersion)
+        setDeployedAppVersionDraft(nextVersion)
       } catch {
         if (!isMounted) {
           return
         }
         setBetaNoticeEnabled(true)
+        setDeployedAppVersion('')
+        setDeployedAppVersionDraft('')
       }
     })()
 
@@ -672,6 +691,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxTokens,
         maxImages,
         maxFiles,
+        imageGenerationModel: newPlanImageGenerationModel,
         chatAllowModelChoice: newPlanAllowModelChoice,
         defaultChatModelId: newPlanDefaultChatModelId,
       })
@@ -683,6 +703,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
       setNewPlanAllowModelChoice(true)
+      setNewPlanImageGenerationModel('gpt_image_1')
       setNewPlanDefaultChatModelId('gpt-5.4-mini')
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
@@ -726,6 +747,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxTokens,
         maxImages,
         maxFiles,
+        imageGenerationModel: editPlanDraft.imageGenerationModel,
         chatAllowModelChoice: editPlanDraft.allowModelChoice,
         defaultChatModelId: editPlanDraft.defaultChatModelId,
       })
@@ -974,6 +996,27 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setSubscriptionPlansError(getErrorMessage(err, 'Beta-Hinweis konnte nicht aktualisiert werden.'))
     } finally {
       setIsLoadingBetaNoticeToggle(false)
+    }
+  }
+
+  async function handlePushDeployedAppVersion() {
+    const nextVersion = deployedAppVersionDraft.trim()
+    if (!nextVersion) {
+      setSubscriptionPlansError('Bitte eine Version eintragen (z. B. 2026.04.30-1).')
+      return
+    }
+    setSubscriptionPlansError(null)
+    setDeployedAppVersionInfo(null)
+    setIsSavingDeployedAppVersion(true)
+    try {
+      await adminSetDeployedAppVersion(nextVersion)
+      setDeployedAppVersion(nextVersion)
+      setDeployedAppVersionDraft(nextVersion)
+      setDeployedAppVersionInfo(`Version gepusht: ${nextVersion}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Version konnte nicht gepusht werden.'))
+    } finally {
+      setIsSavingDeployedAppVersion(false)
     }
   }
 
@@ -1803,8 +1846,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       <div className="admin-subscriptions-info">
                         <span className="admin-subscriptions-name">{plan.name}</span>
                         <p className="admin-subscriptions-meta">
-                          Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder: {plan.max_images ?? 'unbegrenzt'} · Dateien:{' '}
+                          Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder:{' '}
+                          {plan.max_images != null
+                            ? `+${plan.max_images}/Tag Guthaben (max. 60)`
+                            : 'unbegrenzt'}{' '}
+                          · Dateien:{' '}
                           {plan.max_files ?? 'unbegrenzt'}
+                          <br />
+                          Bildgenerator:{' '}
+                          {labelForSubscriptionImageGenerationModel(
+                            parseSubscriptionImageGenerationModelId(plan.image_generation_model),
+                          )}
                           <br />
                           Chat-Modell: {plan.chat_allow_model_choice ? 'Nutzer wählt' : 'fest'} · Standard: {defaultLabel}
                         </p>
@@ -1822,6 +1874,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               maxTokens: plan.max_tokens != null ? String(plan.max_tokens) : '',
                               maxImages: plan.max_images != null ? String(plan.max_images) : '',
                               maxFiles: plan.max_files != null ? String(plan.max_files) : '',
+                              imageGenerationModel: parseSubscriptionImageGenerationModelId(plan.image_generation_model),
                               allowModelChoice: plan.chat_allow_model_choice,
                               defaultChatModelId: parseStoredComposerModelId(plan.default_chat_model_id ?? null),
                             })
@@ -1964,7 +2017,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         onChange={(event) => setNewPlanMaxTokens(event.target.value)}
                       />
 
-                      <label htmlFor="admin-new-subscription-max-images">Max Bilder</label>
+                      <label htmlFor="admin-new-subscription-max-images">Max. Bilder pro Tag</label>
                       <input
                         id="admin-new-subscription-max-images"
                         type="number"
@@ -1975,6 +2028,22 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         value={newPlanMaxImages}
                         onChange={(event) => setNewPlanMaxImages(event.target.value)}
                       />
+
+                      <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
+                      <select
+                        id="admin-new-subscription-image-gen-model"
+                        className="admin-user-subscription-select"
+                        value={newPlanImageGenerationModel}
+                        onChange={(event) =>
+                          setNewPlanImageGenerationModel(event.target.value as SubscriptionImageGenerationModelId)
+                        }
+                      >
+                        {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
 
                       <label htmlFor="admin-new-subscription-max-files">Max Dateien</label>
                       <input
@@ -2089,7 +2158,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         }
                       />
 
-                      <label htmlFor="admin-edit-subscription-max-images">Max Bilder</label>
+                      <label htmlFor="admin-edit-subscription-max-images">Max. Bilder pro Tag</label>
                       <input
                         id="admin-edit-subscription-max-images"
                         type="number"
@@ -2102,6 +2171,29 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
                         }
                       />
+
+                      <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
+                      <select
+                        id="admin-edit-subscription-image-gen-model"
+                        className="admin-user-subscription-select"
+                        value={editPlanDraft.imageGenerationModel}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
+                                }
+                              : null,
+                          )
+                        }
+                      >
+                        {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
 
                       <label htmlFor="admin-edit-subscription-max-files">Max Dateien</label>
                       <input
@@ -2180,6 +2272,32 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               <p className="admin-users-warning">
                 Erst ein Deployment macht gespeicherte Abo-Entwürfe für Nutzer sichtbar.
               </p>
+              <article className="settings-card">
+                <p className="admin-subscriptions-field-label">App-Version für Settings pushen</p>
+                <div className="admin-subscriptions-create-row">
+                  <input
+                    id="admin-deployed-app-version"
+                    type="text"
+                    className="admin-subscriptions-name-input"
+                    placeholder="z. B. 2026.04.30-1"
+                    value={deployedAppVersionDraft}
+                    onChange={(event) => setDeployedAppVersionDraft(event.target.value)}
+                    autoComplete="off"
+                    disabled={isSavingDeployedAppVersion}
+                  />
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingDeployedAppVersion || !deployedAppVersionDraft.trim()}
+                    onClick={() => void handlePushDeployedAppVersion()}
+                  >
+                    {isSavingDeployedAppVersion ? 'Push läuft…' : 'Version pushen'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Aktive Version: <strong>{deployedAppVersion || 'Nicht gesetzt'}</strong>
+                </p>
+                {deployedAppVersionInfo ? <p className="admin-ai-info">{deployedAppVersionInfo}</p> : null}
+              </article>
               {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
               <ul className="admin-subscriptions-list" aria-label="Abo-Entwürfe">
                 {Object.values(subscriptionDrafts).map((draft) => {

@@ -28,6 +28,7 @@ import {
   parseStoredChatThinkingMode,
 } from '../constants/chatThinkingMode'
 import {
+  generateChatImageFromPrompt,
   generateChatTitleWithAi,
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
@@ -37,6 +38,7 @@ import {
   usesGatewayAi,
 } from '../services/chat.service'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import { matchImageGenerationCommand } from '../utils/imageGenerationCommand'
 import {
   parseThinkingClarifyContent,
   shouldOpenThinkingFallbackPopup,
@@ -533,6 +535,15 @@ export function useChat(
       return
     }
 
+    const imageCmd = matchImageGenerationCommand(trimmed)
+    if (imageCmd.kind === 'empty') {
+      setError(
+        'Nach /bild oder /image ein Leerzeichen und einen kurzen Bild-Prompt eingeben (z. B. «/bild Sonnenuntergang am Meer»).',
+      )
+      return
+    }
+    const imageGenPrompt = imageCmd.kind === 'prompt' ? imageCmd.prompt : null
+
     setThinkingClarifyDialog(null)
     setError(null)
     let threadId = activeThreadId
@@ -642,6 +653,69 @@ export function useChat(
         )
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
+
+      if (imageGenPrompt) {
+        if (!usesGatewayAi()) {
+          setError('Bildgenerierung ist im Demo-Modus nicht verfügbar.')
+          return
+        }
+        try {
+          const { assistantMarkdown } = await generateChatImageFromPrompt(imageGenPrompt)
+          const storedAssistantMessage = await createChatMessage(
+            targetThreadId,
+            'assistant',
+            assistantMarkdown,
+          )
+          setMessagesByThreadId((prev) => ({
+            ...prev,
+            [targetThreadId]: [...(prev[targetThreadId] ?? []), storedAssistantMessage],
+          }))
+          if (userOwnsThread) {
+            await touchChatThread(targetThreadId)
+          }
+          setThreads((prev) => {
+            const updated = prev.map((thread) =>
+              thread.id === targetThreadId
+                ? { ...thread, updatedAt: new Date().toISOString() }
+                : thread,
+            )
+            return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          })
+          if (shouldRename && userOwnsThread) {
+            void (async () => {
+              try {
+                const { title } = await generateChatTitleWithAi([
+                  ...nextMessages,
+                  {
+                    id: storedAssistantMessage.id,
+                    role: 'assistant',
+                    content: storedAssistantMessage.content,
+                    createdAt: storedAssistantMessage.createdAt,
+                  },
+                ])
+                if (!title || title === provisionalTitle) {
+                  return
+                }
+                await updateChatThreadTitle(targetThreadId, title)
+                setThreads((prev) => {
+                  const updated = prev.map((thread) =>
+                    thread.id === targetThreadId ? { ...thread, title } : thread,
+                  )
+                  return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                })
+              } catch {
+                /* Titel optional */
+              }
+            })()
+          }
+          await options?.onProfileMemoryUpdated?.()
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : 'Bildgenerierung ist fehlgeschlagen.'
+          setError(message)
+        }
+        return
+      }
 
       let streamAssistantId: string | null = null
       let finalAssistantContent: string

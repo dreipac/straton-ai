@@ -993,9 +993,9 @@ export function LearnPage() {
     }
 
     const maxImages = profile?.subscription_plans?.max_images ?? null
-    const usedImages = profile?.subscription_usages?.used_images ?? 0
-    if (maxImages !== null && usedImages + 1 > maxImages) {
-      setFlashcardsError('Du hast dein Abo-Limit für Bilder (Lernkarten) erreicht.')
+    const imageCredits = profile?.subscription_usages?.image_credit_balance ?? 0
+    if (maxImages !== null && imageCredits < 1) {
+      setFlashcardsError('Kein Bild-Guthaben mehr. Es lädt sich täglich auf (max. 60 angespart).')
       return
     }
 
@@ -1030,11 +1030,11 @@ export function LearnPage() {
     learningPaths,
     materials,
     profile?.subscription_plans?.max_images,
-    profile?.subscription_usages?.used_images,
+    profile?.subscription_usages?.image_credit_balance,
     selectedTopic,
     user,
   ],
- )
+  )
 
   const runCreateWorksheet = useCallback(
     async (personalization: LearnMaterialPersonalizationMode) => {
@@ -1080,9 +1080,9 @@ export function LearnPage() {
     }
 
     const maxImages = profile?.subscription_plans?.max_images ?? null
-    const usedImages = profile?.subscription_usages?.used_images ?? 0
-    if (maxImages !== null && usedImages + 1 > maxImages) {
-      setWorksheetError('Du hast dein Abo-Limit für Bilder (Arbeitsblätter) erreicht.')
+    const imageCredits = profile?.subscription_usages?.image_credit_balance ?? 0
+    if (maxImages !== null && imageCredits < 1) {
+      setWorksheetError('Kein Bild-Guthaben mehr. Es lädt sich täglich auf (max. 60 angespart).')
       return
     }
 
@@ -1117,7 +1117,7 @@ export function LearnPage() {
     learningPaths,
     materials,
     profile?.subscription_plans?.max_images,
-    profile?.subscription_usages?.used_images,
+    profile?.subscription_usages?.image_credit_balance,
     selectedTopic,
     user,
   ],

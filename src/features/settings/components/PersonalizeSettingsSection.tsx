@@ -123,32 +123,36 @@ export function PersonalizeSettingsSection({
       ) : (
         <div className="settings-section-divider" />
       )}
-      <div className="personalize-theme-row">
-        <p className="personalize-subtitle">Chat Hintergrund</p>
-        <div className="personalize-theme-grid" role="radiogroup" aria-label="Chat Hintergrund auswählen">
-          <button
-            type="button"
-            className={`personalize-theme-tile ${chatBackground === 'space-dark' ? 'is-active' : ''}`}
-            onClick={() => onChangeChatBackground('space-dark')}
-            role="radio"
-            aria-checked={chatBackground === 'space-dark'}
-          >
-            <span className="personalize-theme-preview is-space-dark" />
-            <span>Weltall dunkel</span>
-          </button>
-          <button
-            type="button"
-            className={`personalize-theme-tile ${chatBackground === 'space-stars' ? 'is-active' : ''}`}
-            onClick={() => onChangeChatBackground('space-stars')}
-            role="radio"
-            aria-checked={chatBackground === 'space-stars'}
-          >
-            <span className="personalize-theme-preview is-space-stars" />
-            <span>Weltall Sterne</span>
-          </button>
-        </div>
-      </div>
-      <div className="settings-section-divider" />
+      {themeMode !== 'light' ? (
+        <>
+          <div className="personalize-theme-row">
+            <p className="personalize-subtitle">Chat Hintergrund</p>
+            <div className="personalize-theme-grid" role="radiogroup" aria-label="Chat Hintergrund auswählen">
+              <button
+                type="button"
+                className={`personalize-theme-tile ${chatBackground === 'space-dark' ? 'is-active' : ''}`}
+                onClick={() => onChangeChatBackground('space-dark')}
+                role="radio"
+                aria-checked={chatBackground === 'space-dark'}
+              >
+                <span className="personalize-theme-preview is-space-dark" />
+                <span>Weltall dunkel</span>
+              </button>
+              <button
+                type="button"
+                className={`personalize-theme-tile ${chatBackground === 'space-stars' ? 'is-active' : ''}`}
+                onClick={() => onChangeChatBackground('space-stars')}
+                role="radio"
+                aria-checked={chatBackground === 'space-stars'}
+              >
+                <span className="personalize-theme-preview is-space-stars" />
+                <span>Weltall Sterne</span>
+              </button>
+            </div>
+          </div>
+          <div className="settings-section-divider" />
+        </>
+      ) : null}
       <div className="personalize-accent-row">
         <p className="personalize-subtitle">Akzentfarbe</p>
         <p className="personalize-accent-subtitle">Verläufe</p>

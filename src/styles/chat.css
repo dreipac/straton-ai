@@ -654,6 +654,21 @@
   color: #1d4ed8;
 }
 
+.chat-md-inline-image {
+  display: block;
+  max-width: min(100%, 28rem);
+  height: auto;
+  margin: 0.5rem 0;
+  border-radius: 10px;
+}
+
+.chat-image-gen-hint {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.78rem;
+  opacity: 0.82;
+  line-height: 1.35;
+}
+
 .chat-md-link-pill {
   display: inline-flex;
   align-items: center;
@@ -1380,7 +1395,7 @@
   color: #f9fafb;
 }
 
-.chat-excel-command-icon-badge:hover:enabled {
+.chat-command-badge--excel:hover:enabled {
   border-color: color-mix(in srgb, #22c55e 70%, var(--color-border));
   background: color-mix(in srgb, #22c55e 22%, var(--color-surface-elevated));
 }
@@ -1646,7 +1661,15 @@
   color: #f1f5f9;
 }
 
-.chat-excel-command-icon-badge {
+.chat-command-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.chat-command-badge--excel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1660,11 +1683,27 @@
   cursor: pointer;
 }
 
-.chat-excel-command-icon-badge img {
+.chat-command-badge--excel img {
   width: 14px;
   height: 14px;
   display: block;
   filter: none;
+}
+
+.chat-command-badge--image {
+  min-height: 24px;
+  padding: 0.18rem 0.58rem;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, #7c3aed 30%, transparent);
+  color: #7c3aed;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chat-command-badge--image:hover:enabled {
+  background: color-mix(in srgb, #7c3aed 40%, transparent);
 }
 
 .chat-input-row--stacked .chat-attachment-chips {
@@ -2738,21 +2777,21 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row {
-  --chat-composer-corner-top-left: rgba(254, 205, 211, 0.5);
-  --chat-composer-corner-bottom-right: rgba(251, 113, 133, 0.44);
-  /* Warmes Pink, R deutlich > B */
-  --chat-composer-surface: rgba(54, 12, 30, 0.78);
+  --chat-composer-corner-top-left: rgba(249, 168, 212, 0.5);
+  --chat-composer-corner-bottom-right: rgba(217, 70, 239, 0.4);
+  /* Lila-Pink passend zum Chat-Hintergrund */
+  --chat-composer-surface: rgba(52, 12, 50, 0.78);
   backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-saturation));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    0 10px 26px rgba(52, 10, 26, 0.4);
+    0 10px 26px rgba(44, 10, 42, 0.42);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row:focus-within {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 14px 38px color-mix(in srgb, rgba(251, 113, 133, 0.38) 48%, rgba(44, 10, 24, 0.52));
+    0 14px 38px color-mix(in srgb, rgba(217, 70, 239, 0.34) 48%, rgba(40, 10, 42, 0.56));
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row textarea.chat-input {
@@ -2761,32 +2800,32 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row textarea.chat-input::placeholder {
-  color: rgba(251, 182, 206, 0.46);
+  color: rgba(249, 168, 212, 0.48);
 }
 
 /* Ohne :not([type='submit']): Senden soll Akzent/Gradient behalten */
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row > button:not([type='submit']) {
-  border-color: rgba(251, 113, 133, 0.26);
-  background: rgba(44, 10, 26, 0.6);
+  border-color: rgba(236, 72, 153, 0.24);
+  background: rgba(42, 10, 40, 0.62);
   color: #fdf2f8;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-input-row > button:not([type='submit']):hover:enabled {
-  border-color: rgba(249, 168, 212, 0.38);
-  background: rgba(236, 72, 153, 0.26);
+  border-color: rgba(217, 70, 239, 0.34);
+  background: rgba(217, 70, 239, 0.24);
   color: #ffffff;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attach-button {
   border: none !important;
-  background: rgba(46, 10, 28, 0.74) !important;
+  background: rgba(42, 10, 40, 0.74) !important;
   color: #fdf2f8 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-attach-button:hover:enabled {
   border: none !important;
-  background: rgba(236, 72, 153, 0.32) !important;
+  background: rgba(217, 70, 239, 0.3) !important;
   color: #ffffff !important;
 }
 

@@ -270,21 +270,22 @@ function sanitizeQuizPayload(input: unknown): InteractiveQuizPayload | null {
   }
 }
 
-export function parseInteractiveContent(rawContent: string): ParsedInteractiveContent {
-  const startIndex = rawContent.indexOf(QUIZ_START)
-  const endIndex = rawContent.indexOf(QUIZ_END)
+export function parseInteractiveContent(rawContent: unknown): ParsedInteractiveContent {
+  const content = typeof rawContent === 'string' ? rawContent : ''
+  const startIndex = content.indexOf(QUIZ_START)
+  const endIndex = content.indexOf(QUIZ_END)
 
   if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
     return {
-      cleanText: rawContent.trim(),
+      cleanText: content.trim(),
       quiz: null,
     }
   }
 
   const jsonStart = startIndex + QUIZ_START.length
-  const jsonChunk = rawContent.slice(jsonStart, endIndex).trim()
-  const before = rawContent.slice(0, startIndex).trim()
-  const after = rawContent.slice(endIndex + QUIZ_END.length).trim()
+  const jsonChunk = content.slice(jsonStart, endIndex).trim()
+  const before = content.slice(0, startIndex).trim()
+  const after = content.slice(endIndex + QUIZ_END.length).trim()
   const cleanText = [before, after].filter(Boolean).join('\n\n').trim()
 
   const markerQuiz = tryParseQuizPayload(jsonChunk)
@@ -296,34 +297,35 @@ export function parseInteractiveContent(rawContent: string): ParsedInteractiveCo
   }
 
   return {
-    cleanText: rawContent.trim(),
+    cleanText: content.trim(),
     quiz: null,
   }
 }
 
-export function parseInteractiveContentWithFallback(rawContent: string): ParsedInteractiveContent {
+export function parseInteractiveContentWithFallback(rawContent: unknown): ParsedInteractiveContent {
+  const content = typeof rawContent === 'string' ? rawContent : ''
   const primary = parseInteractiveContent(rawContent)
   if (primary.quiz) {
     return primary
   }
 
-  const fenceJson = extractJsonCodeFence(rawContent)
+  const fenceJson = extractJsonCodeFence(content)
   if (fenceJson) {
     const fenceQuiz = tryParseQuizPayload(fenceJson)
     if (fenceQuiz) {
       return {
-        cleanText: rawContent.replace(/```(?:json)?\s*[\s\S]*?\s*```/i, '').trim(),
+        cleanText: content.replace(/```(?:json)?\s*[\s\S]*?\s*```/i, '').trim(),
         quiz: fenceQuiz,
       }
     }
   }
 
-  const objectJson = extractLikelyJsonObject(rawContent)
+  const objectJson = extractLikelyJsonObject(content)
   if (objectJson) {
     const objectQuiz = tryParseQuizPayload(objectJson)
     if (objectQuiz) {
       return {
-        cleanText: rawContent.replace(objectJson, '').trim(),
+        cleanText: content.replace(objectJson, '').trim(),
         quiz: objectQuiz,
       }
     }

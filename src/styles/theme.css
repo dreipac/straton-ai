@@ -133,37 +133,37 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] {
-  /* Flächen & Typo: warmes Pink (R > B) — weniger Violett/Magenta-Blau */
-  --color-bg-app: #1c0610;
+  /* Flächen & Typo: klareres Pink/Magenta (weniger Rotanteil) */
+  --color-bg-app: #150714;
   --color-text-app: #fff5f9;
-  --color-text-secondary: #f5d0e0;
-  --color-text-muted: #e8a8c4;
-  --color-border: rgba(251, 113, 133, 0.38);
-  --color-border-strong: rgba(253, 164, 175, 0.48);
-  --color-surface: rgba(62, 16, 36, 0.56);
-  --color-surface-soft: rgba(72, 18, 40, 0.52);
-  --color-surface-elevated: rgba(88, 22, 44, 0.55);
-  --color-shadow-strong: rgba(40, 8, 22, 0.58);
-  --color-shadow-soft: rgba(38, 8, 20, 0.44);
+  --color-text-secondary: #f6cdea;
+  --color-text-muted: #e9a4d6;
+  --color-border: rgba(236, 72, 153, 0.4);
+  --color-border-strong: rgba(244, 114, 182, 0.5);
+  --color-surface: rgba(56, 14, 52, 0.56);
+  --color-surface-soft: rgba(66, 16, 60, 0.52);
+  --color-surface-elevated: rgba(80, 20, 70, 0.55);
+  --color-shadow-strong: rgba(36, 8, 32, 0.58);
+  --color-shadow-soft: rgba(32, 7, 28, 0.44);
   --color-overlay: rgba(18, 4, 12, 0.64);
   --color-link: #fce7f3;
   --color-link-hover: #ffffff;
   /* Hover: rosé Glass — keine «schwarzen» Vollflächen */
-  --interactive-hover-bg: rgba(251, 113, 133, 0.28);
+  --interactive-hover-bg: rgba(236, 72, 153, 0.28);
   --interactive-hover-border: rgba(253, 186, 210, 0.52);
   --interactive-hover-text: #ffffff;
-  --interactive-hover-bg-dark: rgba(236, 72, 153, 0.34);
-  --interactive-hover-border-dark: rgba(253, 164, 175, 0.52);
+  --interactive-hover-bg-dark: rgba(217, 70, 239, 0.34);
+  --interactive-hover-border-dark: rgba(244, 114, 182, 0.52);
   --interactive-hover-text-dark: #ffffff;
-  --settings-modal-bg: rgba(56, 14, 34, 0.7);
-  --settings-sidebar-bg: rgba(48, 12, 30, 0.76);
-  --settings-body-bg: rgba(52, 14, 34, 0.48);
-  --settings-card-bg: rgba(64, 18, 40, 0.56);
+  --settings-modal-bg: rgba(50, 12, 44, 0.7);
+  --settings-sidebar-bg: rgba(42, 10, 38, 0.76);
+  --settings-body-bg: rgba(46, 12, 40, 0.48);
+  --settings-card-bg: rgba(58, 16, 50, 0.56);
   --app-background:
-    radial-gradient(1200px 720px at 12% 8%, rgba(253, 164, 175, 0.42), transparent 58%),
-    radial-gradient(980px 640px at 88% 10%, rgba(251, 113, 133, 0.32), transparent 56%),
-    radial-gradient(1100px 680px at 48% 96%, rgba(253, 186, 210, 0.26), transparent 62%),
-    linear-gradient(160deg, #16060c 0%, #2a1218 46%, #0a0307 100%);
+    radial-gradient(1200px 720px at 12% 8%, rgba(244, 114, 182, 0.4), transparent 58%),
+    radial-gradient(980px 640px at 88% 10%, rgba(217, 70, 239, 0.3), transparent 56%),
+    radial-gradient(1100px 680px at 48% 96%, rgba(249, 168, 212, 0.24), transparent 62%),
+    linear-gradient(160deg, #11050f 0%, #221026 46%, #07020a 100%);
   --glass-blur: 18px;
   --glass-saturation: 145%;
   --chat-user-bubble-bg-dark: rgba(244, 114, 182, 0.25);
@@ -173,10 +173,10 @@
   --scrollbar-thumb: rgba(236, 72, 153, 0.44);
   --scrollbar-thumb-hover: rgba(244, 114, 182, 0.62);
 
-  --input-field-bg: rgba(48, 12, 30, 0.9);
+  --input-field-bg: rgba(42, 10, 36, 0.9);
   --input-field-text: #fff5f8;
-  --input-field-placeholder: rgba(251, 182, 206, 0.48);
-  --input-field-border-idle: rgba(251, 113, 133, 0.26);
+  --input-field-placeholder: rgba(249, 168, 212, 0.5);
+  --input-field-border-idle: rgba(236, 72, 153, 0.28);
   --input-field-shadow-focus: 0 14px 40px rgba(22, 6, 18, 0.56);
 }
 

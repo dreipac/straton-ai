@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { renderAssistantInline } from './markdownInline'
+import { renderAssistantInline, stripGeneratedImageModelFooter } from './markdownInline'
 
 type Block =
   | { type: 'hr' }
@@ -687,7 +687,7 @@ function renderBlock(block: Block, i: number): ReactNode {
 
 /** Strukturierter Assistententext: Markdown-ähnliche Blöcke (Überschriften, Listen, ---, Links). */
 export function renderAssistantRichContent(content: string): ReactNode {
-  const trimmed = content.trim()
+  const trimmed = stripGeneratedImageModelFooter(content).trim()
   if (!trimmed) {
     return null
   }

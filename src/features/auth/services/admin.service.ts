@@ -1,4 +1,8 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import {
+  parseSubscriptionImageGenerationModelId,
+  type SubscriptionImageGenerationModelId,
+} from '../constants/subscriptionImageGenerationModels'
 
 export type AdminUser = {
   id: string
@@ -22,6 +26,8 @@ export type SubscriptionPlanRow = {
   max_tokens: number | null
   max_images: number | null
   max_files: number | null
+  /** Fehlt lokal/remote vor Migration `20260430230000_subscription_plan_image_generation_model`. */
+  image_generation_model?: SubscriptionImageGenerationModelId | null
   chat_allow_model_choice: boolean
   default_chat_model_id: string | null
   created_at: string
@@ -281,7 +287,7 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   const { data, error } = await supabase
     .from('subscription_plans')
     .select(
-      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
     )
     .order('name', { ascending: true })
 
@@ -307,6 +313,7 @@ export async function createSubscriptionPlan(params: {
   maxTokens: number | null
   maxImages: number | null
   maxFiles: number | null
+  imageGenerationModel?: SubscriptionImageGenerationModelId
   chatAllowModelChoice?: boolean
   defaultChatModelId?: string | null
 }): Promise<SubscriptionPlanRow> {
@@ -317,6 +324,7 @@ export async function createSubscriptionPlan(params: {
   }
   const chatAllow = params.chatAllowModelChoice !== false
   const defaultModel = normalizeDefaultChatModelId(params.defaultChatModelId ?? null)
+  const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel ?? null)
   const { data, error } = await supabase
     .from('subscription_plans')
     .insert({
@@ -324,11 +332,12 @@ export async function createSubscriptionPlan(params: {
       max_tokens: params.maxTokens,
       max_images: params.maxImages,
       max_files: params.maxFiles,
+      image_generation_model: imageModel,
       chat_allow_model_choice: chatAllow,
       default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
     })
     .select(
-      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
     )
     .single()
 
@@ -345,6 +354,7 @@ export async function updateSubscriptionPlan(params: {
   maxTokens: number | null
   maxImages: number | null
   maxFiles: number | null
+  imageGenerationModel: SubscriptionImageGenerationModelId
   chatAllowModelChoice: boolean
   defaultChatModelId: string | null
 }): Promise<SubscriptionPlanRow> {
@@ -358,6 +368,7 @@ export async function updateSubscriptionPlan(params: {
   if (!chatAllow && defaultModel === null) {
     defaultModel = 'gpt-5.4-mini'
   }
+  const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel)
   const { data, error } = await supabase
     .from('subscription_plans')
     .update({
@@ -365,12 +376,13 @@ export async function updateSubscriptionPlan(params: {
       max_tokens: params.maxTokens,
       max_images: params.maxImages,
       max_files: params.maxFiles,
+      image_generation_model: imageModel,
       chat_allow_model_choice: chatAllow,
       default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
     })
     .eq('id', params.planId)
     .select(
-      'id, name, max_tokens, max_images, max_files, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
     )
     .single()
 

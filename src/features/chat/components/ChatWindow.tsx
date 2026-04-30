@@ -135,6 +135,7 @@ export function ChatWindow({
   const [draft, setDraft] = useState('')
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
+  const [imageCommandSelected, setImageCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
   const isEmptyState = messages.length === 0
@@ -496,7 +497,9 @@ export function ChatWindow({
     const baseContent = [textPart, attachmentPart].filter(Boolean).join('\n\n')
     const content = excelCommandSelected
       ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
-      : baseContent
+      : imageCommandSelected
+        ? `/bild ${baseContent}`.trim()
+        : baseContent
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
         entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
@@ -513,12 +516,23 @@ export function ChatWindow({
     setDraft('')
     setShowSlashMenu(false)
     setExcelCommandSelected(false)
+    setImageCommandSelected(false)
     setPendingAttachments([])
     await onSendMessage(content)
   }
 
   function handleDraftChange(nextValue: string) {
-    setDraft(nextValue)
+    const imageCommandMatch = nextValue.match(/^\s*\/(?:bild|image)\b\s*/i)
+    if (imageCommandMatch) {
+      setImageCommandSelected(true)
+      setExcelCommandSelected(false)
+      setDraft(nextValue.slice(imageCommandMatch[0].length))
+    } else {
+      setDraft(nextValue)
+      if (!nextValue.trim()) {
+        setImageCommandSelected(false)
+      }
+    }
     if (excelCommandSelected) {
       setShowSlashMenu(false)
       return
@@ -530,6 +544,15 @@ export function ChatWindow({
 
   function handleSelectExcelSlashCommand() {
     setExcelCommandSelected(true)
+    setImageCommandSelected(false)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectImageSlashCommand() {
+    setImageCommandSelected(true)
+    setExcelCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -538,7 +561,7 @@ export function ChatWindow({
   function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (showSlashMenu && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      handleSelectExcelSlashCommand()
+      handleSelectImageSlashCommand()
       return
     }
     if (event.key !== 'Enter' || event.shiftKey) {
@@ -737,12 +760,23 @@ export function ChatWindow({
               {excelCommandSelected ? (
                 <button
                   type="button"
-                  className="chat-excel-command-icon-badge"
+                  className="chat-command-badge chat-command-badge--excel"
                   title="Excel-Befehl aktiv (klicken zum Entfernen)"
                   aria-label="Excel-Befehl entfernen"
                   onClick={() => setExcelCommandSelected(false)}
                 >
                   <img src={greenFileIcon} alt="" aria-hidden="true" />
+                </button>
+              ) : null}
+              {imageCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-command-badge chat-command-badge--image"
+                  title="Bild-Befehl aktiv (klicken zum Entfernen)"
+                  aria-label="Bild-Befehl entfernen"
+                  onClick={() => setImageCommandSelected(false)}
+                >
+                  Bild
                 </button>
               ) : null}
             </div>
@@ -806,6 +840,17 @@ export function ChatWindow({
                       onClick={handleSelectExcelSlashCommand}
                     >
                       Excel
+                    </button>
+                    <button
+                      type="button"
+                      className="thread-menu-item"
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onClick={handleSelectImageSlashCommand}
+                    >
+                      Bild
                     </button>
                   </div>
                 ) : null}
@@ -1102,12 +1147,23 @@ export function ChatWindow({
           {excelCommandSelected ? (
             <button
               type="button"
-              className="chat-excel-command-icon-badge"
+              className="chat-command-badge chat-command-badge--excel"
               title="Excel-Befehl aktiv (klicken zum Entfernen)"
               aria-label="Excel-Befehl entfernen"
               onClick={() => setExcelCommandSelected(false)}
             >
               <img src={greenFileIcon} alt="" aria-hidden="true" />
+            </button>
+          ) : null}
+          {imageCommandSelected ? (
+            <button
+              type="button"
+              className="chat-command-badge chat-command-badge--image"
+              title="Bild-Befehl aktiv (klicken zum Entfernen)"
+              aria-label="Bild-Befehl entfernen"
+              onClick={() => setImageCommandSelected(false)}
+            >
+              Bild
             </button>
           ) : null}
         </div>
@@ -1171,6 +1227,17 @@ export function ChatWindow({
                   onClick={handleSelectExcelSlashCommand}
                 >
                   Excel
+                </button>
+                <button
+                  type="button"
+                  className="thread-menu-item"
+                  role="menuitem"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                  }}
+                  onClick={handleSelectImageSlashCommand}
+                >
+                  Bild
                 </button>
               </div>
             ) : null}

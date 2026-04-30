@@ -27,6 +27,8 @@ function openAiRates(model: string): Rates | null {
     predicate(m) ? rates : null
 
   return (
+    tryMatch((s) => s.includes('gpt-image-2'), { inPerM: 5, outPerM: 10 }) ??
+    tryMatch((s) => s.includes('gpt-image-1'), { inPerM: 5, outPerM: 8.5 }) ??
     tryMatch((s) => s.includes('gpt-4o-mini'), { inPerM: 0.15, outPerM: 0.6 }) ??
     tryMatch((s) => s.includes('gpt-4o-2024-05-13'), { inPerM: 5, outPerM: 15 }) ??
     tryMatch((s) => s.includes('gpt-4o') && !s.includes('mini'), { inPerM: 2.5, outPerM: 10 }) ??

@@ -616,18 +616,18 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-main::before {
-  /* Warmes Pink-Rosé: mehr Coral/Rose, weniger purpur Basis */
+  /* Pink-Glass: lila-pink Balance (zwischen rosé und violett) */
   background:
     radial-gradient(
       125% 95% at 50% -8%,
-      rgba(253, 186, 210, 0.28) 0%,
-      rgba(251, 113, 133, 0.18) 38%,
-      rgba(72, 18, 38, 0.18) 58%,
+      rgba(249, 168, 212, 0.28) 0%,
+      rgba(236, 72, 153, 0.16) 38%,
+      rgba(74, 18, 58, 0.18) 58%,
       transparent 78%
     ),
-    radial-gradient(95% 75% at 82% 92%, rgba(251, 113, 133, 0.14) 0%, transparent 52%),
-    radial-gradient(70% 55% at 18% 72%, rgba(254, 205, 211, 0.1) 0%, transparent 50%),
-    linear-gradient(160deg, #16060c 0%, #2a1218 50%, #080306 100%);
+    radial-gradient(95% 75% at 82% 92%, rgba(236, 72, 153, 0.13) 0%, transparent 52%),
+    radial-gradient(70% 55% at 18% 72%, rgba(217, 70, 239, 0.08) 0%, transparent 50%),
+    linear-gradient(160deg, #13060f 0%, #25122a 50%, #07030a 100%);
 }
 
 /* OLED/Tiefschwarz: Gradient aus Theme-Palette — Standard-Dunkel bleibt „Space Navy“ */
@@ -666,13 +666,13 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-main::after {
-  /* Kein Lavendel (254-B) — nur Weiss + Pink-Töne */
+  /* Sterne: weiss + pink mit leichtem lila Anteil */
   background-image:
     radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
     radial-gradient(2px 2px at 66% 24%, rgba(249, 168, 212, 0.86) 0 1px, transparent 1.2px),
     radial-gradient(2px 2px at 48% 58%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.2px),
-    radial-gradient(2px 2px at 80% 74%, rgba(244, 114, 182, 0.82) 0 1px, transparent 1.2px),
-    radial-gradient(2px 2px at 34% 82%, rgba(251, 182, 206, 0.78) 0 1px, transparent 1.2px);
+    radial-gradient(2px 2px at 80% 74%, rgba(236, 72, 153, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(2px 2px at 34% 82%, rgba(217, 70, 239, 0.72) 0 1px, transparent 1.2px);
 }
 
 @keyframes chat-space-stars-drift {

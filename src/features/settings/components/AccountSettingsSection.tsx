@@ -1,4 +1,6 @@
 import { useRef } from 'react'
+import { MAX_IMAGE_CREDIT_BALANCE } from '../../auth/constants/imageCredits'
+import { labelForSubscriptionImageGenerationModel } from '../../auth/constants/subscriptionImageGenerationModels'
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
@@ -15,11 +17,13 @@ type AccountSettingsSectionProps = {
     max_tokens: number | null
     max_images: number | null
     max_files: number | null
+    image_generation_model?: string | null
   } | null
   subscriptionUsage: {
     used_tokens: number
     used_images: number
     used_files: number
+    image_credit_balance: number
   } | null
   isSavingAccount: boolean
   isSavingEmail: boolean
@@ -227,8 +231,16 @@ export function AccountSettingsSection({
               {subscriptionPlan.max_tokens ?? 'unbegrenzt'}
             </p>
             <p className="account-subscription">
-              Bilder (heute): {subscriptionUsage?.used_images ?? 0} /{' '}
-              {subscriptionPlan.max_images ?? 'unbegrenzt'}
+              Bild-Guthaben: {subscriptionUsage?.image_credit_balance ?? 0} / max. {MAX_IMAGE_CREDIT_BALANCE}{' '}
+              {subscriptionPlan.max_images != null
+                ? `(+${subscriptionPlan.max_images} pro Tag, ungenutztes läuft mit)`
+                : ''}
+            </p>
+            <p className="account-subscription">
+              Bilder (heute erzeugt): {subscriptionUsage?.used_images ?? 0}
+            </p>
+            <p className="account-subscription">
+              Bildgenerator: {labelForSubscriptionImageGenerationModel(subscriptionPlan.image_generation_model)}
             </p>
             <p className="account-subscription">
               Dateien (heute): {subscriptionUsage?.used_files ?? 0} /{' '}

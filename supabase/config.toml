@@ -399,6 +399,12 @@ entrypoint = "./functions/chat-completion/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/generate-excel-from-spec/index.ts"
+
+[functions.generate-chat-image]
+enabled = true
+verify_jwt = true
+import_map = "./functions/generate-chat-image/deno.json"
+entrypoint = "./functions/generate-chat-image/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/chat-completion/*.html" ]

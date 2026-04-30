@@ -15,6 +15,7 @@ import { ErrorStatusSettingsSection } from '../features/settings/components/Erro
 import { FeedbackSettingsSection } from '../features/settings/components/FeedbackSettingsSection'
 import { GeneralSettingsSection } from '../features/settings/components/GeneralSettingsSection'
 import { PersonalizeSettingsSection } from '../features/settings/components/PersonalizeSettingsSection'
+import { StratonSettingsSection } from '../features/settings/components/StratonSettingsSection'
 import { CHAT_THREADS_REFRESH_EVENT } from '../features/chat/constants/events'
 import {
   readAssistantEmojisEnabled,
@@ -30,6 +31,7 @@ import {
 import { syncThemeColorMeta } from '../utils/themeColorMeta'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
+import { labelForSubscriptionImageGenerationModel } from '../features/auth/constants/subscriptionImageGenerationModels'
 import { listVisibleSubscriptionPlans, type VisibleSubscriptionPlan } from '../features/auth/services/subscriptionCatalog.service'
 import {
   ACCENT_STORAGE_KEY,
@@ -54,6 +56,7 @@ import {
 
 export type SettingsSectionId =
   | 'general'
+  | 'straton'
   | 'chat'
   | 'invitations'
   | 'personalize'
@@ -80,6 +83,7 @@ type SettingsModalProps = {
 }
 
 export function SettingsModal({ onClose, initialSection = 'general', variant = 'modal' }: SettingsModalProps) {
+  const stratonMenuIcon = `${import.meta.env.BASE_URL}assets/logo/Straton.png`
   const {
     user,
     profile,
@@ -429,6 +433,12 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                   ? 'Cuenta y seguridad'
             : 'Account und Sicherheit',
       icon: accountIcon,
+    },
+    {
+      id: 'straton',
+      label: 'Straton',
+      title: 'Straton',
+      icon: stratonMenuIcon,
     },
   ]
 
@@ -868,6 +878,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
         {activeSection === 'general' ? (
           <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
         ) : null}
+        {activeSection === 'straton' ? <StratonSettingsSection /> : null}
         {activeSection === 'personalize' ? (
           <PersonalizeSettingsSection
             themeMode={themeMode}
@@ -1019,8 +1030,14 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                     <article key={plan.id} className="settings-card account-subscription-plan-card">
                       <h3 className="admin-system-prompt-title">{plan.name}</h3>
                       <p className="admin-subscriptions-meta">
-                        Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder: {plan.max_images ?? 'unbegrenzt'} · Dateien:{' '}
+                        Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder:{' '}
+                        {plan.max_images != null
+                          ? `+${plan.max_images}/Tag auf Guthaben (max. 60)`
+                          : 'unbegrenzt'}{' '}
+                        · Dateien:{' '}
                         {plan.max_files ?? 'unbegrenzt'}
+                        <br />
+                        Bildgenerator: {labelForSubscriptionImageGenerationModel(plan.image_generation_model)}
                       </p>
                       <div className="account-subscription-plan-actions">
                         <SecondaryButton type="button">Kaufen</SecondaryButton>

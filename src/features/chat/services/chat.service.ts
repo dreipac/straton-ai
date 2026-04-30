@@ -29,6 +29,7 @@ import {
 } from '../constants/chatTruthAndTone'
 import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
+import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -197,6 +198,30 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
 /** Echter KI-Call (nicht Mock). Chat und Lernpfad = OpenAI (Lernpfad: GPT-5 mini über Edge, siehe chat-completion). */
 export function usesGatewayAi(): boolean {
   return env.aiProvider !== 'mock'
+}
+
+/** Bildgenerierung über Edge Function `generate-chat-image` (OpenAI GPT Image 1/2 laut Abo). */
+export async function generateChatImageFromPrompt(prompt: string): Promise<{ assistantMarkdown: string }> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('generate-chat-image', {
+    body: { prompt },
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const payload = data as { assistantMarkdown?: unknown; error?: unknown } | undefined
+  if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+    throw new Error(payload.error.trim())
+  }
+
+  const assistantMarkdown = payload?.assistantMarkdown
+  if (typeof assistantMarkdown !== 'string' || !assistantMarkdown.trim()) {
+    throw new Error('Die Bildgenerierung hat keine Daten geliefert.')
+  }
+
+  return { assistantMarkdown: stripGeneratedImageModelFooter(assistantMarkdown.trim()) }
 }
 
 export async function generateExcelFromSpec(input: {

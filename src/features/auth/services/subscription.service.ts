@@ -19,7 +19,7 @@ export function formatSubscriptionQuotaError(error: unknown): string {
     return 'Datei-Limit erreicht (Tages- oder Abo-Kontingent). Bitte später erneut versuchen oder Plan prüfen.'
   }
   if (/Bilder Limit/i.test(msg)) {
-    return 'Bild-Limit erreicht. Bitte später erneut versuchen oder Plan prüfen.'
+    return 'Kein Bild-Guthaben mehr. Es lädt sich täglich auf (bis zu 60 angespart).'
   }
   if (/Token Limit/i.test(msg)) {
     return 'Token-Limit erreicht. Bitte später erneut versuchen oder Plan prüfen.'

@@ -37,6 +37,16 @@ export function renderInlineMarkdown(content: string): ReactNode[] {
 }
 
 const MD_LINK_RE = /^\[([^\]]*)\]\(([^)]*)\)$/
+const MD_IMAGE_RE = /^!\[([^\]]*)\]\(([^)]*)\)$/
+
+/** Entfernt die Footer-Zeile `_Modell: …_` unter generierten Bildern (legacy Edge-Antworten / nicht redeployte Functions). */
+export function stripGeneratedImageModelFooter(content: string): string {
+  return content
+    .split('\n')
+    .filter((line) => !/^\s*_Modell:\s*.+$/i.test(line.trim()))
+    .join('\n')
+    .trim()
+}
 
 function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,;:!?)]+$/, '')
@@ -120,19 +130,45 @@ function withKeys(nodes: ReactNode[], prefix: string): ReactNode[] {
   })
 }
 
-/** **fett**, [Label](url), sowie freistehende http(s)-URLs als Pill. */
+/** **fett**, ![alt](url) / [Label](url), sowie freistehende http(s)-URLs als Pill. */
 export function renderAssistantInline(content: string): ReactNode[] {
-  const linkSplit = /(\[[^\]]+\]\([^)]+\))/g
+  const linkSplit = /(!?\[[^\]]+\]\([^)]+\))/g
   const segments = content.split(linkSplit).filter((s) => s !== '')
   const out: ReactNode[] = []
   let k = 0
 
   for (const seg of segments) {
+    const imageMatch = seg.match(MD_IMAGE_RE)
+    if (imageMatch) {
+      const href = trimTrailingPunctuation(imageMatch[2].trim())
+      const label = imageMatch[1].trim() || hostnameFromUrl(href)
+      out.push(
+        <img
+          key={`mdi-${k++}`}
+          className="chat-md-inline-image"
+          src={href}
+          alt={label || 'Bild'}
+          loading="lazy"
+        />,
+      )
+      continue
+    }
+
     const lm = seg.match(MD_LINK_RE)
     if (lm) {
       const href = trimTrailingPunctuation(lm[2].trim())
       const label = lm[1].trim() || hostnameFromUrl(href)
-      if (/^mailto:/i.test(href)) {
+      if (href.startsWith('data:image/')) {
+        out.push(
+          <img
+            key={`mdi-${k++}`}
+            className="chat-md-inline-image"
+            src={href}
+            alt={label || 'Bild'}
+            loading="lazy"
+          />,
+        )
+      } else if (/^mailto:/i.test(href)) {
         const raw = href.replace(/^mailto:/i, '').trim()
         out.push(
           <a

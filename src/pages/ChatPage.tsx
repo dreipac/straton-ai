@@ -117,6 +117,7 @@ const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[
   { id: 'personalize', label: 'Personalisieren' },
   { id: 'status', label: 'Status' },
   { id: 'feedback', label: 'Feedback' },
+  { id: 'straton', label: 'Straton' },
 ]
 
 export function ChatPage() {
