@@ -46,6 +46,67 @@ function estimateGptImageUsageUsd(model: string, inputTokens: number, outputToke
   )
 }
 
+const MAX_DIRECT_PROMPT_CHARS = 4000
+const MAX_FULL_PROMPT_CHARS = 14000
+const MAX_CONTEXT_MESSAGES = 28
+const MAX_CONTEXT_MESSAGE_CHARS = 3200
+
+function stripHeavyMediaForContext(s: string): string {
+  return s.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
+}
+
+type ContextTurn = { role: string; content: string }
+
+function normalizeContextMessages(raw: unknown): ContextTurn[] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const out: ContextTurn[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    const role = (item as { role?: unknown }).role
+    const content = (item as { content?: unknown }).content
+    if (role !== 'user' && role !== 'assistant') {
+      continue
+    }
+    if (typeof content !== 'string') {
+      continue
+    }
+    const trimmed = stripHeavyMediaForContext(content).trim()
+    if (!trimmed.length) {
+      continue
+    }
+    out.push({
+      role,
+      content: trimmed.slice(0, MAX_CONTEXT_MESSAGE_CHARS),
+    })
+  }
+  return out
+}
+
+/** Kontext + aktuelle Bildbitte zu einem Prompt für die Images-API (ein Feld). */
+function buildFullImagePrompt(directPrompt: string, turns: ContextTurn[]): string {
+  if (turns.length === 0) {
+    return directPrompt.slice(0, MAX_FULL_PROMPT_CHARS)
+  }
+  const header =
+    'Chat-Verlauf (nur Kontext: Stil, Motive, frühere Bildwünsche und Anpassungen). Die «Aktuelle Bildbitte» am Ende ist das Wesentliche:\n\n'
+  const tail = `\n---\nAktuelle Bildbitte (primär umsetzen): ${directPrompt}`
+  let body = ''
+  const recent = turns.slice(-MAX_CONTEXT_MESSAGES)
+  for (const t of recent) {
+    const tag = t.role === 'user' ? 'Nutzer' : 'Assistent'
+    const piece = `${tag}: ${t.content}\n\n`
+    if (header.length + body.length + piece.length + tail.length > MAX_FULL_PROMPT_CHARS) {
+      break
+    }
+    body += piece
+  }
+  return (header + body + tail).slice(0, MAX_FULL_PROMPT_CHARS)
+}
+
 async function logAiTokenUsage(
   admin: SupabaseClient | null,
   userId: string,
@@ -96,18 +157,23 @@ serve(async (req) => {
     return jsonResponse({ error: 'Nicht authentifiziert.' }, 401)
   }
 
-  let bodyJson: { prompt?: unknown }
+  let bodyJson: { prompt?: unknown; contextMessages?: unknown }
   try {
-    bodyJson = (await req.json()) as { prompt?: unknown }
+    bodyJson = (await req.json()) as { prompt?: unknown; contextMessages?: unknown }
   } catch {
     return jsonResponse({ error: 'Ungültiger JSON-Body.' }, 400)
   }
 
-  const prompt =
-    typeof bodyJson.prompt === 'string' ? bodyJson.prompt.trim().slice(0, 4000) : ''
-  if (!prompt.length) {
+  const directPrompt =
+    typeof bodyJson.prompt === 'string'
+      ? bodyJson.prompt.trim().slice(0, MAX_DIRECT_PROMPT_CHARS)
+      : ''
+  if (!directPrompt.length) {
     return jsonResponse({ error: 'Bitte einen Bild-Prompt angeben (kurzer Text).' }, 400)
   }
+
+  const contextTurns = normalizeContextMessages(bodyJson.contextMessages)
+  const prompt = buildFullImagePrompt(directPrompt, contextTurns)
 
   const userClient = createClient(supabaseUrl, supabaseAnonKey, {
     global: {
@@ -231,20 +297,19 @@ serve(async (req) => {
 
   await logAiTokenUsage(adminClient, user.id, apiModel, inputTokens, outputTokens)
 
-  if (!isSuperadmin) {
-    const { error: quotaErr } = await userClient.rpc('user_increment_subscription_usage', {
-      p_user_id: user.id,
-      p_used_tokens_delta: 0,
-      p_used_images_delta: 1,
-      p_used_files_delta: 0,
-    })
-    if (quotaErr) {
-      const msg =
-        typeof quotaErr.message === 'string' && quotaErr.message.includes('Bilder Limit')
-          ? 'Bild-Limit erreicht.'
-          : 'Nutzungszähler konnte nicht aktualisiert werden.'
-      return jsonResponse({ error: msg }, 429)
-    }
+  /** Immer Zähler erhöhen (auch Superadmin): RPC setzt bei Superadmin keine Limits, nur Statistik/Guthaben-Logik. */
+  const { error: quotaErr } = await userClient.rpc('user_increment_subscription_usage', {
+    p_user_id: user.id,
+    p_used_tokens_delta: 0,
+    p_used_images_delta: 1,
+    p_used_files_delta: 0,
+  })
+  if (quotaErr) {
+    const msg =
+      typeof quotaErr.message === 'string' && quotaErr.message.includes('Bilder Limit')
+        ? 'Bild-Limit erreicht.'
+        : 'Nutzungszähler konnte nicht aktualisiert werden.'
+    return jsonResponse({ error: msg }, 429)
   }
 
   const assistantMarkdown = `[Generiertes Bild](${dataUrl})`

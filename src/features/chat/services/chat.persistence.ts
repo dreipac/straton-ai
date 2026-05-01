@@ -48,11 +48,13 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
 }
 
 export function mapMessage(row: ChatMessageRow): ChatMessage {
+  const content =
+    typeof row.content === 'string' ? row.content : row.content == null ? '' : String(row.content)
   return {
     id: row.id,
     threadId: row.thread_id,
     role: row.role,
-    content: row.content,
+    content,
     createdAt: row.created_at,
     metadata: mapMessageMetadata(row.metadata),
   }

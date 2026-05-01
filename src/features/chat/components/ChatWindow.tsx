@@ -36,7 +36,31 @@ import {
   messageContainsCompleteThinkingClarifyBlock,
   stripThinkingClarifyMarkersForDisplay,
 } from '../utils/thinkingClarify'
+import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
+
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
+
+const IMAGE_GEN_MATRIX_SIZE = 15
+
+function buildImageGenMatrixDots(): { key: string; delayMs: number }[] {
+  const n = IMAGE_GEN_MATRIX_SIZE
+  const c = (n - 1) / 2
+  const maxD = Math.hypot(c, c) || 1
+  const out: { key: string; delayMs: number }[] = []
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const dist = Math.hypot(row - c, col - c)
+      out.push({
+        key: `ig-${row}-${col}`,
+        delayMs: Math.round((dist / maxD) * 740),
+      })
+    }
+  }
+  return out
+}
+
+const IMAGE_GEN_MATRIX_DOTS = buildImageGenMatrixDots()
 
 type ChatWindowProps = {
   /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
@@ -95,6 +119,21 @@ function extractBildDataUrlFromStoredContent(content: string, imageId: string): 
   return undefined
 }
 
+/** PostgREST / Zwischenzustände: content nie undefined bei .length */
+function safeMessageContent(content: string | null | undefined): string {
+  return typeof content === 'string' ? content : ''
+}
+
+/** Typing-Reveal streamt Zeichenweise — bei eingebetteten Bildern (riesige data:-URLs) entstehen kaputte Markdown-Slices und die UI bleibt leer. */
+const ASSISTANT_TYPING_REVEAL_MAX_CHARS = 12_000
+
+function shouldSkipAssistantTypingReveal(strippedContent: string): boolean {
+  return (
+    strippedContent.length > ASSISTANT_TYPING_REVEAL_MAX_CHARS ||
+    strippedContent.includes('data:image/')
+  )
+}
+
 function extractDateiFileNamesFromContent(content: string): string[] {
   if (!content.includes('[Datei:')) {
     return []
@@ -132,17 +171,23 @@ export function ChatWindow({
   onSendMessage,
   onCancelSend,
 }: ChatWindowProps) {
+  const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
   const [draft, setDraft] = useState('')
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
-  const [imageCommandSelected, setImageCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
-  const isEmptyState = messages.length === 0
+  const isEmptyState = messageList.length === 0
   const showAssistantPendingLoader =
     isSending &&
-    messages.length > 0 &&
-    messages[messages.length - 1]?.role === 'user'
+    messageList.length > 0 &&
+    messageList[messageList.length - 1]?.role === 'user'
+  const pendingUserContentForLoader = showAssistantPendingLoader
+    ? safeMessageContent(messageList[messageList.length - 1]?.content)
+    : ''
+  const pendingImageGeneration =
+    showAssistantPendingLoader &&
+    matchExplicitImageGenerationRequest(pendingUserContentForLoader).kind === 'prompt'
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
@@ -158,15 +203,16 @@ export function ChatWindow({
   const streamingAssistantIdsRef = useRef<Set<string>>(new Set())
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
 
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const lastMessage = messageList.length > 0 ? messageList[messageList.length - 1] : undefined
   const isAssistantReplyStillAnimating = (() => {
     if (!lastMessage || lastMessage.role !== 'assistant') return false
     if (lastMessage.metadata?.liveStream) return false
     const parsed = parseInteractiveContentWithFallback(lastMessage.content)
     if (parsed?.quiz) return false
     if (lastMessage.metadata?.excelExport) return false
-    const animated = animatedAssistantContent[lastMessage.id] ?? lastMessage.content
-    return animated.length < lastMessage.content.length
+    const full = safeMessageContent(lastMessage.content)
+    const animated = safeMessageContent(animatedAssistantContent[lastMessage.id] ?? full)
+    return animated.length < full.length
   })()
   const showDuringSendIcon = isSending || isAssistantReplyStillAnimating
   const cancelWhileSending = Boolean(isSending && onCancelSend)
@@ -181,14 +227,14 @@ export function ChatWindow({
   }
 
   const lastMessageFingerprint =
-    messages.length > 0
-      ? `${messages[messages.length - 1].id}:${messages[messages.length - 1].content.length}`
+    messageList.length > 0
+      ? `${messageList[messageList.length - 1].id}:${safeMessageContent(messageList[messageList.length - 1].content).length}`
       : ''
 
   /** Liste immer ohne Scroll-Animation ans Ende (Chat öffnen, Laden, neue Nachricht). */
   useEffect(() => {
     const el = messagesScrollRef.current
-    if (!el || messages.length === 0) {
+    if (!el || messageList.length === 0) {
       return
     }
     requestAnimationFrame(() => {
@@ -197,7 +243,7 @@ export function ChatWindow({
         behavior: 'auto',
       })
     })
-  }, [threadKey, lastMessageFingerprint, isSending, messages.length])
+  }, [threadKey, lastMessageFingerprint, isSending, messageList.length])
 
   useEffect(() => {
     return () => {
@@ -226,19 +272,19 @@ export function ChatWindow({
 
   /** Thread gewechselt: Historie sofort voll anzeigen, Stream-Refs zurücksetzen. */
   useLayoutEffect(() => {
-    const assistantIds = new Set(messages.filter((m) => m.role === 'assistant').map((m) => m.id))
+    const assistantIds = new Set(messageList.filter((m) => m.role === 'assistant').map((m) => m.id))
     animatedAssistantIdsRef.current = assistantIds
     streamingAssistantIdsRef.current = new Set()
     setAnimatedAssistantContent({})
-    prevMessageCountRef.current = messages.length
+    prevMessageCountRef.current = messageList.length
     // messages gehören zum gleichen Render wie threadKey; bei jeder messages-Änderung würden wir fälschlich zurücksetzen.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nur Thread-Wechsel
   }, [threadKey])
 
   /** Kein Volltext vor dem ersten Paint bei neu angehängter Assistenten-Nachricht. */
   useLayoutEffect(() => {
-    const latest = messages[messages.length - 1]
-    const appendedOne = messages.length === prevMessageCountRef.current + 1
+    const latest = messageList[messageList.length - 1]
+    const appendedOne = messageList.length === prevMessageCountRef.current + 1
     if (
       !latest ||
       latest.role !== 'assistant' ||
@@ -250,18 +296,25 @@ export function ChatWindow({
     if (latest.metadata?.liveStream) {
       return
     }
+    const raw = stripExcelSpecBlock(safeMessageContent(latest.content))
+    if (shouldSkipAssistantTypingReveal(raw)) {
+      setAnimatedAssistantContent((prev) => ({ ...prev, [latest.id]: raw }))
+      animatedAssistantIdsRef.current.add(latest.id)
+      prevMessageCountRef.current = messageList.length
+      return
+    }
     setAnimatedAssistantContent((prev) => ({ ...prev, [latest.id]: '' }))
-  }, [messages])
+  }, [messageList])
 
   useEffect(() => {
     animationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
     animationTimersRef.current = []
 
-    const latestMessage = messages[messages.length - 1]
+    const latestMessage = messageList[messageList.length - 1]
     const appendedAssistant =
       Boolean(latestMessage) &&
       latestMessage.role === 'assistant' &&
-      messages.length === prevMessageCountRef.current + 1 &&
+      messageList.length === prevMessageCountRef.current + 1 &&
       !animatedAssistantIdsRef.current.has(latestMessage.id)
 
     const shouldStreamLatest = appendedAssistant
@@ -275,7 +328,7 @@ export function ChatWindow({
       rafChainIds.length = 0
     }
 
-    for (const message of messages) {
+    for (const message of messageList) {
       if (message.role !== 'assistant') {
         continue
       }
@@ -283,7 +336,7 @@ export function ChatWindow({
       if (message.metadata?.liveStream) {
         setAnimatedAssistantContent((prev) => ({
           ...prev,
-          [message.id]: stripExcelSpecBlock(message.content),
+          [message.id]: stripExcelSpecBlock(safeMessageContent(message.content)),
         }))
         continue
       }
@@ -298,7 +351,19 @@ export function ChatWindow({
 
       if (shouldStreamLatest && latestMessage?.id === message.id) {
         /** Roh-Präfix zeigt sonst Marker/JSON, bevor END im String liegt — strip vor Animation. */
-        const fullContent = stripExcelSpecBlock(message.content)
+        const fullContent = stripExcelSpecBlock(safeMessageContent(message.content))
+        if (shouldSkipAssistantTypingReveal(fullContent)) {
+          if (!animatedAssistantIdsRef.current.has(message.id)) {
+            setAnimatedAssistantContent((prev) => ({
+              ...prev,
+              [message.id]: fullContent,
+            }))
+            animatedAssistantIdsRef.current.add(message.id)
+          }
+          streamingAssistantIdsRef.current.delete(message.id)
+          prevMessageCountRef.current = messageList.length
+          continue
+        }
         streamingStarted = true
         streamingIdForCleanup = message.id
         streamingAssistantIdsRef.current.add(message.id)
@@ -307,7 +372,7 @@ export function ChatWindow({
         const charsPerSecond = 320
         const durationMs = Math.min(900, Math.max(120, (fullContent.length / charsPerSecond) * 1000))
         const start = performance.now()
-        const targetLen = messages.length
+        const targetLen = messageList.length
 
         const tick = (now: number) => {
           const elapsed = now - start
@@ -336,14 +401,17 @@ export function ChatWindow({
       }
 
       const immediateTimerId = window.setTimeout(() => {
-        setAnimatedAssistantContent((prev) => ({ ...prev, [message.id]: message.content }))
+        setAnimatedAssistantContent((prev) => ({
+          ...prev,
+          [message.id]: safeMessageContent(message.content),
+        }))
       }, 0)
       animationTimersRef.current.push(immediateTimerId)
       animatedAssistantIdsRef.current.add(message.id)
     }
 
     if (!streamingStarted) {
-      prevMessageCountRef.current = messages.length
+      prevMessageCountRef.current = messageList.length
     }
 
     return () => {
@@ -352,7 +420,7 @@ export function ChatWindow({
         streamingAssistantIdsRef.current.delete(streamingIdForCleanup)
       }
     }
-  }, [messages])
+  }, [messageList])
 
   async function downloadExcelExport(message: ChatMessage) {
     const ex = message.metadata?.excelExport
@@ -407,7 +475,7 @@ export function ChatWindow({
   }
 
   async function checkQuizAnswer(message: ChatMessage, questionId: string) {
-    const parsed = parseInteractiveContentWithFallback(message.content)
+    const parsed = parseInteractiveContentWithFallback(safeMessageContent(message.content))
     if (!parsed.quiz) {
       return
     }
@@ -495,11 +563,7 @@ export function ChatWindow({
     const textPart = draft.trim()
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
     const baseContent = [textPart, attachmentPart].filter(Boolean).join('\n\n')
-    const content = excelCommandSelected
-      ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
-      : imageCommandSelected
-        ? `/bild ${baseContent}`.trim()
-        : baseContent
+    const content = excelCommandSelected ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim() : baseContent
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
         entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
@@ -516,23 +580,12 @@ export function ChatWindow({
     setDraft('')
     setShowSlashMenu(false)
     setExcelCommandSelected(false)
-    setImageCommandSelected(false)
     setPendingAttachments([])
     await onSendMessage(content)
   }
 
   function handleDraftChange(nextValue: string) {
-    const imageCommandMatch = nextValue.match(/^\s*\/(?:bild|image)\b\s*/i)
-    if (imageCommandMatch) {
-      setImageCommandSelected(true)
-      setExcelCommandSelected(false)
-      setDraft(nextValue.slice(imageCommandMatch[0].length))
-    } else {
-      setDraft(nextValue)
-      if (!nextValue.trim()) {
-        setImageCommandSelected(false)
-      }
-    }
+    setDraft(nextValue)
     if (excelCommandSelected) {
       setShowSlashMenu(false)
       return
@@ -544,15 +597,6 @@ export function ChatWindow({
 
   function handleSelectExcelSlashCommand() {
     setExcelCommandSelected(true)
-    setImageCommandSelected(false)
-    setShowSlashMenu(false)
-    setDraft((prev) => prev.replace('/', '').trimStart())
-    inputRef.current?.focus({ preventScroll: true })
-  }
-
-  function handleSelectImageSlashCommand() {
-    setImageCommandSelected(true)
-    setExcelCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -561,7 +605,7 @@ export function ChatWindow({
   function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (showSlashMenu && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      handleSelectImageSlashCommand()
+      handleSelectExcelSlashCommand()
       return
     }
     if (event.key !== 'Enter' || event.shiftKey) {
@@ -768,17 +812,6 @@ export function ChatWindow({
                   <img src={greenFileIcon} alt="" aria-hidden="true" />
                 </button>
               ) : null}
-              {imageCommandSelected ? (
-                <button
-                  type="button"
-                  className="chat-command-badge chat-command-badge--image"
-                  title="Bild-Befehl aktiv (klicken zum Entfernen)"
-                  aria-label="Bild-Befehl entfernen"
-                  onClick={() => setImageCommandSelected(false)}
-                >
-                  Bild
-                </button>
-              ) : null}
             </div>
             <div className="chat-input-compose">
               {pendingAttachments.length > 0 ? (
@@ -841,17 +874,6 @@ export function ChatWindow({
                     >
                       Excel
                     </button>
-                    <button
-                      type="button"
-                      className="thread-menu-item"
-                      role="menuitem"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                      }}
-                      onClick={handleSelectImageSlashCommand}
-                    >
-                      Bild
-                    </button>
                   </div>
                 ) : null}
                 <textarea
@@ -911,16 +933,17 @@ export function ChatWindow({
       ) : null}
       <div className="chat-messages" ref={messagesScrollRef}>
         <div className="chat-messages-inner">
-        {messages.map((message) => {
+        {messageList.map((message) => {
+          const rawContent = safeMessageContent(message.content)
           const isAssistant = message.role === 'assistant'
-          const parsed = isAssistant ? parseInteractiveContentWithFallback(message.content) : null
+          const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
-          const animatedContent = animatedAssistantContent[message.id] ?? message.content
+          const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
-            ? stripExcelSpecBlock(message.content)
+            ? stripExcelSpecBlock(rawContent)
             : message.metadata?.excelExport
-              ? message.content
+              ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
@@ -929,21 +952,21 @@ export function ChatWindow({
             isAssistant &&
             chatThinkingMode === 'thinking' &&
             Boolean(message.metadata?.liveStream) &&
-            !messageContainsCompleteThinkingClarifyBlock(message.content)
+            !messageContainsCompleteThinkingClarifyBlock(rawContent)
           const displayContent = isAssistant
             ? chatThinkingMode === 'thinking'
               ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
               : assistantAfterExcel
-            : stripAttachmentBlocksForDisplay(message.content)
-          const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(message.content) : []
+            : stripAttachmentBlocksForDisplay(rawContent)
+          const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
-            message.role === 'user' ? extractDateiFileNamesFromContent(message.content) : []
+            message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
           const hasReloadedImageSrc =
             message.role === 'user' &&
             pastedImageIds.some(
               (id) =>
                 Boolean(sentPastedImagePreviews[id]) ||
-                Boolean(extractBildDataUrlFromStoredContent(message.content, id)),
+                Boolean(extractBildDataUrlFromStoredContent(rawContent, id)),
             )
           const showExcelFallbackText =
             isAssistant &&
@@ -954,8 +977,8 @@ export function ChatWindow({
             !hasInteractiveQuiz &&
             !message.metadata?.excelExport &&
             (Boolean(message.metadata?.liveStream) ||
-              animatedContent.length < message.content.length)
-          const isLatestMessage = message.id === messages[messages.length - 1]?.id
+              animatedContent.length < rawContent.length)
+          const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
 
           return (
             <article
@@ -968,7 +991,7 @@ export function ChatWindow({
                   {pastedImageIds.map((imageId) => {
                     const src =
                       sentPastedImagePreviews[imageId] ??
-                      extractBildDataUrlFromStoredContent(message.content, imageId)
+                      extractBildDataUrlFromStoredContent(rawContent, imageId)
                     if (!src) {
                       return null
                     }
@@ -1083,16 +1106,41 @@ export function ChatWindow({
         })}
           {showAssistantPendingLoader ? (
             <div
-              className="chat-message is-assistant chat-message--pending"
+              className={`chat-message is-assistant chat-message--pending${pendingImageGeneration ? ' chat-message--pending-image' : ''}`}
               aria-live="polite"
               aria-busy="true"
             >
               <strong className="chat-message-author">Straton AI</strong>
-              <div className="chat-pending-loader" role="status">
-                <span className="chat-pending-loader-dot" />
-                <span className="chat-pending-loader-dot" />
-                <span className="chat-pending-loader-dot" />
-              </div>
+              {pendingImageGeneration ? (
+                <div
+                  className="chat-image-gen-loader-panel"
+                  role="status"
+                  aria-label="Bild wird generiert"
+                >
+                  <div
+                    className="chat-image-gen-matrix"
+                    style={{
+                      gridTemplateColumns: `repeat(${IMAGE_GEN_MATRIX_SIZE}, minmax(0, 1fr))`,
+                      gridTemplateRows: `repeat(${IMAGE_GEN_MATRIX_SIZE}, minmax(0, 1fr))`,
+                    }}
+                    aria-hidden
+                  >
+                    {IMAGE_GEN_MATRIX_DOTS.map(({ key, delayMs }) => (
+                      <span
+                        key={key}
+                        className="chat-image-gen-matrix-dot"
+                        style={{ animationDelay: `${delayMs}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="chat-pending-loader" role="status">
+                  <span className="chat-pending-loader-dot" />
+                  <span className="chat-pending-loader-dot" />
+                  <span className="chat-pending-loader-dot" />
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -1153,17 +1201,6 @@ export function ChatWindow({
               onClick={() => setExcelCommandSelected(false)}
             >
               <img src={greenFileIcon} alt="" aria-hidden="true" />
-            </button>
-          ) : null}
-          {imageCommandSelected ? (
-            <button
-              type="button"
-              className="chat-command-badge chat-command-badge--image"
-              title="Bild-Befehl aktiv (klicken zum Entfernen)"
-              aria-label="Bild-Befehl entfernen"
-              onClick={() => setImageCommandSelected(false)}
-            >
-              Bild
             </button>
           ) : null}
         </div>
@@ -1227,17 +1264,6 @@ export function ChatWindow({
                   onClick={handleSelectExcelSlashCommand}
                 >
                   Excel
-                </button>
-                <button
-                  type="button"
-                  className="thread-menu-item"
-                  role="menuitem"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={handleSelectImageSlashCommand}
-                >
-                  Bild
                 </button>
               </div>
             ) : null}

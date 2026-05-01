@@ -38,7 +38,10 @@ import {
   usesGatewayAi,
 } from '../services/chat.service'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
-import { matchImageGenerationCommand } from '../utils/imageGenerationCommand'
+import {
+  matchExplicitImageGenerationRequest,
+  matchFollowUpImageEditRequest,
+} from '../utils/imageGenerationIntent'
 import {
   parseThinkingClarifyContent,
   shouldOpenThinkingFallbackPopup,
@@ -88,6 +91,22 @@ function getMessagesByThread(
     acc[message.threadId].push(message)
     return acc
   }, {})
+}
+
+/** Eine Zeile pro Nachrichten-ID — verhindert Duplikate bei Realtime + lokalem Append. */
+function upsertChatMessage(list: ChatMessage[], message: ChatMessage): ChatMessage[] {
+  const idx = list.findIndex((m) => m.id === message.id)
+  const next = idx >= 0 ? list.map((m, i) => (i === idx ? message : m)) : [...list, message]
+  return next.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+function upsertThreadMessages(
+  prev: Record<string, ChatMessage[]>,
+  threadId: string,
+  message: ChatMessage,
+): Record<string, ChatMessage[]> {
+  const list = prev[threadId] ?? []
+  return { ...prev, [threadId]: upsertChatMessage(list, message) }
 }
 
 function createTemporaryThread(userId: string): ChatThread {
@@ -330,14 +349,7 @@ export function useChat(
             return
           }
           const mapped = mapMessage(row)
-          setMessagesByThreadId((prev) => {
-            const list = prev[row.thread_id] ?? []
-            if (list.some((m) => m.id === mapped.id)) {
-              return prev
-            }
-            const merged = [...list, mapped].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-            return { ...prev, [row.thread_id]: merged }
-          })
+          setMessagesByThreadId((prev) => upsertThreadMessages(prev, row.thread_id, mapped))
           setThreads((prev) => {
             const has = prev.some((t) => t.id === row.thread_id)
             if (!has) {
@@ -535,14 +547,13 @@ export function useChat(
       return
     }
 
-    const imageCmd = matchImageGenerationCommand(trimmed)
+    const imageCmd = matchExplicitImageGenerationRequest(trimmed)
     if (imageCmd.kind === 'empty') {
       setError(
-        'Nach /bild oder /image ein Leerzeichen und einen kurzen Bild-Prompt eingeben (z. B. «/bild Sonnenuntergang am Meer»).',
+        'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
       )
       return
     }
-    const imageGenPrompt = imageCmd.kind === 'prompt' ? imageCmd.prompt : null
 
     setThinkingClarifyDialog(null)
     setError(null)
@@ -619,15 +630,23 @@ export function useChat(
         (activeThread?.id === targetThreadId ? activeThread : undefined)
       const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
 
+      let imageGenPrompt = imageCmd.kind === 'prompt' ? imageCmd.prompt : null
+      if (!imageGenPrompt) {
+        const prior = messagesByThreadId[targetThreadId] ?? []
+        const follow = matchFollowUpImageEditRequest(trimmed, prior)
+        if (follow.kind === 'prompt') {
+          imageGenPrompt = follow.prompt
+        }
+      }
+
       const storedUserMessage = await createChatMessage(targetThreadId, 'user', trimmed)
 
-      const currentMessages = messagesByThreadId[targetThreadId] ?? []
-      const nextMessages = [...currentMessages, storedUserMessage]
-
-      setMessagesByThreadId((prev) => ({
-        ...prev,
-        [targetThreadId]: nextMessages,
-      }))
+      let nextMessages: ChatMessage[] = []
+      setMessagesByThreadId((prev) => {
+        const list = prev[targetThreadId] ?? []
+        nextMessages = upsertChatMessage(list, storedUserMessage)
+        return { ...prev, [targetThreadId]: nextMessages }
+      })
 
       const shouldRename =
         (aclThread?.title === 'Neuer Chat' || isTemporaryThread) && userOwnsThread
@@ -660,16 +679,22 @@ export function useChat(
           return
         }
         try {
-          const { assistantMarkdown } = await generateChatImageFromPrompt(imageGenPrompt)
+          const imageContextTurns = nextMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          }))
+          const { assistantMarkdown } = await generateChatImageFromPrompt(
+            imageGenPrompt,
+            imageContextTurns,
+          )
           const storedAssistantMessage = await createChatMessage(
             targetThreadId,
             'assistant',
             assistantMarkdown,
           )
-          setMessagesByThreadId((prev) => ({
-            ...prev,
-            [targetThreadId]: [...(prev[targetThreadId] ?? []), storedAssistantMessage],
-          }))
+          setMessagesByThreadId((prev) =>
+            upsertThreadMessages(prev, targetThreadId, storedAssistantMessage),
+          )
           if (userOwnsThread) {
             await touchChatThread(targetThreadId)
           }
@@ -708,7 +733,9 @@ export function useChat(
               }
             })()
           }
-          await options?.onProfileMemoryUpdated?.()
+          void options?.onProfileMemoryUpdated?.()?.catch(() => {
+            /* Profil-Refresh nicht auf Sende-Pfad blockieren */
+          })
         } catch (err) {
           const message =
             err instanceof Error ? err.message : 'Bildgenerierung ist fehlgeschlagen.'
@@ -732,10 +759,9 @@ export function useChat(
           createdAt: streamCreatedAt,
           metadata: { liveStream: true },
         }
-        setMessagesByThreadId((prev) => ({
-          ...prev,
-          [targetThreadId]: [...(prev[targetThreadId] ?? []), streamingPlaceholder],
-        }))
+        setMessagesByThreadId((prev) =>
+          upsertThreadMessages(prev, targetThreadId, streamingPlaceholder),
+        )
 
         try {
           finalAssistantContent = await sendMessageStreaming(nextMessages, {
@@ -828,15 +854,23 @@ export function useChat(
       setMessagesByThreadId((prev) => {
         const list = prev[targetThreadId] ?? []
         if (streamAssistantId) {
+          const replaced = list.map((m) =>
+            m.id === streamAssistantId ? mergedAssistantMessage : m,
+          )
+          const seen = new Set<string>()
+          const deduped = replaced.filter((m) => {
+            if (seen.has(m.id)) {
+              return false
+            }
+            seen.add(m.id)
+            return true
+          })
           return {
             ...prev,
-            [targetThreadId]: list.map((m) => (m.id === streamAssistantId ? mergedAssistantMessage : m)),
+            [targetThreadId]: deduped.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
           }
         }
-        return {
-          ...prev,
-          [targetThreadId]: [...list, mergedAssistantMessage],
-        }
+        return upsertThreadMessages(prev, targetThreadId, mergedAssistantMessage)
       })
 
       if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel) {

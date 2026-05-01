@@ -183,6 +183,17 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     .filter(Boolean)
     .join('\n\n')
 
+  const scrubDataImages =
+    isMainChat && !options?.useLearnPathModel
+      ? (content: string) =>
+          typeof content === 'string'
+            ? content.replace(
+                /data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi,
+                '[Eingebettetes Bild — im Chat sichtbar; hier nur Platzhalter]',
+              )
+            : ''
+      : (content: string) => content
+
   return [
     {
       role: 'system',
@@ -190,7 +201,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     },
     ...messages.map((message) => ({
       role: message.role,
-      content: message.content,
+      content: scrubDataImages(message.content),
     })),
   ]
 }
@@ -200,11 +211,36 @@ export function usesGatewayAi(): boolean {
   return env.aiProvider !== 'mock'
 }
 
-/** Bildgenerierung über Edge Function `generate-chat-image` (OpenAI GPT Image 1/2 laut Abo). */
-export async function generateChatImageFromPrompt(prompt: string): Promise<{ assistantMarkdown: string }> {
+/** Rollen + Text für Bild-Kontext (keine Base64 — wird vor dem Senden bereinigt). */
+export type ChatImageContextTurn = { role: 'user' | 'assistant'; content: string }
+
+function sanitizeContentForImageContext(content: string): string {
+  let s = content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild im Chatverlauf]')
+  s = s.replace(/\[BildData:[^\]]+\][\s\S]*?\[\/BildData\]/gi, '[Bild im Chatverlauf]')
+  s = s.replace(/\[Bild:[^\]]+\][\s\S]*?\[\/Bild\]/gi, '[Bild im Chatverlauf]')
+  s = s.replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/gi, '[Datei-Anhang]')
+  const max = 3200
+  return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+/**
+ * Bildgenerierung über Edge Function `generate-chat-image` (OpenAI GPT Image 1/2 laut Abo).
+ * Optional `contextMessages`: aktueller Chat-Verlauf für Nachbearbeitungen («wie vorher, aber …»).
+ */
+export async function generateChatImageFromPrompt(
+  prompt: string,
+  contextMessages?: ChatImageContextTurn[],
+): Promise<{ assistantMarkdown: string }> {
   const supabase = getSupabaseClient()
+  const body: { prompt: string; contextMessages?: ChatImageContextTurn[] } = { prompt }
+  if (contextMessages?.length) {
+    body.contextMessages = contextMessages.map((m) => ({
+      role: m.role,
+      content: sanitizeContentForImageContext(typeof m.content === 'string' ? m.content : ''),
+    }))
+  }
   const { data, error, response } = await supabase.functions.invoke('generate-chat-image', {
-    body: { prompt },
+    body,
   })
 
   if (error) {
@@ -765,6 +801,14 @@ function sanitizeChatTitle(raw: string): string {
   return compact.length > MAX_CHAT_TITLE_LENGTH ? compact.slice(0, MAX_CHAT_TITLE_LENGTH).trim() : compact
 }
 
+/** chat-completion «generate_title»: keine data:-Bilder (Megabytes Base64) — sonst 500 / Timeout. */
+function shortenContentForChatTitleApi(content: string | undefined | null): string {
+  if (typeof content !== 'string' || !content) {
+    return ''
+  }
+  return content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/g, '[Generiertes Bild]')
+}
+
 export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {
   if (!usesGatewayAi()) {
     return { title: fallbackChatTitle(messages) }
@@ -773,7 +817,7 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
   const titleKey = JSON.stringify(
     messages.map((message) => ({
       role: message.role,
-      content: message.content ?? '',
+      content: shortenContentForChatTitleApi(message.content),
     })),
   )
 
@@ -790,7 +834,7 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
           payload: {
             messages: messages.map((message) => ({
               role: message.role,
-              content: message.content,
+              content: shortenContentForChatTitleApi(message.content),
             })),
           },
         },
