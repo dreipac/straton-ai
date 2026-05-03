@@ -2762,6 +2762,11 @@
       padding: 0 0.5rem max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
     }
 
+    /* PWA / Vollbild: bei Fokus Message Box etwas weniger Abstand zur Tastatur (leerer Chat). */
+    .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-empty-compose {
+      padding-bottom: max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px - 10px));
+    }
+
     .chat-panel.is-empty .chat-input-hint {
       margin-top: 0.08rem;
     }
