@@ -702,14 +702,18 @@ export function ChatWindow({
     setExcelCommandSelected(true)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
-    inputRef.current?.focus({ preventScroll: true })
+    if (!isMobileComposer) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
   }
 
   function handleSelectImageQuickTile() {
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
     setShowSlashMenu(false)
-    inputRef.current?.focus({ preventScroll: true })
+    if (!isMobileComposer) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
   }
 
   function handleAttachComposerButtonClick() {
@@ -717,6 +721,7 @@ export function ChatWindow({
       return
     }
     if (isMobileComposer) {
+      inputRef.current?.blur()
       setAttachComposerSheetOpen(true)
       return
     }
@@ -799,7 +804,9 @@ export function ChatWindow({
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
-      inputRef.current?.focus({ preventScroll: true })
+      if (!isMobileComposer) {
+        inputRef.current?.focus({ preventScroll: true })
+      }
     }
   }
 
@@ -833,7 +840,9 @@ export function ChatWindow({
         setPendingAttachments((prev) => [...prev, ...imageAttachments])
       } finally {
         setIsAttachingFiles(false)
-        inputRef.current?.focus({ preventScroll: true })
+        if (!isMobileComposer) {
+          inputRef.current?.focus({ preventScroll: true })
+        }
       }
     })()
   }
