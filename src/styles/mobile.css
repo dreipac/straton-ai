@@ -154,6 +154,29 @@
   color: #b91c1c;
 }
 
+/* Chat-Composer „Einfügen“: wie Compose-Badges — nur Text, halbtransparente Flächen */
+.action-bottom-sheet-action.action-bottom-sheet-action--compose-bilder {
+  gap: 0;
+  justify-content: center;
+  background: rgba(88, 40, 162, 0.46);
+  color: #4c1d95;
+}
+
+.action-bottom-sheet-action.action-bottom-sheet-action--compose-excel {
+  gap: 0;
+  justify-content: center;
+  background: rgba(28, 110, 58, 0.46);
+  color: #14532d;
+}
+
+.action-bottom-sheet-action.action-bottom-sheet-action--compose-bilder:active {
+  background: rgba(88, 40, 162, 0.54);
+}
+
+.action-bottom-sheet-action.action-bottom-sheet-action--compose-excel:active {
+  background: rgba(28, 110, 58, 0.54);
+}
+
 /**
  * Beim Tippen: langsam groesser, danach direkt aber ebenso langsam wieder kleiner (nur transform).
  * timing-function pro Segment, damit weder Auf- noch Abgang «ruckelt».
@@ -211,6 +234,24 @@
 :root[data-theme='dark'] .action-bottom-sheet-action {
   background: linear-gradient(180deg, rgba(36, 52, 71, 0.95) 0%, rgba(30, 41, 59, 0.92) 100%);
   color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .action-bottom-sheet-action.action-bottom-sheet-action--compose-bilder {
+  background: rgba(52, 22, 108, 0.52);
+  color: #8b5cf6;
+}
+
+:root[data-theme='dark'] .action-bottom-sheet-action.action-bottom-sheet-action--compose-excel {
+  background: rgba(14, 78, 42, 0.52);
+  color: #4ade80;
+}
+
+:root[data-theme='dark'] .action-bottom-sheet-action.action-bottom-sheet-action--compose-bilder:active {
+  background: rgba(62, 30, 122, 0.58);
+}
+
+:root[data-theme='dark'] .action-bottom-sheet-action.action-bottom-sheet-action--compose-excel:active {
+  background: rgba(20, 95, 52, 0.58);
 }
 
 :root[data-theme='dark'] .action-bottom-sheet-action-icon {

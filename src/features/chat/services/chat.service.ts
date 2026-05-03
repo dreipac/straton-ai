@@ -16,6 +16,8 @@ import {
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import { getChatComposerModelMeta } from '../constants/chatComposerModels'
+import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier'
+import { buildMainChatOpenAiModelChain } from '../constants/chatDailyOpenAiTier'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import {
@@ -74,6 +76,12 @@ export type SendMessageOptions = {
    * Hauptchat: Thinking nutzt Claude Sonnet 4.6, klärt per Rückfragen (max. 2 Runden), ohne Profil-Speicher.
    */
   chatThinkingMode?: ChatThinkingMode
+  /**
+   * Hauptchat OpenAI: `subscription_usages.used_tokens` am Tag — zusammen mit {@link mainChatDailyTierConfig}.
+   */
+  mainChatUsedTokensToday?: number
+  /** Aus `subscription_plans`: Tier 1 (bis Token-Budget) / Tier 2 für OpenAI-Hauptchat pro Tag. */
+  mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
 }
 
 type EvaluateQuizAnswerInput = {
@@ -433,7 +441,20 @@ function buildChatCompletionRequestBody(
     includeProfileMemory: thinking ? false : true,
   }
   if (meta.provider === 'openai' && meta.openAiModels?.length) {
-    body.openAiModels = [...meta.openAiModels]
+    if (
+      !options?.useLearnPathModel &&
+      !thinking &&
+      typeof options?.mainChatUsedTokensToday === 'number'
+    ) {
+      body.openAiModels = [
+        ...buildMainChatOpenAiModelChain(
+          options.mainChatUsedTokensToday,
+          options.mainChatDailyTierConfig ?? undefined,
+        ),
+      ]
+    } else {
+      body.openAiModels = [...meta.openAiModels]
+    }
   }
   if (meta.provider === 'anthropic' && meta.anthropicModel) {
     body.anthropicModel = meta.anthropicModel

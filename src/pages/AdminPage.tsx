@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import accountIcon from '../assets/icons/account.svg'
 import aiIcon from '../assets/icons/ai.svg'
 import cardsOutlineIcon from '../assets/icons/cards-outline.svg'
@@ -46,10 +47,11 @@ import {
   parseSubscriptionImageGenerationModelId,
   type SubscriptionImageGenerationModelId,
 } from '../features/auth/constants/subscriptionImageGenerationModels'
+import { parseChatDailyTierOpenAiModelId } from '../features/chat/constants/chatDailyOpenAiTier'
 import {
   CHAT_COMPOSER_MODELS,
-  type ChatComposerModelId,
-  parseStoredComposerModelId,
+  type ChatDailyTierOpenAiModelId,
+  getComposerApiModelIdsForAdminFilter,
 } from '../features/chat/constants/chatComposerModels'
 import {
   adminSetBetaNoticeEnabled,
@@ -65,10 +67,23 @@ import {
   listUserFeedbackForAdmin,
   type UserFeedbackRow,
 } from '../features/feedback/services/feedback.persistence'
-import { getComposerApiModelIdsForAdminFilter } from '../features/chat/constants/chatComposerModels'
 import { useAuth } from '../features/auth/context/useAuth'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
 import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
+
+const OPENAI_CHAT_MODEL_OPTIONS = CHAT_COMPOSER_MODELS.filter((m) => m.provider === 'openai')
+
+function formatSubscriptionPlanDailyTierSummary(plan: SubscriptionPlanRow): string {
+  const t1 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier1_openai_model_id ?? null)
+  const t2 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier2_openai_model_id ?? null)
+  const b =
+    typeof plan.chat_daily_tier1_token_budget === 'number' && Number.isFinite(plan.chat_daily_tier1_token_budget)
+      ? Math.max(0, Math.floor(plan.chat_daily_tier1_token_budget))
+      : 50_000
+  const l1 = CHAT_COMPOSER_MODELS.find((m) => m.id === t1)?.label ?? t1
+  const l2 = CHAT_COMPOSER_MODELS.find((m) => m.id === t2)?.label ?? t2
+  return `OpenAI Tages-Staffel: erste ${b.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
+}
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message.trim()) {
@@ -149,8 +164,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanAllowModelChoice, setNewPlanAllowModelChoice] = useState(true)
   const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
     useState<SubscriptionImageGenerationModelId>('gpt_image_1')
-  const [newPlanDefaultChatModelId, setNewPlanDefaultChatModelId] =
-    useState<ChatComposerModelId>('gpt-5.4-mini')
+  const [newPlanTier1OpenAiModelId, setNewPlanTier1OpenAiModelId] =
+    useState<ChatDailyTierOpenAiModelId>('gpt-5.4')
+  const [newPlanTier1TokenBudget, setNewPlanTier1TokenBudget] = useState('50000')
+  const [newPlanTier2OpenAiModelId, setNewPlanTier2OpenAiModelId] =
+    useState<ChatDailyTierOpenAiModelId>('gpt-5.4-mini')
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [editPlanDraft, setEditPlanDraft] = useState<{
@@ -161,7 +179,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     maxFiles: string
     imageGenerationModel: SubscriptionImageGenerationModelId
     allowModelChoice: boolean
-    defaultChatModelId: ChatComposerModelId
+    tier1OpenAiModelId: ChatDailyTierOpenAiModelId
+    tier1TokenBudget: string
+    tier2OpenAiModelId: ChatDailyTierOpenAiModelId
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -683,6 +703,20 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    let tier1Budget = 50_000
+    if (!newPlanAllowModelChoice) {
+      if (newPlanTier1TokenBudget.trim()) {
+        const tb = parseOptionalNonNegativeInt(newPlanTier1TokenBudget)
+        if (tb === null) {
+          setSubscriptionPlansError(
+            'Tier-1 Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
+          )
+          return
+        }
+        tier1Budget = tb
+      }
+    }
+
     setSubscriptionPlansError(null)
     setIsCreatingPlan(true)
     try {
@@ -693,7 +727,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxFiles,
         imageGenerationModel: newPlanImageGenerationModel,
         chatAllowModelChoice: newPlanAllowModelChoice,
-        defaultChatModelId: newPlanDefaultChatModelId,
+        chatDailyTier1OpenAiModelId: newPlanTier1OpenAiModelId,
+        chatDailyTier1TokenBudget: tier1Budget,
+        chatDailyTier2OpenAiModelId: newPlanTier2OpenAiModelId,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -704,7 +740,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxFiles('')
       setNewPlanAllowModelChoice(true)
       setNewPlanImageGenerationModel('gpt_image_1')
-      setNewPlanDefaultChatModelId('gpt-5.4-mini')
+      setNewPlanTier1OpenAiModelId('gpt-5.4')
+      setNewPlanTier1TokenBudget('50000')
+      setNewPlanTier2OpenAiModelId('gpt-5.4-mini')
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
     } finally {
@@ -738,6 +776,20 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    let tier1Budget = 50_000
+    if (!editPlanDraft.allowModelChoice) {
+      if (editPlanDraft.tier1TokenBudget.trim()) {
+        const tb = parseOptionalNonNegativeInt(editPlanDraft.tier1TokenBudget)
+        if (tb === null) {
+          setSubscriptionPlansError(
+            'Tier-1 Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
+          )
+          return
+        }
+        tier1Budget = tb
+      }
+    }
+
     setSubscriptionPlansError(null)
     setIsUpdatingPlan(true)
     try {
@@ -749,7 +801,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxFiles,
         imageGenerationModel: editPlanDraft.imageGenerationModel,
         chatAllowModelChoice: editPlanDraft.allowModelChoice,
-        defaultChatModelId: editPlanDraft.defaultChatModelId,
+        chatDailyTier1OpenAiModelId: editPlanDraft.tier1OpenAiModelId,
+        chatDailyTier1TokenBudget: tier1Budget,
+        chatDailyTier2OpenAiModelId: editPlanDraft.tier2OpenAiModelId,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -1106,6 +1160,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   }
 
   return (
+    <>
     <section className="settings-modal" role="dialog" aria-modal="true" aria-label="Administrator">
       <aside className="settings-sidebar">
         <h2>Menü</h2>
@@ -1838,9 +1893,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               {!isLoadingSubscriptionPlans ? (
                 <ul className="admin-subscriptions-list" aria-label="Definierte Abonnements">
                   {subscriptionPlans.map((plan) => {
-                    const defaultLabel =
-                      CHAT_COMPOSER_MODELS.find((m) => m.id === (plan.default_chat_model_id as ChatComposerModelId))
-                        ?.label ?? (plan.default_chat_model_id ?? '—')
                     return (
                     <li key={plan.id} className="admin-subscriptions-row">
                       <div className="admin-subscriptions-info">
@@ -1858,7 +1910,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
                           )}
                           <br />
-                          Chat-Modell: {plan.chat_allow_model_choice ? 'Nutzer wählt' : 'fest'} · Standard: {defaultLabel}
+                          Modellwahl: {plan.chat_allow_model_choice !== false ? 'Nutzer wählt' : 'gesperrt (Tages-Staffel)'}
+                          {plan.chat_allow_model_choice === false ? (
+                            <>
+                              <br />
+                              {formatSubscriptionPlanDailyTierSummary(plan)}
+                            </>
+                          ) : null}
                         </p>
                       </div>
                       <div className="admin-subscriptions-row-actions">
@@ -1875,8 +1933,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               maxImages: plan.max_images != null ? String(plan.max_images) : '',
                               maxFiles: plan.max_files != null ? String(plan.max_files) : '',
                               imageGenerationModel: parseSubscriptionImageGenerationModelId(plan.image_generation_model),
-                              allowModelChoice: plan.chat_allow_model_choice,
-                              defaultChatModelId: parseStoredComposerModelId(plan.default_chat_model_id ?? null),
+                              allowModelChoice: plan.chat_allow_model_choice !== false,
+                              tier1OpenAiModelId: parseChatDailyTierOpenAiModelId(
+                                plan.chat_daily_tier1_openai_model_id ?? null,
+                              ),
+                              tier1TokenBudget:
+                                plan.chat_daily_tier1_token_budget != null
+                                  ? String(plan.chat_daily_tier1_token_budget)
+                                  : '50000',
+                              tier2OpenAiModelId: parseChatDailyTierOpenAiModelId(
+                                plan.chat_daily_tier2_openai_model_id ?? null,
+                              ),
                             })
                           }}
                         >
@@ -1968,303 +2035,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </div>
               </article>
 
-              {isCreatePlanModalOpen ? (
-                <ModalShell
-                  isOpen={isCreatePlanModalOpen}
-                  onRequestClose={() => {
-                    setIsCreatePlanModalOpen(false)
-                    setSubscriptionPlansError(null)
-                  }}
-                >
-                  <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Abo erstellen">
-                    <ModalHeader
-                      title="Abo erstellen"
-                      headingLevel="h3"
-                      className="rename-modal-header"
-                      onClose={() => {
-                        setIsCreatePlanModalOpen(false)
-                        setSubscriptionPlansError(null)
-                      }}
-                      closeLabel="Abo erstellen schließen"
-                    />
-
-                    <form
-                      className="rename-form"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void handleCreateSubscriptionPlan()
-                      }}
-                    >
-                      <label htmlFor="admin-new-subscription-name">Name</label>
-                      <input
-                        id="admin-new-subscription-name"
-                        type="text"
-                        placeholder="z. B. Premium"
-                        value={newPlanName}
-                        maxLength={120}
-                        onChange={(event) => setNewPlanName(event.target.value)}
-                      />
-
-                      <label htmlFor="admin-new-subscription-max-tokens">Max Tokens</label>
-                      <input
-                        id="admin-new-subscription-max-tokens"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={newPlanMaxTokens}
-                        onChange={(event) => setNewPlanMaxTokens(event.target.value)}
-                      />
-
-                      <label htmlFor="admin-new-subscription-max-images">Max. Bilder pro Tag</label>
-                      <input
-                        id="admin-new-subscription-max-images"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={newPlanMaxImages}
-                        onChange={(event) => setNewPlanMaxImages(event.target.value)}
-                      />
-
-                      <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
-                      <select
-                        id="admin-new-subscription-image-gen-model"
-                        className="admin-user-subscription-select"
-                        value={newPlanImageGenerationModel}
-                        onChange={(event) =>
-                          setNewPlanImageGenerationModel(event.target.value as SubscriptionImageGenerationModelId)
-                        }
-                      >
-                        {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <label htmlFor="admin-new-subscription-max-files">Max Dateien</label>
-                      <input
-                        id="admin-new-subscription-max-files"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={newPlanMaxFiles}
-                        onChange={(event) => setNewPlanMaxFiles(event.target.value)}
-                      />
-
-                      <label className="admin-subscriptions-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={newPlanAllowModelChoice}
-                          onChange={(event) => setNewPlanAllowModelChoice(event.target.checked)}
-                        />{' '}
-                        Nutzer dürfen das Chat-KI-Modell selbst wählen
-                      </label>
-
-                      {!newPlanAllowModelChoice ? (
-                        <>
-                          <label htmlFor="admin-new-subscription-default-chat-model">Festes Chat-Modell</label>
-                          <select
-                            id="admin-new-subscription-default-chat-model"
-                            className="admin-user-subscription-select"
-                            value={newPlanDefaultChatModelId}
-                            onChange={(event) =>
-                              setNewPlanDefaultChatModelId(event.target.value as ChatComposerModelId)
-                            }
-                          >
-                            {CHAT_COMPOSER_MODELS.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      ) : null}
-
-                      <div className="rename-actions">
-                        <SecondaryButton
-                          type="button"
-                          disabled={isCreatingPlan}
-                          onClick={() => {
-                            setIsCreatePlanModalOpen(false)
-                            setSubscriptionPlansError(null)
-                          }}
-                        >
-                          Abbrechen
-                        </SecondaryButton>
-                        <PrimaryButton type="submit" disabled={isCreatingPlan || !newPlanName.trim()}>
-                          {isCreatingPlan ? 'Speichern…' : 'Speichern'}
-                        </PrimaryButton>
-                      </div>
-                    </form>
-                  </section>
-                </ModalShell>
-              ) : null}
-
-              {editPlanDraft ? (
-                <ModalShell
-                  isOpen={Boolean(editPlanDraft)}
-                  onRequestClose={() => {
-                    setEditPlanDraft(null)
-                    setSubscriptionPlansError(null)
-                  }}
-                >
-                  <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Abo bearbeiten">
-                    <ModalHeader
-                      title="Abo bearbeiten"
-                      headingLevel="h3"
-                      className="rename-modal-header"
-                      onClose={() => {
-                        setEditPlanDraft(null)
-                        setSubscriptionPlansError(null)
-                      }}
-                      closeLabel="Abo bearbeiten schließen"
-                    />
-
-                    <form
-                      className="rename-form"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void handleUpdateSubscriptionPlan()
-                      }}
-                    >
-                      <label htmlFor="admin-edit-subscription-name">Name</label>
-                      <input
-                        id="admin-edit-subscription-name"
-                        type="text"
-                        value={editPlanDraft.name}
-                        maxLength={120}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
-                        }
-                      />
-
-                      <label htmlFor="admin-edit-subscription-max-tokens">Max Tokens</label>
-                      <input
-                        id="admin-edit-subscription-max-tokens"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={editPlanDraft.maxTokens}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
-                        }
-                      />
-
-                      <label htmlFor="admin-edit-subscription-max-images">Max. Bilder pro Tag</label>
-                      <input
-                        id="admin-edit-subscription-max-images"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={editPlanDraft.maxImages}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
-                        }
-                      />
-
-                      <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
-                      <select
-                        id="admin-edit-subscription-image-gen-model"
-                        className="admin-user-subscription-select"
-                        value={editPlanDraft.imageGenerationModel}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
-                                }
-                              : null,
-                          )
-                        }
-                      >
-                        {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <label htmlFor="admin-edit-subscription-max-files">Max Dateien</label>
-                      <input
-                        id="admin-edit-subscription-max-files"
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        placeholder="leer = unbegrenzt"
-                        value={editPlanDraft.maxFiles}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
-                        }
-                      />
-
-                      <label className="admin-subscriptions-checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={editPlanDraft.allowModelChoice}
-                          onChange={(event) =>
-                            setEditPlanDraft((prev) =>
-                              prev ? { ...prev, allowModelChoice: event.target.checked } : null,
-                            )
-                          }
-                        />{' '}
-                        Nutzer dürfen das Chat-KI-Modell selbst wählen
-                      </label>
-
-                      {!editPlanDraft.allowModelChoice ? (
-                        <>
-                          <label htmlFor="admin-edit-subscription-default-chat-model">Festes Chat-Modell</label>
-                          <select
-                            id="admin-edit-subscription-default-chat-model"
-                            className="admin-user-subscription-select"
-                            value={editPlanDraft.defaultChatModelId}
-                            onChange={(event) =>
-                              setEditPlanDraft((prev) =>
-                                prev
-                                  ? { ...prev, defaultChatModelId: event.target.value as ChatComposerModelId }
-                                  : null,
-                              )
-                            }
-                          >
-                            {CHAT_COMPOSER_MODELS.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      ) : null}
-
-                      <div className="rename-actions">
-                        <SecondaryButton
-                          type="button"
-                          disabled={isUpdatingPlan}
-                          onClick={() => {
-                            setEditPlanDraft(null)
-                            setSubscriptionPlansError(null)
-                          }}
-                        >
-                          Abbrechen
-                        </SecondaryButton>
-                        <PrimaryButton type="submit" disabled={isUpdatingPlan || !editPlanDraft.name.trim()}>
-                          {isUpdatingPlan ? 'Speichern…' : 'Speichern'}
-                        </PrimaryButton>
-                      </div>
-                    </form>
-                  </section>
-                </ModalShell>
-              ) : null}
             </div>
           ) : null}
           {activeSection === 'deployment' ? (
@@ -2551,5 +2321,419 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         </ModalShell>
       ) : null}
     </section>
+    {createPortal(
+      <>
+        {isCreatePlanModalOpen ? (
+          <ModalShell
+            className="settings-overlay subscription-plan-editor-overlay"
+            isOpen={isCreatePlanModalOpen}
+            onRequestClose={() => {
+              setIsCreatePlanModalOpen(false)
+              setSubscriptionPlansError(null)
+            }}
+          >
+            <section
+              className="rename-modal subscription-plan-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Abo erstellen"
+            >
+              <ModalHeader
+                title="Abo erstellen"
+                headingLevel="h3"
+                className="rename-modal-header"
+                onClose={() => {
+                  setIsCreatePlanModalOpen(false)
+                  setSubscriptionPlansError(null)
+                }}
+                closeLabel="Abo erstellen schließen"
+              />
+
+              <form
+                className="rename-form subscription-plan-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleCreateSubscriptionPlan()
+                }}
+              >
+                <div className="subscription-plan-modal-columns">
+                  <div className="subscription-plan-modal-col">
+                    <label htmlFor="admin-new-subscription-name">Name</label>
+                    <input
+                      id="admin-new-subscription-name"
+                      type="text"
+                      placeholder="z. B. Premium"
+                      value={newPlanName}
+                      maxLength={120}
+                      onChange={(event) => setNewPlanName(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-max-tokens">Max Tokens</label>
+                    <input
+                      id="admin-new-subscription-max-tokens"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={newPlanMaxTokens}
+                      onChange={(event) => setNewPlanMaxTokens(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-max-images">Max. Bilder pro Tag</label>
+                    <input
+                      id="admin-new-subscription-max-images"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={newPlanMaxImages}
+                      onChange={(event) => setNewPlanMaxImages(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
+                    <select
+                      id="admin-new-subscription-image-gen-model"
+                      className="admin-user-subscription-select"
+                      value={newPlanImageGenerationModel}
+                      onChange={(event) =>
+                        setNewPlanImageGenerationModel(event.target.value as SubscriptionImageGenerationModelId)
+                      }
+                    >
+                      {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label htmlFor="admin-new-subscription-max-files">Max Dateien</label>
+                    <input
+                      id="admin-new-subscription-max-files"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={newPlanMaxFiles}
+                      onChange={(event) => setNewPlanMaxFiles(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="subscription-plan-modal-col">
+                    <label className="admin-subscriptions-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={newPlanAllowModelChoice}
+                        onChange={(event) => setNewPlanAllowModelChoice(event.target.checked)}
+                      />{' '}
+                      Nutzer dürfen das Chat-KI-Modell selbst wählen
+                    </label>
+
+                    {newPlanAllowModelChoice ? (
+                      <p className="admin-users-hint subscription-plan-tier-intro">
+                        OpenAI-Tages-Staffel (Tier 1 / 2) ist ausgeblendet — im Chat gilt die gewählte Modell-Pille
+                        (GPT oder Claude).
+                      </p>
+                    ) : (
+                      <>
+                        <p className="admin-users-hint subscription-plan-tier-intro">
+                          OpenAI-Hauptchat (pro Kalendertag): nach Verbrauch in{' '}
+                          <code>subscription_usages.used_tokens</code> — erstes Modell bis zum Budget, danach zweites
+                          Modell. Keine freie Modellwahl im Chat.
+                        </p>
+                        <label htmlFor="admin-new-tier1-openai-model">Erstes OpenAI-Modell (bis Token-Budget)</label>
+                        <select
+                          id="admin-new-tier1-openai-model"
+                          className="admin-user-subscription-select"
+                          value={newPlanTier1OpenAiModelId}
+                          onChange={(event) =>
+                            setNewPlanTier1OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
+                          }
+                        >
+                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label htmlFor="admin-new-tier1-token-budget">Token-Budget Tier 1 (pro Tag)</label>
+                        <input
+                          id="admin-new-tier1-token-budget"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          value={newPlanTier1TokenBudget}
+                          onChange={(event) => setNewPlanTier1TokenBudget(event.target.value)}
+                        />
+
+                        <label htmlFor="admin-new-tier2-openai-model">Zweites OpenAI-Modell (ab Budget)</label>
+                        <select
+                          id="admin-new-tier2-openai-model"
+                          className="admin-user-subscription-select"
+                          value={newPlanTier2OpenAiModelId}
+                          onChange={(event) =>
+                            setNewPlanTier2OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
+                          }
+                        >
+                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rename-actions subscription-plan-modal-actions">
+                  <SecondaryButton
+                    type="button"
+                    disabled={isCreatingPlan}
+                    onClick={() => {
+                      setIsCreatePlanModalOpen(false)
+                      setSubscriptionPlansError(null)
+                    }}
+                  >
+                    Abbrechen
+                  </SecondaryButton>
+                  <PrimaryButton type="submit" disabled={isCreatingPlan || !newPlanName.trim()}>
+                    {isCreatingPlan ? 'Speichern…' : 'Speichern'}
+                  </PrimaryButton>
+                </div>
+              </form>
+            </section>
+          </ModalShell>
+        ) : null}
+        {editPlanDraft ? (
+          <ModalShell
+            className="settings-overlay subscription-plan-editor-overlay"
+            isOpen={Boolean(editPlanDraft)}
+            onRequestClose={() => {
+              setEditPlanDraft(null)
+              setSubscriptionPlansError(null)
+            }}
+          >
+            <section
+              className="rename-modal subscription-plan-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Abo bearbeiten"
+            >
+              <ModalHeader
+                title="Abo bearbeiten"
+                headingLevel="h3"
+                className="rename-modal-header"
+                onClose={() => {
+                  setEditPlanDraft(null)
+                  setSubscriptionPlansError(null)
+                }}
+                closeLabel="Abo bearbeiten schließen"
+              />
+
+              <form
+                className="rename-form subscription-plan-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleUpdateSubscriptionPlan()
+                }}
+              >
+                <div className="subscription-plan-modal-columns">
+                  <div className="subscription-plan-modal-col">
+                    <label htmlFor="admin-edit-subscription-name">Name</label>
+                    <input
+                      id="admin-edit-subscription-name"
+                      type="text"
+                      value={editPlanDraft.name}
+                      maxLength={120}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-max-tokens">Max Tokens</label>
+                    <input
+                      id="admin-edit-subscription-max-tokens"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={editPlanDraft.maxTokens}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-max-images">Max. Bilder pro Tag</label>
+                    <input
+                      id="admin-edit-subscription-max-images"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={editPlanDraft.maxImages}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
+                    <select
+                      id="admin-edit-subscription-image-gen-model"
+                      className="admin-user-subscription-select"
+                      value={editPlanDraft.imageGenerationModel}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
+                              }
+                            : null,
+                        )
+                      }
+                    >
+                      {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label htmlFor="admin-edit-subscription-max-files">Max Dateien</label>
+                    <input
+                      id="admin-edit-subscription-max-files"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      placeholder="leer = unbegrenzt"
+                      value={editPlanDraft.maxFiles}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
+                      }
+                    />
+                  </div>
+
+                  <div className="subscription-plan-modal-col">
+                    <label className="admin-subscriptions-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={editPlanDraft.allowModelChoice}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) =>
+                            prev ? { ...prev, allowModelChoice: event.target.checked } : null,
+                          )
+                        }
+                      />{' '}
+                      Nutzer dürfen das Chat-KI-Modell selbst wählen
+                    </label>
+
+                    {editPlanDraft.allowModelChoice ? (
+                      <p className="admin-users-hint subscription-plan-tier-intro">
+                        OpenAI-Tages-Staffel (Tier 1 / 2) ist ausgeblendet — im Chat gilt die gewählte Modell-Pille
+                        (GPT oder Claude).
+                      </p>
+                    ) : (
+                      <>
+                        <p className="admin-users-hint subscription-plan-tier-intro">
+                          OpenAI-Hauptchat (pro Kalendertag): nach Verbrauch in{' '}
+                          <code>subscription_usages.used_tokens</code> — erstes Modell bis zum Budget, danach zweites
+                          Modell. Keine freie Modellwahl im Chat.
+                        </p>
+                        <label htmlFor="admin-edit-tier1-openai-model">Erstes OpenAI-Modell (bis Token-Budget)</label>
+                        <select
+                          id="admin-edit-tier1-openai-model"
+                          className="admin-user-subscription-select"
+                          value={editPlanDraft.tier1OpenAiModelId}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    tier1OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
+                                  }
+                                : null,
+                            )
+                          }
+                        >
+                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label htmlFor="admin-edit-tier1-token-budget">Token-Budget Tier 1 (pro Tag)</label>
+                        <input
+                          id="admin-edit-tier1-token-budget"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          value={editPlanDraft.tier1TokenBudget}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, tier1TokenBudget: event.target.value } : null,
+                            )
+                          }
+                        />
+
+                        <label htmlFor="admin-edit-tier2-openai-model">Zweites OpenAI-Modell (ab Budget)</label>
+                        <select
+                          id="admin-edit-tier2-openai-model"
+                          className="admin-user-subscription-select"
+                          value={editPlanDraft.tier2OpenAiModelId}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    tier2OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
+                                  }
+                                : null,
+                            )
+                          }
+                        >
+                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rename-actions subscription-plan-modal-actions">
+                  <SecondaryButton
+                    type="button"
+                    disabled={isUpdatingPlan}
+                    onClick={() => {
+                      setEditPlanDraft(null)
+                      setSubscriptionPlansError(null)
+                    }}
+                  >
+                    Abbrechen
+                  </SecondaryButton>
+                  <PrimaryButton type="submit" disabled={isUpdatingPlan || !editPlanDraft.name.trim()}>
+                    {isUpdatingPlan ? 'Speichern…' : 'Speichern'}
+                  </PrimaryButton>
+                </div>
+              </form>
+            </section>
+          </ModalShell>
+        ) : null}
+      </>,
+      document.body,
+    )}
+    </>
   )
 }

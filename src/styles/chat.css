@@ -245,6 +245,13 @@
   row-gap: 0.55rem;
 }
 
+.chat-message--pending.chat-message--pending-excel {
+  flex-direction: column;
+  align-items: flex-start;
+  align-content: flex-start;
+  row-gap: 0.55rem;
+}
+
 /* Bildgenerierung: helles Squircle + Punktgitter bis an den Rand (Ecken per overflow + radius beschnitten) */
 .chat-image-gen-loader-panel {
   flex-shrink: 0;
@@ -321,6 +328,114 @@
   background: color-mix(in srgb, #fda4af 78%, #64748b);
 }
 
+/* Excel-Erstellung: Rechteck mit moderaten Ecken (nicht Squircle wie Bild); gleiches Raster / Wellen */
+.chat-excel-gen-loader-panel {
+  flex-shrink: 0;
+  width: 9rem;
+  height: 5.65rem;
+  padding: 0;
+  border-radius: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #e9e9ee;
+  border: 1px solid color-mix(in srgb, #64748b 16%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, #ffffff 72%, transparent),
+    0 10px 28px color-mix(in srgb, #0f172a 7%, transparent);
+}
+
+.chat-excel-gen-matrix {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 0;
+  box-sizing: border-box;
+  /* Kein zusätzliches scale wie beim quadratischen Bild-Panel — vermeidet verzerrte Zellen im breiten Excel-Rahmen */
+  transform: none;
+  transform-origin: center center;
+}
+
+.chat-excel-gen-matrix-cell {
+  display: block;
+  width: 58%;
+  height: 58%;
+  max-width: 6px;
+  max-height: 6px;
+  place-self: center;
+  box-sizing: border-box;
+  border-radius: 1px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  transform-origin: center;
+  animation: chat-excel-gen-matrix-wave 1.72s cubic-bezier(0.42, 0, 0.58, 1) infinite both;
+  will-change: transform, opacity;
+}
+
+@keyframes chat-excel-gen-matrix-wave {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+    border-color: transparent;
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1);
+    border-color: color-mix(in srgb, #64748b 72%, #22c55e);
+  }
+  48% {
+    opacity: 0.92;
+    border-color: color-mix(in srgb, #64748b 68%, #15803d);
+  }
+  62% {
+    opacity: 0;
+    transform: scale(0.82);
+    border-color: transparent;
+  }
+}
+
+:root[data-theme='dark'] .chat-excel-gen-loader-panel {
+  background: color-mix(in srgb, #1e293b 88%, #334155);
+  border-color: color-mix(in srgb, #94a3b8 22%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, #f8fafc 6%, transparent),
+    0 10px 28px color-mix(in srgb, #000 28%, transparent);
+}
+
+:root[data-theme='dark'] .chat-excel-gen-matrix-cell {
+  animation: chat-excel-gen-matrix-wave-dark 1.72s cubic-bezier(0.42, 0, 0.58, 1) infinite both;
+}
+
+@keyframes chat-excel-gen-matrix-wave-dark {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+    border-color: transparent;
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1);
+    border-color: color-mix(in srgb, #94a3b8 58%, #4ade80);
+  }
+  48% {
+    opacity: 0.95;
+    border-color: color-mix(in srgb, #86efac 35%, #64748b);
+  }
+  62% {
+    opacity: 0;
+    transform: scale(0.82);
+    border-color: transparent;
+  }
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-excel-gen-loader-panel {
+  background: color-mix(in srgb, #1a1520 86%, #831843 14%);
+  border-color: color-mix(in srgb, #f472b6 26%, transparent);
+}
+
 .chat-pending-loader {
   display: inline-flex;
   align-items: center;
@@ -388,6 +503,17 @@
     animation: none;
     opacity: 0.72;
     transform: scale(1);
+  }
+
+  .chat-excel-gen-matrix-cell {
+    animation: none;
+    opacity: 0.55;
+    transform: scale(1);
+    border-color: color-mix(in srgb, #64748b 55%, transparent);
+  }
+
+  :root[data-theme='dark'] .chat-excel-gen-matrix-cell {
+    border-color: color-mix(in srgb, #94a3b8 45%, transparent);
   }
 }
 
@@ -1235,6 +1361,28 @@
   --chat-composer-action-bg-hover: #e8eef5;
   --chat-composer-action-border: #d0dae8;
   --chat-composer-action-border-hover: #c5d0e0;
+  /* Schnellkacheln: gleiche Fläche wie Message-Box (--chat-composer-surface auf .chat-input-row) */
+  --chat-quick-tile-bg: #ffffff;
+  --chat-quick-tile-bg-hover: color-mix(in srgb, #ffffff 91%, #64748b 9%);
+  --chat-quick-tile-bg-active: color-mix(in srgb, #ffffff 80%, #2563eb 20%);
+}
+
+:root[data-theme='dark'] .chat-panel {
+  --chat-quick-tile-bg: #151a22;
+  --chat-quick-tile-bg-hover: color-mix(in srgb, #151a22 76%, #ffffff 24%);
+  --chat-quick-tile-bg-active: color-mix(in srgb, #151a22 68%, #3b82f6 32%);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-panel {
+  --chat-quick-tile-bg: rgba(52, 12, 50, 0.78);
+  --chat-quick-tile-bg-hover: rgba(64, 20, 60, 0.9);
+  --chat-quick-tile-bg-active: color-mix(in srgb, rgba(64, 20, 60, 0.95) 72%, #60a5fa 28%);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-panel {
+  --chat-quick-tile-bg: var(--input-field-bg);
+  --chat-quick-tile-bg-hover: color-mix(in srgb, var(--input-field-bg) 78%, #ffffff 22%);
+  --chat-quick-tile-bg-active: color-mix(in srgb, var(--input-field-bg) 70%, #6366f1 30%);
 }
 
 .chat-input-row {
@@ -1353,6 +1501,97 @@
   min-width: 0;
 }
 
+.chat-input-field-grow {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Wie Datei-Chips: gleiche Zeile — ohne Rand; Ecken wie Chip-/Message-Box-Radius; dunkleres Violett */
+.chat-compose-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0.3rem 0.5rem 0.3rem 0.42rem;
+  border-radius: var(--chat-chip-radius);
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  transition: background 0.15s ease;
+  box-shadow: none;
+}
+
+.chat-compose-mode-badge--image {
+  background: rgba(88, 40, 162, 0.46);
+  color: #4c1d95;
+}
+
+.chat-compose-mode-badge--image:hover:enabled {
+  background: rgba(88, 40, 162, 0.54);
+}
+
+.chat-compose-mode-badge-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 5px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.chat-compose-mode-badge-label {
+  white-space: nowrap;
+  color: inherit;
+}
+
+.chat-compose-mode-badge:focus-visible {
+  outline: 2px solid rgba(91, 33, 182, 0.55);
+  outline-offset: 2px;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--image {
+  background: rgba(52, 22, 108, 0.52);
+  color: #8b5cf6;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--image:hover:enabled {
+  background: rgba(62, 30, 122, 0.58);
+}
+
+/* Wie „Bilder“-Badge, in Grün (kein Rand, gleiche Ecken/Padding) */
+.chat-compose-mode-badge--excel {
+  background: rgba(28, 110, 58, 0.46);
+  color: #14532d;
+}
+
+.chat-compose-mode-badge--excel:hover:enabled {
+  background: rgba(28, 110, 58, 0.54);
+}
+
+.chat-compose-mode-badge--excel .chat-compose-mode-badge-icon {
+  object-fit: contain;
+}
+
+.chat-compose-mode-badge--excel:focus-visible {
+  outline: 2px solid rgba(22, 101, 52, 0.55);
+  outline-offset: 2px;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--excel {
+  background: rgba(14, 78, 42, 0.52);
+  color: #4ade80;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--excel:hover:enabled {
+  background: rgba(20, 95, 52, 0.58);
+}
+
 .chat-input {
   width: 100%;
 }
@@ -1433,14 +1672,20 @@
   flex-basis: 100%;
 }
 
+@media (max-width: 860px) {
+  .chat-slash-menu {
+    display: none !important;
+  }
+}
+
 .chat-slash-menu {
-  min-width: 140px;
+  min-width: 152px;
   position: absolute;
   left: 0.1rem;
   bottom: calc(100% + 0.35rem);
   right: auto;
   top: auto;
-  width: 140px;
+  width: 152px;
   max-width: min(260px, calc(100vw - 2rem));
   z-index: 8;
   transform: none;
@@ -1466,6 +1711,36 @@
   color: #16a34a;
 }
 
+.chat-slash-menu .thread-menu-item.is-selected {
+  background: color-mix(in srgb, #22c55e 14%, #f8fafc);
+  color: #16a34a;
+}
+
+.chat-slash-menu .thread-menu-item.thread-menu-item--slash-image:hover:enabled {
+  background: rgba(88, 40, 162, 0.14);
+  color: #5b21b6;
+}
+
+.chat-slash-menu .thread-menu-item.thread-menu-item--slash-image.is-selected {
+  background: rgba(88, 40, 162, 0.2);
+  color: #4c1d95;
+}
+
+:root[data-theme='dark'] .chat-slash-menu .thread-menu-item.is-selected {
+  background: color-mix(in srgb, #22c55e 18%, #1a2230);
+  color: #4ade80;
+}
+
+:root[data-theme='dark'] .chat-slash-menu .thread-menu-item.thread-menu-item--slash-image:hover:enabled {
+  background: rgba(52, 22, 108, 0.38);
+  color: #c4b5fd;
+}
+
+:root[data-theme='dark'] .chat-slash-menu .thread-menu-item.thread-menu-item--slash-image.is-selected {
+  background: rgba(52, 22, 108, 0.48);
+  color: #ddd6fe;
+}
+
 /* Modellwahl: gleiche Shell/Position wie Slash-Menü („/“), Hover neutral (nicht grün wie Excel-Zeile) */
 .chat-slash-menu.chat-model-picker-dropdown.thread-menu .thread-menu-item:hover:enabled {
   background: #f8fafc;
@@ -1482,11 +1757,6 @@
   .thread-menu-item:hover:enabled {
   background: rgba(244, 114, 182, 0.12);
   color: #f9fafb;
-}
-
-.chat-command-badge--excel:hover:enabled {
-  border-color: color-mix(in srgb, #22c55e 70%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 22%, var(--color-surface-elevated));
 }
 
 .chat-left-actions {
@@ -1750,38 +2020,118 @@
   color: #f1f5f9;
 }
 
-.chat-command-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
+.chat-quick-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.75rem;
+  width: 100%;
+  margin: clamp(1rem, 1.8vw + 0.45rem, 1.4rem) 0 0;
+  box-sizing: border-box;
 }
 
-.chat-command-badge--excel {
-  display: inline-flex;
+.chat-quick-tile {
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 7px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 75%, #3b82f6);
-  background: color-mix(in srgb, var(--color-surface-elevated) 82%, #3b82f6);
-  flex-shrink: 0;
+  gap: 0.55rem;
+  padding: 0.38rem 0.62rem;
+  border-radius: 12px;
+  border: none;
+  background: var(--chat-quick-tile-bg);
+  color: inherit;
   cursor: pointer;
+  text-align: left;
+  font: inherit;
+  min-width: 0;
+  box-shadow: none;
+  transition: background 0.18s ease;
 }
 
-.chat-command-badge--excel img {
-  width: 14px;
-  height: 14px;
+.chat-quick-tile:hover:enabled {
+  background: var(--chat-quick-tile-bg-hover);
+  box-shadow: none;
+}
+
+.chat-quick-tile.is-active {
+  border: none;
+  background: var(--chat-quick-tile-bg-active);
+  box-shadow: none;
+}
+
+.chat-quick-tile:focus-visible {
+  outline: 2px solid color-mix(in srgb, #3b82f6 70%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-quick-tile-icon-wrap {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  border: none;
+  background: color-mix(in srgb, var(--chat-quick-tile-bg) 68%, #0f172a 32%);
+}
+
+:root[data-theme='dark'] .chat-quick-tile-icon-wrap {
+  background: rgba(0, 0, 0, 0.38);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-quick-tile-icon-wrap {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-quick-tile-icon-wrap {
+  background: color-mix(in srgb, var(--chat-quick-tile-bg) 72%, #000000 28%);
+}
+
+.chat-quick-tile-icon-wrap img {
+  width: 22px;
+  height: 22px;
   display: block;
-  filter: none;
 }
 
+.chat-quick-tile-icon-wrap img.chat-quick-tile-icon--landscape {
+  width: 22px !important;
+  height: 22px !important;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+.chat-quick-tile-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.06rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-quick-tile-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.chat-quick-tile-sub {
+  font-size: 0.68rem;
+  line-height: 1.28;
+  color: #64748b;
+}
+
+:root[data-theme='dark'] .chat-quick-tile-sub {
+  color: rgba(248, 250, 252, 0.55);
+}
+
+/* Gleicher Innenabstand wie Textfeld (.chat-input padding-left ~0.7rem), nicht an der Pille kleben */
 .chat-input-row--stacked .chat-attachment-chips {
-  padding-left: 0;
-  padding-right: 0;
+  padding: 0.45rem 0.55rem 0.14rem 0.7rem;
 }
 
 .chat-input-row--stacked .chat-input-field {
@@ -1975,7 +2325,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  padding: 0.2rem 0.15rem 0.08rem 0.15rem;
+  padding: 0.35rem 0.55rem 0.12rem 0.65rem;
 }
 
 .chat-attachment-chip {
@@ -2190,6 +2540,64 @@
   .chat-panel.is-empty .chat-input-hint {
     flex-shrink: 0;
     padding-bottom: 0;
+    order: 6;
+  }
+
+  /* Neuer Chat mobil: Schnellkacheln direkt über der Message Box (Reihenfolge per flex order) */
+  .chat-panel.is-empty .chat-empty-compose > .chat-empty-title {
+    order: 1;
+  }
+  .chat-panel.is-empty .chat-empty-compose > .error-text {
+    order: 2;
+  }
+  .chat-panel.is-empty .chat-empty-compose > .chat-thinking-clarify-sheet {
+    order: 3;
+  }
+  .chat-panel.is-empty .chat-empty-compose > .chat-quick-tiles {
+    order: 4;
+    margin: 0 0 0.2rem;
+    width: 100%;
+    gap: 0.38rem 0.45rem;
+  }
+  .chat-panel.is-empty .chat-empty-compose > form {
+    order: 5;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile {
+    padding: 0.2rem 0.4rem 0.2rem 0.32rem;
+    gap: 0.32rem;
+    border-radius: 10px;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-icon-wrap {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-icon-wrap img {
+    width: 17px;
+    height: 17px;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-icon-wrap img.chat-quick-tile-icon--landscape {
+    width: 17px !important;
+    height: 17px !important;
+    border-radius: 4px;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-title {
+    font-size: 0.76rem;
+    line-height: 1.15;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-sub {
+    display: none;
+  }
+
+  .chat-panel.is-empty .chat-quick-tile-text {
+    gap: 0;
+    justify-content: center;
   }
 
   .chat-panel.is-empty.has-limit-banner .chat-empty-compose {

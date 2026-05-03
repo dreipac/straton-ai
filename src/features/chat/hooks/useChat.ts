@@ -27,6 +27,7 @@ import {
   type ChatThinkingMode,
   parseStoredChatThinkingMode,
 } from '../constants/chatThinkingMode'
+import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier'
 import {
   generateChatImageFromPrompt,
   generateChatTitleWithAi,
@@ -109,6 +110,46 @@ function upsertThreadMessages(
   return { ...prev, [threadId]: upsertChatMessage(list, message) }
 }
 
+/**
+ * INSERT aus Realtime spiegelt die DB-Zeile — `excelExport` liegt oft nur clientseitig nach `generateExcelFromSpec`.
+ * Ohne Merge würde die zweite (und weitere) Excel-Antwort die Metadaten wieder verlieren.
+ */
+function mergeRealtimeChatMessage(existing: ChatMessage | undefined, incoming: ChatMessage): ChatMessage {
+  if (!existing) {
+    return incoming
+  }
+  const excelFromExisting =
+    existing.metadata?.excelExport && !incoming.metadata?.excelExport
+      ? existing.metadata.excelExport
+      : undefined
+  if (!excelFromExisting) {
+    return incoming
+  }
+  return {
+    ...incoming,
+    metadata: {
+      ...(incoming.metadata ?? {}),
+      excelExport: excelFromExisting,
+    },
+  }
+}
+
+/** Zwei Zeilen gleicher `id` (Realtime-INSERT + Stream-Ersetzung) — erste Liste war willkürlich, Excel-Metadaten nicht verlieren. */
+function mergeDuplicateChatMessagePair(a: ChatMessage, b: ChatMessage): ChatMessage {
+  const aHasExcel = Boolean(a.metadata?.excelExport)
+  const bHasExcel = Boolean(b.metadata?.excelExport)
+  if (aHasExcel && !bHasExcel) {
+    return a
+  }
+  if (bHasExcel && !aHasExcel) {
+    return b
+  }
+  if (aHasExcel && bHasExcel) {
+    return b.content.length >= a.content.length ? b : a
+  }
+  return b.content.length >= a.content.length ? b : a
+}
+
 function createTemporaryThread(userId: string): ChatThread {
   const now = new Date().toISOString()
   return {
@@ -131,6 +172,9 @@ export function useChat(
     /** false: kein automatisches Aktualisieren des KI-Nutzer-Speichers nach Antworten */
     persistAiChatMemory?: boolean
     onProfileMemoryUpdated?: () => void | Promise<void>
+    /** `subscription_usages.used_tokens` — Tages-Staffelung OpenAI im Hauptchat */
+    mainChatUsedTokensToday?: number
+    mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -338,28 +382,45 @@ export function useChat(
       return
     }
     const supabase = getSupabaseClient()
+
+    function handleChatMessageRow(row: ChatMessageRow) {
+      if (!row?.id || !row.thread_id) {
+        return
+      }
+      const mapped = mapMessage(row)
+      setMessagesByThreadId((prev) => {
+        const list = prev[row.thread_id] ?? []
+        const existing = list.find((m) => m.id === mapped.id)
+        const merged = mergeRealtimeChatMessage(existing, mapped)
+        return upsertThreadMessages(prev, row.thread_id, merged)
+      })
+      setThreads((prev) => {
+        const has = prev.some((t) => t.id === row.thread_id)
+        if (!has) {
+          return prev
+        }
+        const updated = prev.map((t) =>
+          t.id === row.thread_id ? { ...t, updatedAt: new Date().toISOString() } : t,
+        )
+        return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      })
+    }
+
     const channel = supabase
       .channel(`chat-messages-live-${userId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         (payload) => {
-          const row = payload.new as ChatMessageRow
-          if (!row?.id || !row.thread_id) {
-            return
-          }
-          const mapped = mapMessage(row)
-          setMessagesByThreadId((prev) => upsertThreadMessages(prev, row.thread_id, mapped))
-          setThreads((prev) => {
-            const has = prev.some((t) => t.id === row.thread_id)
-            if (!has) {
-              return prev
-            }
-            const updated = prev.map((t) =>
-              t.id === row.thread_id ? { ...t, updatedAt: new Date().toISOString() } : t,
-            )
-            return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-          })
+          handleChatMessageRow(payload.new as ChatMessageRow)
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          /* generate-excel-from-spec schreibt metadata + content — ohne UPDATE blieb ggf. die INSERT-Zeile ohne Button */
+          handleChatMessageRow(payload.new as ChatMessageRow)
         },
       )
       .subscribe()
@@ -639,7 +700,12 @@ export function useChat(
         }
       }
 
-      const storedUserMessage = await createChatMessage(targetThreadId, 'user', trimmed)
+      const storedUserMessage = await createChatMessage(
+        targetThreadId,
+        'user',
+        trimmed,
+        wantsExcel ? { userExcelCommand: true } : undefined,
+      )
 
       let nextMessages: ChatMessage[] = []
       setMessagesByThreadId((prev) => {
@@ -770,6 +836,8 @@ export function useChat(
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
+            mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
+            mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -793,6 +861,8 @@ export function useChat(
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
+          mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
+          mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
         })
         finalAssistantContent = assistantMessage.content
       }
@@ -857,17 +927,15 @@ export function useChat(
           const replaced = list.map((m) =>
             m.id === streamAssistantId ? mergedAssistantMessage : m,
           )
-          const seen = new Set<string>()
-          const deduped = replaced.filter((m) => {
-            if (seen.has(m.id)) {
-              return false
-            }
-            seen.add(m.id)
-            return true
-          })
+          const mergedById = new Map<string, ChatMessage>()
+          for (const m of replaced) {
+            const prev = mergedById.get(m.id)
+            mergedById.set(m.id, prev ? mergeDuplicateChatMessagePair(prev, m) : m)
+          }
+          const deduped = [...mergedById.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
           return {
             ...prev,
-            [targetThreadId]: deduped.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+            [targetThreadId]: deduped,
           }
         }
         return upsertThreadMessages(prev, targetThreadId, mergedAssistantMessage)

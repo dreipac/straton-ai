@@ -15,6 +15,8 @@ export type ActionBottomSheetItem = {
   label: string
   iconSrc?: string
   variant?: 'default' | 'danger'
+  /** Zusätzliche Klassen am Aktions-Button (z. B. farbige Varianten im Chat-Composer). */
+  actionClassName?: string
   onClick: () => void
   /**
    * false = nach Klick kein animiertes Schließen (Sheet bleibt offen bis Parent es abklemmt).
@@ -198,7 +200,7 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
             <button
               key={action.id}
               type="button"
-              className={`action-bottom-sheet-action${action.variant === 'danger' ? ' is-danger' : ''}`}
+              className={`action-bottom-sheet-action${action.variant === 'danger' ? ' is-danger' : ''}${action.actionClassName ? ` ${action.actionClassName}` : ''}`}
               onPointerDown={handleActionPointerDown}
               onClick={(e) => {
                 if (e.detail === 0) {

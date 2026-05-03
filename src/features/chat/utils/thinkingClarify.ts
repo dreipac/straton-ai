@@ -2,6 +2,13 @@
 export const THINKING_CLARIFY_START = '<<<STRATON_THINKING_CLARIFY>>>'
 export const THINKING_CLARIFY_END = '<<<END_STRATON_THINKING_CLARIFY>>>'
 
+/** Wie bei Excel-Spec: Marker/JSON sonst nicht zuverlässig zu finden. */
+function normalizeContentForThinkingClarify(content: string): string {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/\u200b|\u200c|\u200d|\ufeff/g, '')
+}
+
 /** Feste Option „eigene Antwort“ — wird nur clientseitig angehängt. */
 export const THINKING_CUSTOM_OPTION_ID = '__thinking_custom__'
 
@@ -47,13 +54,14 @@ function normalizePayload(raw: unknown): ThinkingClarifyPayload | null {
 }
 
 export function parseThinkingClarifyContent(content: string): ThinkingClarifyParse {
-  const start = content.indexOf(THINKING_CLARIFY_START)
-  const end = content.indexOf(THINKING_CLARIFY_END)
+  const normalized = normalizeContentForThinkingClarify(content)
+  const start = normalized.indexOf(THINKING_CLARIFY_START)
+  const end = normalized.indexOf(THINKING_CLARIFY_END)
   if (start === -1 || end === -1 || end <= start) {
     return { kind: 'plain' }
   }
-  const introMarkdown = content.slice(0, start).trim()
-  const jsonRaw = content.slice(start + THINKING_CLARIFY_START.length, end).trim()
+  const introMarkdown = normalized.slice(0, start).trim()
+  const jsonRaw = normalized.slice(start + THINKING_CLARIFY_START.length, end).trim()
   try {
     const parsed = JSON.parse(jsonRaw) as unknown
     const payload = normalizePayload(parsed)
@@ -79,9 +87,10 @@ export function stripThinkingClarifyMarkersForDisplay(content: string): string {
 }
 
 export function messageContainsCompleteThinkingClarifyBlock(content: string): boolean {
+  const n = normalizeContentForThinkingClarify(content)
   return (
-    content.includes(THINKING_CLARIFY_START) &&
-    content.includes(THINKING_CLARIFY_END) &&
+    n.includes(THINKING_CLARIFY_START) &&
+    n.includes(THINKING_CLARIFY_END) &&
     parseThinkingClarifyContent(content).kind === 'clarify'
   )
 }

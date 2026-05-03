@@ -30,6 +30,9 @@ export type SubscriptionPlanRow = {
   image_generation_model?: SubscriptionImageGenerationModelId | null
   chat_allow_model_choice: boolean
   default_chat_model_id: string | null
+  chat_daily_tier1_openai_model_id?: string
+  chat_daily_tier1_token_budget?: number
+  chat_daily_tier2_openai_model_id?: string
   created_at: string
 }
 
@@ -287,7 +290,7 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   const { data, error } = await supabase
     .from('subscription_plans')
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, created_at',
     )
     .order('name', { ascending: true })
 
@@ -298,14 +301,19 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   return (data ?? []) as SubscriptionPlanRow[]
 }
 
-const ALLOWED_DEFAULT_CHAT_MODEL_IDS = new Set(['gpt-5.4-mini', 'claude-sonnet-4-6', 'claude-opus-4-7'])
-
-function normalizeDefaultChatModelId(raw: string | null): string | null {
-  if (typeof raw !== 'string' || !raw.trim()) {
-    return null
+function normalizeChatDailyTierOpenAiModelId(raw: string | null | undefined): 'gpt-5.4' | 'gpt-5.4-mini' {
+  const t = typeof raw === 'string' ? raw.trim() : ''
+  if (t === 'gpt-5.4' || t === 'gpt-5.4-mini') {
+    return t
   }
-  const t = raw.trim()
-  return ALLOWED_DEFAULT_CHAT_MODEL_IDS.has(t) ? t : null
+  return 'gpt-5.4'
+}
+
+function normalizeChatDailyTierTokenBudget(raw: number | null | undefined): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return 50_000
+  }
+  return Math.max(0, Math.floor(raw))
 }
 
 export async function createSubscriptionPlan(params: {
@@ -314,16 +322,17 @@ export async function createSubscriptionPlan(params: {
   maxImages: number | null
   maxFiles: number | null
   imageGenerationModel?: SubscriptionImageGenerationModelId
-  chatAllowModelChoice?: boolean
-  defaultChatModelId?: string | null
+  chatAllowModelChoice: boolean
+  chatDailyTier1OpenAiModelId?: string | null
+  chatDailyTier1TokenBudget?: number | null
+  chatDailyTier2OpenAiModelId?: string | null
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
   if (!trimmed) {
     throw new Error('Name darf nicht leer sein.')
   }
-  const chatAllow = params.chatAllowModelChoice !== false
-  const defaultModel = normalizeDefaultChatModelId(params.defaultChatModelId ?? null)
+  const allow = params.chatAllowModelChoice !== false
   const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel ?? null)
   const { data, error } = await supabase
     .from('subscription_plans')
@@ -333,11 +342,20 @@ export async function createSubscriptionPlan(params: {
       max_images: params.maxImages,
       max_files: params.maxFiles,
       image_generation_model: imageModel,
-      chat_allow_model_choice: chatAllow,
-      default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
+      chat_allow_model_choice: allow,
+      default_chat_model_id: null,
+      chat_daily_tier1_openai_model_id: normalizeChatDailyTierOpenAiModelId(
+        allow ? null : params.chatDailyTier1OpenAiModelId ?? null,
+      ),
+      chat_daily_tier1_token_budget: normalizeChatDailyTierTokenBudget(
+        allow ? null : params.chatDailyTier1TokenBudget ?? null,
+      ),
+      chat_daily_tier2_openai_model_id: normalizeChatDailyTierOpenAiModelId(
+        allow ? null : params.chatDailyTier2OpenAiModelId ?? null,
+      ),
     })
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, created_at',
     )
     .single()
 
@@ -356,33 +374,46 @@ export async function updateSubscriptionPlan(params: {
   maxFiles: number | null
   imageGenerationModel: SubscriptionImageGenerationModelId
   chatAllowModelChoice: boolean
-  defaultChatModelId: string | null
+  chatDailyTier1OpenAiModelId?: string | null
+  chatDailyTier1TokenBudget?: number | null
+  chatDailyTier2OpenAiModelId?: string | null
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
   if (!trimmed) {
     throw new Error('Name darf nicht leer sein.')
   }
-  const chatAllow = params.chatAllowModelChoice
-  let defaultModel = normalizeDefaultChatModelId(params.defaultChatModelId)
-  if (!chatAllow && defaultModel === null) {
-    defaultModel = 'gpt-5.4-mini'
-  }
+  const allow = params.chatAllowModelChoice !== false
   const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel)
+  const baseRow = {
+    name: trimmed,
+    max_tokens: params.maxTokens,
+    max_images: params.maxImages,
+    max_files: params.maxFiles,
+    image_generation_model: imageModel,
+    chat_allow_model_choice: allow,
+    default_chat_model_id: null as string | null,
+  }
+  const tierRow = allow
+    ? {}
+    : {
+        chat_daily_tier1_openai_model_id: normalizeChatDailyTierOpenAiModelId(
+          params.chatDailyTier1OpenAiModelId ?? null,
+        ),
+        chat_daily_tier1_token_budget: normalizeChatDailyTierTokenBudget(params.chatDailyTier1TokenBudget ?? null),
+        chat_daily_tier2_openai_model_id: normalizeChatDailyTierOpenAiModelId(
+          params.chatDailyTier2OpenAiModelId ?? null,
+        ),
+      }
   const { data, error } = await supabase
     .from('subscription_plans')
     .update({
-      name: trimmed,
-      max_tokens: params.maxTokens,
-      max_images: params.maxImages,
-      max_files: params.maxFiles,
-      image_generation_model: imageModel,
-      chat_allow_model_choice: chatAllow,
-      default_chat_model_id: chatAllow ? defaultModel : defaultModel ?? 'gpt-5.4-mini',
+      ...baseRow,
+      ...tierRow,
     })
     .eq('id', params.planId)
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, created_at',
     )
     .single()
 

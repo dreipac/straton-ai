@@ -33,18 +33,28 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     return undefined
   }
   const o = raw as Record<string, unknown>
+  const out: NonNullable<ChatMessage['metadata']> = {}
+
+  if (o.userExcelCommand === true) {
+    out.userExcelCommand = true
+  }
+
+  if (o.liveStream === true) {
+    out.liveStream = true
+  }
+
   const ex = o.excelExport
-  if (!ex || typeof ex !== 'object') {
-    return undefined
+  if (ex && typeof ex === 'object') {
+    const e = ex as Record<string, unknown>
+    const bucket = typeof e.bucket === 'string' ? e.bucket : ''
+    const path = typeof e.path === 'string' ? e.path : ''
+    const fileName = typeof e.fileName === 'string' ? e.fileName : ''
+    if (bucket && path && fileName) {
+      out.excelExport = { bucket, path, fileName }
+    }
   }
-  const e = ex as Record<string, unknown>
-  const bucket = typeof e.bucket === 'string' ? e.bucket : ''
-  const path = typeof e.path === 'string' ? e.path : ''
-  const fileName = typeof e.fileName === 'string' ? e.fileName : ''
-  if (!bucket || !path || !fileName) {
-    return undefined
-  }
-  return { excelExport: { bucket, path, fileName } }
+
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 export function mapMessage(row: ChatMessageRow): ChatMessage {
@@ -165,17 +175,23 @@ export async function createChatMessage(
   threadId: string,
   role: ChatRole,
   content: string,
+  metadata?: ChatMessage['metadata'],
 ): Promise<ChatMessage> {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('chat_messages')
-    .insert({
-      thread_id: threadId,
-      role,
-      content,
-    })
-    .select('id, thread_id, role, content, created_at, metadata')
-    .single()
+  const insertPayload: {
+    thread_id: string
+    role: ChatRole
+    content: string
+    metadata?: ChatMessage['metadata']
+  } = {
+    thread_id: threadId,
+    role,
+    content,
+  }
+  if (metadata && Object.keys(metadata).length > 0) {
+    insertPayload.metadata = metadata
+  }
+  const { data, error } = await supabase.from('chat_messages').insert(insertPayload).select('id, thread_id, role, content, created_at, metadata').single()
 
   if (error) {
     throw error

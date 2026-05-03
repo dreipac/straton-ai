@@ -896,6 +896,31 @@
     border-radius: 10px;
   }
 
+  /* Sidebar mobil: kein Hover-Hintergrund auf Chat-Zeilen (Touch-Geräte / iOS «Sticky Hover») */
+  .chat-sidebar .chat-thread-item:hover:not(.is-active) {
+    background: transparent;
+    border-color: transparent;
+    color: #1e293b;
+    box-shadow: none;
+  }
+
+  :root[data-theme='dark'] .chat-sidebar .chat-thread-item:hover:not(.is-active) {
+    background: transparent;
+    border-color: transparent;
+    color: #e5e7eb;
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-sidebar .chat-thread-item:hover:not(.is-active) {
+    background: transparent;
+    border-color: transparent;
+    color: #e5e7eb;
+  }
+
+  /* Menü-Trigger ohne Row-Hover sichtbar (Hover-Regel oben entfällt mobil) */
+  .chat-sidebar .chat-thread-menu-anchor {
+    opacity: 1;
+  }
+
   .thread-list-info {
     font-size: 0.8rem;
   }

@@ -100,6 +100,67 @@ const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt
 /** Nach Erreichen des Kosten-Budgets: günstigeres Modell zuerst (ohne gpt-5.4-mini). */
 const ECONOMY_OPENAI_CHAT_MODELS: string[] = ['gpt-5-mini', 'gpt-4o-mini']
 
+type PlanDailyOpenAiTierEdge = {
+  tier1ModelId: 'gpt-5.4' | 'gpt-5.4-mini'
+  tier1TokenBudget: number
+  tier2ModelId: 'gpt-5.4' | 'gpt-5.4-mini'
+}
+
+const DEFAULT_PLAN_DAILY_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
+  tier1ModelId: 'gpt-5.4',
+  tier1TokenBudget: 50_000,
+  tier2ModelId: 'gpt-5.4-mini',
+}
+
+function parseTierOpenAiModelId(raw: unknown): 'gpt-5.4' | 'gpt-5.4-mini' {
+  if (raw === 'gpt-5.4' || raw === 'gpt-5.4-mini') {
+    return raw
+  }
+  return 'gpt-5.4'
+}
+
+function openAiChainForTierModelId(id: 'gpt-5.4' | 'gpt-5.4-mini'): string[] {
+  if (id === 'gpt-5.4-mini') {
+    return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+  }
+  return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+}
+
+function mainChatOpenAiModelsForPlanDailyUsage(
+  usedTokensToday: number,
+  tier: PlanDailyOpenAiTierEdge,
+): string[] {
+  const u = Number.isFinite(usedTokensToday) && usedTokensToday >= 0 ? usedTokensToday : 0
+  const threshold = Math.max(0, tier.tier1TokenBudget)
+  if (u >= threshold) {
+    return openAiChainForTierModelId(tier.tier2ModelId)
+  }
+  return openAiChainForTierModelId(tier.tier1ModelId)
+}
+
+async function fetchSubscriptionUsedTokensToday(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<number | null> {
+  if (!admin) {
+    return null
+  }
+  const { data, error } = await admin
+    .from('subscription_usages')
+    .select('used_tokens')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) {
+    console.error('[chat-completion] subscription_usages used_tokens', error.message)
+    return null
+  }
+  const raw = data?.used_tokens
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(0, Math.floor(raw))
+  }
+  return 0
+}
+
 type UsdRates = { inPerM: number; outPerM: number }
 
 function costFromTokens(tokens: number, usdPerMillion: number): number {
@@ -204,6 +265,7 @@ async function getUserCumulativeEstimatedCostUsd(
 type PlanChatFields = {
   chat_allow_model_choice: boolean
   default_chat_model_id: string | null
+  dailyOpenAiTier: PlanDailyOpenAiTierEdge
 }
 
 async function fetchSubscriptionPlanChatFields(
@@ -215,7 +277,9 @@ async function fetchSubscriptionPlanChatFields(
   }
   const { data, error } = await admin
     .from('profiles')
-    .select('subscription_plans ( chat_allow_model_choice, default_chat_model_id )')
+    .select(
+      'subscription_plans ( chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id )',
+    )
     .eq('id', userId)
     .maybeSingle()
   if (error) {
@@ -228,19 +292,20 @@ async function fetchSubscriptionPlanChatFields(
     return null
   }
   const p = plan as Record<string, unknown>
+  const budgetRaw = p.chat_daily_tier1_token_budget
+  const budget =
+    typeof budgetRaw === 'number' && Number.isFinite(budgetRaw)
+      ? Math.max(0, Math.floor(budgetRaw))
+      : DEFAULT_PLAN_DAILY_OPENAI_TIER.tier1TokenBudget
   return {
     chat_allow_model_choice: p.chat_allow_model_choice !== false,
     default_chat_model_id: typeof p.default_chat_model_id === 'string' ? p.default_chat_model_id : null,
+    dailyOpenAiTier: {
+      tier1ModelId: parseTierOpenAiModelId(p.chat_daily_tier1_openai_model_id),
+      tier1TokenBudget: budget,
+      tier2ModelId: parseTierOpenAiModelId(p.chat_daily_tier2_openai_model_id),
+    },
   }
-}
-
-type LockedComposerId = 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
-
-function parseLockedComposerModelId(raw: string | null): LockedComposerId {
-  if (raw === 'claude-sonnet-4-6' || raw === 'claude-opus-4-7' || raw === 'gpt-5.4-mini') {
-    return raw
-  }
-  return 'gpt-5.4-mini'
 }
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -1558,18 +1623,21 @@ serve(async (req) => {
     }
 
     let provider = normalizeProvider(body.provider)
-    if (mode === 'chat' && planChatFields && planChatFields.chat_allow_model_choice === false) {
-      const lockedId = parseLockedComposerModelId(planChatFields.default_chat_model_id)
-      provider = lockedId === 'gpt-5.4-mini' ? 'openai' : 'anthropic'
-      if (lockedId === 'gpt-5.4-mini') {
-        openAiModels = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
-        anthropicModelChat = null
-      } else if (lockedId === 'claude-sonnet-4-6') {
-        anthropicModelChat = 'claude-sonnet-4-6'
-      } else {
-        anthropicModelChat = 'claude-opus-4-7'
+
+    if (
+      mode === 'chat' &&
+      provider === 'openai' &&
+      body.includeProfileMemory === true &&
+      admin &&
+      planChatFields?.chat_allow_model_choice === false
+    ) {
+      const usedToday = await fetchSubscriptionUsedTokensToday(admin, user.id)
+      if (usedToday !== null) {
+        const tier = planChatFields?.dailyOpenAiTier ?? DEFAULT_PLAN_DAILY_OPENAI_TIER
+        openAiModels = mainChatOpenAiModelsForPlanDailyUsage(usedToday, tier)
       }
     }
+
     const apiKey = await getProviderApiKey(provider)
     const clientPromptCacheKey = sanitizePromptCacheKey(body.promptCacheKey)
     const clientPromptCacheRetention = sanitizePromptCacheRetention(body.promptCacheRetention)

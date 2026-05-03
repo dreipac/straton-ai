@@ -45,6 +45,7 @@ import {
   getUserDisplayName,
 } from '../features/auth/utils/userDisplay'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
+import { parseChatDailyTierConfigFromPlan } from '../features/chat/constants/chatDailyOpenAiTier'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -76,6 +77,7 @@ import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
+import { useMobileSidebarEdgeSwipe } from '../hooks/useMobileSidebarEdgeSwipe'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isMobileViewport } from '../utils/mobile'
 import { useToast } from '../components/toast/ToastProvider'
@@ -134,6 +136,14 @@ export function ChatPage() {
       user ? getChatModelPolicyFromPlan(profile?.subscription_plans ?? null) : getChatModelPolicyFromPlan(null),
     [user, profile?.subscription_plans],
   )
+  /** Tages-Staffel nur wenn Admin die Modellwahl sperrt; sonst gilt die Composer-Auswahl. */
+  const applyMainChatDailyTier =
+    Boolean(user) && profile?.subscription_plans?.chat_allow_model_choice === false
+  const mainChatDailyTierConfig = useMemo(
+    () =>
+      applyMainChatDailyTier ? parseChatDailyTierConfigFromPlan(profile?.subscription_plans ?? null) : undefined,
+    [applyMainChatDailyTier, profile?.subscription_plans],
+  )
   const {
     threads,
     activeThreadId,
@@ -159,6 +169,9 @@ export function ChatPage() {
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
+    mainChatUsedTokensToday:
+      user && applyMainChatDailyTier ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
+    mainChatDailyTierConfig: user && applyMainChatDailyTier ? mainChatDailyTierConfig : undefined,
   })
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
@@ -540,6 +553,20 @@ export function ChatPage() {
   )
   const [compactTourReveal, setCompactTourReveal] = useState(false)
   const chatTourOverlayActive = chatTourEligible && (!isCompactMobileSidebarLayout || compactTourReveal)
+  const sidebarEdgeSwipe = useMobileSidebarEdgeSwipe({
+    enabled: isCompactMobileSidebarLayout,
+    isOpen: isMobileSidebarOpen,
+    swipeOpenBlocked: chatTourEligible || mobileSheetMode !== 'closed',
+    swipeCloseBlocked: chatTourEligible,
+    onOpen: () => {
+      setIsSidebarCollapsed(false)
+      setIsMobileSidebarOpen(true)
+      hapticLightImpact()
+    },
+    onClose: () => {
+      setIsMobileSidebarOpen(false)
+    },
+  })
   const menuWrapperRef = useRef<HTMLDivElement | null>(null)
   const threadSheetRef = useRef<HTMLDivElement | null>(null)
   const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
@@ -1183,6 +1210,7 @@ export function ChatPage() {
           className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
           onClick={() => setIsMobileSidebarOpen(false)}
           aria-hidden="true"
+          {...sidebarEdgeSwipe.backdropSwipeHandlers}
         />
       </main>
     )
@@ -1640,6 +1668,7 @@ export function ChatPage() {
           setIsMobileSidebarOpen(false)
         }}
         aria-hidden="true"
+        {...sidebarEdgeSwipe.backdropSwipeHandlers}
       />
 
       {chatTourEligible ? (

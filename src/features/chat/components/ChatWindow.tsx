@@ -8,13 +8,17 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
+import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
+import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
 import fileIcon from '../../../assets/icons/file.svg'
 import greenFileIcon from '../../../assets/icons/green-file.svg'
+import landscapePng from '../../../assets/png/Landscape.png'
 import sendIcon from '../../../assets/icons/send.svg'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
+import { IMAGE_GEN_TILE_PROMPT_PREFIX } from '../constants/imageGenTile'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import type { ChatMessage } from '../types'
@@ -61,6 +65,37 @@ function buildImageGenMatrixDots(): { key: string; delayMs: number }[] {
 }
 
 const IMAGE_GEN_MATRIX_DOTS = buildImageGenMatrixDots()
+
+/** Rechteckiges Excel-Panel — nicht 15×15 wie beim Bild, sonst stark verzerrte Raster-Zellen. */
+const EXCEL_GEN_MATRIX_COLS = 11
+const EXCEL_GEN_MATRIX_ROWS = 7
+
+function buildExcelGenMatrixCells(): { key: string; delayMs: number }[] {
+  const cols = EXCEL_GEN_MATRIX_COLS
+  const rows = EXCEL_GEN_MATRIX_ROWS
+  const cx = (cols - 1) / 2
+  const cy = (rows - 1) / 2
+  const maxD = Math.hypot(cx, cy) || 1
+  const out: { key: string; delayMs: number }[] = []
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const dist = Math.hypot(col - cx, row - cy)
+      out.push({
+        key: `ex-${row}-${col}`,
+        delayMs: Math.round((dist / maxD) * 740),
+      })
+    }
+  }
+  return out
+}
+
+const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
+
+/** Einträge im Slash-Menü (Excel, Bilder) — für Pfeiltasten / Enter */
+const SLASH_MENU_ITEM_COUNT = 2
+
+/** Gleicher Breakpoint wie `chat.css` (@media max-width 860px) — Slash-Menü aus, Anhang-Bottom-Sheet */
+const MOBILE_COMPOSER_MQ = '(max-width: 860px)'
 
 type ChatWindowProps = {
   /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
@@ -174,7 +209,11 @@ export function ChatWindow({
   const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
   const [draft, setDraft] = useState('')
   const [showSlashMenu, setShowSlashMenu] = useState(false)
+  const [slashMenuHighlightIndex, setSlashMenuHighlightIndex] = useState(0)
+  const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
+  const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
+  const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
   const isEmptyState = messageList.length === 0
@@ -188,6 +227,29 @@ export function ChatWindow({
   const pendingImageGeneration =
     showAssistantPendingLoader &&
     matchExplicitImageGenerationRequest(pendingUserContentForLoader).kind === 'prompt'
+
+  const lastExcelUserIndex = (() => {
+    for (let i = messageList.length - 1; i >= 0; i -= 1) {
+      if (messageList[i].role === 'user' && messageList[i].metadata?.userExcelCommand) {
+        return i
+      }
+    }
+    return -1
+  })()
+  /** Nur Nachrichten nach der letzten Excel-User-Zeile — sonst blockiert die erste Excel-Antwort alle weiteren. */
+  const assistantHasExcelExportAfterLastExcelUser =
+    lastExcelUserIndex >= 0 &&
+    messageList
+      .slice(lastExcelUserIndex + 1)
+      .some((m) => m.role === 'assistant' && Boolean(m.metadata?.excelExport))
+  /** Excel: Marker liegt nicht im gespeicherten Text — Flag in User-`metadata`; Loader auch während Stream/Sonnet. */
+  const pendingExcelGeneration =
+    isSending &&
+    !pendingImageGeneration &&
+    lastExcelUserIndex >= 0 &&
+    !assistantHasExcelExportAfterLastExcelUser
+
+  const showPendingAssistantRow = showAssistantPendingLoader || pendingExcelGeneration
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
@@ -216,6 +278,25 @@ export function ChatWindow({
   })()
   const showDuringSendIcon = isSending || isAssistantReplyStillAnimating
   const cancelWhileSending = Boolean(isSending && onCancelSend)
+
+  const composePlaceholder = tokenLimitReached
+    ? 'Token-Limit erreicht'
+    : imageGenCommandSelected
+      ? 'Beschreibe dein Bild …'
+      : 'Nachricht eingeben...'
+
+  useEffect(() => {
+    setExcelCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    setAttachComposerSheetOpen(false)
+  }, [threadKey])
+
+  useEffect(() => {
+    if (isMobileComposer) {
+      setShowSlashMenu(false)
+    }
+  }, [isMobileComposer])
 
   function handleComposerSendClick(event: ReactMouseEvent<HTMLButtonElement>) {
     if (!cancelWhileSending) {
@@ -561,8 +642,10 @@ export function ChatWindow({
     hapticLightImpact()
 
     const textPart = draft.trim()
+    const messageText =
+      imageGenCommandSelected && textPart ? `${IMAGE_GEN_TILE_PROMPT_PREFIX}${textPart}` : textPart
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
-    const baseContent = [textPart, attachmentPart].filter(Boolean).join('\n\n')
+    const baseContent = [messageText, attachmentPart].filter(Boolean).join('\n\n')
     const content = excelCommandSelected ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim() : baseContent
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
@@ -580,33 +663,93 @@ export function ChatWindow({
     setDraft('')
     setShowSlashMenu(false)
     setExcelCommandSelected(false)
+    setImageGenCommandSelected(false)
     setPendingAttachments([])
     await onSendMessage(content)
   }
 
   function handleDraftChange(nextValue: string) {
     setDraft(nextValue)
-    if (excelCommandSelected) {
+    if (excelCommandSelected || imageGenCommandSelected) {
       setShowSlashMenu(false)
       return
     }
     const withoutTrailingSpaces = nextValue.replace(/\s+$/, '')
-    const shouldShow = /(^|\s)\/$/.test(withoutTrailingSpaces)
+    const shouldShow = !isMobileComposer && /(^|\s)\/$/.test(withoutTrailingSpaces)
     setShowSlashMenu(shouldShow)
+    if (shouldShow) {
+      setSlashMenuHighlightIndex(0)
+    }
   }
 
   function handleSelectExcelSlashCommand() {
     setExcelCommandSelected(true)
+    setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
   }
 
-  function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (showSlashMenu && event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      handleSelectExcelSlashCommand()
+  function handleSelectImageSlashCommand() {
+    setImageGenCommandSelected(true)
+    setExcelCommandSelected(false)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectExcelQuickTile() {
+    setExcelCommandSelected(true)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectImageQuickTile() {
+    setImageGenCommandSelected(true)
+    setExcelCommandSelected(false)
+    setShowSlashMenu(false)
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleAttachComposerButtonClick() {
+    if (isSending || isAttachingFiles || tokenLimitReached) {
       return
+    }
+    if (isMobileComposer) {
+      setAttachComposerSheetOpen(true)
+      return
+    }
+    fileInputRef.current?.click()
+  }
+
+  function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (showSlashMenu) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setSlashMenuHighlightIndex((i) => Math.min(SLASH_MENU_ITEM_COUNT - 1, i + 1))
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSlashMenuHighlightIndex((i) => Math.max(0, i - 1))
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setShowSlashMenu(false)
+        setDraft((prev) => prev.replace(/\/$/, ''))
+        return
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        if (slashMenuHighlightIndex === 0) {
+          handleSelectExcelSlashCommand()
+        } else {
+          handleSelectImageSlashCommand()
+        }
+        return
+      }
     }
     if (event.key !== 'Enter' || event.shiftKey) {
       return
@@ -744,6 +887,73 @@ export function ChatWindow({
       />
     ) : null
 
+  const quickTilesEl =
+    tokenLimitReached ? null : (
+      <div className="chat-quick-tiles" role="group" aria-label="Schnellaktionen">
+        <button
+          type="button"
+          className={`chat-quick-tile${excelCommandSelected ? ' is-active' : ''}`}
+          onClick={handleSelectExcelQuickTile}
+        >
+          <span className="chat-quick-tile-icon-wrap" aria-hidden>
+            <img src={greenFileIcon} alt="" />
+          </span>
+          <span className="chat-quick-tile-text">
+            <span className="chat-quick-tile-title">Excel</span>
+            <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`chat-quick-tile${imageGenCommandSelected ? ' is-active' : ''}`}
+          onClick={handleSelectImageQuickTile}
+        >
+          <span className="chat-quick-tile-icon-wrap" aria-hidden>
+            <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
+          </span>
+          <span className="chat-quick-tile-text">
+            <span className="chat-quick-tile-title">Bilder</span>
+            <span className="chat-quick-tile-sub">KI-Bild aus deiner Beschreibung — ohne Sprachbefehl</span>
+          </span>
+        </button>
+      </div>
+    )
+
+  const composerAttachSheet = (
+    <ActionBottomSheet
+      open={attachComposerSheetOpen}
+      onClose={() => setAttachComposerSheetOpen(false)}
+      title="Einfügen"
+      ariaLabel="Bilder, Excel oder Datei wählen"
+      actions={[
+        {
+          id: 'bilder',
+          label: 'Bilder',
+          actionClassName: 'action-bottom-sheet-action--compose-bilder',
+          onClick: () => {
+            handleSelectImageQuickTile()
+          },
+        },
+        {
+          id: 'excel',
+          label: 'Excel',
+          actionClassName: 'action-bottom-sheet-action--compose-excel',
+          onClick: () => {
+            handleSelectExcelQuickTile()
+          },
+        },
+        {
+          id: 'anhang',
+          label: 'Datei anhängen',
+          iconSrc: attachmentIcon,
+          onClick: () => {
+            fileInputRef.current?.click()
+          },
+        },
+      ]}
+    />
+  )
+
   if (isEmptyState) {
     return (
       <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
@@ -777,8 +987,8 @@ export function ChatWindow({
                 type="button"
                 className="chat-attach-button"
                 disabled={isSending || isAttachingFiles || tokenLimitReached}
-                aria-label="Datei anhängen"
-                onClick={() => fileInputRef.current?.click()}
+                aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
+                onClick={handleAttachComposerButtonClick}
               >
                 <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
               </button>
@@ -801,21 +1011,34 @@ export function ChatWindow({
                 onChange={onChatThinkingModeChange}
                 disabled={isSending || tokenLimitReached}
               />
-              {excelCommandSelected ? (
-                <button
-                  type="button"
-                  className="chat-command-badge chat-command-badge--excel"
-                  title="Excel-Befehl aktiv (klicken zum Entfernen)"
-                  aria-label="Excel-Befehl entfernen"
-                  onClick={() => setExcelCommandSelected(false)}
-                >
-                  <img src={greenFileIcon} alt="" aria-hidden="true" />
-                </button>
-              ) : null}
             </div>
             <div className="chat-input-compose">
-              {pendingAttachments.length > 0 ? (
-                <div className="chat-attachment-chips" aria-label="Angehängte Dateien">
+              {pendingAttachments.length > 0 || imageGenCommandSelected || excelCommandSelected ? (
+                <div className="chat-attachment-chips" aria-label="Anhänge">
+                  {imageGenCommandSelected ? (
+                    <button
+                      type="button"
+                      className="chat-compose-mode-badge chat-compose-mode-badge--image"
+                      title="Bildgenerierung aktiv (klicken zum Entfernen)"
+                      aria-label="Bildgenerierung entfernen"
+                      onClick={() => setImageGenCommandSelected(false)}
+                    >
+                      <img className="chat-compose-mode-badge-icon" src={landscapePng} alt="" aria-hidden />
+                      <span className="chat-compose-mode-badge-label">Bilder</span>
+                    </button>
+                  ) : null}
+                  {excelCommandSelected ? (
+                    <button
+                      type="button"
+                      className="chat-compose-mode-badge chat-compose-mode-badge--excel"
+                      title="Excel-Befehl aktiv (klicken zum Entfernen)"
+                      aria-label="Excel-Befehl entfernen"
+                      onClick={() => setExcelCommandSelected(false)}
+                    >
+                      <img className="chat-compose-mode-badge-icon" src={greenFileIcon} alt="" aria-hidden="true" />
+                      <span className="chat-compose-mode-badge-label">Excel</span>
+                    </button>
+                  ) : null}
                   {pendingAttachments.map((item) => (
                     item.kind === 'pasted-image' && item.previewDataUrl ? (
                       <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
@@ -861,34 +1084,51 @@ export function ChatWindow({
                 </div>
               ) : null}
               <div className="chat-input-field">
-                {showSlashMenu ? (
-                  <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
-                    <button
-                      type="button"
-                      className="thread-menu-item"
-                      role="menuitem"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                      }}
-                      onClick={handleSelectExcelSlashCommand}
-                    >
-                      Excel
-                    </button>
-                  </div>
-                ) : null}
-                <textarea
-                  ref={inputRef}
-                  className="chat-input"
-                  rows={1}
-                  value={draft}
-                  onChange={(event) => handleDraftChange(event.target.value)}
-                  onKeyDown={handleComposeKeyDown}
-                  onPaste={handleComposePaste}
-                  placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
-                  disabled={isSending || tokenLimitReached}
-                  aria-multiline="true"
-                  autoComplete="off"
-                />
+                <div className="chat-input-field-grow">
+                  {showSlashMenu ? (
+                    <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                      <button
+                        type="button"
+                        className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
+                        role="menuitem"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                        }}
+                        onMouseEnter={() => setSlashMenuHighlightIndex(0)}
+                        onClick={handleSelectExcelSlashCommand}
+                      >
+                        Excel
+                      </button>
+                      <button
+                        type="button"
+                        className={`thread-menu-item thread-menu-item--slash-image${
+                          slashMenuHighlightIndex === 1 ? ' is-selected' : ''
+                        }`}
+                        role="menuitem"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                        }}
+                        onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                        onClick={handleSelectImageSlashCommand}
+                      >
+                        Bilder
+                      </button>
+                    </div>
+                  ) : null}
+                  <textarea
+                    ref={inputRef}
+                    className="chat-input"
+                    rows={1}
+                    value={draft}
+                    onChange={(event) => handleDraftChange(event.target.value)}
+                    onKeyDown={handleComposeKeyDown}
+                    onPaste={handleComposePaste}
+                    placeholder={composePlaceholder}
+                    disabled={isSending || tokenLimitReached}
+                    aria-multiline="true"
+                    autoComplete="off"
+                  />
+                </div>
               </div>
             </div>
             <button
@@ -919,6 +1159,8 @@ export function ChatWindow({
           <p className="chat-input-hint">
             Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
           </p>
+          {quickTilesEl}
+          {composerAttachSheet}
         </div>
       </section>
     )
@@ -953,10 +1195,9 @@ export function ChatWindow({
             chatThinkingMode === 'thinking' &&
             Boolean(message.metadata?.liveStream) &&
             !messageContainsCompleteThinkingClarifyBlock(rawContent)
+          /** Immer Clarify-JSON ausblenden, wenn der Block gültig ist — nicht an den aktuellen Composer-Modus koppeln (nach Reload oft «normal»). */
           const displayContent = isAssistant
-            ? chatThinkingMode === 'thinking'
-              ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
-              : assistantAfterExcel
+            ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
             : stripAttachmentBlocksForDisplay(rawContent)
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
@@ -1104,9 +1345,15 @@ export function ChatWindow({
             </article>
           )
         })}
-          {showAssistantPendingLoader ? (
+          {showPendingAssistantRow ? (
             <div
-              className={`chat-message is-assistant chat-message--pending${pendingImageGeneration ? ' chat-message--pending-image' : ''}`}
+              className={`chat-message is-assistant chat-message--pending${
+                pendingImageGeneration
+                  ? ' chat-message--pending-image'
+                  : pendingExcelGeneration
+                    ? ' chat-message--pending-excel'
+                    : ''
+              }`}
               aria-live="polite"
               aria-busy="true"
             >
@@ -1134,6 +1381,29 @@ export function ChatWindow({
                     ))}
                   </div>
                 </div>
+              ) : pendingExcelGeneration ? (
+                <div
+                  className="chat-excel-gen-loader-panel"
+                  role="status"
+                  aria-label="Excel wird erstellt"
+                >
+                  <div
+                    className="chat-excel-gen-matrix"
+                    style={{
+                      gridTemplateColumns: `repeat(${EXCEL_GEN_MATRIX_COLS}, minmax(0, 1fr))`,
+                      gridTemplateRows: `repeat(${EXCEL_GEN_MATRIX_ROWS}, minmax(0, 1fr))`,
+                    }}
+                    aria-hidden
+                  >
+                    {EXCEL_GEN_MATRIX_CELLS.map(({ key, delayMs }) => (
+                      <span
+                        key={key}
+                        className="chat-excel-gen-matrix-cell"
+                        style={{ animationDelay: `${delayMs}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <div className="chat-pending-loader" role="status">
                   <span className="chat-pending-loader-dot" />
@@ -1150,6 +1420,7 @@ export function ChatWindow({
 
       <div className="chat-composer-stack">
         {thinkingClarifyOverlay}
+        {composerAttachSheet}
         <form
           className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
           onSubmit={handleSubmit}
@@ -1168,8 +1439,8 @@ export function ChatWindow({
             type="button"
             className="chat-attach-button"
             disabled={isSending || isAttachingFiles || tokenLimitReached}
-            aria-label="Datei anhängen"
-            onClick={() => fileInputRef.current?.click()}
+            aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
+            onClick={handleAttachComposerButtonClick}
           >
             <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
           </button>
@@ -1192,21 +1463,34 @@ export function ChatWindow({
             onChange={onChatThinkingModeChange}
             disabled={isSending || tokenLimitReached}
           />
-          {excelCommandSelected ? (
-            <button
-              type="button"
-              className="chat-command-badge chat-command-badge--excel"
-              title="Excel-Befehl aktiv (klicken zum Entfernen)"
-              aria-label="Excel-Befehl entfernen"
-              onClick={() => setExcelCommandSelected(false)}
-            >
-              <img src={greenFileIcon} alt="" aria-hidden="true" />
-            </button>
-          ) : null}
         </div>
         <div className="chat-input-compose">
-          {pendingAttachments.length > 0 ? (
-            <div className="chat-attachment-chips" aria-label="Angehängte Dateien">
+          {pendingAttachments.length > 0 || imageGenCommandSelected || excelCommandSelected ? (
+            <div className="chat-attachment-chips" aria-label="Anhänge">
+              {imageGenCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-compose-mode-badge chat-compose-mode-badge--image"
+                  title="Bildgenerierung aktiv (klicken zum Entfernen)"
+                  aria-label="Bildgenerierung entfernen"
+                  onClick={() => setImageGenCommandSelected(false)}
+                >
+                  <img className="chat-compose-mode-badge-icon" src={landscapePng} alt="" aria-hidden />
+                  <span className="chat-compose-mode-badge-label">Bilder</span>
+                </button>
+              ) : null}
+              {excelCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-compose-mode-badge chat-compose-mode-badge--excel"
+                  title="Excel-Befehl aktiv (klicken zum Entfernen)"
+                  aria-label="Excel-Befehl entfernen"
+                  onClick={() => setExcelCommandSelected(false)}
+                >
+                  <img className="chat-compose-mode-badge-icon" src={greenFileIcon} alt="" aria-hidden="true" />
+                  <span className="chat-compose-mode-badge-label">Excel</span>
+                </button>
+              ) : null}
               {pendingAttachments.map((item) => (
                 item.kind === 'pasted-image' && item.previewDataUrl ? (
                   <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
@@ -1252,34 +1536,51 @@ export function ChatWindow({
             </div>
           ) : null}
           <div className="chat-input-field">
-            {showSlashMenu ? (
-              <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
-                <button
-                  type="button"
-                  className="thread-menu-item"
-                  role="menuitem"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={handleSelectExcelSlashCommand}
-                >
-                  Excel
-                </button>
-              </div>
-            ) : null}
-            <textarea
-              ref={inputRef}
-              className="chat-input"
-              rows={1}
-              value={draft}
-              onChange={(event) => handleDraftChange(event.target.value)}
-              onKeyDown={handleComposeKeyDown}
-              onPaste={handleComposePaste}
-              placeholder={tokenLimitReached ? 'Token-Limit erreicht' : 'Nachricht eingeben...'}
-              disabled={isSending || tokenLimitReached}
-              aria-multiline="true"
-              autoComplete="off"
-            />
+            <div className="chat-input-field-grow">
+              {showSlashMenu ? (
+                <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                  <button
+                    type="button"
+                    className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
+                    role="menuitem"
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                    }}
+                    onMouseEnter={() => setSlashMenuHighlightIndex(0)}
+                    onClick={handleSelectExcelSlashCommand}
+                  >
+                    Excel
+                  </button>
+                  <button
+                    type="button"
+                    className={`thread-menu-item thread-menu-item--slash-image${
+                      slashMenuHighlightIndex === 1 ? ' is-selected' : ''
+                    }`}
+                    role="menuitem"
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                    }}
+                    onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                    onClick={handleSelectImageSlashCommand}
+                  >
+                    Bilder
+                  </button>
+                </div>
+              ) : null}
+              <textarea
+                ref={inputRef}
+                className="chat-input"
+                rows={1}
+                value={draft}
+                onChange={(event) => handleDraftChange(event.target.value)}
+                onKeyDown={handleComposeKeyDown}
+                onPaste={handleComposePaste}
+                placeholder={composePlaceholder}
+                disabled={isSending || tokenLimitReached}
+                aria-multiline="true"
+                autoComplete="off"
+              />
+            </div>
           </div>
         </div>
         <button

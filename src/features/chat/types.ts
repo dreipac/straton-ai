@@ -16,6 +16,8 @@ export type ChatMessage = {
     excelExport?: ChatMessageExcelExport
     /** Laufender OpenAI-SSE-Stream: UI blendet Text live ein (ohne Schreib-Animation). */
     liveStream?: boolean
+    /** User-Nachricht: Excel-Modus (Marker wurde vor Speichern entfernt). */
+    userExcelCommand?: boolean
   }
 }
 

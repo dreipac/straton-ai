@@ -1,7 +1,10 @@
 /** Auswahl im Chat-Composer (Hauptchat); IDs sind API-Modellnamen wo möglich. */
 export const CHAT_COMPOSER_MODEL_STORAGE_KEY = 'straton-chat-composer-model'
 
-export type ChatComposerModelId = 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
+export type ChatComposerModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
+
+/** Nur OpenAI — für Abo «Tages-Staffel» (Tier 1 / Tier 2). */
+export type ChatDailyTierOpenAiModelId = Extract<ChatComposerModelId, 'gpt-5.4' | 'gpt-5.4-mini'>
 
 export type ChatComposerModelOption = {
   id: ChatComposerModelId
@@ -13,7 +16,17 @@ export type ChatComposerModelOption = {
   anthropicModel?: string
 }
 
+/**
+ * Hauptchat-Modelle. Für OpenAI gilt zusätzlich die Tages-Staffelung (Edge + Client, pro Abo):
+ * erstes/zweites Modell + Token-Budget aus `subscription_plans`; Verbrauch in `subscription_usages.used_tokens`.
+ */
 export const CHAT_COMPOSER_MODELS: readonly ChatComposerModelOption[] = [
+  {
+    id: 'gpt-5.4',
+    label: 'GPT-5.4',
+    provider: 'openai',
+    openAiModels: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'],
+  },
   {
     id: 'gpt-5.4-mini',
     label: 'GPT-5.4 mini',
@@ -54,6 +67,8 @@ export function parseStoredComposerModelId(raw: string | null): ChatComposerMode
 export type SubscriptionPlanChatModelFields = {
   chat_allow_model_choice?: boolean | null
   default_chat_model_id?: string | null
+  /** Bei gesperrter Wahl: Composer zeigt Tier-1-OpenAI-Modell; Staffelung über Edge + Verbrauch. */
+  chat_daily_tier1_openai_model_id?: string | null
 }
 
 export type ChatModelPolicy = {
@@ -74,13 +89,18 @@ export function getChatModelPolicyFromPlan(plan: SubscriptionPlanChatModelFields
     return { allowModelChoice: true, forcedModelId: DEFAULT_COMPOSER }
   }
   const allow = plan.chat_allow_model_choice !== false
-  const forced = parseStoredComposerModelId(
-    typeof plan.default_chat_model_id === 'string' ? plan.default_chat_model_id : null,
-  )
-  if (!allow) {
-    return { allowModelChoice: false, forcedModelId: forced }
+  if (allow) {
+    return {
+      allowModelChoice: true,
+      forcedModelId: parseStoredComposerModelId(
+        typeof plan.default_chat_model_id === 'string' ? plan.default_chat_model_id : null,
+      ),
+    }
   }
-  return { allowModelChoice: true, forcedModelId: forced }
+  const t1 = plan.chat_daily_tier1_openai_model_id
+  const forced: ChatComposerModelId =
+    t1 === 'gpt-5.4' || t1 === 'gpt-5.4-mini' ? t1 : 'gpt-5.4'
+  return { allowModelChoice: false, forcedModelId: forced }
 }
 
 export function getComposerApiModelIdsForAdminFilter(): string[] {
