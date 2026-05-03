@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 /** Linker Rand: Finger startet hier → Wisch nach rechts öffnet die Sidebar (Compact-Layout / PWA). */
-const LEFT_EDGE_PX = 28
+const LEFT_EDGE_PX = 50
 const MIN_OPEN_DX = 56
 const MIN_CLOSE_DX = 56
 const AXIS_DOMINANCE = 1.2
