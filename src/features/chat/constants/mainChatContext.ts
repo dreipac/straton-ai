@@ -54,7 +54,14 @@ export function clipChatMessagesToEstimatedTokenBudget(
       kept.unshift(m)
       total += t
     } else if (kept.length === 0) {
-      const clippedContent = clipTextToMaxEstimatedTokens(c, maxTokens)
+      /**
+       * Vision: `[BildData:…]…data:image;base64,…[/BildData]` ist oft 100k–2M+ Zeichen.
+       * `clipTextToMaxEstimatedTokens` würde mitten in der Base64 abschneiden → Edge Function
+       * findet kein gültiges Bild; das Modell „merkt“ nur noch Marker/OCR-Text (typisch: iPhone/PWA).
+       */
+      const clippedContent = c.includes('[BildData:')
+        ? c
+        : clipTextToMaxEstimatedTokens(c, maxTokens)
       kept.unshift({ ...m, content: clippedContent })
       break
     } else {
