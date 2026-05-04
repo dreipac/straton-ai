@@ -47,6 +47,7 @@ import {
   parseSubscriptionImageGenerationModelId,
   type SubscriptionImageGenerationModelId,
 } from '../features/auth/constants/subscriptionImageGenerationModels'
+import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import { parseChatDailyTierOpenAiModelId } from '../features/chat/constants/chatDailyOpenAiTier'
 import {
   CHAT_COMPOSER_MODELS,
@@ -161,6 +162,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxTokens, setNewPlanMaxTokens] = useState('')
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
+  const [newPlanChatContextMaxTokens, setNewPlanChatContextMaxTokens] = useState(
+    String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS),
+  )
   const [newPlanAllowModelChoice, setNewPlanAllowModelChoice] = useState(true)
   const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
     useState<SubscriptionImageGenerationModelId>('gpt_image_1')
@@ -182,6 +186,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     tier1OpenAiModelId: ChatDailyTierOpenAiModelId
     tier1TokenBudget: string
     tier2OpenAiModelId: ChatDailyTierOpenAiModelId
+    chatContextMaxTokens: string
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -680,6 +685,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return n
   }
 
+  /** Leer = unbegrenzter Verlauf; sonst 1000 … 5_000_000 (wie DB-Check). */
+  function parseOptionalChatContextMaxTokens(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1000 || n > 5_000_000) {
+      return null
+    }
+    return n
+  }
+
   async function handleCreateSubscriptionPlan() {
     const name = newPlanName.trim()
     if (!name) {
@@ -700,6 +718,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
     if (newPlanMaxFiles.trim() && maxFiles === null) {
       setSubscriptionPlansError('Max Dateien muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+
+    const chatContextMaxTokens = parseOptionalChatContextMaxTokens(newPlanChatContextMaxTokens)
+    if (newPlanChatContextMaxTokens.trim() && chatContextMaxTokens === null) {
+      setSubscriptionPlansError(
+        'Chat-Kontext (Tokens): ganze Zahl zwischen 1000 und 5 000 000, oder leer für unbegrenzten Verlauf.',
+      )
       return
     }
 
@@ -730,6 +756,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier1OpenAiModelId: newPlanTier1OpenAiModelId,
         chatDailyTier1TokenBudget: tier1Budget,
         chatDailyTier2OpenAiModelId: newPlanTier2OpenAiModelId,
+        chatContextMaxTokens,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -738,6 +765,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxTokens('')
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
+      setNewPlanChatContextMaxTokens(String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS))
       setNewPlanAllowModelChoice(true)
       setNewPlanImageGenerationModel('gpt_image_1')
       setNewPlanTier1OpenAiModelId('gpt-5.4')
@@ -776,6 +804,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    const chatContextMaxTokens = parseOptionalChatContextMaxTokens(editPlanDraft.chatContextMaxTokens)
+    if (editPlanDraft.chatContextMaxTokens.trim() && chatContextMaxTokens === null) {
+      setSubscriptionPlansError(
+        'Chat-Kontext (Tokens): ganze Zahl zwischen 1000 und 5 000 000, oder leer für unbegrenzten Verlauf.',
+      )
+      return
+    }
+
     let tier1Budget = 50_000
     if (!editPlanDraft.allowModelChoice) {
       if (editPlanDraft.tier1TokenBudget.trim()) {
@@ -804,6 +840,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier1OpenAiModelId: editPlanDraft.tier1OpenAiModelId,
         chatDailyTier1TokenBudget: tier1Budget,
         chatDailyTier2OpenAiModelId: editPlanDraft.tier2OpenAiModelId,
+        chatContextMaxTokens,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -1905,6 +1942,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           · Dateien:{' '}
                           {plan.max_files ?? 'unbegrenzt'}
                           <br />
+                          Chat-Kontext (Verlauf):{' '}
+                          {typeof plan.chat_context_max_tokens === 'number'
+                            ? `max. ca. ${plan.chat_context_max_tokens.toLocaleString('de-DE')} Tokens`
+                            : 'unbegrenzt'}
+                          <br />
                           Bildgenerator:{' '}
                           {labelForSubscriptionImageGenerationModel(
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
@@ -1944,6 +1986,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               tier2OpenAiModelId: parseChatDailyTierOpenAiModelId(
                                 plan.chat_daily_tier2_openai_model_id ?? null,
                               ),
+                              chatContextMaxTokens:
+                                typeof plan.chat_context_max_tokens === 'number'
+                                  ? String(plan.chat_context_max_tokens)
+                                  : '',
                             })
                           }}
                         >
@@ -2419,6 +2465,22 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       value={newPlanMaxFiles}
                       onChange={(event) => setNewPlanMaxFiles(event.target.value)}
                     />
+
+                    <label htmlFor="admin-new-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                    <input
+                      id="admin-new-subscription-chat-context-tokens"
+                      type="number"
+                      inputMode="numeric"
+                      min={1000}
+                      max={5_000_000}
+                      step={1}
+                      placeholder={`Standard ${DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS.toLocaleString('de-DE')} — leer = unbegrenzt`}
+                      value={newPlanChatContextMaxTokens}
+                      onChange={(event) => setNewPlanChatContextMaxTokens(event.target.value)}
+                    />
+                    <p className="admin-users-hint">
+                      Geschätzte Input-Tokens für den mitgesendeten Chat-Verlauf (ca. Zeichen ÷ 4), ohne Systemprompt.
+                    </p>
                   </div>
 
                   <div className="subscription-plan-modal-col">
@@ -2619,6 +2681,26 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
                       }
                     />
+
+                    <label htmlFor="admin-edit-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                    <input
+                      id="admin-edit-subscription-chat-context-tokens"
+                      type="number"
+                      inputMode="numeric"
+                      min={1000}
+                      max={5_000_000}
+                      step={1}
+                      placeholder="leer = unbegrenzter Verlauf"
+                      value={editPlanDraft.chatContextMaxTokens}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, chatContextMaxTokens: event.target.value } : null,
+                        )
+                      }
+                    />
+                    <p className="admin-users-hint">
+                      Geschätzte Input-Tokens für den mitgesendeten Chat-Verlauf (ca. Zeichen ÷ 4), ohne Systemprompt.
+                    </p>
                   </div>
 
                   <div className="subscription-plan-modal-col">

@@ -28,6 +28,7 @@ import {
   parseStoredChatThinkingMode,
 } from '../constants/chatThinkingMode'
 import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier'
+import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../constants/mainChatContext'
 import {
   generateChatImageFromPrompt,
   generateChatTitleWithAi,
@@ -62,6 +63,9 @@ import {
 import type { ChatMessage, ChatThread } from '../types'
 const TEMP_THREAD_PREFIX = 'temp-thread-'
 const THREAD_REMOVE_ANIMATION_MS = 180
+
+/** `merge_ai_chat_memory` nur alle N Nachrichten (jede User- und Assistant-Zeile zählt 1). */
+const MEMORY_MERGE_EVERY_N_MESSAGES = 8
 
 function createChatTitle(content: string) {
   const trimmed = content
@@ -175,6 +179,8 @@ export function useChat(
     /** `subscription_usages.used_tokens` — Tages-Staffelung OpenAI im Hauptchat */
     mainChatUsedTokensToday?: number
     mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
+    /** Abo: max. geschätzte Tokens für Chat-Verlauf; ohne Abo Default aus `mainChatContext`. */
+    mainChatContextMaxTokens?: number | null
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -838,6 +844,10 @@ export function useChat(
             chatThinkingMode,
             mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
             mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
+            mainChatContextMaxTokens:
+              options?.mainChatContextMaxTokens === undefined
+                ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+                : options.mainChatContextMaxTokens,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -863,6 +873,10 @@ export function useChat(
           chatThinkingMode,
           mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
           mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
+          mainChatContextMaxTokens:
+            options?.mainChatContextMaxTokens === undefined
+              ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+              : options.mainChatContextMaxTokens,
         })
         finalAssistantContent = assistantMessage.content
       }
@@ -1017,7 +1031,17 @@ export function useChat(
 
       const persistMemory = options?.persistAiChatMemory !== false
       const skipMemoryMergeForThinkingTurn = chatThinkingMode === 'thinking'
-      if (usesGatewayAi() && userId && persistMemory && !skipMemoryMergeForThinkingTurn) {
+      const messagesInThreadAfterTurn = nextMessages.length + 1
+      const shouldMergeMemoryByInterval =
+        messagesInThreadAfterTurn > 0 &&
+        messagesInThreadAfterTurn % MEMORY_MERGE_EVERY_N_MESSAGES === 0
+      if (
+        usesGatewayAi() &&
+        userId &&
+        persistMemory &&
+        !skipMemoryMergeForThinkingTurn &&
+        shouldMergeMemoryByInterval
+      ) {
         void (async () => {
           try {
             await mergePersistedAiChatMemoryAfterTurn({

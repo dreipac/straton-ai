@@ -1,5 +1,9 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { renderAssistantInline, stripGeneratedImageModelFooter } from './markdownInline'
+import {
+  renderAssistantInline,
+  stripGeneratedImageModelFooter,
+  type AssistantInlineImageOptions,
+} from './markdownInline'
 
 type Block =
   | { type: 'hr' }
@@ -564,7 +568,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   )
 }
 
-function renderBlock(block: Block, i: number): ReactNode {
+function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImageOptions): ReactNode {
   const key = `blk-${i}`
   switch (block.type) {
     case 'hr':
@@ -572,25 +576,25 @@ function renderBlock(block: Block, i: number): ReactNode {
     case 'h1':
       return (
         <h2 key={key} className="chat-md-h chat-md-h1">
-          {renderAssistantInline(block.text)}
+          {renderAssistantInline(block.text, imageOptions)}
         </h2>
       )
     case 'h2':
       return (
         <h3 key={key} className="chat-md-h chat-md-h2">
-          {renderAssistantInline(block.text)}
+          {renderAssistantInline(block.text, imageOptions)}
         </h3>
       )
     case 'h3':
       return (
         <h4 key={key} className="chat-md-h chat-md-h3">
-          {renderAssistantInline(block.text)}
+          {renderAssistantInline(block.text, imageOptions)}
         </h4>
       )
     case 'p':
       return (
         <p key={key} className="chat-md-p">
-          {renderAssistantInline(block.text)}
+          {renderAssistantInline(block.text, imageOptions)}
         </p>
       )
     case 'ul':
@@ -598,7 +602,7 @@ function renderBlock(block: Block, i: number): ReactNode {
         <ul key={key} className="chat-md-ul">
           {block.items.map((item, j) => (
             <li key={`${key}-li-${j}`} className="chat-md-li">
-              {renderAssistantInline(item)}
+              {renderAssistantInline(item, imageOptions)}
             </li>
           ))}
         </ul>
@@ -608,7 +612,7 @@ function renderBlock(block: Block, i: number): ReactNode {
         <ol key={key} className="chat-md-ol">
           {block.items.map((item, j) => (
             <li key={`${key}-li-${j}`} className="chat-md-li">
-              {renderAssistantInline(item)}
+              {renderAssistantInline(item, imageOptions)}
             </li>
           ))}
         </ol>
@@ -620,7 +624,7 @@ function renderBlock(block: Block, i: number): ReactNode {
             <div className="chat-md-blockquote-body">
               {block.lines.map((line, j) => (
                 <p key={`${key}-ln-${j}`} className="chat-md-blockquote-line">
-                  {renderAssistantInline(line)}
+                  {renderAssistantInline(line, imageOptions)}
                 </p>
               ))}
             </div>
@@ -636,7 +640,7 @@ function renderBlock(block: Block, i: number): ReactNode {
           <div className="chat-bible-verse-body">
             {block.lines.map((line, j) => (
               <p key={`${key}-ln-${j}`} className="chat-bible-verse-line">
-                {renderAssistantInline(line)}
+                {renderAssistantInline(line, imageOptions)}
               </p>
             ))}
           </div>
@@ -658,7 +662,7 @@ function renderBlock(block: Block, i: number): ReactNode {
               <tr>
                 {headerRow.map((cell, j) => (
                   <th key={`${key}-th-${j}`} className="chat-md-th">
-                    {renderAssistantInline(cell)}
+                    {renderAssistantInline(cell, imageOptions)}
                   </th>
                 ))}
               </tr>
@@ -669,7 +673,7 @@ function renderBlock(block: Block, i: number): ReactNode {
                   <tr key={`${key}-tr-${ri}`}>
                     {row.map((cell, ci) => (
                       <td key={`${key}-td-${ri}-${ci}`} className="chat-md-td">
-                        {renderAssistantInline(cell)}
+                        {renderAssistantInline(cell, imageOptions)}
                       </td>
                     ))}
                   </tr>
@@ -686,7 +690,10 @@ function renderBlock(block: Block, i: number): ReactNode {
 }
 
 /** Strukturierter Assistententext: Markdown-ähnliche Blöcke (Überschriften, Listen, ---, Links). */
-export function renderAssistantRichContent(content: string): ReactNode {
+export function renderAssistantRichContent(
+  content: string,
+  imageOptions?: AssistantInlineImageOptions,
+): ReactNode {
   const trimmed = stripGeneratedImageModelFooter(content).trim()
   if (!trimmed) {
     return null
@@ -694,17 +701,17 @@ export function renderAssistantRichContent(content: string): ReactNode {
 
   const blocks = parseBlocks(trimmed)
   if (blocks.length === 0) {
-    return <p className="chat-md-p">{renderAssistantInline(trimmed)}</p>
+    return <p className="chat-md-p">{renderAssistantInline(trimmed, imageOptions)}</p>
   }
 
   /** Ein einzelner Absatz ohne Struktur-Marker → weiterhin ein p */
   if (blocks.length === 1 && blocks[0].type === 'p') {
-    return <p className="chat-md-p">{renderAssistantInline(blocks[0].text)}</p>
+    return <p className="chat-md-p">{renderAssistantInline(blocks[0].text, imageOptions)}</p>
   }
 
   return (
     <div className="chat-md-root">
-      {blocks.map((b, i) => renderBlock(b, i))}
+      {blocks.map((b, i) => renderBlock(b, i, imageOptions))}
     </div>
   )
 }

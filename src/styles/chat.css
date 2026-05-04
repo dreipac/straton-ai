@@ -643,6 +643,19 @@
   border-radius: 8px;
   object-fit: cover;
   border: 1px solid color-mix(in srgb, #3b82f6 20%, #c6d6eb);
+  display: block;
+}
+
+.chat-user-inline-image-trigger {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .chat-message-body--rich {
@@ -875,6 +888,80 @@
   height: auto;
   margin: 0.5rem 0;
   border-radius: 10px;
+}
+
+.chat-inline-image-trigger {
+  display: inline-block;
+  margin: 0.5rem 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  vertical-align: middle;
+  border-radius: 10px;
+  max-width: min(100%, 28rem);
+}
+
+.chat-inline-image-trigger .chat-md-inline-image {
+  margin: 0;
+  max-width: 100%;
+}
+
+.chat-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 320ms ease;
+}
+
+.chat-image-lightbox.is-open {
+  opacity: 1;
+}
+
+.chat-image-lightbox-frame {
+  max-width: min(99vw, 2000px);
+  max-height: 97vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transform: scale(0.96);
+  opacity: 0;
+  transition:
+    transform 360ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 320ms ease;
+}
+
+.chat-image-lightbox.is-open .chat-image-lightbox-frame {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.chat-image-lightbox-img {
+  max-width: 100%;
+  max-height: min(97vh, 92vw);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-image-lightbox,
+  .chat-image-lightbox-frame {
+    transition-duration: 0.01ms;
+  }
 }
 
 .chat-image-gen-hint {
@@ -2367,6 +2454,17 @@
   width: 124px;
   height: 88px;
   object-fit: cover;
+  border-radius: 10px;
+}
+
+.chat-attachment-inline-preview-trigger {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
   border-radius: 10px;
 }
 

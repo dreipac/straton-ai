@@ -46,6 +46,7 @@ import {
 } from '../features/auth/utils/userDisplay'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
 import { parseChatDailyTierConfigFromPlan } from '../features/chat/constants/chatDailyOpenAiTier'
+import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -144,6 +145,19 @@ export function ChatPage() {
       applyMainChatDailyTier ? parseChatDailyTierConfigFromPlan(profile?.subscription_plans ?? null) : undefined,
     [applyMainChatDailyTier, profile?.subscription_plans],
   )
+  const mainChatContextMaxTokens = useMemo((): number | null => {
+    if (!profile?.subscription_plans) {
+      return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+    }
+    const v = profile.subscription_plans.chat_context_max_tokens
+    if (v === null) {
+      return null
+    }
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      return v
+    }
+    return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+  }, [profile?.subscription_plans])
   const {
     threads,
     activeThreadId,
@@ -172,6 +186,7 @@ export function ChatPage() {
     mainChatUsedTokensToday:
       user && applyMainChatDailyTier ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
     mainChatDailyTierConfig: user && applyMainChatDailyTier ? mainChatDailyTierConfig : undefined,
+    mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
   })
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
@@ -1029,11 +1044,17 @@ export function ChatPage() {
   const subscriptionPlanName = profile?.subscription_plans?.name ?? null
   const hasAssignedPlan = profile?.subscription_plan_id != null
   const usedTokensToday = profile?.subscription_usages?.used_tokens ?? 0
+  const tokenBalance = profile?.subscription_usages?.token_balance ?? 0
   const maxTokensToday = hasAssignedPlan
     ? (profile?.subscription_plans?.max_tokens ?? null)
     : DEFAULT_NO_PLAN_MAX_TOKENS
   const hasTokenLimit = maxTokensToday !== null
-  const tokenLimitReachedByUsage = hasTokenLimit && maxTokensToday !== null && usedTokensToday >= maxTokensToday
+  const totalTokenPoolToday =
+    hasTokenLimit && maxTokensToday !== null ? tokenBalance + maxTokensToday : null
+  const tokenLimitReachedByUsage =
+    hasTokenLimit &&
+    totalTokenPoolToday !== null &&
+    usedTokensToday >= totalTokenPoolToday
   const tokenLimitReachedByError = hasTokenLimit && (error ?? '').toLowerCase().includes('token limit')
   const tokenLimitReached = tokenLimitReachedByUsage || tokenLimitReachedByError
   const themeVariant = useDocumentThemeVariant()

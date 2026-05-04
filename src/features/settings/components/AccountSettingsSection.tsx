@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { MAX_IMAGE_CREDIT_BALANCE } from '../../auth/constants/imageCredits'
+import { MAX_TOKEN_BALANCE } from '../../auth/constants/tokenBalance'
 import { labelForSubscriptionImageGenerationModel } from '../../auth/constants/subscriptionImageGenerationModels'
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
@@ -24,6 +25,7 @@ type AccountSettingsSectionProps = {
     used_images: number
     used_files: number
     image_credit_balance: number
+    token_balance: number
   } | null
   isSavingAccount: boolean
   isSavingEmail: boolean
@@ -227,8 +229,21 @@ export function AccountSettingsSection({
         {subscriptionPlan ? (
           <>
             <p className="account-subscription">
-              Tokens (heute): {subscriptionUsage?.used_tokens ?? 0} /{' '}
-              {subscriptionPlan.max_tokens ?? 'unbegrenzt'}
+              Tokens (heute verbraucht): {subscriptionUsage?.used_tokens ?? 0}
+              {subscriptionPlan.max_tokens != null ? (
+                <>
+                  {' '}
+                  /{' '}
+                  {(subscriptionUsage?.token_balance ?? 0) + subscriptionPlan.max_tokens} heute nutzbar
+                  <br />
+                  <small>
+                    Guthaben {subscriptionUsage?.token_balance ?? 0} (max.{' '}
+                    {MAX_TOKEN_BALANCE.toLocaleString('de-CH')}) + Tageszuschlag {subscriptionPlan.max_tokens}
+                  </small>
+                </>
+              ) : (
+                <> — unbegrenzt (nur Verbrauchsanzeige)</>
+              )}
             </p>
             <p className="account-subscription">
               Bild-Guthaben: {subscriptionUsage?.image_credit_balance ?? 0} / max. {MAX_IMAGE_CREDIT_BALANCE}{' '}

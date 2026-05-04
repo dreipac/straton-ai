@@ -29,6 +29,11 @@ import {
   getChatStrictToneInstruction,
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
+import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
+import {
+  LEARN_PATH_MAX_OUTPUT_TOKENS,
+  MAIN_CHAT_MAX_OUTPUT_TOKENS,
+} from '../constants/mainChatOutput'
 import type { ChatMessage, ChatMessageExcelExport } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
@@ -82,6 +87,11 @@ export type SendMessageOptions = {
   mainChatUsedTokensToday?: number
   /** Aus `subscription_plans`: Tier 1 (bis Token-Budget) / Tier 2 für OpenAI-Hauptchat pro Tag. */
   mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
+  /**
+   * Hauptchat: Obergrenze für geschätzte Tokens des User/Assistant-Verlaufs (ohne Systemprompt).
+   * `number` = Kürzen; `null` = kein Limit; ohne Abo: Client setzt `mainChatContextMaxTokens` auf die App-Default-Größe.
+   */
+  mainChatContextMaxTokens?: number | null
 }
 
 type EvaluateQuizAnswerInput = {
@@ -156,11 +166,39 @@ async function messageFromFunctionsInvokeFailure(
   return 'Unbekannter Edge-Function-Fehler.'
 }
 
+/**
+ * Entfernt große data:-URLs aus dem Fließtext (Prompt-Größe / Lesbarkeit), lässt aber
+ * `[BildData:…]…data:image…[/BildData]` unverändert — die Edge Function (`chat-completion`)
+ * parst diese Blöcke zu OpenAI-Vision (`image_url`).
+ */
+function scrubMainChatInlineImagesPreservingBildData(content: string): string {
+  const preserved: string[] = []
+  const hole = (idx: number) => `\uFFF0STRATON_BILDDATA_${idx}\uFFF1`
+  const withHoles = content.replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, (block) => {
+    preserved.push(block)
+    return hole(preserved.length - 1)
+  })
+  const scrubbed = withHoles.replace(
+    /data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi,
+    '[Eingebettetes Bild — im Chat sichtbar; hier nur Platzhalter]',
+  )
+  let out = scrubbed
+  for (let i = 0; i < preserved.length; i += 1) {
+    out = out.replace(hole(i), preserved[i]!)
+  }
+  return out
+}
+
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
   const isMainChat = !options?.useLearnPathModel
+  const contextCap = options?.mainChatContextMaxTokens
+  const threadMessages =
+    isMainChat && typeof contextCap === 'number' && contextCap > 0
+      ? clipChatMessagesToEstimatedTokenBudget(messages, contextCap)
+      : messages
   const mainChatBrevity = isMainChat ? getAssistantMainChatBrevityInstruction() : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
@@ -194,12 +232,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const scrubDataImages =
     isMainChat && !options?.useLearnPathModel
       ? (content: string) =>
-          typeof content === 'string'
-            ? content.replace(
-                /data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi,
-                '[Eingebettetes Bild — im Chat sichtbar; hier nur Platzhalter]',
-              )
-            : ''
+          typeof content === 'string' ? scrubMainChatInlineImagesPreservingBildData(content) : ''
       : (content: string) => content
 
   return [
@@ -207,7 +240,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       role: 'system',
       content: combinedSystemPrompt,
     },
-    ...messages.map((message) => ({
+    ...threadMessages.map((message) => ({
       role: message.role,
       content: scrubDataImages(message.content),
     })),
@@ -424,6 +457,7 @@ function buildChatCompletionRequestBody(
       promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
       promptCacheRetention: '24h',
       includeProfileMemory: false,
+      maxTokens: LEARN_PATH_MAX_OUTPUT_TOKENS,
       openAiModels: options.openAiModels?.length
         ? [...options.openAiModels]
         : [...LEARN_PATH_OPENAI_MODELS],
@@ -463,6 +497,7 @@ function buildChatCompletionRequestBody(
     body.promptCacheKey = OPENAI_PROMPT_CACHE_KEY_MAIN
     body.promptCacheRetention = '24h'
   }
+  body.maxTokens = MAIN_CHAT_MAX_OUTPUT_TOKENS
   return body
 }
 

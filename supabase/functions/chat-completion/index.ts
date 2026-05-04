@@ -511,12 +511,24 @@ function openAiUsesDefaultTemperatureOnly(modelId: string): boolean {
   return false
 }
 
+function attachOpenAiMaxOutputTokens(body: Record<string, unknown>, model: string, maxOut: number): void {
+  const n = Math.min(32768, Math.max(16, Math.floor(maxOut)))
+  const m = model.toLowerCase()
+  if (m.includes('gpt-5') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) {
+    body.max_completion_tokens = n
+  } else {
+    body.max_tokens = n
+  }
+}
+
 function openAiChatRequestBody(
   model: string,
   messages: InputMessage[],
   options?: {
     includeReasoningLow?: boolean
     promptCache?: OpenAiPromptCacheOptions
+    /** Completion-Obergrenze (Chat Completions: je nach Modell max_completion_tokens oder max_tokens). */
+    maxOutputTokens?: number
   },
 ): Record<string, unknown> {
   function parseVisionPayload(content: string): { text: string; imageDataUrls: string[] } {
@@ -589,6 +601,9 @@ function openAiChatRequestBody(
       body.prompt_cache_retention = '24h'
     }
   }
+  if (typeof options?.maxOutputTokens === 'number' && Number.isFinite(options.maxOutputTokens)) {
+    attachOpenAiMaxOutputTokens(body, model, options.maxOutputTokens)
+  }
   return body
 }
 
@@ -612,6 +627,7 @@ async function callOpenAi(
   apiKey: string,
   models?: string[],
   promptCache?: OpenAiPromptCacheOptions,
+  maxOutputTokens?: number,
 ): Promise<AiCallResult> {
   const modelsToTry =
     Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
@@ -632,6 +648,7 @@ async function callOpenAi(
           openAiChatRequestBody(model, messages, {
             includeReasoningLow,
             promptCache,
+            maxOutputTokens,
           }),
         ),
       })
@@ -768,6 +785,7 @@ async function handleOpenAiChatStream(
   apiKey: string,
   openAiModels: string[],
   promptCache?: OpenAiPromptCacheOptions,
+  maxOutputTokens?: number,
 ): Promise<Response> {
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -792,7 +810,11 @@ async function handleOpenAiChatStream(
 
           while (true) {
             const reqBody: Record<string, unknown> = {
-              ...openAiChatRequestBody(model, messages, { includeReasoningLow, promptCache }),
+              ...openAiChatRequestBody(model, messages, {
+                includeReasoningLow,
+                promptCache,
+                maxOutputTokens,
+              }),
               stream: true,
             }
             if (includeUsageFlag) {
@@ -1142,6 +1164,9 @@ function sanitizeGeneratedTitle(raw: string): string {
   return compact.length > 42 ? compact.slice(0, 42).trim() : compact
 }
 
+/** Titel: kurze Ausgabe — Output-Tokens begrenzen (Kosten). */
+const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
+
 async function generateTitleWithAi(
   provider: Provider,
   sourceMessages: InputMessage[],
@@ -1172,8 +1197,14 @@ async function generateTitleWithAi(
 
   const usage =
     provider === 'anthropic'
-      ? await callAnthropic(titleMessages, apiKey, { maxTokens: 256 })
-      : await callOpenAi(titleMessages, apiKey, openAiModels, openAiPromptCache)
+      ? await callAnthropic(titleMessages, apiKey, { maxTokens: GENERATE_TITLE_MAX_OUTPUT_TOKENS })
+      : await callOpenAi(
+          titleMessages,
+          apiKey,
+          openAiModels,
+          openAiPromptCache,
+          GENERATE_TITLE_MAX_OUTPUT_TOKENS,
+        )
 
   const cleaned = sanitizeGeneratedTitle(usage.text)
   if (!cleaned) {
@@ -1413,15 +1444,32 @@ async function generateTopicSuggestionsWithAi(
   return { suggestions, usage }
 }
 
-/** Mit `src/features/chat/constants/aiChatMemory.ts` (AI_CHAT_MEMORY_MAX_CHARS) übereinstimmen. */
-const MAX_AI_CHAT_MEMORY_CHARS = 6000
+/** Mit `src/features/chat/constants/aiChatMemory.ts` (AI_CHAT_MEMORY_MAX_TOKENS) übereinstimmen. */
+const MAX_AI_CHAT_MEMORY_TOKENS = 1000
+
+function estimateAiChatMemoryTokensFromLength(length: number): number {
+  return Math.max(1, Math.ceil(length / 4))
+}
 
 function clipAiChatMemoryText(raw: string): string {
   const t = raw.trim()
-  if (t.length <= MAX_AI_CHAT_MEMORY_CHARS) {
+  if (t.length === 0) {
     return t
   }
-  return t.slice(0, MAX_AI_CHAT_MEMORY_CHARS)
+  if (estimateAiChatMemoryTokensFromLength(t.length) <= MAX_AI_CHAT_MEMORY_TOKENS) {
+    return t
+  }
+  let lo = 0
+  let hi = t.length
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2)
+    if (estimateAiChatMemoryTokensFromLength(mid) <= MAX_AI_CHAT_MEMORY_TOKENS) {
+      lo = mid
+    } else {
+      hi = mid - 1
+    }
+  }
+  return t.slice(0, lo)
 }
 
 function stripOuterMarkdownFence(raw: string): string {
@@ -1505,7 +1553,7 @@ async function handleMergeAiChatMemory(
         'Du pflegst eine kurze Merkliste über den Nutzer für einen persönlichen Chat-Assistenten.',
         'Regeln:',
         '- Ausgabe NUR als Stichpunkte auf Deutsch, Zeilen mit «- ».',
-        `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_CHARS} Zeichen haben.`,
+        `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_TOKENS} Tokens haben (Schätzung: etwa 4 Zeichen pro Token).`,
         '- Wenn das Limit erreicht wäre: zusammenfassen, Dubletten entfernen, weniger Relevantes / Altes streichen; wichtige und aktuelle Punkte behalten.',
         '- KEINE Passwörter, API-Schlüssel, vollständigen Adressen oder sensible Gesundheitsdetails.',
         '- Nur zuverlässige Infos aus dem Gespräch; nichts erfinden.',
@@ -1776,16 +1824,24 @@ serve(async (req) => {
       }
     }
 
-    if (body.stream === true && mode === 'chat' && provider === 'openai') {
-      const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
-      return await handleOpenAiChatStream(user.id, admin, chatMessages, apiKey, openAiModels, openAiPc)
-    }
-
     const rawMax = body.maxTokens
     const chatMaxTokens =
       typeof rawMax === 'number' && Number.isFinite(rawMax) && rawMax >= 64
         ? Math.min(16384, Math.floor(rawMax))
         : undefined
+
+    if (body.stream === true && mode === 'chat' && provider === 'openai') {
+      const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
+      return await handleOpenAiChatStream(
+        user.id,
+        admin,
+        chatMessages,
+        apiKey,
+        openAiModels,
+        openAiPc,
+        chatMaxTokens,
+      )
+    }
 
     const openAiChatPc =
       provider === 'openai'
@@ -1800,7 +1856,7 @@ serve(async (req) => {
             buildAnthropicChatModelChain(anthropicModelChat),
             chatMaxTokens ?? 8192,
           )
-        : await callOpenAi(chatMessages, apiKey, openAiModels, openAiChatPc)
+        : await callOpenAi(chatMessages, apiKey, openAiModels, openAiChatPc, chatMaxTokens)
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
 

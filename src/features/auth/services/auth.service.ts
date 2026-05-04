@@ -1,5 +1,5 @@
 import type { AuthChangeEvent, PostgrestError, Session, User } from '@supabase/supabase-js'
-import { AI_CHAT_MEMORY_MAX_CHARS } from '../../chat/constants/aiChatMemory'
+import { clipAiChatMemoryToMaxTokens } from '../../chat/constants/aiChatMemory'
 import { getSupabaseClient, prepareAuthStorageForSignIn } from '../../../integrations/supabase/client'
 import { extractProfileNamesFromAuthUser } from '../utils/userDisplay'
 import { parseUiSettings, type UiSettingsV1 } from '../../settings/uiSettings'
@@ -77,19 +77,19 @@ async function resolveCurrentSession(): Promise<Session | null> {
 
 /** Volle Profil-Spalten inkl. KI-Speicher (`20260425120000_profiles_ai_chat_memory`). */
 const PROFILE_SELECT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
 
 /** Ohne KI-Speicher-Spalten — wenn Migration noch nicht ausgerollt. */
 const PROFILE_SELECT_WITHOUT_AI_MEMORY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
 const PROFILE_SELECT_COMPAT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, last_reset_date )' as const
 
 /** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
 const PROFILE_SELECT_COMPAT_LEGACY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, last_reset_date )' as const
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -164,6 +164,7 @@ type ProfileRow = {
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
+        chat_context_max_tokens?: number | null
       }
     | {
         id: string
@@ -177,6 +178,7 @@ type ProfileRow = {
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
+        chat_context_max_tokens?: number | null
       }[]
     | null
   subscription_usages:
@@ -185,6 +187,7 @@ type ProfileRow = {
         used_images: number
         used_files: number
         image_credit_balance?: number | null
+        token_balance?: number | null
         last_reset_date: string | null
       }
     | {
@@ -192,6 +195,7 @@ type ProfileRow = {
         used_images: number
         used_files: number
         image_credit_balance?: number | null
+        token_balance?: number | null
         last_reset_date: string | null
       }[]
     | null
@@ -228,6 +232,8 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     su == null ? null : Array.isArray(su) ? (su[0] ?? null) : su
   const bal =
     typeof rawUsage?.image_credit_balance === 'number' ? rawUsage.image_credit_balance : 0
+  const tokBal =
+    typeof rawUsage?.token_balance === 'number' ? rawUsage.token_balance : 0
   const usage =
     rawUsage && rawUsage.last_reset_date !== currentUtcDateString()
       ? {
@@ -235,6 +241,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
           used_images: 0,
           used_files: 0,
           image_credit_balance: bal,
+          token_balance: tokBal,
         }
       : rawUsage
         ? {
@@ -242,6 +249,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
             used_images: rawUsage.used_images,
             used_files: rawUsage.used_files,
             image_credit_balance: bal,
+            token_balance: tokBal,
           }
         : null
   return {
@@ -259,11 +267,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     subscription_plans: plan,
     subscription_usages: usage,
     ai_chat_memory:
-      typeof data.ai_chat_memory === 'string'
-        ? data.ai_chat_memory.length > AI_CHAT_MEMORY_MAX_CHARS
-          ? data.ai_chat_memory.slice(0, AI_CHAT_MEMORY_MAX_CHARS)
-          : data.ai_chat_memory
-        : null,
+      typeof data.ai_chat_memory === 'string' ? clipAiChatMemoryToMaxTokens(data.ai_chat_memory) : null,
     ai_chat_memory_enabled: data.ai_chat_memory_enabled !== false,
   }
 }
@@ -297,6 +301,7 @@ export type UserProfile = {
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
+        chat_context_max_tokens?: number | null
       }
     | null
   subscription_usages: {
@@ -305,6 +310,8 @@ export type UserProfile = {
     used_files: number
     /** Verfügbare Bilder aus Guthaben (max. 60); täglich +max_images vom Abo (UTC). */
     image_credit_balance: number
+    /** Ungenutztes Token-Kontingent aus Vorperioden; max. 3 Mio.; täglich nutzbar mit Tageslimit. */
+    token_balance: number
   } | null
   /** Aus profiles.ai_chat_memory; für persönlichen Hauptchat-Kontext. */
   ai_chat_memory: string | null
@@ -441,10 +448,10 @@ export async function updateAiChatMemoryByUserId(
   patch: { ai_chat_memory?: string | null; ai_chat_memory_enabled?: boolean },
 ): Promise<UserProfile | null> {
   let payload = patch
-  if (typeof patch.ai_chat_memory === 'string' && patch.ai_chat_memory.length > AI_CHAT_MEMORY_MAX_CHARS) {
+  if (typeof patch.ai_chat_memory === 'string') {
     payload = {
       ...patch,
-      ai_chat_memory: patch.ai_chat_memory.slice(0, AI_CHAT_MEMORY_MAX_CHARS),
+      ai_chat_memory: clipAiChatMemoryToMaxTokens(patch.ai_chat_memory),
     }
   }
   const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, payload)

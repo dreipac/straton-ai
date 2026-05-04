@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type TransitionEvent as ReactTransitionEvent,
 } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -216,7 +217,50 @@ export function ChatWindow({
   const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
+  const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
+  const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
+  const imageLightboxClosePendingRef = useRef(false)
   const isEmptyState = messageList.length === 0
+
+  useLayoutEffect(() => {
+    if (!imageLightboxSrc) {
+      setImageLightboxOpen(false)
+      return
+    }
+    imageLightboxClosePendingRef.current = false
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setImageLightboxOpen(true))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [imageLightboxSrc])
+
+  function closeImageLightbox() {
+    imageLightboxClosePendingRef.current = true
+    setImageLightboxOpen(false)
+  }
+
+  function handleImageLightboxTransitionEnd(event: ReactTransitionEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget || event.propertyName !== 'opacity') {
+      return
+    }
+    if (imageLightboxClosePendingRef.current) {
+      imageLightboxClosePendingRef.current = false
+      setImageLightboxSrc(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!imageLightboxSrc) {
+      return
+    }
+    const onKeyDown = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key === 'Escape') {
+        closeImageLightbox()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [imageLightboxSrc])
   const showAssistantPendingLoader =
     isSending &&
     messageList.length > 0 &&
@@ -963,6 +1007,23 @@ export function ChatWindow({
     />
   )
 
+  const imageLightboxEl =
+    imageLightboxSrc !== null ? (
+      <div
+        className={`chat-image-lightbox${imageLightboxOpen ? ' is-open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!imageLightboxOpen}
+        aria-label="Bildvorschau"
+        onClick={closeImageLightbox}
+        onTransitionEnd={handleImageLightboxTransitionEnd}
+      >
+        <div className="chat-image-lightbox-frame" onClick={(event) => event.stopPropagation()}>
+          <img src={imageLightboxSrc} alt="" className="chat-image-lightbox-img" decoding="async" />
+        </div>
+      </div>
+    ) : null
+
   if (isEmptyState) {
     return (
       <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
@@ -1051,7 +1112,19 @@ export function ChatWindow({
                   {pendingAttachments.map((item) => (
                     item.kind === 'pasted-image' && item.previewDataUrl ? (
                       <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
-                        <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                        <button
+                          type="button"
+                          className="chat-attachment-inline-preview-trigger"
+                          aria-label="Vorschau vergrößern"
+                          onClick={() => {
+                            const u = item.previewDataUrl
+                            if (u) {
+                              setImageLightboxSrc(u)
+                            }
+                          }}
+                        >
+                          <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                        </button>
                         <span
                           role="button"
                           tabIndex={0}
@@ -1171,6 +1244,7 @@ export function ChatWindow({
           {quickTilesEl}
           {composerAttachSheet}
         </div>
+        {imageLightboxEl}
       </section>
     )
   }
@@ -1237,7 +1311,7 @@ export function ChatWindow({
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
               {hasReloadedImageSrc ? (
-                <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
+                  <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
                   {pastedImageIds.map((imageId) => {
                     const src =
                       sentPastedImagePreviews[imageId] ??
@@ -1245,7 +1319,17 @@ export function ChatWindow({
                     if (!src) {
                       return null
                     }
-                    return <img key={imageId} className="chat-user-inline-image" src={src} alt="Eingefügtes Bild" />
+                    return (
+                      <button
+                        key={imageId}
+                        type="button"
+                        className="chat-user-inline-image-trigger"
+                        aria-label="Bild vergrößern"
+                        onClick={() => setImageLightboxSrc(src)}
+                      >
+                        <img className="chat-user-inline-image" src={src} alt="Eingefügtes Bild" />
+                      </button>
+                    )
                   })}
                 </div>
               ) : null}
@@ -1270,7 +1354,9 @@ export function ChatWindow({
                 </p>
               ) : displayContent ? (
                 isAssistant ? (
-                  <div className="chat-message-body chat-message-body--rich">{renderAssistantRichContent(displayContent)}</div>
+                  <div className="chat-message-body chat-message-body--rich">
+                    {renderAssistantRichContent(displayContent, { onChatImagePreview: setImageLightboxSrc })}
+                  </div>
                 ) : (
                   <p>{renderInlineMarkdown(displayContent)}</p>
                 )
@@ -1503,7 +1589,19 @@ export function ChatWindow({
               {pendingAttachments.map((item) => (
                 item.kind === 'pasted-image' && item.previewDataUrl ? (
                   <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image">
-                    <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                    <button
+                      type="button"
+                      className="chat-attachment-inline-preview-trigger"
+                      aria-label="Vorschau vergrößern"
+                      onClick={() => {
+                        const u = item.previewDataUrl
+                        if (u) {
+                          setImageLightboxSrc(u)
+                        }
+                      }}
+                    >
+                      <img className="chat-attachment-inline-preview" src={item.previewDataUrl} alt={item.name} />
+                    </button>
                     <span
                       role="button"
                       tabIndex={0}
@@ -1621,6 +1719,7 @@ export function ChatWindow({
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
         </p>
       </div>
+      {imageLightboxEl}
     </section>
   )
 }

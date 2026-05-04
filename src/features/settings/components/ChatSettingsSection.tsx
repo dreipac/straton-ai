@@ -1,5 +1,5 @@
 import cleanIcon from '../../../assets/icons/clean.svg'
-import { AI_CHAT_MEMORY_MAX_CHARS } from '../../chat/constants/aiChatMemory'
+import { AI_CHAT_MEMORY_MAX_TOKENS } from '../../chat/constants/aiChatMemory'
 
 type SettingsLanguage = 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
 
@@ -106,8 +106,8 @@ export function ChatSettingsSection({
           <p>
             Die KI kann sich über alle Chats hinweg Notizen zu dir merken (Name, Interessen, Schwächen). Neuen Chats
             wird dieser Kontext automatisch mitgegeben. Gespeichert wird höchstens etwa{' '}
-            {AI_CHAT_MEMORY_MAX_CHARS.toLocaleString('de-DE')} Zeichen; beim Aktualisieren werden ältere oder weniger
-            wichtige Punkte zusammengefasst oder entfernt.
+            {AI_CHAT_MEMORY_MAX_TOKENS.toLocaleString('de-DE')} Tokens (Schätzung ca. 4 Zeichen pro Token); beim
+            Aktualisieren werden ältere oder weniger wichtige Punkte zusammengefasst oder entfernt.
           </p>
         </div>
         <button

@@ -1,5 +1,10 @@
 import type { ReactNode } from 'react'
 
+/** Optional: Klick auf eingebettete Bilder → z. B. Vollbild-Lightbox im Chat. */
+export type AssistantInlineImageOptions = {
+  onChatImagePreview?: (src: string) => void
+}
+
 /** Nur **fett** — für Nutzer-Nachrichten und einfache Fälle. */
 export function renderInlineMarkdown(content: string): ReactNode[] {
   const fragments: ReactNode[] = []
@@ -130,8 +135,34 @@ function withKeys(nodes: ReactNode[], prefix: string): ReactNode[] {
   })
 }
 
+function assistantInlineImageEl(
+  key: string,
+  href: string,
+  label: string,
+  options?: AssistantInlineImageOptions,
+): ReactNode {
+  const alt = label || 'Bild'
+  const preview = options?.onChatImagePreview
+  if (preview) {
+    return (
+      <button
+        key={key}
+        type="button"
+        className="chat-inline-image-trigger"
+        aria-label={label ? `Bild vergrößern: ${label}` : 'Bild vergrößern'}
+        onClick={() => preview(href)}
+      >
+        <img className="chat-md-inline-image" src={href} alt={alt} loading="lazy" />
+      </button>
+    )
+  }
+  return (
+    <img key={key} className="chat-md-inline-image" src={href} alt={alt} loading="lazy" />
+  )
+}
+
 /** **fett**, ![alt](url) / [Label](url), sowie freistehende http(s)-URLs als Pill. */
-export function renderAssistantInline(content: string): ReactNode[] {
+export function renderAssistantInline(content: string, options?: AssistantInlineImageOptions): ReactNode[] {
   const linkSplit = /(!?\[[^\]]+\]\([^)]+\))/g
   const segments = content.split(linkSplit).filter((s) => s !== '')
   const out: ReactNode[] = []
@@ -142,15 +173,7 @@ export function renderAssistantInline(content: string): ReactNode[] {
     if (imageMatch) {
       const href = trimTrailingPunctuation(imageMatch[2].trim())
       const label = imageMatch[1].trim() || hostnameFromUrl(href)
-      out.push(
-        <img
-          key={`mdi-${k++}`}
-          className="chat-md-inline-image"
-          src={href}
-          alt={label || 'Bild'}
-          loading="lazy"
-        />,
-      )
+      out.push(assistantInlineImageEl(`mdi-${k++}`, href, label, options))
       continue
     }
 
@@ -159,15 +182,7 @@ export function renderAssistantInline(content: string): ReactNode[] {
       const href = trimTrailingPunctuation(lm[2].trim())
       const label = lm[1].trim() || hostnameFromUrl(href)
       if (href.startsWith('data:image/')) {
-        out.push(
-          <img
-            key={`mdi-${k++}`}
-            className="chat-md-inline-image"
-            src={href}
-            alt={label || 'Bild'}
-            loading="lazy"
-          />,
-        )
+        out.push(assistantInlineImageEl(`mdi-${k++}`, href, label, options))
       } else if (/^mailto:/i.test(href)) {
         const raw = href.replace(/^mailto:/i, '').trim()
         out.push(
