@@ -26,7 +26,7 @@ import type { ChatMessage } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
-import { extractLearningMaterialText } from '../../learn/utils/documentParser'
+import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
 import { hapticLightImpact } from '../../../utils/haptics'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
@@ -184,6 +184,74 @@ function extractDateiFileNamesFromContent(content: string): string[] {
     }
   }
   return names
+}
+
+/**
+ * Desktop liefert eingefügte Bilder oft in `clipboardData.files`.
+ * iOS Safari oft nur über `items[].getAsFile()` — ohne diesen Zweig bleibt die Liste leer.
+ */
+function getImageFilesFromClipboard(data: DataTransfer | null | undefined): File[] {
+  if (!data) {
+    return []
+  }
+  const fromFiles = Array.from(data.files).filter((file) => file.type.startsWith('image/'))
+  if (fromFiles.length > 0) {
+    return fromFiles
+  }
+  const out: File[] = []
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') {
+      continue
+    }
+    if (item.type === 'image/svg+xml') {
+      continue
+    }
+    const file = item.getAsFile()
+    if (!file) {
+      continue
+    }
+    if (item.type.startsWith('image/')) {
+      out.push(file)
+      continue
+    }
+    // iOS: Clipboard-Item mit leerem `type`, Dateiname z. B. „image.png“
+    if (!item.type && isChatVisionImageFile(file)) {
+      out.push(file)
+    }
+  }
+  return out
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const out = typeof reader.result === 'string' ? reader.result : ''
+      resolve(out)
+    }
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function buildPastedImagePendingAttachments(files: File[]): Promise<PendingAttachment[]> {
+  const imageAttachments: PendingAttachment[] = []
+  for (const file of files) {
+    const [text, previewDataUrl] = await Promise.all([
+      extractLearningMaterialText(file),
+      readFileAsDataUrl(file),
+    ])
+    imageAttachments.push({
+      id: crypto.randomUUID(),
+      name: file.name || `image-${Date.now()}.png`,
+      content: text.trim().slice(0, 1400),
+      kind: 'pasted-image',
+      previewDataUrl,
+    })
+  }
+  return imageAttachments
 }
 
 export function ChatWindow({
@@ -662,20 +730,6 @@ export function ChatWindow({
       .join('\n\n')
   }
 
-  function readFileAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const out = typeof reader.result === 'string' ? reader.result : ''
-        resolve(out)
-      }
-      reader.onerror = () => {
-        reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
-      }
-      reader.readAsDataURL(file)
-    })
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -832,14 +886,18 @@ export function ChatWindow({
       const nextAttachments: PendingAttachment[] = []
 
       for (const file of files) {
-        const text = await extractLearningMaterialText(file)
-        const excerpt = text.trim().slice(0, 1400)
-        nextAttachments.push({
-          id: crypto.randomUUID(),
-          name: file.name,
-          content: excerpt,
-          kind: 'file',
-        })
+        if (isChatVisionImageFile(file)) {
+          nextAttachments.push(...(await buildPastedImagePendingAttachments([file])))
+        } else {
+          const text = await extractLearningMaterialText(file)
+          const excerpt = text.trim().slice(0, 1400)
+          nextAttachments.push({
+            id: crypto.randomUUID(),
+            name: file.name,
+            content: excerpt,
+            kind: 'file',
+          })
+        }
       }
 
       setPendingAttachments((prev) => [...prev, ...nextAttachments])
@@ -858,8 +916,7 @@ export function ChatWindow({
     if (isSending || isAttachingFiles || tokenLimitReached) {
       return
     }
-    const clipboardFiles = Array.from(event.clipboardData?.files ?? [])
-    const imageFiles = clipboardFiles.filter((file) => file.type.startsWith('image/'))
+    const imageFiles = getImageFilesFromClipboard(event.clipboardData)
     if (imageFiles.length === 0) {
       return
     }
@@ -870,17 +927,7 @@ export function ChatWindow({
       }
       setIsAttachingFiles(true)
       try {
-        const imageAttachments: PendingAttachment[] = []
-        for (const file of imageFiles) {
-          const [text, previewDataUrl] = await Promise.all([extractLearningMaterialText(file), readFileAsDataUrl(file)])
-          imageAttachments.push({
-            id: crypto.randomUUID(),
-            name: file.name || `image-${Date.now()}.png`,
-            content: text.trim().slice(0, 1400),
-            kind: 'pasted-image',
-            previewDataUrl,
-          })
-        }
+        const imageAttachments = await buildPastedImagePendingAttachments(imageFiles)
         setPendingAttachments((prev) => [...prev, ...imageAttachments])
       } finally {
         setIsAttachingFiles(false)

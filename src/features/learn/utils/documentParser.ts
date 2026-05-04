@@ -68,6 +68,11 @@ function isRasterImageFile(file: File, ext: string): boolean {
   return false
 }
 
+/** Chat: gleiche Heuristik wie Lernmaterial — für Vision (`BildData`) statt nur OCR-`Datei`. */
+export function isChatVisionImageFile(file: File): boolean {
+  return isRasterImageFile(file, getExtension(file.name))
+}
+
 /** OCR im Browser (Tesseract.js), Deutsch + Englisch — wird nur bei Bild-Uploads dynamisch importiert. */
 async function parseImageWithOcr(file: File): Promise<string> {
   const { createWorker } = await import('tesseract.js')
