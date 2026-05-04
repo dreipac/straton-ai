@@ -17,14 +17,25 @@ import fileIcon from '../../../assets/icons/file.svg'
 import greenFileIcon from '../../../assets/icons/green-file.svg'
 import landscapePng from '../../../assets/png/Landscape.png'
 import sendIcon from '../../../assets/icons/send.svg'
+import wordIcon from '../../../assets/icons/word.svg'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
+import { WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
 import { IMAGE_GEN_TILE_PROMPT_PREFIX } from '../constants/imageGenTile'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import type { ChatMessage } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
+import {
+  canFinalizeWordExportFromThread,
+  extractLeadingBannerTitleFromOutlineText,
+  normalizeHeadingLevelsForWord,
+  splitContentAroundFirstWordOutlineFence,
+  tryHeuristicWordOutlineFromPlainText,
+  usesStratonWordMarkdownConvention,
+} from '../utils/wordOutline'
+import { WordOutlinePaper } from './WordOutlinePaper'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { readImageFileAsVisionDataUrl } from '../utils/imageVisionNormalize'
 import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
@@ -93,8 +104,8 @@ function buildExcelGenMatrixCells(): { key: string; delayMs: number }[] {
 
 const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
 
-/** Einträge im Slash-Menü (Excel, Bilder) — für Pfeiltasten / Enter */
-const SLASH_MENU_ITEM_COUNT = 2
+/** Einträge im Slash-Menü (Excel, Word, Bilder) — für Pfeiltasten / Enter */
+const SLASH_MENU_ITEM_COUNT = 3
 
 /** Gleicher Breakpoint wie `chat.css` (@media max-width 860px) — Slash-Menü aus, Anhang-Bottom-Sheet */
 const MOBILE_COMPOSER_MQ = '(max-width: 860px)'
@@ -124,6 +135,9 @@ type ChatWindowProps = {
   onSendMessage: (content: string) => Promise<void>
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
+  /** Nach /Word: Word-Datei erzeugen, wenn die Papier-Vorschau passt. */
+  onFinalizeWordDocument?: () => void | Promise<void>
+  wordFinalizeBusy?: boolean
 }
 
 type QuizAnswerStatus = 'idle' | 'correct' | 'incorrect'
@@ -261,6 +275,8 @@ export function ChatWindow({
   onSubmitThinkingClarifyAnswer = async () => {},
   onSendMessage,
   onCancelSend,
+  onFinalizeWordDocument,
+  wordFinalizeBusy = false,
 }: ChatWindowProps) {
   const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
   const [draft, setDraft] = useState('')
@@ -269,6 +285,7 @@ export function ChatWindow({
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
+  const [wordCommandSelected, setWordCommandSelected] = useState(false)
   const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
@@ -348,7 +365,28 @@ export function ChatWindow({
     lastExcelUserIndex >= 0 &&
     !assistantHasExcelExportAfterLastExcelUser
 
-  const showPendingAssistantRow = showAssistantPendingLoader || pendingExcelGeneration
+  const lastWordUserIndex = (() => {
+    for (let i = messageList.length - 1; i >= 0; i -= 1) {
+      if (messageList[i].role === 'user' && messageList[i].metadata?.userWordCommand) {
+        return i
+      }
+    }
+    return -1
+  })()
+  const assistantHasWordExportAfterLastWordUser =
+    lastWordUserIndex >= 0 &&
+    messageList
+      .slice(lastWordUserIndex + 1)
+      .some((m) => m.role === 'assistant' && Boolean(m.metadata?.wordExport))
+  const pendingWordGeneration =
+    isSending &&
+    !pendingImageGeneration &&
+    !pendingExcelGeneration &&
+    lastWordUserIndex >= 0 &&
+    !assistantHasWordExportAfterLastWordUser
+
+  const showPendingAssistantRow =
+    showAssistantPendingLoader || pendingExcelGeneration || pendingWordGeneration
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
@@ -356,6 +394,7 @@ export function ChatWindow({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isAttachingFiles, setIsAttachingFiles] = useState(false)
   const [excelDownloadBusyId, setExcelDownloadBusyId] = useState<string | null>(null)
+  const [wordDownloadBusyId, setWordDownloadBusyId] = useState<string | null>(null)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
   /** Zuletzt bekannte Listenlänge (für „genau eine neue Nachricht“ = Stream). */
@@ -371,6 +410,7 @@ export function ChatWindow({
     const parsed = parseInteractiveContentWithFallback(lastMessage.content)
     if (parsed?.quiz) return false
     if (lastMessage.metadata?.excelExport) return false
+    if (lastMessage.metadata?.wordExport) return false
     const full = safeMessageContent(lastMessage.content)
     const animated = safeMessageContent(animatedAssistantContent[lastMessage.id] ?? full)
     return animated.length < full.length
@@ -382,10 +422,13 @@ export function ChatWindow({
     ? 'Token-Limit erreicht'
     : imageGenCommandSelected
       ? 'Beschreibe dein Bild …'
-      : 'Nachricht eingeben...'
+      : wordCommandSelected
+        ? 'Optional: JSON einfügen — sonst letzte KI-Gliederung'
+        : 'Nachricht eingeben...'
 
   useEffect(() => {
     setExcelCommandSelected(false)
+    setWordCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setAttachComposerSheetOpen(false)
@@ -634,6 +677,38 @@ export function ChatWindow({
     }
   }
 
+  async function downloadWordExport(message: ChatMessage) {
+    const wx = message.metadata?.wordExport
+    if (!wx) {
+      return
+    }
+    setWordDownloadBusyId(message.id)
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.storage.from(wx.bucket).createSignedUrl(wx.path, 3600)
+      if (error || !data?.signedUrl) {
+        throw new Error(error?.message ?? 'Download-Link konnte nicht erstellt werden.')
+      }
+      const res = await fetch(data.signedUrl)
+      if (!res.ok) {
+        throw new Error('Datei konnte nicht geladen werden.')
+      }
+      const blob = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = wx.fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setWordDownloadBusyId(null)
+    }
+  }
+
   function getQuizAnswerKey(messageId: string, questionId: string) {
     return `${messageId}::${questionId}`
   }
@@ -731,7 +806,11 @@ export function ChatWindow({
       imageGenCommandSelected && textPart ? `${IMAGE_GEN_TILE_PROMPT_PREFIX}${textPart}` : textPart
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
     const baseContent = [messageText, attachmentPart].filter(Boolean).join('\n\n')
-    const content = excelCommandSelected ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim() : baseContent
+    const content = wordCommandSelected
+      ? `${WORD_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
+      : excelCommandSelected
+        ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
+        : baseContent
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
         entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
@@ -748,6 +827,7 @@ export function ChatWindow({
     setDraft('')
     setShowSlashMenu(false)
     setExcelCommandSelected(false)
+    setWordCommandSelected(false)
     setImageGenCommandSelected(false)
     setPendingAttachments([])
     await onSendMessage(content)
@@ -755,7 +835,7 @@ export function ChatWindow({
 
   function handleDraftChange(nextValue: string) {
     setDraft(nextValue)
-    if (excelCommandSelected || imageGenCommandSelected) {
+    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected) {
       setShowSlashMenu(false)
       return
     }
@@ -769,6 +849,16 @@ export function ChatWindow({
 
   function handleSelectExcelSlashCommand() {
     setExcelCommandSelected(true)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectWordSlashCommand() {
+    setWordCommandSelected(true)
+    setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
@@ -778,6 +868,7 @@ export function ChatWindow({
   function handleSelectImageSlashCommand() {
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
+    setWordCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -785,6 +876,17 @@ export function ChatWindow({
 
   function handleSelectExcelQuickTile() {
     setExcelCommandSelected(true)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    if (!isMobileComposer) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
+  }
+
+  function handleSelectWordQuickTile() {
+    setWordCommandSelected(true)
+    setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
@@ -795,6 +897,7 @@ export function ChatWindow({
   function handleSelectImageQuickTile() {
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
+    setWordCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -835,6 +938,8 @@ export function ChatWindow({
         event.preventDefault()
         if (slashMenuHighlightIndex === 0) {
           handleSelectExcelSlashCommand()
+        } else if (slashMenuHighlightIndex === 1) {
+          handleSelectWordSlashCommand()
         } else {
           handleSelectImageSlashCommand()
         }
@@ -992,6 +1097,19 @@ export function ChatWindow({
         </button>
         <button
           type="button"
+          className={`chat-quick-tile${wordCommandSelected ? ' is-active' : ''}`}
+          onClick={handleSelectWordQuickTile}
+        >
+          <span className="chat-quick-tile-icon-wrap" aria-hidden>
+            <img src={wordIcon} alt="" />
+          </span>
+          <span className="chat-quick-tile-text">
+            <span className="chat-quick-tile-title">Word</span>
+            <span className="chat-quick-tile-sub">Vorlage füllen /docx</span>
+          </span>
+        </button>
+        <button
+          type="button"
           className={`chat-quick-tile${imageGenCommandSelected ? ' is-active' : ''}`}
           onClick={handleSelectImageQuickTile}
         >
@@ -1011,14 +1129,14 @@ export function ChatWindow({
       open={attachComposerSheetOpen}
       onClose={() => setAttachComposerSheetOpen(false)}
       title="Einfügen"
-      ariaLabel="Bilder, Excel oder Datei wählen"
+      ariaLabel="Word, Excel, Bilder oder Datei wählen"
       actions={[
         {
-          id: 'bilder',
-          label: 'Bilder',
-          actionClassName: 'action-bottom-sheet-action--compose-bilder',
+          id: 'word',
+          label: 'Word',
+          actionClassName: 'action-bottom-sheet-action--compose-word',
           onClick: () => {
-            handleSelectImageQuickTile()
+            handleSelectWordQuickTile()
           },
         },
         {
@@ -1027,6 +1145,14 @@ export function ChatWindow({
           actionClassName: 'action-bottom-sheet-action--compose-excel',
           onClick: () => {
             handleSelectExcelQuickTile()
+          },
+        },
+        {
+          id: 'bilder',
+          label: 'Bilder',
+          actionClassName: 'action-bottom-sheet-action--compose-bilder',
+          onClick: () => {
+            handleSelectImageQuickTile()
           },
         },
         {
@@ -1117,7 +1243,10 @@ export function ChatWindow({
               />
             </div>
             <div className="chat-input-compose">
-              {pendingAttachments.length > 0 || imageGenCommandSelected || excelCommandSelected ? (
+              {pendingAttachments.length > 0 ||
+              imageGenCommandSelected ||
+              excelCommandSelected ||
+              wordCommandSelected ? (
                 <div className="chat-attachment-chips" aria-label="Anhänge">
                   {imageGenCommandSelected ? (
                     <button
@@ -1141,6 +1270,18 @@ export function ChatWindow({
                     >
                       <img className="chat-compose-mode-badge-icon" src={greenFileIcon} alt="" aria-hidden="true" />
                       <span className="chat-compose-mode-badge-label">Excel</span>
+                    </button>
+                  ) : null}
+                  {wordCommandSelected ? (
+                    <button
+                      type="button"
+                      className="chat-compose-mode-badge"
+                      title="Word-Export aktiv (klicken zum Entfernen)"
+                      aria-label="Word-Befehl entfernen"
+                      onClick={() => setWordCommandSelected(false)}
+                    >
+                      <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
+                      <span className="chat-compose-mode-badge-label">Word</span>
                     </button>
                   ) : null}
                   {pendingAttachments.map((item) => (
@@ -1217,14 +1358,26 @@ export function ChatWindow({
                       </button>
                       <button
                         type="button"
-                        className={`thread-menu-item thread-menu-item--slash-image${
-                          slashMenuHighlightIndex === 1 ? ' is-selected' : ''
-                        }`}
+                        className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
                         role="menuitem"
                         onMouseDown={(event) => {
                           event.preventDefault()
                         }}
                         onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                        onClick={handleSelectWordSlashCommand}
+                      >
+                        Word
+                      </button>
+                      <button
+                        type="button"
+                        className={`thread-menu-item thread-menu-item--slash-image${
+                          slashMenuHighlightIndex === 2 ? ' is-selected' : ''
+                        }`}
+                        role="menuitem"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                        }}
+                        onMouseEnter={() => setSlashMenuHighlightIndex(2)}
                         onClick={handleSelectImageSlashCommand}
                       >
                         Bilder
@@ -1292,16 +1445,27 @@ export function ChatWindow({
       ) : null}
       <div className="chat-messages" ref={messagesScrollRef}>
         <div className="chat-messages-inner">
-        {messageList.map((message) => {
+        {messageList.map((message, messageIndex) => {
           const rawContent = safeMessageContent(message.content)
           const isAssistant = message.role === 'assistant'
+          let precedingUserForWordPaper: (typeof messageList)[number] | null = null
+          if (isAssistant) {
+            for (let i = messageIndex - 1; i >= 0; i -= 1) {
+              if (messageList[i].role === 'user') {
+                precedingUserForWordPaper = messageList[i]
+                break
+              }
+            }
+          }
+          const useWordOutlinePaperChrome =
+            isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userWordCommand)
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
             ? stripExcelSpecBlock(rawContent)
-            : message.metadata?.excelExport
+            : message.metadata?.excelExport || message.metadata?.wordExport
               ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
@@ -1316,6 +1480,9 @@ export function ChatWindow({
           const displayContent = isAssistant
             ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
             : stripAttachmentBlocksForDisplay(rawContent)
+          const showWordPaperLayout =
+            isAssistant &&
+            (useWordOutlinePaperChrome || usesStratonWordMarkdownConvention(displayContent ?? ''))
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
             message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
@@ -1330,10 +1497,15 @@ export function ChatWindow({
             isAssistant &&
             Boolean(message.metadata?.excelExport) &&
             !String(displayContent ?? '').trim()
+          const showWordFallbackText =
+            isAssistant &&
+            Boolean(message.metadata?.wordExport) &&
+            !String(displayContent ?? '').trim()
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
             !message.metadata?.excelExport &&
+            !message.metadata?.wordExport &&
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
           const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
@@ -1388,9 +1560,88 @@ export function ChatWindow({
                 </p>
               ) : displayContent ? (
                 isAssistant ? (
-                  <div className="chat-message-body chat-message-body--rich">
-                    {renderAssistantRichContent(displayContent, { onChatImagePreview: setImageLightboxSrc })}
-                  </div>
+                  !hasInteractiveQuiz ? (
+                    (() => {
+                      if (message.metadata?.wordExport || message.metadata?.excelExport) {
+                        return (
+                          <div className="chat-message-body chat-message-body--rich">
+                            {renderAssistantRichContent(displayContent, {
+                              onChatImagePreview: setImageLightboxSrc,
+                            })}
+                          </div>
+                        )
+                      }
+                      const fence = splitContentAroundFirstWordOutlineFence(displayContent)
+                      if (fence && showWordPaperLayout) {
+                        const outlineForPaper = normalizeHeadingLevelsForWord({
+                          ...fence.outline,
+                          title: undefined,
+                        })
+                        const peeledBefore = extractLeadingBannerTitleFromOutlineText(fence.before)
+                        const bannerTitle =
+                          fence.outline.title?.trim() ||
+                          peeledBefore.bannerTitle ||
+                          null
+                        const beforeMarkdown = fence.before.trim()
+                          ? peeledBefore.bodyWithoutBanner.trim()
+                          : ''
+                        return (
+                          <>
+                            {beforeMarkdown ? (
+                              <div className="chat-message-body chat-message-body--rich">
+                                {renderAssistantRichContent(beforeMarkdown, {
+                                  onChatImagePreview: setImageLightboxSrc,
+                                })}
+                              </div>
+                            ) : null}
+                            <WordOutlinePaper outline={outlineForPaper} bannerTitle={bannerTitle} />
+                            {fence.after.trim() ? (
+                              <div className="chat-message-body chat-message-body--rich">
+                                {renderAssistantRichContent(fence.after, {
+                                  onChatImagePreview: setImageLightboxSrc,
+                                })}
+                              </div>
+                            ) : null}
+                          </>
+                        )
+                      }
+                      const wordConventionActive = usesStratonWordMarkdownConvention(displayContent)
+                      const peeledFull = wordConventionActive
+                        ? { bannerTitle: null, bodyWithoutBanner: displayContent }
+                        : extractLeadingBannerTitleFromOutlineText(displayContent)
+                      const heuristicOutline = tryHeuristicWordOutlineFromPlainText(
+                        peeledFull.bodyWithoutBanner,
+                      )
+                      if (
+                        showWordPaperLayout &&
+                        heuristicOutline &&
+                        heuristicOutline.blocks.length > 0
+                      ) {
+                        return (
+                          <WordOutlinePaper
+                            outline={normalizeHeadingLevelsForWord({
+                              ...heuristicOutline,
+                              title: undefined,
+                            })}
+                            bannerTitle={peeledFull.bannerTitle}
+                          />
+                        )
+                      }
+                      return (
+                        <div className="chat-message-body chat-message-body--rich">
+                          {renderAssistantRichContent(displayContent, {
+                            onChatImagePreview: setImageLightboxSrc,
+                          })}
+                        </div>
+                      )
+                    })()
+                  ) : (
+                    <div className="chat-message-body chat-message-body--rich">
+                      {renderAssistantRichContent(displayContent, {
+                        onChatImagePreview: setImageLightboxSrc,
+                      })}
+                    </div>
+                  )
                 ) : (
                   <p>{renderInlineMarkdown(displayContent)}</p>
                 )
@@ -1398,6 +1649,11 @@ export function ChatWindow({
               {showExcelFallbackText ? (
                 <p className="chat-message-body chat-excel-fallback-text">
                   Die Excel-Datei ist bereit — nutze den Download-Button unten.
+                </p>
+              ) : null}
+              {showWordFallbackText ? (
+                <p className="chat-message-body chat-excel-fallback-text">
+                  Die Word-Datei ist bereit — nutze den Download-Button unten.
                 </p>
               ) : null}
 
@@ -1412,6 +1668,21 @@ export function ChatWindow({
                     }}
                   >
                     {excelDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Excel herunterladen'}
+                  </button>
+                </div>
+              ) : null}
+
+              {message.metadata?.wordExport ? (
+                <div className="chat-excel-download">
+                  <button
+                    type="button"
+                    className="chat-excel-download-button"
+                    disabled={wordDownloadBusyId === message.id}
+                    onClick={() => {
+                      void downloadWordExport(message)
+                    }}
+                  >
+                    {wordDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Word herunterladen'}
                   </button>
                 </div>
               ) : null}
@@ -1481,7 +1752,9 @@ export function ChatWindow({
                   ? ' chat-message--pending-image'
                   : pendingExcelGeneration
                     ? ' chat-message--pending-excel'
-                    : ''
+                    : pendingWordGeneration
+                      ? ' chat-message--pending-excel'
+                      : ''
               }`}
               aria-live="polite"
               aria-busy="true"
@@ -1510,11 +1783,11 @@ export function ChatWindow({
                     ))}
                   </div>
                 </div>
-              ) : pendingExcelGeneration ? (
+              ) : pendingExcelGeneration || pendingWordGeneration ? (
                 <div
                   className="chat-excel-gen-loader-panel"
                   role="status"
-                  aria-label="Excel wird erstellt"
+                  aria-label={pendingWordGeneration ? 'Word wird erstellt' : 'Excel wird erstellt'}
                 >
                   <div
                     className="chat-excel-gen-matrix"
@@ -1546,6 +1819,24 @@ export function ChatWindow({
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}
+
+      {onFinalizeWordDocument &&
+      canFinalizeWordExportFromThread(messageList) &&
+      !isSending ? (
+        <div className="chat-word-finalize-bar" role="region" aria-label="Word-Export">
+          <p className="chat-word-finalize-bar__hint">
+            Wenn die Vorschau oben passt, erzeuge die Word-Datei aus der Gliederung.
+          </p>
+          <button
+            type="button"
+            className="chat-excel-download-button"
+            disabled={wordFinalizeBusy}
+            onClick={() => void onFinalizeWordDocument()}
+          >
+            {wordFinalizeBusy ? 'Word wird erstellt…' : 'Word-Datei erzeugen'}
+          </button>
+        </div>
+      ) : null}
 
       <div className="chat-composer-stack">
         {thinkingClarifyOverlay}
@@ -1594,7 +1885,10 @@ export function ChatWindow({
           />
         </div>
         <div className="chat-input-compose">
-          {pendingAttachments.length > 0 || imageGenCommandSelected || excelCommandSelected ? (
+          {pendingAttachments.length > 0 ||
+          imageGenCommandSelected ||
+          excelCommandSelected ||
+          wordCommandSelected ? (
             <div className="chat-attachment-chips" aria-label="Anhänge">
               {imageGenCommandSelected ? (
                 <button
@@ -1618,6 +1912,18 @@ export function ChatWindow({
                 >
                   <img className="chat-compose-mode-badge-icon" src={greenFileIcon} alt="" aria-hidden="true" />
                   <span className="chat-compose-mode-badge-label">Excel</span>
+                </button>
+              ) : null}
+              {wordCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-compose-mode-badge"
+                  title="Word-Export aktiv (klicken zum Entfernen)"
+                  aria-label="Word-Befehl entfernen"
+                  onClick={() => setWordCommandSelected(false)}
+                >
+                  <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
+                  <span className="chat-compose-mode-badge-label">Word</span>
                 </button>
               ) : null}
               {pendingAttachments.map((item) => (
@@ -1694,14 +2000,26 @@ export function ChatWindow({
                   </button>
                   <button
                     type="button"
-                    className={`thread-menu-item thread-menu-item--slash-image${
-                      slashMenuHighlightIndex === 1 ? ' is-selected' : ''
-                    }`}
+                    className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
                     role="menuitem"
                     onMouseDown={(event) => {
                       event.preventDefault()
                     }}
                     onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                    onClick={handleSelectWordSlashCommand}
+                  >
+                    Word
+                  </button>
+                  <button
+                    type="button"
+                    className={`thread-menu-item thread-menu-item--slash-image${
+                      slashMenuHighlightIndex === 2 ? ' is-selected' : ''
+                    }`}
+                    role="menuitem"
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                    }}
+                    onMouseEnter={() => setSlashMenuHighlightIndex(2)}
                     onClick={handleSelectImageSlashCommand}
                   >
                     Bilder

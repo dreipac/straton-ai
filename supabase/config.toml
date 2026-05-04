@@ -400,6 +400,11 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/generate-excel-from-spec/index.ts"
 
+[functions.generate-word-from-outline]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/generate-word-from-outline/index.ts"
+
 [functions.generate-chat-image]
 enabled = true
 verify_jwt = true

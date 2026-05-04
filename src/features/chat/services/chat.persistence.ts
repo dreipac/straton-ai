@@ -39,6 +39,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userExcelCommand = true
   }
 
+  if (o.userWordCommand === true) {
+    out.userWordCommand = true
+  }
+
   if (o.liveStream === true) {
     out.liveStream = true
   }
@@ -51,6 +55,17 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     const fileName = typeof e.fileName === 'string' ? e.fileName : ''
     if (bucket && path && fileName) {
       out.excelExport = { bucket, path, fileName }
+    }
+  }
+
+  const wx = o.wordExport
+  if (wx && typeof wx === 'object') {
+    const w = wx as Record<string, unknown>
+    const bucket = typeof w.bucket === 'string' ? w.bucket : ''
+    const path = typeof w.path === 'string' ? w.path : ''
+    const fileName = typeof w.fileName === 'string' ? w.fileName : ''
+    if (bucket && path && fileName) {
+      out.wordExport = { bucket, path, fileName }
     }
   }
 

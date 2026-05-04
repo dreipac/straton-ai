@@ -16,6 +16,41 @@ type InputMessage = {
   content: string
 }
 
+/** Gleicher Marker wie Client `wordExportPrompt.ts` — Word-Slash-Befehl. */
+const STRATON_WORD_EXPORT_COMMAND_MARKER = '[[STRATON_WORD_COMMAND]]'
+
+/**
+ * Wenn der Nutzer /Word ausgelöst hat: Systemhinweis für die #### / ##### / ######-Konvention,
+ * damit die KI nicht nur «normales» Markdown (#–###) liefert.
+ */
+function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[]): InputMessage[] {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+  if (!lastUser?.content.includes(STRATON_WORD_EXPORT_COMMAND_MARKER)) {
+    return messages
+  }
+  const block = [
+    '',
+    '## Word-Dokument (Straton)',
+    'Der Nutzer hat den Word-Export angefragt (Marker im User-Text). Der sichtbare Text ist die **Vorschau des späteren .docx** — schreibe ihn wie **fertigen Dokumentinhalt für Leser**, nicht wie Tutorial zum Ausfüllen.',
+    '**Streng verboten:** Einleitungen über «diese Vorlage» oder «empfohlene Kapitelstruktur»; Sätze wie «In diesem Kapitel beschreiben Sie…», «Hier wird erklärt…», «Dieser Abschnitt soll…», «Tragen Sie ein…»; reine Leitfragen ohne Antworttext (z. B. nur «Warum? Wer?»); Platzhalter-Unterkapitel («Schritt 1», «Schritt 2» ohne Beschreibung); zusätzliche Blöcke «Direkt nutzbare Vorlage» oder ähnliche Meta-Bereiche.',
+    '**Stattdessen:** Unter jeder Überschrift steht **konkreter Fließtext** (vollständige Sätze), der zum Nutzerthema passt — Anleitungsschritte, Definitionen, Hinweise als **ausformulierte** Absätze.',
+    '**Trennung vom normalen Chat:** Üblicher Chat nutzt `#` bis `###`. **Hier** strukturierst du den Körper nur mit:',
+    '- `#### ` = Absatz/Fließtext',
+    '- `##### ` = Überschrift 1',
+    '- `###### ` = Überschrift 2',
+    'Jeder Block beginnt mit einer dieser Zeilen; Folgezeilen ohne Präfix gehören zum letzten `####`-Absatz. Optional zusätzlich gültiges WordOutline-JSON in ```json … ```.',
+    'Keine langen Meta-Vorreden — beginne direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments.',
+    'Die .docx erzeugt die App erst nach Bestätigung in der UI; du lieferst nur Text/JSON für die Vorschau.',
+  ].join('\n')
+  if (messages.length > 0 && messages[0]!.role === 'system') {
+    return [
+      { ...messages[0]!, content: `${messages[0]!.content}\n\n${block}` },
+      ...messages.slice(1),
+    ]
+  }
+  return [{ role: 'system', content: block.trim() }, ...messages]
+}
+
 /** OpenAI Prompt Caching (Routing + ggf. 24h-Retention auf unterstützten Modellen). */
 type OpenAiPromptCacheOptions = {
   key: string
@@ -1882,6 +1917,10 @@ serve(async (req) => {
       if (enabled && memText.length > 0) {
         chatMessages = injectAiChatMemoryIntoMessages(messages, memText)
       }
+    }
+
+    if (mode === 'chat') {
+      chatMessages = injectWordExportMarkdownConventionSystemMessage(chatMessages)
     }
 
     const rawMax = body.maxTokens

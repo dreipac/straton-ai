@@ -166,6 +166,8 @@ export function ChatPage() {
     isBootstrapping,
     error,
     submitMessage,
+    finalizeWordDocumentExport,
+    wordFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,
@@ -1573,6 +1575,8 @@ export function ChatPage() {
           onDismissThinkingClarify={dismissThinkingClarify}
           onSubmitThinkingClarifyAnswer={(text) => void submitMessage(text)}
           onSendMessage={submitMessage}
+          onFinalizeWordDocument={finalizeWordDocumentExport}
+          wordFinalizeBusy={wordFinalizeBusy}
         />
       </section>
 

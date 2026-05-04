@@ -11,6 +11,7 @@ import {
   parseExcelSpecFromContent,
 } from '../excel/excelSpec'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
+import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -34,6 +35,7 @@ import {
   generateChatTitleWithAi,
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
+  generateWordFromOutline,
   mergePersistedAiChatMemoryAfterTurn,
   sendMessage,
   sendMessageStreaming,
@@ -60,6 +62,7 @@ import {
   updateChatThreadTitle,
   type ChatMessageRow,
 } from '../services/chat.persistence'
+import { canFinalizeWordExportFromThread, extractWordOutlineFromThread } from '../utils/wordOutline'
 import type { ChatMessage, ChatThread } from '../types'
 const TEMP_THREAD_PREFIX = 'temp-thread-'
 const THREAD_REMOVE_ANIMATION_MS = 180
@@ -70,6 +73,7 @@ const MEMORY_MERGE_EVERY_N_MESSAGES = 8
 function createChatTitle(content: string) {
   const trimmed = content
     .replace(/\[\[STRATON_EXCEL_COMMAND\]\]/g, '')
+    .replace(/\[\[STRATON_WORD_COMMAND\]\]/g, '')
     .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
     .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
     .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
@@ -126,14 +130,19 @@ function mergeRealtimeChatMessage(existing: ChatMessage | undefined, incoming: C
     existing.metadata?.excelExport && !incoming.metadata?.excelExport
       ? existing.metadata.excelExport
       : undefined
-  if (!excelFromExisting) {
+  const wordFromExisting =
+    existing.metadata?.wordExport && !incoming.metadata?.wordExport
+      ? existing.metadata.wordExport
+      : undefined
+  if (!excelFromExisting && !wordFromExisting) {
     return incoming
   }
   return {
     ...incoming,
     metadata: {
       ...(incoming.metadata ?? {}),
-      excelExport: excelFromExisting,
+      ...(excelFromExisting ? { excelExport: excelFromExisting } : {}),
+      ...(wordFromExisting ? { wordExport: wordFromExisting } : {}),
     },
   }
 }
@@ -142,13 +151,24 @@ function mergeRealtimeChatMessage(existing: ChatMessage | undefined, incoming: C
 function mergeDuplicateChatMessagePair(a: ChatMessage, b: ChatMessage): ChatMessage {
   const aHasExcel = Boolean(a.metadata?.excelExport)
   const bHasExcel = Boolean(b.metadata?.excelExport)
+  const aHasWord = Boolean(a.metadata?.wordExport)
+  const bHasWord = Boolean(b.metadata?.wordExport)
   if (aHasExcel && !bHasExcel) {
     return a
   }
   if (bHasExcel && !aHasExcel) {
     return b
   }
+  if (aHasWord && !bHasWord) {
+    return a
+  }
+  if (bHasWord && !aHasWord) {
+    return b
+  }
   if (aHasExcel && bHasExcel) {
+    return b.content.length >= a.content.length ? b : a
+  }
+  if (aHasWord && bHasWord) {
     return b.content.length >= a.content.length ? b : a
   }
   return b.content.length >= a.content.length ? b : a
@@ -188,6 +208,7 @@ export function useChat(
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messagesByThreadId, setMessagesByThreadId] = useState<Record<string, ChatMessage[]>>({})
   const [isSending, setIsSending] = useState(false)
+  const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [composerModelId, setComposerModelId] = useState<ChatComposerModelId>(() =>
@@ -592,6 +613,59 @@ export function useChat(
     }
   }
 
+  async function finalizeWordDocumentExport() {
+    if (!activeThreadId) {
+      return
+    }
+    if (!usesGatewayAi()) {
+      setError('Word-Export ist im Demo-Modus nicht verfügbar.')
+      return
+    }
+    const list = messagesByThreadId[activeThreadId] ?? []
+    if (!canFinalizeWordExportFromThread(list)) {
+      setError(
+        'Es gibt noch keine exportierbare Gliederung. Bitte mit /Word eine Vorschau erzeugen oder den Entwurf ergänzen.',
+      )
+      return
+    }
+    const outline = extractWordOutlineFromThread(list)
+    if (!outline) {
+      return
+    }
+    const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.wordExport)
+    if (!targetAssistant) {
+      return
+    }
+    setWordFinalizeBusy(true)
+    setError(null)
+    try {
+      const wordResult = await generateWordFromOutline({
+        messageId: targetAssistant.id,
+        threadId: activeThreadId,
+        outline,
+      })
+      const meta = { ...(targetAssistant.metadata ?? {}) }
+      delete meta.liveStream
+      const updated: ChatMessage = {
+        ...targetAssistant,
+        content: wordResult.displayContent,
+        metadata: {
+          ...meta,
+          wordExport: wordResult.wordExport,
+        },
+      }
+      setMessagesByThreadId((prev) => ({
+        ...prev,
+        [activeThreadId]: (prev[activeThreadId] ?? []).map((m) => (m.id === targetAssistant.id ? updated : m)),
+      }))
+      void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Word-Export ist fehlgeschlagen.')
+    } finally {
+      setWordFinalizeBusy(false)
+    }
+  }
+
   function selectChat(threadId: string) {
     setThinkingClarifyDialog(null)
     if (autoRemoveEmptyChats && activeThreadId && activeThreadId !== threadId) {
@@ -608,14 +682,20 @@ export function useChat(
   }
 
   async function submitMessage(content: string) {
-    const wantsExcel = userWantsExcelExport(content)
-    const trimmed = stripExcelCommandMarker(content)
-    if (!trimmed || !canSend) {
+    const wantsWord = userWantsWordExport(content)
+    const wantsExcel = !wantsWord && userWantsExcelExport(content)
+    let trimmed = stripExcelCommandMarker(content)
+    trimmed = stripWordCommandMarker(trimmed)
+
+    if (!canSend) {
+      return
+    }
+    if (!wantsWord && !trimmed) {
       return
     }
 
-    const imageCmd = matchExplicitImageGenerationRequest(trimmed)
-    if (imageCmd.kind === 'empty') {
+    const imageCmd = wantsWord ? null : matchExplicitImageGenerationRequest(trimmed)
+    if (imageCmd?.kind === 'empty') {
       setError(
         'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
       )
@@ -625,6 +705,11 @@ export function useChat(
     setThinkingClarifyDialog(null)
     setError(null)
     let threadId = activeThreadId
+
+    if (wantsWord && !usesGatewayAi()) {
+      setError('Word-Export ist im Demo-Modus nicht verfügbar.')
+      return
+    }
 
     setIsSending(true)
 
@@ -697,8 +782,9 @@ export function useChat(
         (activeThread?.id === targetThreadId ? activeThread : undefined)
       const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
 
-      let imageGenPrompt = imageCmd.kind === 'prompt' ? imageCmd.prompt : null
-      if (!imageGenPrompt) {
+      let imageGenPrompt =
+        imageCmd && imageCmd.kind === 'prompt' ? imageCmd.prompt : null
+      if (!imageGenPrompt && !wantsWord) {
         const prior = messagesByThreadId[targetThreadId] ?? []
         const follow = matchFollowUpImageEditRequest(trimmed, prior)
         if (follow.kind === 'prompt') {
@@ -706,11 +792,12 @@ export function useChat(
         }
       }
 
+      const userContent = trimmed || (wantsWord ? 'Word-Dokument vorbereiten' : trimmed)
       const storedUserMessage = await createChatMessage(
         targetThreadId,
         'user',
-        trimmed,
-        wantsExcel ? { userExcelCommand: true } : undefined,
+        userContent,
+        wantsExcel ? { userExcelCommand: true } : wantsWord ? { userWordCommand: true } : undefined,
       )
 
       let nextMessages: ChatMessage[] = []
@@ -722,7 +809,9 @@ export function useChat(
 
       const shouldRename =
         (aclThread?.title === 'Neuer Chat' || isTemporaryThread) && userOwnsThread
-      const provisionalTitle = shouldRename ? createChatTitle(trimmed) : aclThread?.title
+      const provisionalTitle = shouldRename
+        ? createChatTitle(trimmed || (wantsWord ? 'Word' : ''))
+        : aclThread?.title
 
       if (provisionalTitle && shouldRename && userOwnsThread) {
         await updateChatThreadTitle(targetThreadId, provisionalTitle)
@@ -839,6 +928,7 @@ export function useChat(
           finalAssistantContent = await sendMessageStreaming(nextMessages, {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
+            userRequestedWord: wantsWord,
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
@@ -868,6 +958,7 @@ export function useChat(
         const { assistantMessage } = await sendMessage(nextMessages, {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
+          userRequestedWord: wantsWord,
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
@@ -1071,6 +1162,8 @@ export function useChat(
     isBootstrapping,
     error,
     submitMessage,
+    finalizeWordDocumentExport,
+    wordFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,

@@ -34,9 +34,15 @@ import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
 } from '../constants/mainChatOutput'
-import type { ChatMessage, ChatMessageExcelExport } from '../types'
+import type {
+  ChatMessage,
+  ChatMessageExcelExport,
+  ChatMessageWordExport,
+  WordOutlineV1,
+} from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
+import { WORD_CHAT_DOCUMENT_BODY_HINT, WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -64,6 +70,8 @@ export type SendMessageOptions = {
    * Spezifikation läuft separat über {@link generateExcelSpecWithSonnet}.
    */
   userRequestedExcel?: boolean
+  /** Nutzer hat /Word gewählt: Dokumenttext ohne Meta-Erklärungen; schaltet Kürze-Hinweis ab. */
+  userRequestedWord?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -193,13 +201,15 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
+  const wordChatHint = options?.userRequestedWord ? WORD_CHAT_DOCUMENT_BODY_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const threadMessages =
     isMainChat && typeof contextCap === 'number' && contextCap > 0
       ? clipChatMessagesToEstimatedTokenBudget(messages, contextCap)
       : messages
-  const mainChatBrevity = isMainChat ? getAssistantMainChatBrevityInstruction() : ''
+  const mainChatBrevity =
+    isMainChat && !options?.userRequestedWord ? getAssistantMainChatBrevityInstruction() : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -218,12 +228,13 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
+    wordChatHint,
     mainChatBrevity,
     truthBlock,
     toneBlock,
     thinkingBlock,
     getAssistantMarkdownFormattingInstruction({ replyTone }),
-    getAssistantEmojiStyleInstruction({ replyTone }),
+    !options?.userRequestedWord ? getAssistantEmojiStyleInstruction({ replyTone }) : '',
     thinkingClarifyUiReminder,
   ]
     .filter(Boolean)
@@ -240,10 +251,17 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       role: 'system',
       content: combinedSystemPrompt,
     },
-    ...threadMessages.map((message) => ({
-      role: message.role,
-      content: scrubDataImages(message.content),
-    })),
+    ...threadMessages.map((message) => {
+      let content = scrubDataImages(message.content)
+      if (message.role === 'user' && message.metadata?.userWordCommand) {
+        const t = content.trim()
+        content = t ? `${t}\n\n${WORD_EXPORT_COMMAND_MARKER}` : WORD_EXPORT_COMMAND_MARKER
+      }
+      return {
+        role: message.role,
+        content,
+      }
+    }),
   ]
 }
 
@@ -334,6 +352,43 @@ export async function generateExcelFromSpec(input: {
 
   return {
     excelExport: { bucket, path, fileName },
+    displayContent,
+  }
+}
+
+export async function generateWordFromOutline(input: {
+  messageId: string
+  threadId: string
+  outline: WordOutlineV1
+}): Promise<{ wordExport: ChatMessageWordExport; displayContent: string }> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('generate-word-from-outline', {
+    body: input,
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const payload = data as { wordExport?: unknown; displayContent?: unknown; error?: unknown } | undefined
+  if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+    throw new Error(payload.error.trim())
+  }
+
+  const wordExport = payload?.wordExport as Record<string, unknown> | undefined
+  const displayContent = payload?.displayContent
+  if (!wordExport || typeof displayContent !== 'string') {
+    throw new Error('Word-Export konnte nicht abgeschlossen werden.')
+  }
+  const bucket = typeof wordExport.bucket === 'string' ? wordExport.bucket : ''
+  const path = typeof wordExport.path === 'string' ? wordExport.path : ''
+  const fileName = typeof wordExport.fileName === 'string' ? wordExport.fileName : ''
+  if (!bucket || !path || !fileName) {
+    throw new Error('Ungültige Word-Antwort.')
+  }
+
+  return {
+    wordExport: { bucket, path, fileName },
     displayContent,
   }
 }

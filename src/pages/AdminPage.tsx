@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import accountIcon from '../assets/icons/account.svg'
 import aiIcon from '../assets/icons/ai.svg'
@@ -71,6 +71,11 @@ import {
 import { useAuth } from '../features/auth/context/useAuth'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
 import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
+import {
+  fetchWordTemplateMeta,
+  uploadWordTemplate,
+  type AppWordTemplateMeta,
+} from '../features/chat/services/wordTemplate.service'
 
 const OPENAI_CHAT_MODEL_OPTIONS = CHAT_COMPOSER_MODELS.filter((m) => m.provider === 'openai')
 
@@ -107,6 +112,7 @@ type AdminSectionId =
   | 'deployment'
   | 'roles'
   | 'aiProviders'
+  | 'wordTemplate'
   | 'systemPrompts'
   | 'feedback'
 
@@ -125,6 +131,7 @@ const sections: AdminSection[] = [
   { id: 'deployment', label: 'Deployment', title: 'Abo-Entwürfe deployen', icon: sendIcon },
   { id: 'roles', label: 'Rollen', title: 'Rollen und Rechte', icon: accountIcon },
   { id: 'aiProviders', label: 'KI Provider', title: 'KI Provider konfigurieren', icon: aiIcon },
+  { id: 'wordTemplate', label: 'Word-Vorlage', title: 'Word-Dokumentvorlage', icon: sendIcon },
   { id: 'systemPrompts', label: 'KI Anweisungen', title: 'KI Systemanweisungen', icon: aiIcon },
   { id: 'feedback', label: 'Feedback', title: 'Nutzer-Feedback', icon: sendIcon },
 ]
@@ -207,6 +214,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
+  const [wordTemplateMeta, setWordTemplateMeta] = useState<AppWordTemplateMeta | null>(null)
+  const [wordTemplateLoading, setWordTemplateLoading] = useState(false)
+  const [wordTemplateError, setWordTemplateError] = useState<string | null>(null)
+  const [wordTemplateUploadBusy, setWordTemplateUploadBusy] = useState(false)
   const [deployedAppVersion, setDeployedAppVersion] = useState('')
   const [deployedAppVersionDraft, setDeployedAppVersionDraft] = useState('')
   const [isSavingDeployedAppVersion, setIsSavingDeployedAppVersion] = useState(false)
@@ -420,6 +431,56 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'wordTemplate') {
+      return
+    }
+    let isMounted = true
+    void (async () => {
+      try {
+        setWordTemplateLoading(true)
+        setWordTemplateError(null)
+        const meta = await fetchWordTemplateMeta()
+        if (isMounted) {
+          setWordTemplateMeta(meta)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setWordTemplateError(getErrorMessage(err, 'Vorlage-Status konnte nicht geladen werden.'))
+        }
+      } finally {
+        if (isMounted) {
+          setWordTemplateLoading(false)
+        }
+      }
+    })()
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  const wordTemplateFileInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function handleWordTemplateFileChange(fileList: FileList | null) {
+    const file = fileList?.[0]
+    if (!file) {
+      return
+    }
+    setWordTemplateUploadBusy(true)
+    setWordTemplateError(null)
+    try {
+      await uploadWordTemplate(file)
+      setWordTemplateMeta(await fetchWordTemplateMeta())
+    } catch (err) {
+      setWordTemplateError(getErrorMessage(err, 'Upload fehlgeschlagen.'))
+    } finally {
+      setWordTemplateUploadBusy(false)
+      if (wordTemplateFileInputRef.current) {
+        wordTemplateFileInputRef.current.value = ''
+      }
+    }
+  }
 
   useEffect(() => {
     if (activeSection !== 'users' && activeSection !== 'deployment') {
@@ -2215,6 +2276,44 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   {feedbackItems.length === 0 ? <p className="admin-user-empty">Noch kein Feedback eingegangen.</p> : null}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+          {activeSection === 'wordTemplate' ? (
+            <div className="admin-word-template-panel">
+              <p className="admin-users-warning">
+                Eine .docx-Datei mit euren Formatvorlagen (Überschriften, Fließtext). Im Body den Platzhalter{' '}
+                <code>[[STRATON_WORD_BODY]]</code> einfügen — der KI-Chat füllt dort die Gliederung ein. Fehlt der
+                Platzhalter, wird der Inhalt vor dem Ende des Dokumentkörpers eingefügt. Es werden die
+                Word-Standardstile <code>Heading1</code>–<code>Heading6</code> und normaler Fließtext referenziert.
+              </p>
+              {wordTemplateError ? <p className="error-text">{wordTemplateError}</p> : null}
+              {wordTemplateLoading ? <p>Status wird geladen…</p> : null}
+              {!wordTemplateLoading && wordTemplateMeta ? (
+                <p>
+                  {wordTemplateMeta.storage_path
+                    ? `Aktiv: ${wordTemplateMeta.file_display_name} (zuletzt ${wordTemplateMeta.updated_at ? new Date(wordTemplateMeta.updated_at).toLocaleString('de-CH') : '—'})`
+                    : 'Noch keine Vorlage hochgeladen — Word-Export im Chat schlägt fehl, bis eine Datei gespeichert ist.'}
+                </p>
+              ) : null}
+              <input
+                ref={wordTemplateFileInputRef}
+                type="file"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="admin-file-input-hidden"
+                aria-label="Word-Vorlage wählen"
+                onChange={(event) => {
+                  void handleWordTemplateFileChange(event.target.files)
+                }}
+              />
+              <PrimaryButton
+                type="button"
+                disabled={wordTemplateUploadBusy}
+                onClick={() => {
+                  wordTemplateFileInputRef.current?.click()
+                }}
+              >
+                {wordTemplateUploadBusy ? 'Lade hoch…' : 'Vorlage hochladen'}
+              </PrimaryButton>
             </div>
           ) : null}
           {activeSection === 'systemPrompts' ? (
