@@ -26,6 +26,7 @@ import type { ChatMessage } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
 import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
+import { readImageFileAsVisionDataUrl } from '../utils/imageVisionNormalize'
 import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
 import { hapticLightImpact } from '../../../utils/haptics'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
@@ -222,26 +223,12 @@ function getImageFilesFromClipboard(data: DataTransfer | null | undefined): File
   return out
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const out = typeof reader.result === 'string' ? reader.result : ''
-      resolve(out)
-    }
-    reader.onerror = () => {
-      reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
-    }
-    reader.readAsDataURL(file)
-  })
-}
-
 async function buildPastedImagePendingAttachments(files: File[]): Promise<PendingAttachment[]> {
   const imageAttachments: PendingAttachment[] = []
   for (const file of files) {
     const [text, previewDataUrl] = await Promise.all([
       extractLearningMaterialText(file),
-      readFileAsDataUrl(file),
+      readImageFileAsVisionDataUrl(file),
     ])
     imageAttachments.push({
       id: crypto.randomUUID(),

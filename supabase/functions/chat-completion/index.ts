@@ -77,6 +77,83 @@ type OpenAiVisionContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
 
+/** Entfernt Zeilenumbrüche in Base64 (iOS-Zwischenablage) — sonst schlagen Vision-APIs fehl. */
+function normalizeVisionDataUrl(dataUrl: string): string {
+  const t = dataUrl.trim()
+  const marker = 'base64,'
+  const idx = t.indexOf(marker)
+  if (idx === -1) {
+    return t
+  }
+  return t.slice(0, idx + marker.length) + t.slice(idx + marker.length).replace(/\s+/g, '')
+}
+
+function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
+  const imageDataUrls: string[] = []
+  const visionRegex = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/g
+  let match: RegExpExecArray | null
+  while ((match = visionRegex.exec(content)) !== null) {
+    const maybeUrl = String(match[1] ?? '').trim()
+    if (maybeUrl.startsWith('data:image/')) {
+      imageDataUrls.push(normalizeVisionDataUrl(maybeUrl))
+    }
+  }
+  const text = content
+    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
+    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
+    .trim()
+  return { text, imageDataUrls: imageDataUrls.slice(0, 4) }
+}
+
+type AnthropicImageBlock = {
+  type: 'image'
+  source: { type: 'base64'; media_type: string; data: string }
+}
+
+type AnthropicUserContentPart =
+  | { type: 'text'; text: string }
+  | AnthropicImageBlock
+
+function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | null {
+  const n = normalizeVisionDataUrl(dataUrl)
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(n)
+  if (!m) {
+    return null
+  }
+  const media_type = m[1] ?? 'image/jpeg'
+  const data = (m[2] ?? '').replace(/\s+/g, '')
+  if (!data) {
+    return null
+  }
+  return {
+    type: 'image',
+    source: { type: 'base64', media_type, data },
+  }
+}
+
+/** Claude: Bilder als strukturierte Blöcke, nicht als Rohstring mit Base64. */
+function buildAnthropicUserMessageContent(raw: string): string | AnthropicUserContentPart[] {
+  const { text, imageDataUrls } = extractUserVisionFromContent(raw)
+  if (imageDataUrls.length === 0) {
+    return raw
+  }
+  const blocks: AnthropicUserContentPart[] = []
+  blocks.push({ type: 'text', text: text || 'Bitte analysiere dieses Bild.' })
+  let anyImage = false
+  for (const url of imageDataUrls) {
+    const img = dataUrlToAnthropicImageBlock(url)
+    if (img) {
+      blocks.push(img)
+      anyImage = true
+    }
+  }
+  if (!anyImage) {
+    return raw
+  }
+  return blocks
+}
+
 type QuizEvaluationPayload = {
   question: string
   expectedAnswer: string
@@ -531,26 +608,6 @@ function openAiChatRequestBody(
     maxOutputTokens?: number
   },
 ): Record<string, unknown> {
-  function parseVisionPayload(content: string): { text: string; imageDataUrls: string[] } {
-    const imageDataUrls: string[] = []
-    const visionRegex = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/g
-    let text = content
-    let match: RegExpExecArray | null = visionRegex.exec(content)
-    while (match) {
-      const maybeUrl = String(match[1] ?? '').trim()
-      if (maybeUrl.startsWith('data:image/')) {
-        imageDataUrls.push(maybeUrl)
-      }
-      match = visionRegex.exec(content)
-    }
-    text = text
-      .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
-      .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
-      .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
-      .trim()
-    return { text, imageDataUrls: imageDataUrls.slice(0, 4) }
-  }
-
   const body: Record<string, unknown> = {
     model,
     messages: messages.map((message) => {
@@ -560,7 +617,7 @@ function openAiChatRequestBody(
           content: message.content,
         }
       }
-      const parsed = parseVisionPayload(message.content)
+      const parsed = extractUserVisionFromContent(message.content)
       if (parsed.imageDataUrls.length === 0) {
         return {
           role: message.role,
@@ -1006,7 +1063,10 @@ async function callAnthropic(
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .map((message) => ({
           role: message.role,
-          content: message.content,
+          content:
+            message.role === 'user'
+              ? buildAnthropicUserMessageContent(message.content)
+              : message.content,
         })),
       system,
     }),
