@@ -2107,16 +2107,6 @@ export function LearnPage() {
     }, MODAL_ANIMATION_MS)
   }
 
-  const activeLearnTabLabel =
-    activeLearnTab === 'path'
-      ? 'Lernpfad'
-      : activeLearnTab === 'tests'
-        ? 'Tests'
-        : activeLearnTab === 'flashcards'
-          ? 'Lernkarten'
-          : activeLearnTab === 'worksheets'
-            ? 'Arbeitsblätter'
-            : 'Statistiken'
   const activeLearnTabIndex =
     activeLearnTab === 'path'
       ? 0

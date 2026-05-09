@@ -1495,8 +1495,8 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   background-image: var(--accent-gradient, none);
   background-repeat: no-repeat;
   background-size: cover;
-  -webkit-mask-image: url('../assets/icons/learn.svg');
-  mask-image: url('../assets/icons/learn.svg');
+  -webkit-mask-image: url('../assets/icons/learn-filled.svg');
+  mask-image: url('../assets/icons/learn-filled.svg');
   -webkit-mask-size: contain;
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
