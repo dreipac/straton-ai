@@ -150,7 +150,7 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     totalWrongChapterQuestions > 0
       ? `Fokus: ${totalWrongChapterQuestions} offene Schwachpunkte zuerst stabilisieren.`
       : totalAnsweredChapterQuestions > 0
-        ? 'Stark! Weiter so, du kannst das Tempo leicht erhöhen.'
+        ? 'Stark! Weiter so, du kannst das Tempo leicht erhöhen. 😎'
         : 'Startklar: Beginne mit den Kernkonzepten und teste direkt dein Verständnis.'
   const currentChapterStepProgressPercent =
     previewStepCount > 0 ? ((safeChapterStepIndex + 1) / previewStepCount) * 100 : 0
@@ -158,9 +158,9 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     effectiveChapterBlueprints.length > 0 &&
     chapterSession.completedChapterIndexes.length >= effectiveChapterBlueprints.length
   const previewGreetingText = isAllChaptersCompleted
-    ? 'Stark gemacht. Alle Lernblöcke abgeschlossen - bis bald und weiter so.'
+    ? 'Stark gemacht. Alle Lernblöcke abgeschlossen - bis bald und weiter so. 😎'
     : previewCompleted
-      ? 'Sehr gut, dieser Lernblock ist abgeschlossen. Du kannst direkt den nächsten starten.'
+      ? 'Sehr gut, dieser Lernblock ist abgeschlossen. Du kannst direkt den nächsten starten. 😎'
       : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
         ? `Willkommen zurück. Du bist bei Schritt ${safeChapterStepIndex + 1} und machst guten Fortschritt.`
         : 'Willkommen. Dein Lernblock ist bereit - starte mit dem ersten Schritt.'

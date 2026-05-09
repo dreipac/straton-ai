@@ -114,6 +114,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
       interactiveQuizPrompt: getPrompt('interactive_quiz'),
       systemPrompt: getPrompt('learn_setup_topic'),
       useLearnPathModel: true,
+      learnTelemetryMode: 'learn_setup_topic',
     })
       .then(async ({ assistantMessage }) => {
         const raw = assistantMessage.content.trim()

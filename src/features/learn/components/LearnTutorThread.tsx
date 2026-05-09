@@ -1,16 +1,34 @@
 import checkIcon from '../../../assets/icons/check.svg'
 import fileIcon from '../../../assets/icons/file.svg'
-import type { EntryQuizResult, TutorChatEntry } from '../services/learn.persistence'
+import type { EntryQuizResult, LearnWorksheetItem, TutorChatEntry } from '../services/learn.persistence'
+import { getWorksheetChapterProgress } from '../utils/learnPageHelpers'
 
 export type LearnTutorThreadProps = {
   messages: TutorChatEntry[]
   entryQuizResult: EntryQuizResult | null
   entryTestDurationLabel: string
   onOpenEntryQuizModal: () => void
+  onStartNextChapter: () => void
+  onCreateFlashcards: () => void
+  onCreateWorksheet: () => void
+  learnWorksheets: LearnWorksheetItem[]
+  tutorWorksheetChapterIndex: number
 }
 
 export function LearnTutorThread(props: LearnTutorThreadProps) {
-  const { messages, entryQuizResult, entryTestDurationLabel, onOpenEntryQuizModal } = props
+  const {
+    messages,
+    entryQuizResult,
+    entryTestDurationLabel,
+    onOpenEntryQuizModal,
+    onStartNextChapter,
+    onCreateFlashcards,
+    onCreateWorksheet,
+    learnWorksheets,
+    tutorWorksheetChapterIndex,
+  } = props
+
+  const worksheetGateProgress = getWorksheetChapterProgress(learnWorksheets, tutorWorksheetChapterIndex)
 
   return (
     <>
@@ -30,7 +48,7 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
               </p>
               <p className="learn-entry-test-ready-description">
                 {entryQuizResult
-                  ? 'Anhand deiner Testergebnisse wurden Lernkapitel generiert.'
+                  ? 'Dein Einstiegstest wurde ausgewertet. Als Nächstes bekommst du eine passende Empfehlung vom Tutor.'
                   : 'Dieser Test hilft dir, dein Wissen zu analysieren und deinen Lernpfad anzupassen.'}
               </p>
               <p className="learn-entry-test-ready-duration">
@@ -53,6 +71,42 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
                 </span>
                 <span className="learn-entry-test-link-meta">
                   {entryQuizResult ? 'Ergebnisdatei öffnen' : 'Datei öffnen'}
+                </span>
+              </span>
+            </button>
+          ) : null}
+          {message.action === 'start-next-chapter' ? (
+            <button type="button" className="learn-entry-test-link" onClick={onStartNextChapter}>
+              <span className="learn-entry-test-link-content">
+                <span className="learn-entry-test-link-title">Kapitel beginnen</span>
+                <span className="learn-entry-test-link-meta">Nächsten Lernblock starten</span>
+              </span>
+            </button>
+          ) : null}
+          {message.action === 'create-flashcards' ? (
+            <button type="button" className="learn-entry-test-link" onClick={onCreateFlashcards}>
+              <span className="learn-entry-test-link-content">
+                <span className="learn-entry-test-link-title">Lernkarten erstellen</span>
+                <span className="learn-entry-test-link-meta">Jetzt Lernkarten generieren</span>
+              </span>
+            </button>
+          ) : null}
+          {message.action === 'create-worksheet' ? (
+            <button type="button" className="learn-entry-test-link" onClick={onCreateWorksheet}>
+              <span className="learn-entry-test-link-content">
+                <span className="learn-entry-test-link-title">
+                  {worksheetGateProgress.total === 0
+                    ? 'Arbeitsblatt erstellen'
+                    : worksheetGateProgress.isComplete
+                      ? 'Arbeitsblatt ansehen'
+                      : 'Arbeitsblatt fortsetzen'}
+                </span>
+                <span className="learn-entry-test-link-meta">
+                  {worksheetGateProgress.total === 0
+                    ? 'Jetzt Arbeitsblatt generieren'
+                    : worksheetGateProgress.isComplete
+                      ? 'Alle Aufgaben wurden geprüft'
+                      : `${worksheetGateProgress.evaluatedCount}/${worksheetGateProgress.total} Aufgaben geprüft`}
                 </span>
               </span>
             </button>

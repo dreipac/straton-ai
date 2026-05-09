@@ -55,6 +55,12 @@ import {
   getComposerApiModelIdsForAdminFilter,
 } from '../features/chat/constants/chatComposerModels'
 import {
+  adminDeployLearnAiModelDraft,
+  adminDeployLearnAiProviderDraft,
+  adminSetLearnAiModelDraft,
+  adminSetLearnAiProviderDraft,
+  adminSetLearnPathCreateEnabled,
+  adminSetLearnPathsEnabled,
   adminSetBetaNoticeEnabled,
   adminSetDeployedAppVersion,
   getAppFeatureFlags,
@@ -102,6 +108,33 @@ function getErrorMessage(err: unknown, fallback: string): string {
     }
   }
   return fallback
+}
+
+function labelForLearnAiModel(
+  model:
+    | 'gpt-5.4'
+    | 'gpt-5.4-mini'
+    | 'gpt-5-mini'
+    | 'gpt-4o-mini'
+    | 'claude-sonnet-4-6'
+    | 'claude-3-5-haiku-latest',
+): string {
+  switch (model) {
+    case 'gpt-5.4':
+      return 'GPT-5.4'
+    case 'gpt-5.4-mini':
+      return 'GPT-5.4 mini'
+    case 'gpt-5-mini':
+      return 'GPT-5 mini'
+    case 'gpt-4o-mini':
+      return 'GPT-4 mini (4o mini)'
+    case 'claude-sonnet-4-6':
+      return 'Claude Sonnet 4.6'
+    case 'claude-3-5-haiku-latest':
+      return 'Claude 3.5 Haiku'
+    default:
+      return model
+  }
 }
 
 type AdminSectionId =
@@ -214,6 +247,24 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
   const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
   const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
+  const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
+  const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
+  const [isLoadingLearnPathsToggle, setIsLoadingLearnPathsToggle] = useState(false)
+  const [isLoadingLearnPathCreateToggle, setIsLoadingLearnPathCreateToggle] = useState(false)
+  const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
+  const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
+  const [learnAiModelActive, setLearnAiModelActive] = useState<
+    'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+  >('gpt-5.4-mini')
+  const [learnAiModelDraft, setLearnAiModelDraft] = useState<
+    'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+  >('gpt-5.4-mini')
+  const [isSavingLearnAiProviderDraft, setIsSavingLearnAiProviderDraft] = useState(false)
+  const [isDeployingLearnAiProvider, setIsDeployingLearnAiProvider] = useState(false)
+  const [isSavingLearnAiModelDraft, setIsSavingLearnAiModelDraft] = useState(false)
+  const [isDeployingLearnAiModel, setIsDeployingLearnAiModel] = useState(false)
+  const [learnAiProviderInfo, setLearnAiProviderInfo] = useState<string | null>(null)
+  const [learnAiModelInfo, setLearnAiModelInfo] = useState<string | null>(null)
   const [wordTemplateMeta, setWordTemplateMeta] = useState<AppWordTemplateMeta | null>(null)
   const [wordTemplateLoading, setWordTemplateLoading] = useState(false)
   const [wordTemplateError, setWordTemplateError] = useState<string | null>(null)
@@ -414,6 +465,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           return
         }
         setBetaNoticeEnabled(flags.show_beta_notice_on_first_login)
+        setLearnPathsEnabled(flags.learn_paths_enabled)
+        setLearnPathCreateEnabled(flags.learn_path_create_enabled)
+        setLearnAiProviderActive(flags.learn_ai_provider_active)
+        setLearnAiProviderDraft(flags.learn_ai_provider_draft)
+        setLearnAiModelActive(flags.learn_ai_model_active)
+        setLearnAiModelDraft(flags.learn_ai_model_draft)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -422,6 +479,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           return
         }
         setBetaNoticeEnabled(true)
+        setLearnPathsEnabled(true)
+        setLearnPathCreateEnabled(true)
+        setLearnAiProviderActive('openai')
+        setLearnAiProviderDraft('openai')
+        setLearnAiModelActive('gpt-5.4-mini')
+        setLearnAiModelDraft('gpt-5.4-mini')
         setDeployedAppVersion('')
         setDeployedAppVersionDraft('')
       }
@@ -1151,6 +1214,32 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleToggleLearnPathsEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingLearnPathsToggle(true)
+    try {
+      await adminSetLearnPathsEnabled(nextEnabled)
+      setLearnPathsEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernpfade-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingLearnPathsToggle(false)
+    }
+  }
+
+  async function handleToggleLearnPathCreateEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingLearnPathCreateToggle(true)
+    try {
+      await adminSetLearnPathCreateEnabled(nextEnabled)
+      setLearnPathCreateEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernpfad-erstellen-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingLearnPathCreateToggle(false)
+    }
+  }
+
   async function handlePushDeployedAppVersion() {
     const nextVersion = deployedAppVersionDraft.trim()
     if (!nextVersion) {
@@ -1169,6 +1258,76 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setSubscriptionPlansError(getErrorMessage(err, 'Version konnte nicht gepusht werden.'))
     } finally {
       setIsSavingDeployedAppVersion(false)
+    }
+  }
+
+  async function handleSaveLearnAiProviderDraft(nextProvider: 'openai' | 'anthropic') {
+    setSubscriptionPlansError(null)
+    setLearnAiProviderInfo(null)
+    setIsSavingLearnAiProviderDraft(true)
+    try {
+      await adminSetLearnAiProviderDraft(nextProvider)
+      setLearnAiProviderDraft(nextProvider)
+      setLearnAiProviderInfo(`Lern-KI-Entwurf gespeichert: ${nextProvider === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Entwurf konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAiProviderDraft(false)
+    }
+  }
+
+  async function handleDeployLearnAiProviderDraft() {
+    setSubscriptionPlansError(null)
+    setLearnAiProviderInfo(null)
+    setIsDeployingLearnAiProvider(true)
+    try {
+      await adminDeployLearnAiProviderDraft()
+      setLearnAiProviderActive(learnAiProviderDraft)
+      setLearnAiProviderInfo(
+        `Lern-KI aktiv: ${learnAiProviderDraft === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'} (Deployment gespeichert)`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Deployment fehlgeschlagen.'))
+    } finally {
+      setIsDeployingLearnAiProvider(false)
+    }
+  }
+
+  async function handleSaveLearnAiModelDraft(
+    nextModel:
+      | 'gpt-5.4'
+      | 'gpt-5.4-mini'
+      | 'gpt-5-mini'
+      | 'gpt-4o-mini'
+      | 'claude-sonnet-4-6'
+      | 'claude-3-5-haiku-latest',
+  ) {
+    setSubscriptionPlansError(null)
+    setLearnAiModelInfo(null)
+    setIsSavingLearnAiModelDraft(true)
+    try {
+      await adminSetLearnAiModelDraft(nextModel)
+      setLearnAiModelDraft(nextModel)
+      setLearnAiModelInfo(`Lern-KI-Modell-Entwurf gespeichert: ${labelForLearnAiModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Modell-Entwurf konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAiModelDraft(false)
+    }
+  }
+
+  async function handleDeployLearnAiModelDraft() {
+    setSubscriptionPlansError(null)
+    setLearnAiModelInfo(null)
+    setIsDeployingLearnAiModel(true)
+    try {
+      await adminDeployLearnAiModelDraft()
+      setLearnAiModelActive(learnAiModelDraft)
+      setLearnAiModelInfo(`Lern-KI-Modell aktiv: ${labelForLearnAiModel(learnAiModelDraft)} (Deployment gespeichert)`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Modell-Deployment fehlgeschlagen.'))
+    } finally {
+      setIsDeployingLearnAiModel(false)
     }
   }
 
@@ -1308,6 +1467,51 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   disabled={isLoadingBetaNoticeToggle}
                   onClick={() => {
                     void handleToggleBetaNoticeEnabled(!betaNoticeEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="chat-setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Lernpfade global aktivieren</h3>
+                  <p>Wenn deaktiviert, ist der Button &quot;Lernpfade&quot; in der App ausgegraut und nicht klickbar.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnPathsEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnPathsEnabled}
+                  aria-label="Lernpfade global aktivieren"
+                  disabled={isLoadingLearnPathsToggle}
+                  onClick={() => {
+                    void handleToggleLearnPathsEnabled(!learnPathsEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="chat-setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Lernpfad erstellen aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, ist der Button &quot;Lernpfad erstellen&quot; (inkl. Neuer Lernpfad) ausgegraut
+                    und nicht klickbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnPathCreateEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnPathCreateEnabled}
+                  aria-label="Lernpfad erstellen aktivieren"
+                  disabled={isLoadingLearnPathCreateToggle}
+                  onClick={() => {
+                    void handleToggleLearnPathCreateEnabled(!learnPathCreateEnabled)
                   }}
                 >
                   <span className="ios-switch-track" aria-hidden="true">
@@ -2150,6 +2354,31 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 Erst ein Deployment macht gespeicherte Abo-Entwürfe für Nutzer sichtbar.
               </p>
               <article className="settings-card">
+                <p className="admin-subscriptions-field-label">Lernbereich KI deployen</p>
+                <p className="admin-users-hint">
+                  Aktiv: <strong>{learnAiProviderActive === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}</strong><br />
+                  Entwurf: <strong>{learnAiProviderDraft === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}</strong><br />
+                  Modell aktiv: <strong>{labelForLearnAiModel(learnAiModelActive)}</strong><br />
+                  Modell Entwurf: <strong>{labelForLearnAiModel(learnAiModelDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingLearnAiProvider || learnAiProviderActive === learnAiProviderDraft}
+                  onClick={() => void handleDeployLearnAiProviderDraft()}
+                >
+                  {isDeployingLearnAiProvider ? 'Deployment läuft…' : 'Lern-KI jetzt deployen'}
+                </PrimaryButton>
+                {learnAiProviderInfo ? <p className="admin-ai-info">{learnAiProviderInfo}</p> : null}
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingLearnAiModel || learnAiModelActive === learnAiModelDraft}
+                  onClick={() => void handleDeployLearnAiModelDraft()}
+                >
+                  {isDeployingLearnAiModel ? 'Deployment läuft…' : 'Lern-KI-Modell jetzt deployen'}
+                </PrimaryButton>
+                {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
+              </article>
+              <article className="settings-card">
                 <p className="admin-subscriptions-field-label">App-Version für Settings pushen</p>
                 <div className="admin-subscriptions-create-row">
                   <input
@@ -2213,6 +2442,74 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 KI-Provider-Keys werden aus Sicherheitsgründen nicht mehr in der Datenbank gepflegt.
                 Bitte nutze Supabase Secrets für die Edge Function.
               </p>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Lernbereich KI (Entwurf)</p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={learnAiProviderDraft}
+                    disabled={isSavingLearnAiProviderDraft}
+                    onChange={(event) =>
+                      setLearnAiProviderDraft(event.target.value === 'anthropic' ? 'anthropic' : 'openai')
+                    }
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Claude Sonnet (Anthropic)</option>
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingLearnAiProviderDraft}
+                    onClick={() => void handleSaveLearnAiProviderDraft(learnAiProviderDraft)}
+                  >
+                    {isSavingLearnAiProviderDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Dieser Entwurf wird erst im Bereich <strong>Deployment</strong> live geschaltet.
+                </p>
+                {learnAiProviderInfo ? <p className="admin-ai-info">{learnAiProviderInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Lernbereich KI Modell (Entwurf)</p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={learnAiModelDraft}
+                    disabled={isSavingLearnAiModelDraft}
+                    onChange={(event) => {
+                      const v = event.target.value
+                      setLearnAiModelDraft(
+                        v === 'gpt-5.4' ||
+                          v === 'gpt-5.4-mini' ||
+                          v === 'gpt-5-mini' ||
+                          v === 'gpt-4o-mini' ||
+                          v === 'claude-sonnet-4-6' ||
+                          v === 'claude-3-5-haiku-latest'
+                          ? v
+                          : 'gpt-5.4-mini',
+                      )
+                    }}
+                  >
+                    <option value="gpt-5.4">GPT-5.4 (OpenAI)</option>
+                    <option value="gpt-5.4-mini">GPT-5.4 mini (OpenAI)</option>
+                    <option value="gpt-5-mini">GPT-5 mini (OpenAI)</option>
+                    <option value="gpt-4o-mini">GPT-4 mini (4o mini, OpenAI)</option>
+                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
+                    <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (Anthropic)</option>
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingLearnAiModelDraft}
+                    onClick={() => void handleSaveLearnAiModelDraft(learnAiModelDraft)}
+                  >
+                    {isSavingLearnAiModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Enthält auch <strong>GPT-4 mini</strong>. Aktiv wird das Modell erst nach Deployment.
+                </p>
+                {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
+              </div>
               <div className="admin-ai-form">
                 <p>
                   Setze in Supabase unter <strong>Project Settings - Edge Functions - Secrets</strong>:
@@ -2222,7 +2519,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <strong>OPENAI_API_KEY</strong> — Hauptchat (z. B. GPT-5 mini)
                   </li>
                   <li>
-                    <strong>ANTHROPIC_API_KEY</strong> — Lernpfad / Learn-Bereich (Claude Sonnet)
+                    <strong>ANTHROPIC_API_KEY</strong> — nur falls im Lernbereich ein Claude-Modell gewählt wird
                   </li>
                   <li>
                     <strong>SUPABASE_SERVICE_ROLE_KEY</strong> — für <strong>chat-completion</strong>: schreibt

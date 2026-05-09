@@ -65,6 +65,8 @@ export type SendMessageOptions = {
    * Lernpfad / Learn-UI: Antwort über OpenAI (Edge), Standardkette {@link LEARN_PATH_OPENAI_MODELS}. Ohne Flag: Hauptchat.
    */
   useLearnPathModel?: boolean
+  /** Audit-Label für Admin-Protokoll (z. B. `learn_entry_quiz`, `learn_setup_topic`). */
+  learnTelemetryMode?: 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
   /**
    * Nutzer hat Excel/XLSX angefragt: OpenAI bekommt kurzen Hinweis, kein Excel-JSON.
    * Spezifikation läuft separat über {@link generateExcelSpecWithSonnet}.
@@ -508,6 +510,7 @@ function buildChatCompletionRequestBody(
   if (options?.useLearnPathModel) {
     const body: Record<string, unknown> = {
       provider: providerForLearnPath(),
+      mode: options.learnTelemetryMode ?? 'learn_tutor',
       messages: gatewayMessages,
       promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
       promptCacheRetention: '24h',
@@ -1018,7 +1021,7 @@ export async function generateTopicSuggestionsWithAi(topic: string): Promise<Gen
   )
 }
 
-export type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
+export type { LearnFlashcard, LearnFlashcardSet, LearnWorksheetItem } from '../../learn/services/learn.persistence'
 
 function mockFlashcardsFromOutline(outline: string): LearnFlashcard[] {
   const topic = outline.split('\n').find((l) => l.startsWith('### '))?.replace(/^###\s+/, '').slice(0, 48) || 'Thema'

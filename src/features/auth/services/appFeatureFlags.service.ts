@@ -3,6 +3,23 @@ import { getSupabaseClient } from '../../../integrations/supabase/client'
 export type AppFeatureFlags = {
   show_beta_notice_on_first_login: boolean
   deployed_app_version: string | null
+  learn_paths_enabled: boolean
+  learn_path_create_enabled: boolean
+  learn_ai_provider_active: 'openai' | 'anthropic'
+  learn_ai_provider_draft: 'openai' | 'anthropic'
+  learn_ai_model_active: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+  learn_ai_model_draft: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+}
+
+function parseLearnAiModel(raw: unknown): AppFeatureFlags['learn_ai_model_active'] {
+  return raw === 'gpt-5.4' ||
+    raw === 'gpt-5.4-mini' ||
+    raw === 'gpt-5-mini' ||
+    raw === 'gpt-4o-mini' ||
+    raw === 'claude-sonnet-4-6' ||
+    raw === 'claude-3-5-haiku-latest'
+    ? raw
+    : 'gpt-5.4-mini'
 }
 
 export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
@@ -20,6 +37,12 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
       typeof row?.deployed_app_version === 'string' && row.deployed_app_version.trim().length > 0
         ? row.deployed_app_version.trim()
         : null,
+    learn_paths_enabled: row?.learn_paths_enabled !== false,
+    learn_path_create_enabled: row?.learn_path_create_enabled !== false,
+    learn_ai_provider_active: row?.learn_ai_provider_active === 'anthropic' ? 'anthropic' : 'openai',
+    learn_ai_provider_draft: row?.learn_ai_provider_draft === 'anthropic' ? 'anthropic' : 'openai',
+    learn_ai_model_active: parseLearnAiModel(row?.learn_ai_model_active),
+    learn_ai_model_draft: parseLearnAiModel(row?.learn_ai_model_draft),
   }
 }
 
@@ -40,6 +63,66 @@ export async function adminSetDeployedAppVersion(version: string): Promise<void>
     p_version: version,
   })
 
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetLearnPathsEnabled(enabled: boolean): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_learn_paths_enabled', {
+    p_enabled: enabled,
+  })
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetLearnPathCreateEnabled(enabled: boolean): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_learn_path_create_enabled', {
+    p_enabled: enabled,
+  })
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetLearnAiProviderDraft(provider: 'openai' | 'anthropic'): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_learn_ai_provider_draft', {
+    p_provider: provider,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployLearnAiProviderDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_learn_ai_provider_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetLearnAiModelDraft(
+  model: AppFeatureFlags['learn_ai_model_draft'],
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_learn_ai_model_draft', {
+    p_model: model,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployLearnAiModelDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_learn_ai_model_draft')
   if (error) {
     throw error
   }

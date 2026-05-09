@@ -25,7 +25,7 @@ export type TutorChatEntry = {
   id: string
   role: 'user' | 'assistant'
   content: string
-  action?: 'open-entry-test'
+  action?: 'open-entry-test' | 'start-next-chapter' | 'create-flashcards' | 'create-worksheet'
 }
 
 export type EntryQuizResult = {
@@ -36,16 +36,34 @@ export type EntryQuizResult = {
   evaluatedAnswersByQuestionId?: Record<string, string>
 }
 
+export type LearnTutorState = 'entry_quiz_pending' | 'entry_quiz_done' | 'chapter_learning' | 'chapter_completed'
+
 export type LearnFlashcard = {
   id: string
   question: string
   answer: string
+  /** Selbsteinschätzung nach dem Umdrehen */
+  selfRating?: 'known' | 'unknown'
+}
+
+/** Ein erzeugter Stapel Lernkarten (ein API-Lauf / eine Session). */
+export type LearnFlashcardSet = {
+  id: string
+  title?: string
+  cards: LearnFlashcard[]
 }
 
 /** Arbeitsblatt: nur Aufgabenstellungen (Antworten handschriftlich / separat). */
 export type LearnWorksheetItem = {
   id: string
   prompt: string
+  chapterIndex?: number
+  /** Mindestens einmal per Kreis geprüft */
+  evaluated?: boolean
+  /** Ergebnis der letzten Kreis-Prüfung */
+  lastCorrect?: boolean
+  /** Zuletzt eingegebene / gespeicherte Antwort (Textfeld) */
+  savedAnswer?: string
 }
 
 export type ChapterStep =
@@ -88,6 +106,7 @@ export type ChapterBlueprint = {
   id: string
   title: string
   description?: string
+  source?: 'ai' | 'fallback'
   steps: ChapterStep[]
 }
 
@@ -114,10 +133,14 @@ export type LearningPathRecord = LearningPathSummary & {
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  tutorState: LearnTutorState
+  currentChapterIndex: number
+  targetChapterCount: number
+  unlockedChapterCount: number
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
-  learnFlashcards: LearnFlashcard[]
+  learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }
 
@@ -137,6 +160,10 @@ type LearningPathRow = {
   entry_quiz: unknown
   entry_quiz_answers: unknown
   entry_quiz_result: unknown
+  tutor_state: unknown
+  current_chapter_index: unknown
+  target_chapter_count: unknown
+  unlocked_chapter_count: unknown
   learning_chapters: unknown
   chapter_blueprints: unknown
   chapter_session: unknown
@@ -160,10 +187,14 @@ type LearningPathPatch = Partial<{
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  tutorState: LearnTutorState
+  currentChapterIndex: number
+  targetChapterCount: number
+  unlockedChapterCount: number
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
-  learnFlashcards: LearnFlashcard[]
+  learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }>
 
@@ -233,7 +264,16 @@ function mapTutorMessages(value: unknown): TutorChatEntry[] {
       const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
       const role = candidate.role === 'user' ? 'user' : candidate.role === 'assistant' ? 'assistant' : null
       const content = typeof candidate.content === 'string' ? candidate.content : ''
-      const action = candidate.action === 'open-entry-test' ? 'open-entry-test' : undefined
+      const action =
+        candidate.action === 'open-entry-test'
+          ? 'open-entry-test'
+          : candidate.action === 'start-next-chapter'
+            ? 'start-next-chapter'
+            : candidate.action === 'create-flashcards'
+              ? 'create-flashcards'
+              : candidate.action === 'create-worksheet'
+                ? 'create-worksheet'
+            : undefined
       if (!id || !role || !content) {
         return null
       }
@@ -459,6 +499,7 @@ function mapChapterBlueprints(value: unknown): ChapterBlueprint[] {
           id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `chapter-${index + 1}`,
           title,
           description: typeof item.description === 'string' ? item.description.trim() : undefined,
+          source: item.source === 'fallback' ? 'fallback' : 'ai',
           steps,
         } satisfies ChapterBlueprint
       })
@@ -690,7 +731,7 @@ function mapEntryQuizResult(value: unknown): EntryQuizResult | null {
   }
 }
 
-function mapLearnFlashcards(value: unknown): LearnFlashcard[] {
+function mapLearnFlashcardsFlat(value: unknown): LearnFlashcard[] {
   if (!Array.isArray(value)) {
     return []
   }
@@ -709,10 +750,63 @@ function mapLearnFlashcards(value: unknown): LearnFlashcard[] {
     const question = typeof o.question === 'string' ? o.question.trim() : ''
     const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
     if (question && answer) {
-      out.push({ id, question, answer })
+      const sr = o.selfRating
+      const selfRating =
+        sr === 'known' || sr === 'unknown' ? sr : undefined
+      out.push({
+        id,
+        question,
+        answer,
+        ...(selfRating ? { selfRating } : {}),
+      })
     }
   }
   return out.slice(0, 50)
+}
+
+function mapLearnFlashcardSets(value: unknown): LearnFlashcardSet[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return []
+  }
+  const first = value[0]
+  const looksLikeSet =
+    first &&
+    typeof first === 'object' &&
+    first !== null &&
+    'cards' in first &&
+    Array.isArray((first as { cards: unknown }).cards)
+
+  if (looksLikeSet) {
+    const out: LearnFlashcardSet[] = []
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const o = entry as Record<string, unknown>
+      const id =
+        typeof o.id === 'string' && o.id.trim()
+          ? o.id.trim()
+          : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `fs-${out.length + 1}`
+      const title = typeof o.title === 'string' ? o.title.trim() : undefined
+      const cards = mapLearnFlashcardsFlat(o.cards)
+      if (cards.length > 0) {
+        out.push({
+          id,
+          ...(title ? { title } : {}),
+          cards,
+        })
+      }
+    }
+    return out.slice(0, 25)
+  }
+
+  const flat = mapLearnFlashcardsFlat(value)
+  if (flat.length === 0) {
+    return []
+  }
+  return [{ id: 'legacy-flashcards-set', cards: flat }]
 }
 
 function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
@@ -737,8 +831,29 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
         : typeof o.question === 'string'
           ? o.question.trim()
           : ''
+    const chapterIndex =
+      typeof o.chapterIndex === 'number' && Number.isFinite(o.chapterIndex) && o.chapterIndex >= 0
+        ? Math.floor(o.chapterIndex)
+        : undefined
     if (rawPrompt) {
-      out.push({ id, prompt: rawPrompt })
+      const evaluated = o.evaluated === true
+      const lastCorrect = typeof o.lastCorrect === 'boolean' ? o.lastCorrect : undefined
+      const rawSaved =
+        typeof o.savedAnswer === 'string'
+          ? o.savedAnswer
+          : typeof o.answer === 'string'
+            ? o.answer
+            : ''
+      const clipped = rawSaved.length > 16000 ? `${rawSaved.slice(0, 16000)}…` : rawSaved
+      const savedAnswer = clipped.length > 0 ? clipped : undefined
+      out.push({
+        id,
+        prompt: rawPrompt,
+        chapterIndex,
+        ...(evaluated ? { evaluated: true } : {}),
+        ...(typeof lastCorrect === 'boolean' ? { lastCorrect } : {}),
+        ...(savedAnswer !== undefined && savedAnswer.length > 0 ? { savedAnswer } : {}),
+      })
     }
   }
   return out.slice(0, 50)
@@ -749,6 +864,27 @@ function mapProficiencyLevel(value: unknown): '' | 'low' | 'medium' | 'high' {
     return value
   }
   return ''
+}
+
+function mapTutorState(value: unknown): LearnTutorState {
+  return value === 'entry_quiz_done' ||
+    value === 'chapter_learning' ||
+    value === 'chapter_completed'
+    ? value
+    : 'entry_quiz_pending'
+}
+
+function toNonNegativeInt(value: unknown, fallback: number): number {
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN
+  if (!Number.isFinite(n)) {
+    return fallback
+  }
+  return Math.max(0, Math.floor(n))
 }
 
 function mapRecord(row: LearningPathRow): LearningPathRecord {
@@ -768,10 +904,14 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     entryQuiz: mapEntryQuiz(row.entry_quiz),
     entryQuizAnswers: mapEntryQuizAnswers(row.entry_quiz_answers),
     entryQuizResult: mapEntryQuizResult(row.entry_quiz_result),
+    tutorState: mapTutorState(row.tutor_state),
+    currentChapterIndex: toNonNegativeInt(row.current_chapter_index, 0),
+    targetChapterCount: Math.max(1, toNonNegativeInt(row.target_chapter_count, 1)),
+    unlockedChapterCount: Math.max(1, toNonNegativeInt(row.unlocked_chapter_count, 1)),
     learningChapters: mapLearningChapters(row.learning_chapters),
     chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
     chapterSession: mapChapterSession(row.chapter_session),
-    learnFlashcards: mapLearnFlashcards(row.learn_flashcards),
+    learnFlashcardSets: mapLearnFlashcardSets(row.learn_flashcards),
     learnWorksheets: mapLearnWorksheets(row.learn_worksheets ?? []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -793,10 +933,14 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.entryQuiz !== undefined) row.entry_quiz = patch.entryQuiz
   if (patch.entryQuizAnswers !== undefined) row.entry_quiz_answers = patch.entryQuizAnswers
   if (patch.entryQuizResult !== undefined) row.entry_quiz_result = patch.entryQuizResult
+  if (patch.tutorState !== undefined) row.tutor_state = patch.tutorState
+  if (patch.currentChapterIndex !== undefined) row.current_chapter_index = patch.currentChapterIndex
+  if (patch.targetChapterCount !== undefined) row.target_chapter_count = patch.targetChapterCount
+  if (patch.unlockedChapterCount !== undefined) row.unlocked_chapter_count = patch.unlockedChapterCount
   if (patch.learningChapters !== undefined) row.learning_chapters = patch.learningChapters
   if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
   if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
-  if (patch.learnFlashcards !== undefined) row.learn_flashcards = patch.learnFlashcards
+  if (patch.learnFlashcardSets !== undefined) row.learn_flashcards = patch.learnFlashcardSets
   if (patch.learnWorksheets !== undefined) row.learn_worksheets = patch.learnWorksheets
   return row
 }
@@ -823,7 +967,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
@@ -840,7 +984,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -868,7 +1012,7 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 
@@ -890,7 +1034,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 

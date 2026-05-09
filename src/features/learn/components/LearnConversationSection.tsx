@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
-import type { EntryQuizResult } from '../services/learn.persistence'
-import type { TutorChatEntry } from '../services/learn.persistence'
+import type { EntryQuizResult, LearnWorksheetItem, TutorChatEntry } from '../services/learn.persistence'
 import { LearnChapterPreview, type LearnChapterPreviewProps } from './LearnChapterPreview'
 import { LearnEntryPrepPanel, type LearnEntryPrepPanelProps } from './LearnEntryPrepPanel'
 import { LearnTutorThread } from './LearnTutorThread'
@@ -21,6 +20,11 @@ export type LearnConversationSectionProps = {
   entryQuizResult: EntryQuizResult | null
   entryTestDurationLabel: string
   onOpenEntryQuizModal: () => void
+  onStartNextChapter: () => void
+  onCreateFlashcards: () => void
+  onCreateWorksheet: () => void
+  learnWorksheets: LearnWorksheetItem[]
+  tutorWorksheetChapterIndex: number
 }
 
 export function LearnConversationSection(props: LearnConversationSectionProps) {
@@ -39,6 +43,11 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     entryQuizResult,
     entryTestDurationLabel,
     onOpenEntryQuizModal,
+    onStartNextChapter,
+    onCreateFlashcards,
+    onCreateWorksheet,
+    learnWorksheets,
+    tutorWorksheetChapterIndex,
   } = props
 
   const showChapterPreviewBlock = showChapterPreview && learningChaptersCount > 0
@@ -73,6 +82,11 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
         entryQuizResult={entryQuizResult}
         entryTestDurationLabel={entryTestDurationLabel}
         onOpenEntryQuizModal={onOpenEntryQuizModal}
+        onStartNextChapter={onStartNextChapter}
+        onCreateFlashcards={onCreateFlashcards}
+        onCreateWorksheet={onCreateWorksheet}
+        learnWorksheets={learnWorksheets}
+        tutorWorksheetChapterIndex={tutorWorksheetChapterIndex}
       />
     )
   }

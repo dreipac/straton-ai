@@ -4,8 +4,9 @@ import {
   type ChapterBlueprint,
   type ChapterSession,
   type EntryQuizResult,
-  type LearnFlashcard,
+  type LearnFlashcardSet,
   type LearnWorksheetItem,
+  type LearnTutorState,
   type LearningPathRecord,
   type LearningPathSummary,
   type TutorChatEntry,
@@ -27,10 +28,14 @@ export type EditableLearningPathSnapshot = {
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  tutorState: LearnTutorState
+  currentChapterIndex: number
+  targetChapterCount: number
+  unlockedChapterCount: number
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
-  learnFlashcards: LearnFlashcard[]
+  learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }
 

@@ -18,6 +18,8 @@ export type LearnPageSidebarProps = {
   isSidebarCollapsed: boolean
   onToggleSidebar: () => void
   onCreateLearningPath: () => void
+  isCreateLearningPathDisabled?: boolean
+  onCreateLearningPathDisabledClick?: () => void
   onOpenSettings: () => void
   learningPaths: LearningPathSummary[]
   activePathId: string
@@ -35,6 +37,8 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     isSidebarCollapsed,
     onToggleSidebar,
     onCreateLearningPath,
+    isCreateLearningPathDisabled = false,
+    onCreateLearningPathDisabledClick,
     onOpenSettings,
     learningPaths,
     activePathId,
@@ -82,8 +86,15 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
         </div>
         <button
           type="button"
-          className="learn-primary-sidebar-button"
-          onClick={onCreateLearningPath}
+          className={`learn-primary-sidebar-button${isCreateLearningPathDisabled ? ' is-disabled' : ''}`}
+          aria-disabled={isCreateLearningPathDisabled}
+          onClick={() => {
+            if (isCreateLearningPathDisabled) {
+              onCreateLearningPathDisabledClick?.()
+              return
+            }
+            onCreateLearningPath()
+          }}
           aria-label={isSidebarCollapsed ? 'Neuer Lernpfad' : undefined}
         >
           <span className="learn-new-path-icon chat-sidebar-top-button-icon" aria-hidden="true" />

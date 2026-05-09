@@ -4,6 +4,7 @@ import type {
   ChapterSession,
   ChapterStep,
   ChapterStepWithoutId,
+  LearnWorksheetItem,
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
@@ -15,6 +16,17 @@ import {
 export function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
   return trimmed ? trimmed : 'Neuer Lernpfad'
+}
+
+/** Fortschritt des Arbeitsblatts zu einem Kapitel (Kreis-Prüfungen). */
+export function getWorksheetChapterProgress(items: LearnWorksheetItem[], chapterIndex: number) {
+  const chapterItems = items.filter((w) => w.chapterIndex === chapterIndex)
+  const evaluatedCount = chapterItems.filter((w) => w.evaluated === true).length
+  return {
+    total: chapterItems.length,
+    evaluatedCount,
+    isComplete: chapterItems.length > 0 && evaluatedCount === chapterItems.length,
+  }
 }
 
 type MaterialTypeVariant = 'pdf' | 'image' | 'doc' | 'sheet' | 'archive' | 'code' | 'other'
@@ -134,6 +146,75 @@ export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
 export const CHAPTER_GENERATION_MAX_ATTEMPTS = 2
 export const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
 export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
+
+export function buildEntryQuizFallbackPayload(topic: string): InteractiveQuizPayload {
+  const safeTopic = (topic || 'dem Thema').trim()
+  return {
+    title: `Einstiegstest: ${safeTopic}`,
+    questions: [
+      {
+        id: 'fallback-q1',
+        prompt: `Welche Aussage trifft für ein solides Grundverständnis bei ${safeTopic} am ehesten zu?`,
+        questionType: 'mcq',
+        options: [
+          'Wichtige Begriffe korrekt zuordnen und anwenden',
+          'Nur Definitionen auswendig kennen',
+          'Rechen- und Praxisaufgaben vermeiden',
+          'Nur bei einfachen Beispielen antworten',
+        ],
+        expectedAnswer: 'Wichtige Begriffe korrekt zuordnen und anwenden',
+        acceptableAnswers: [],
+        evaluation: 'exact',
+        hint: 'Achte auf die Kombination aus Verständnis und Anwendung.',
+        explanation: 'Grundlagen bedeuten in der Regel Begriffe korrekt verstehen und praktisch einsetzen.',
+      },
+      {
+        id: 'fallback-q2',
+        prompt: `Welche Vorgehensweise ist bei Aufgaben zu ${safeTopic} meist sinnvoll?`,
+        questionType: 'mcq',
+        options: ['Struktur prüfen, dann rechnen/zuordnen', 'Direkt raten', 'Nur Ergebnis notieren', 'Auf Kontext verzichten'],
+        expectedAnswer: 'Struktur prüfen, dann rechnen/zuordnen',
+        acceptableAnswers: [],
+        evaluation: 'exact',
+        hint: 'Erst Kontext, dann Lösungsschritte.',
+        explanation: 'Ein sauberer Ablauf reduziert Fehler und zeigt echtes Verständnis.',
+      },
+      {
+        id: 'fallback-q3',
+        prompt: `Beschreibe in 1-2 Sätzen, wo du bei ${safeTopic} aktuell noch unsicher bist.`,
+        questionType: 'text',
+        expectedAnswer: 'eigene Unsicherheiten benennen',
+        acceptableAnswers: ['unsicher', 'schwierigkeit', 'verstehen', 'anwenden', 'rechnung'],
+        evaluation: 'contains',
+        hint: 'Nenne konkret einen Bereich, nicht nur "alles".',
+        explanation: 'Die Antwort hilft, den Lernpfad passend zu priorisieren.',
+      },
+      {
+        id: 'fallback-q4',
+        prompt: `Ordne die Lernschritte sinnvoll zu (${safeTopic}).`,
+        questionType: 'match',
+        matchLeft: ['Grundlagen klären', 'Anwendungsaufgabe lösen', 'Ergebnis prüfen'],
+        matchRight: ['Begriffe/Regeln verstehen', 'Schritte durchführen', 'Plausibilität kontrollieren'],
+        expectedAnswer: '0,1,2',
+        acceptableAnswers: [],
+        evaluation: 'exact',
+        hint: 'Denk in der Reihenfolge: Verstehen -> Anwenden -> Kontrollieren.',
+        explanation: 'Diese Reihenfolge ist ein typisches Lernmuster für stabile Ergebnisse.',
+      },
+      {
+        id: 'fallback-q5',
+        prompt: `Wahr oder Falsch: Bei ${safeTopic} ist es sinnvoll, die eigene Lösung abschließend kurz zu überprüfen.`,
+        questionType: 'true_false',
+        options: ['Wahr', 'Falsch'],
+        expectedAnswer: 'Wahr',
+        acceptableAnswers: ['true', 'wahr'],
+        evaluation: 'exact',
+        hint: 'Denke an typische Flüchtigkeitsfehler.',
+        explanation: 'Eine kurze Kontrolle verbessert die Genauigkeit deutlich.',
+      },
+    ],
+  }
+}
 
 export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { valid: boolean; reason: string } {
   if (!Array.isArray(quiz.questions) || quiz.questions.length < ENTRY_QUIZ_MIN_QUESTIONS) {
@@ -379,10 +460,25 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
   }
   try {
     const parsed = JSON.parse(normalized) as unknown
-    if (!Array.isArray(parsed)) {
+    let chapterList: unknown[] = []
+    if (Array.isArray(parsed)) {
+      chapterList = parsed
+    } else if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>
+      if (Array.isArray(obj.chapters)) {
+        chapterList = obj.chapters
+      } else if (obj.chapter && typeof obj.chapter === 'object') {
+        chapterList = [obj.chapter]
+      } else if (Array.isArray(obj.items)) {
+        chapterList = obj.items
+      } else if (typeof obj.title === 'string' && Array.isArray(obj.steps)) {
+        chapterList = [obj]
+      }
+    }
+    if (!Array.isArray(chapterList) || chapterList.length === 0) {
       return []
     }
-    return parsed
+    return chapterList
       .map((entry, chapterIndex) => {
         if (!entry || typeof entry !== 'object') {
           return null
@@ -390,10 +486,78 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
         const candidate = entry as Record<string, unknown>
         const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
         const stepsRaw = Array.isArray(candidate.steps) ? candidate.steps : []
-        if (!title || stepsRaw.length === 0) {
+        const legacyExplanation =
+          candidate.explanation && typeof candidate.explanation === 'object'
+            ? (candidate.explanation as Record<string, unknown>)
+            : null
+        const legacyQuestions = Array.isArray(candidate.questions) ? candidate.questions : []
+        const legacyRecap =
+          candidate.recap && typeof candidate.recap === 'object'
+            ? (candidate.recap as Record<string, unknown>)
+            : typeof candidate.recap === 'string'
+              ? ({ content: candidate.recap } as Record<string, unknown>)
+              : null
+        if (
+          !title ||
+          (stepsRaw.length === 0 && !legacyExplanation && legacyQuestions.length === 0 && !legacyRecap)
+        ) {
           return null
         }
-        const steps = stepsRaw
+        const synthesizedLegacySteps: unknown[] = []
+        if (stepsRaw.length === 0) {
+          if (legacyExplanation) {
+            synthesizedLegacySteps.push({
+              id: `c${chapterIndex + 1}-s1`,
+              type: 'explanation',
+              title: 'Einführung',
+              content: typeof legacyExplanation.content === 'string' ? legacyExplanation.content : '',
+              bullets: Array.isArray(legacyExplanation.bullets) ? legacyExplanation.bullets : [],
+            })
+          }
+          for (let i = 0; i < legacyQuestions.length; i += 1) {
+            const q = legacyQuestions[i]
+            if (!q || typeof q !== 'object') {
+              continue
+            }
+            const qr = q as Record<string, unknown>
+            synthesizedLegacySteps.push({
+              id:
+                typeof qr.id === 'string' && qr.id.trim()
+                  ? qr.id.trim()
+                  : `c${chapterIndex + 1}-q${i + 1}`,
+              type: 'question',
+              questionType:
+                qr.questionType === 'mcq' ||
+                qr.questionType === 'match' ||
+                qr.questionType === 'true_false' ||
+                qr.questionType === 'text'
+                  ? qr.questionType
+                  : Array.isArray(qr.options) && qr.options.length >= 2
+                    ? 'mcq'
+                    : 'text',
+              prompt: typeof qr.prompt === 'string' ? qr.prompt : '',
+              options: Array.isArray(qr.options) ? qr.options : undefined,
+              expectedAnswer: qr.expectedAnswer,
+              acceptableAnswers: Array.isArray(qr.acceptableAnswers) ? qr.acceptableAnswers : [],
+              evaluation: qr.evaluation === 'contains' ? 'contains' : 'exact',
+              hint: typeof qr.hint === 'string' ? qr.hint : undefined,
+              explanation: typeof qr.explanation === 'string' ? qr.explanation : undefined,
+              matchLeft: Array.isArray(qr.matchLeft) ? qr.matchLeft : [],
+              matchRight: Array.isArray(qr.matchRight) ? qr.matchRight : [],
+            })
+          }
+          if (legacyRecap) {
+            synthesizedLegacySteps.push({
+              id: `c${chapterIndex + 1}-recap`,
+              type: 'recap',
+              title: 'Zusammenfassung',
+              content: typeof legacyRecap.content === 'string' ? legacyRecap.content : '',
+              bullets: Array.isArray(legacyRecap.bullets) ? legacyRecap.bullets : [],
+            })
+          }
+        }
+        const sourceSteps = stepsRaw.length > 0 ? stepsRaw : synthesizedLegacySteps
+        const steps = sourceSteps
           .map((step, stepIndex) => {
             if (!step || typeof step !== 'object') {
               return null
@@ -564,6 +728,7 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
           id: chapterId,
           title,
           description,
+          source: 'ai',
           steps,
         } satisfies ChapterBlueprint
       })

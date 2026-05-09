@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
-import type { LearnFlashcard } from '../../chat/services/chat.service'
+import type { LearnFlashcard } from '../services/learn.persistence'
 
 export type LearnFlashcardsModalProps = {
   isMounted: boolean
@@ -11,10 +11,13 @@ export type LearnFlashcardsModalProps = {
   isLoading: boolean
   error: string | null
   onClose: () => void
+  /** Beim Öffnen aus der Liste: zu dieser Karte springen */
+  focusCardId?: string | null
+  onRateCard?: (cardId: string, rating: 'known' | 'unknown') => void
 }
 
 export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
-  const { isMounted, isVisible, cards, isLoading, error, onClose } = props
+  const { isMounted, isVisible, cards, isLoading, error, onClose, focusCardId, onRateCard } = props
   const cardsKey = useMemo(
     () => cards.map((card) => `${card.question}::${card.answer}`).join('||'),
     [cards],
@@ -24,6 +27,42 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
     isFlipped: false,
     cardsKey,
   })
+
+  const prevModalVisibleRef = useRef(false)
+  const prevFocusCardIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!isVisible) {
+      prevModalVisibleRef.current = false
+      prevFocusCardIdRef.current = null
+      return
+    }
+
+    const becameVisible = !prevModalVisibleRef.current
+    prevModalVisibleRef.current = true
+
+    if (!focusCardId || cards.length === 0) {
+      prevFocusCardIdRef.current = focusCardId ?? null
+      return
+    }
+
+    const focusChanged = focusCardId !== prevFocusCardIdRef.current
+    prevFocusCardIdRef.current = focusCardId
+
+    if (!becameVisible && !focusChanged) {
+      return
+    }
+
+    const idx = cards.findIndex((c) => c.id === focusCardId)
+    if (idx < 0) {
+      return
+    }
+    setState({
+      index: idx,
+      isFlipped: false,
+      cardsKey,
+    })
+  }, [isVisible, focusCardId, cards, cardsKey])
 
   if (!isMounted) {
     return null
@@ -109,6 +148,31 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
                     Weiter
                   </PrimaryButton>
                 </div>
+              ) : null}
+              {card && onRateCard && isFlipped ? (
+                <div className="learn-flashcard-rating" role="group" aria-label="Selbsteinschätzung">
+                  <SecondaryButton
+                    type="button"
+                    className={`learn-flashcard-rating-btn learn-flashcard-rating-btn--unknown${
+                      card.selfRating === 'unknown' ? ' is-active' : ''
+                    }`}
+                    onClick={() => onRateCard(card.id, 'unknown')}
+                  >
+                    Nicht gewusst
+                  </SecondaryButton>
+                  <PrimaryButton
+                    type="button"
+                    className={`learn-flashcard-rating-btn learn-flashcard-rating-btn--known${
+                      card.selfRating === 'known' ? ' is-active' : ''
+                    }`}
+                    onClick={() => onRateCard(card.id, 'known')}
+                  >
+                    Gewusst
+                  </PrimaryButton>
+                </div>
+              ) : null}
+              {card && onRateCard && !isFlipped ? (
+                <p className="learn-flashcard-rating-hint learn-muted">Zum Bewerten zuerst die Karte umdrehen (Antwort lesen).</p>
               ) : null}
             </>
           )}

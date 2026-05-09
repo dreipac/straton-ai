@@ -1,38 +1,36 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
-import { evaluateQuizAnswerWithAi, sendMessage } from '../../chat/services/chat.service'
-import type { ChatMessage } from '../../chat/types'
-import { parseInteractiveContentWithFallback, type InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, ChapterSession, EntryQuizResult, TutorChatEntry, UploadedMaterial } from '../services/learn.persistence'
-import {
-  CHAPTER_GENERATION_MAX_ATTEMPTS,
-  CHAPTER_GENERATION_TIMEOUT_MS,
-  CHAPTER_LEARNING_FIDELITY_RULES,
-  DEFAULT_CHAPTER_SESSION,
-  WORKSHEET_EXERCISE_FIDELITY_RULES,
-  buildRichFallbackChapterSteps,
-  ensureMinimumChapterDepth,
-  getDisplayPathTitle,
-  parseChapterBlueprintsFromText,
-  parseLearningChaptersFromText,
-} from '../utils/learnPageHelpers'
-import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
-import { namespaceChapterStepIds } from '../utils/chapterStepIds'
-import { formatRelevantMaterialContext } from '../utils/ragLite'
+import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
+import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
+import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnTutorState, TutorChatEntry } from '../services/learn.persistence'
+import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
+
+function isRateLimitError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const message = error.message.toLowerCase()
+  return message.includes('429') || message.includes('rate limit') || message.includes('too many requests')
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
 
 type UseEntryQuizSubmissionFlowArgs = {
   entryQuiz: InteractiveQuizPayload | null
   isSubmittingEntryQuiz: boolean
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
-  effectiveTopic: string
-  activePathTitle: string
-  selectedTopic: string
-  aiGuidance: string
-  materials: UploadedMaterial[]
   closeEntryQuizModal: () => void
   setError: Dispatch<SetStateAction<string | null>>
   setIsSubmittingEntryQuiz: Dispatch<SetStateAction<boolean>>
   setEntryQuizResult: Dispatch<SetStateAction<EntryQuizResult | null>>
+  setTutorState: Dispatch<SetStateAction<LearnTutorState>>
+  setCurrentChapterIndex: Dispatch<SetStateAction<number>>
+  setTargetChapterCount: Dispatch<SetStateAction<number>>
+  setUnlockedChapterCount: Dispatch<SetStateAction<number>>
   setTutorMessages: Dispatch<SetStateAction<TutorChatEntry[]>>
   setIsChapterPreviewVisible: Dispatch<SetStateAction<boolean>>
   setIsPostEntryPrepLoading: Dispatch<SetStateAction<boolean>>
@@ -44,21 +42,19 @@ type UseEntryQuizSubmissionFlowArgs = {
 }
 
 export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs) {
-  const { getPrompt } = useSystemPrompts()
   const {
     entryQuiz,
     isSubmittingEntryQuiz,
     entryQuizAnswers,
     entryQuizResult,
-    effectiveTopic,
-    activePathTitle,
-    selectedTopic,
-    aiGuidance,
-    materials,
     closeEntryQuizModal,
     setError,
     setIsSubmittingEntryQuiz,
     setEntryQuizResult,
+    setTutorState,
+    setCurrentChapterIndex,
+    setTargetChapterCount,
+    setUnlockedChapterCount,
     setTutorMessages,
     setIsChapterPreviewVisible,
     setIsPostEntryPrepLoading,
@@ -82,35 +78,58 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       const cachedCorrectness = entryQuizResult?.correctnessByQuestionId ?? {}
       const cachedAnswers = entryQuizResult?.evaluatedAnswersByQuestionId ?? {}
 
-      const evaluations = await Promise.all(
-        entryQuiz.questions.map(async (question) => {
-          const answer = (entryQuizAnswers[question.id] ?? '').trim()
-          const canReuseCachedEvaluation =
-            cachedAnswers[question.id] === answer &&
-            typeof cachedFeedback[question.id] === 'string' &&
-            typeof cachedCorrectness[question.id] === 'boolean'
+      const evaluations: Array<{
+        questionId: string
+        answer: string
+        isCorrect: boolean
+        feedback: string
+      }> = []
+      let hadRateLimitIssue = false
 
-          if (canReuseCachedEvaluation) {
-            return {
-              questionId: question.id,
-              answer,
-              isCorrect: cachedCorrectness[question.id],
-              feedback: cachedFeedback[question.id],
-            }
-          }
+      for (const question of entryQuiz.questions) {
+        const answer = (entryQuizAnswers[question.id] ?? '').trim()
+        const canReuseCachedEvaluation =
+          cachedAnswers[question.id] === answer &&
+          typeof cachedFeedback[question.id] === 'string' &&
+          typeof cachedCorrectness[question.id] === 'boolean'
 
+        if (canReuseCachedEvaluation) {
+          evaluations.push({
+            questionId: question.id,
+            answer,
+            isCorrect: cachedCorrectness[question.id],
+            feedback: cachedFeedback[question.id],
+          })
+          continue
+        }
+
+        try {
           const result = await evaluateQuizAnswerWithAi({
             question,
             userAnswer: answer,
           })
-          return {
+          evaluations.push({
             questionId: question.id,
             answer,
             isCorrect: result.isCorrect,
             feedback: result.feedback,
+          })
+        } catch (error) {
+          if (isRateLimitError(error)) {
+            hadRateLimitIssue = true
           }
-        }),
-      )
+          evaluations.push({
+            questionId: question.id,
+            answer,
+            isCorrect: false,
+            feedback:
+              'Die KI-Bewertung war kurz ausgelastet. Diese Antwort wurde vorerst als Lernpotenzial markiert.',
+          })
+        }
+
+        // Reduziert Burst-Requests und senkt 429-Risiko bei mehreren Freitextfragen.
+        await delay(140)
+      }
 
       const score = evaluations.filter((entry) => entry.isCorrect).length
       const feedbackByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
@@ -137,195 +156,61 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       closeEntryQuizModal()
       setTutorMessages([])
       setIsChapterPreviewVisible(false)
-      setIsPostEntryPrepLoading(true)
+      setLearningChapters([])
+      setChapterBlueprints([])
+      setChapterSession(DEFAULT_CHAPTER_SESSION)
+      const scoreRatio = entryQuiz.questions.length > 0 ? score / entryQuiz.questions.length : 0
+      const recommendedChapterCount = scoreRatio < 0.4 ? 4 : scoreRatio < 0.7 ? 3 : 2
+      setTutorState('entry_quiz_done')
+      setCurrentChapterIndex(0)
+      setTargetChapterCount(recommendedChapterCount)
+      setUnlockedChapterCount(1)
       setPostEntryPrepStepIndex(0)
       setPostEntryPrepPercents([0, 0])
+      setIsPostEntryPrepLoading(false)
 
-      await new Promise<void>((resolve) => {
-        let percent = 0
-        const timerId = window.setInterval(() => {
-          percent = Math.min(100, percent + (Math.floor(Math.random() * 8) + 5))
-          setPostEntryPrepPercents((prev) => [percent, prev[1] ?? 0])
-          if (percent >= 100) {
-            window.clearInterval(timerId)
-            resolve()
-          }
-        }, 55)
-      })
-
-      setPostEntryPrepStepIndex(1)
-
-      let stageTwoPercent = 0
-      const stageTwoTimerId = window.setInterval(() => {
-        stageTwoPercent = Math.min(92, stageTwoPercent + (Math.floor(Math.random() * 5) + 3))
-        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, stageTwoPercent])
-      }, 85)
-
-      try {
-        const evaluationSummary = entryQuiz.questions
-          .map((question) => ({
-            prompt: question.prompt,
-            isCorrect: correctnessByQuestionId[question.id] === true,
-            feedback: feedbackByQuestionId[question.id] ?? '',
-          }))
-          .map(
-            (item, index) =>
-              `${index + 1}. ${item.prompt}\nStatus: ${item.isCorrect ? 'sicher' : 'Lernpotenzial'}\nHinweis: ${
-                item.feedback || '-'
-              }`,
-          )
-          .join('\n\n')
-
-        const chapterMaterialContext = formatRelevantMaterialContext(
-          (
-            (effectiveTopic || getDisplayPathTitle(activePathTitle)) +
-            ' ' +
-            selectedTopic +
-            ' ' +
-            evaluationSummary +
-            ' Übung Aufgabe Berechnung Teilaufgabe'
-          ).trim(),
-          materials,
-          materials.length > 0
-            ? {
-                maxChunks: materials.length > 2 ? 12 : 9,
-                maxChars: materials.length > 2 ? 9000 : 7200,
-                denseChunks: true,
-                emphasizePersonalSources: true,
-              }
-            : { maxChunks: 8, maxChars: 4200 },
-        )
-
-        const chapterRequest: ChatMessage = {
+      const scoreLine = `Dein Einstiegstest ist ausgewertet: ${score}/${entryQuiz.questions.length} korrekt.`
+      const strengths = score >= Math.ceil(entryQuiz.questions.length * 0.6) ? 'Du hast eine gute Basis in den Kernfragen.' : 'Stärken: Grundverständnis ist vorhanden.'
+      const weaknesses =
+        score < Math.ceil(entryQuiz.questions.length * 0.6)
+          ? 'Schwächen: Bei Anwendung und Randfällen gibt es Lücken.'
+          : 'Schwächen: Bei schwierigeren Detailfragen gibt es noch Potenzial.'
+      setTutorMessages([
+        {
           id: crypto.randomUUID(),
-          role: 'user',
-          content: [
-            `Thema: ${effectiveTopic || getDisplayPathTitle(activePathTitle)}`,
-            selectedTopic.trim() ? `Schwerpunkt: ${selectedTopic.trim()}` : 'Schwerpunkt: keiner',
-            aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${aiGuidance.trim()}` : 'Zusatzhinweise des Lernenden: keine',
-            `Testergebnis: ${score}/${entryQuiz.questions.length}`,
-            'Aufgabe: Erstelle max. 6 kapitelbasierte Lernkapitel anhand der Testergebnisse.',
-            'Gewichte Kapitel mit Lernpotenzial detaillierter und starke Bereiche nur kurz.',
-            'Erzeuge pro Kapitel eine gemischte Step-Struktur mit Erklärungen und interaktiven Fragen.',
-            'Erklärungs-Steps (type explanation): im Feld "content" immer 2-5 Sätze; darin mindestens EIN kurzes eingebettetes Beispiel (Mini-Fall, Kontrast, oder Zahlen/Prozess aus dem Thema). In "bullets" können 2-4 Stichpunkte stehen; mindestens ein Bullet soll ein konkretes Beispiel nennen oder vertiefen.',
-            'Wenn unten Materialauszüge vorliegen: mindestens die Hälfte der Fragen (alle Typen: mcq, text, match, true_false) pro Kapitel muss sich auf diese Auszüge beziehen (Begriffe erkennen, zuordnen, Auszug interpretieren, Lücke füllen). Formuliere die prompt-Zeile so, dass ohne Lesen des Materials die Antwort schwer fällt.',
-            WORKSHEET_EXERCISE_FIDELITY_RULES,
-            CHAPTER_LEARNING_FIDELITY_RULES,
-            'In JEDEM Kapitel muss mindestens ein Praxisfall als Aufgabe vorkommen (realistisches KV-/Büro-Szenario mit kurzer Loesungsidee).',
-            'WICHTIG: Jedes Kapitel muss zwischen 8 und 14 Steps haben (kein kurzes Kapitel).',
-            'Empfohlene Sequenz: warmup -> erklärung -> frage -> erklärung -> frage -> erklärung -> frage -> recap.',
-            'Fragetypen mischen: mindestens je einige mcq, text, und zusätzlich match (Zuordnung) und/oder true_false (Wahr/Falsch, expectedAnswer "Wahr" oder "Falsch") pro Kapitel — nicht nur mcq+text.',
-            'Ausgabeformat: Nur JSON-Array ohne Erklärung.',
-            'Schema pro Kapitel (Beispiele): {"id":"chapter-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Wahr","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["A","B"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
-            'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten). Feld "explanation" optional: kurze Begründung zur erwarteten Antwort.',
-            `Auswertungsgrundlage:\n${evaluationSummary}`,
-            chapterMaterialContext
-              ? 'Materialauszüge (Pflichtbezug für Erklärungen und mindestens Hälfte der Fragen):\n' + chapterMaterialContext
-              : 'Materialauszüge: keine — nutze dann realistische KV-Praxisbeispiele in Erklärungen und Aufgaben.',
-          ].join('\n\n'),
-          createdAt: new Date().toISOString(),
-        }
-
-        let chapterResponse: Awaited<ReturnType<typeof sendMessage>> | null = null
-        let chapterError: Error | null = null
-
-        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
-          try {
-            chapterResponse = await Promise.race([
-              sendMessage([chapterRequest], {
-                interactiveQuizPrompt: getPrompt('interactive_quiz'),
-                systemPrompt: getPrompt('learn_tutor'),
-                useLearnPathModel: true,
-              }),
-              new Promise<never>((_, reject) => {
-                window.setTimeout(() => reject(new Error('Kapitelgenerierung dauert zu lange. Bitte erneut versuchen.')), CHAPTER_GENERATION_TIMEOUT_MS)
-              }),
-            ])
-            break
-          } catch (err) {
-            chapterError = err instanceof Error ? err : new Error('Kapitel konnten nicht generiert werden.')
-            if (attempt >= CHAPTER_GENERATION_MAX_ATTEMPTS) {
-              throw chapterError
-            }
-          }
-        }
-
-        if (!chapterResponse) {
-          throw chapterError ?? new Error('Kapitel konnten nicht generiert werden.')
-        }
-        const parsed = parseInteractiveContentWithFallback(chapterResponse.assistantMessage.content)
-        const parsedContent = parsed.cleanText || chapterResponse.assistantMessage.content
-        const parsedBlueprints = namespaceChapterStepIds(
-          ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent)),
-        )
-        const titlesFromBlueprints = parsedBlueprints.map((chapter) => chapter.title).filter(Boolean)
-        const generated = parseLearningChaptersFromText(parsedContent)
-        const placeholderTitles = [
-          `Grundlagen von ${effectiveTopic || 'deinem Thema'} festigen`,
-          'Schwächere Bereiche aus dem Einstiegstest vertiefen',
-          'Kurzer Praxis-Transfer für sichere Themen',
-        ]
-        const nextLearningChapters =
-          titlesFromBlueprints.length > 0
-            ? titlesFromBlueprints.slice(0, 6)
-            : generated.length > 0
-              ? generated.slice(0, 6)
-              : placeholderTitles
-        const nextBlueprints: ChapterBlueprint[] =
-          parsedBlueprints.length > 0
-            ? parsedBlueprints
-            : namespaceChapterStepIds(
-                nextLearningChapters.map((title, index) => ({
-                  id: `chapter-${index + 1}`,
-                  title,
-                  steps: buildRichFallbackChapterSteps(title, index),
-                })) as ChapterBlueprint[],
-              )
-
-        window.clearInterval(stageTwoTimerId)
-        setPostEntryPrepPercents((prev) => [prev[0] ?? 100, 100])
-
-        setLearningChapters(nextLearningChapters)
-        setChapterBlueprints(nextBlueprints)
-        setChapterSession(DEFAULT_CHAPTER_SESSION)
-        setTutorMessages([
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: 'Anhand deiner Testergebnisse wurden Lernkapitel generiert.',
-            action: 'open-entry-test',
-          },
-        ])
-      } finally {
-        window.clearInterval(stageTwoTimerId)
+          role: 'assistant',
+          content: `${scoreLine} ${strengths} ${weaknesses} Nächster sinnvoller Schritt: Starte mit Kapitel 1.`,
+          action: 'start-next-chapter',
+        },
+      ])
+      if (hadRateLimitIssue) {
+        setError('Hinweis: Einzelne Antworten wurden wegen KI-Auslastung vorläufig konservativ bewertet.')
       }
     } catch (err) {
-      console.error('Lernbereich: Kapitelgenerierung fehlgeschlagen', err)
+      console.error('Lernbereich: Einstiegstest-Auswertung fehlgeschlagen', err)
       setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht abgegeben werden.')
     } finally {
       setIsPostEntryPrepLoading(false)
       setIsSubmittingEntryQuiz(false)
     }
   }, [
-    activePathTitle,
     closeEntryQuizModal,
-    effectiveTopic,
     entryQuiz,
     entryQuizAnswers,
     entryQuizResult,
-    getPrompt,
     isSubmittingEntryQuiz,
-    materials,
-    selectedTopic,
-    aiGuidance,
     setChapterBlueprints,
     setChapterSession,
     setEntryQuizResult,
     setError,
+    setCurrentChapterIndex,
     setIsChapterPreviewVisible,
     setIsPostEntryPrepLoading,
     setIsSubmittingEntryQuiz,
+    setTargetChapterCount,
     setLearningChapters,
+    setTutorState,
+    setUnlockedChapterCount,
     setPostEntryPrepPercents,
     setPostEntryPrepStepIndex,
     setTutorMessages,

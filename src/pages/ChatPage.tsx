@@ -14,7 +14,7 @@ import editIcon from '../assets/icons/edit.svg'
 import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
 import accountIcon from '../assets/icons/account.svg'
-import learnIcon from '../assets/icons/learn.svg'
+import learnIcon from '../assets/icons/learn-outlined.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
@@ -85,6 +85,7 @@ import { useToast } from '../components/toast/ToastProvider'
 import { getSupabaseClient } from '../integrations/supabase/client'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
+import type { ChatMessage } from '../features/chat/types'
 
 /** Gleicher Breakpoint wie `layout.css` Mobile-Sidebar (`max-width: 860px`). */
 const COMPACT_MOBILE_SIDEBAR_MAX_PX = 860
@@ -123,11 +124,125 @@ const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[
   { id: 'straton', label: 'Straton' },
 ]
 
+type ChatLearnProficiency = 'low' | 'medium' | 'high'
+type ChatLearnDraftStep = 'proficiency' | 'name'
+type ChatLearnDraftContext = {
+  fileNames: string[]
+  imageCount: number
+  topTerms: string[]
+  focusText: string
+  excerpt: string
+}
+
+function summarizeChatForLearningPath(messages: ChatMessage[]): ChatLearnDraftContext {
+  const fileNamesSet = new Set<string>()
+  let imageCount = 0
+  const contentParts: string[] = []
+  const dateiRe = /\[Datei:\s*([^\]]+)\]/g
+  const bildRe = /\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g
+  const bildDataRe = /\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g
+  for (const msg of messages) {
+    const raw = typeof msg.content === 'string' ? msg.content : ''
+    if (!raw.trim()) {
+      continue
+    }
+    let m: RegExpExecArray | null
+    while ((m = dateiRe.exec(raw)) !== null) {
+      const name = String(m[1] ?? '').trim()
+      if (name) {
+        fileNamesSet.add(name)
+      }
+    }
+    const stripped = raw
+      .replace(bildDataRe, () => {
+        imageCount += 1
+        return ' '
+      })
+      .replace(bildRe, () => {
+        imageCount += 1
+        return ' '
+      })
+      .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, ' ')
+      .replace(/\[\[STRATON_[A-Z_]+\]\]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!stripped) {
+      continue
+    }
+    const prefix = msg.role === 'user' ? 'Nutzer' : 'KI'
+    contentParts.push(`${prefix}: ${stripped}`)
+  }
+  const fileNames = [...fileNamesSet]
+  const latestUser = [...messages].reverse().find((m) => m.role === 'user')
+  const latestUserText = (latestUser?.content ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
+    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
+    .trim()
+    .slice(0, 180)
+  const corpus = contentParts.join(' ').toLowerCase()
+  const stopwords = new Set([
+    'der',
+    'die',
+    'das',
+    'und',
+    'oder',
+    'ein',
+    'eine',
+    'einer',
+    'eines',
+    'mit',
+    'für',
+    'von',
+    'ist',
+    'sind',
+    'auf',
+    'im',
+    'in',
+    'zu',
+    'den',
+    'dem',
+    'des',
+    'als',
+    'auch',
+    'wie',
+    'dass',
+    'wenn',
+    'dann',
+    'noch',
+    'mehr',
+    'wird',
+    'werden',
+    'kann',
+    'können',
+    'bitte',
+    'nutzer',
+    'ki',
+  ])
+  const words = corpus.match(/[a-zA-ZäöüÄÖÜß0-9-]{4,}/g) ?? []
+  const freq = new Map<string, number>()
+  for (const w of words) {
+    if (stopwords.has(w)) {
+      continue
+    }
+    freq.set(w, (freq.get(w) ?? 0) + 1)
+  }
+  const topTerms = [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([term]) => term)
+  const focusText = latestUserText || 'Kein klarer Fokus aus letzter Nachricht erkennbar.'
+  const excerpt = contentParts.slice(-6).join('\n').slice(0, 1200)
+  return { fileNames, imageCount, topTerms, focusText, excerpt }
+}
+
 export function ChatPage() {
   const DEFAULT_NO_PLAN_MAX_TOKENS = 100
   const MODAL_ANIMATION_MS = 220
   const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
   const { push: pushToast } = useToast()
+  const navigate = useNavigate()
   /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
   const isNarrowViewport = useIsMobileViewport()
   /** Wie Freigabe-Leiste: max-width 860px — Comfort/Strict nativ in der Oberleiste. */
@@ -205,6 +320,8 @@ export function ChatPage() {
   const [shareActionBusy, setShareActionBusy] = useState(false)
   /** Mobile «Neuer Chat» FAB: gleicher Ring wie Senden während createNewChat läuft */
   const [isNewChatPending, setIsNewChatPending] = useState(false)
+  const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
+  const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const canInviteToActiveChat = Boolean(
     user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
   )
@@ -216,8 +333,14 @@ export function ChatPage() {
       (activeThread.membershipRole === 'owner' || activeThread.membershipRole === 'member'),
   )
   const showCollaborationToolbar = isPersistedThreadParticipant
+  const showLearningPathToolbarChip = Boolean(user && activeThreadId)
+  const isAdmin = profile?.is_superadmin === true
+  const isLearnPathsButtonDisabled = !learnPathsEnabled && !isAdmin
+  const isLearnPathCreateButtonDisabled = !learnPathCreateEnabled && !isAdmin
   const showFloatingChatToolbar =
-    showCollaborationToolbar || (Boolean(user) && isChatToolbarMobile && !showCollaborationToolbar)
+    showLearningPathToolbarChip ||
+    showCollaborationToolbar ||
+    (Boolean(user) && isChatToolbarMobile && !showCollaborationToolbar)
   const hasCollaborators = useMemo(
     () => threadMembers.some((m) => m.role === 'member'),
     [threadMembers],
@@ -225,6 +348,17 @@ export function ChatPage() {
   const [participantsOpen, setParticipantsOpen] = useState(false)
   const participantsAnchorRef = useRef<HTMLDivElement | null>(null)
   const participantsSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+  const [learningPathDraftOpen, setLearningPathDraftOpen] = useState(false)
+  const [learningPathDraftLoading, setLearningPathDraftLoading] = useState(false)
+  const [learningPathDraftStep, setLearningPathDraftStep] = useState<ChatLearnDraftStep>('proficiency')
+  const [learningPathDraftContext, setLearningPathDraftContext] = useState<ChatLearnDraftContext | null>(null)
+  const [learningPathDraftFiles, setLearningPathDraftFiles] = useState<string[]>([])
+  const [learningPathDraftImages, setLearningPathDraftImages] = useState(0)
+  const [learningPathDraftProficiency, setLearningPathDraftProficiency] = useState<ChatLearnProficiency | ''>('')
+  const [learningPathDraftName, setLearningPathDraftName] = useState('Neuer Lernpfad')
+  const learningPathDraftTimerRef = useRef<number | null>(null)
+  const [learnFeatureInfoVisible, setLearnFeatureInfoVisible] = useState(false)
+  const learnFeatureInfoTimerRef = useRef<number | null>(null)
 
   const refreshThreadMembers = useCallback(async () => {
     if (!activeThread?.id || !isPersistedThreadParticipant) {
@@ -248,6 +382,101 @@ export function ChatPage() {
     }
     void refreshThreadMembers()
   }, [isPersistedThreadParticipant, activeThread?.id, refreshThreadMembers])
+
+  useEffect(() => {
+    if (learningPathDraftTimerRef.current !== null) {
+      window.clearTimeout(learningPathDraftTimerRef.current)
+      learningPathDraftTimerRef.current = null
+    }
+    setLearningPathDraftOpen(false)
+    setLearningPathDraftLoading(false)
+    setLearningPathDraftStep('proficiency')
+    setLearningPathDraftContext(null)
+    setLearningPathDraftFiles([])
+    setLearningPathDraftImages(0)
+    setLearningPathDraftProficiency('')
+    setLearningPathDraftName('Neuer Lernpfad')
+  }, [activeThreadId])
+
+  const showLearnFeatureUnavailableInfo = useCallback(() => {
+    setLearnFeatureInfoVisible(true)
+    if (learnFeatureInfoTimerRef.current !== null) {
+      window.clearTimeout(learnFeatureInfoTimerRef.current)
+    }
+    learnFeatureInfoTimerRef.current = window.setTimeout(() => {
+      setLearnFeatureInfoVisible(false)
+      learnFeatureInfoTimerRef.current = null
+    }, 2200)
+  }, [])
+
+  const openLearningPathDraft = useCallback(() => {
+    if (isLearnPathCreateButtonDisabled) {
+      showLearnFeatureUnavailableInfo()
+      return
+    }
+    if (!activeThreadId) {
+      pushToast('Bitte zuerst einen Chat auswählen.')
+      return
+    }
+    const snapshot = summarizeChatForLearningPath(messages)
+    setLearningPathDraftOpen(true)
+    setLearningPathDraftLoading(true)
+    setLearningPathDraftStep('proficiency')
+    setLearningPathDraftContext(null)
+    setLearningPathDraftFiles([])
+    setLearningPathDraftImages(0)
+    setLearningPathDraftName('Neuer Lernpfad')
+    if (learningPathDraftTimerRef.current !== null) {
+      window.clearTimeout(learningPathDraftTimerRef.current)
+      learningPathDraftTimerRef.current = null
+    }
+    learningPathDraftTimerRef.current = window.setTimeout(() => {
+      setLearningPathDraftContext(snapshot)
+      setLearningPathDraftFiles(snapshot.fileNames)
+      setLearningPathDraftImages(snapshot.imageCount)
+      setLearningPathDraftLoading(false)
+      learningPathDraftTimerRef.current = null
+    }, 1300)
+  }, [activeThreadId, isLearnPathCreateButtonDisabled, messages, pushToast, showLearnFeatureUnavailableInfo])
+
+  const proceedToLearnPageFromChatDraft = useCallback(() => {
+    const name = learningPathDraftName.trim()
+    if (!name) {
+      pushToast('Bitte gib einen Namen für den Lernpfad ein.')
+      return
+    }
+    if (!learningPathDraftProficiency) {
+      pushToast('Bitte wähle zuerst deine Selbsteinschätzung.')
+      return
+    }
+    navigate('/learn', {
+      state: {
+        fromChatLearningDraft: {
+          name,
+          proficiency: learningPathDraftProficiency,
+          context: learningPathDraftContext,
+          sourceThreadId: activeThreadId,
+          createdAt: new Date().toISOString(),
+        },
+      },
+    })
+  }, [
+    activeThreadId,
+    learningPathDraftContext,
+    learningPathDraftName,
+    learningPathDraftProficiency,
+    navigate,
+    pushToast,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (learningPathDraftTimerRef.current !== null) {
+        window.clearTimeout(learningPathDraftTimerRef.current)
+        learningPathDraftTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!activeThread?.id || !user?.id || !isPersistedThreadParticipant) {
@@ -516,7 +745,6 @@ export function ChatPage() {
       /* ignore */
     }
   }
-  const navigate = useNavigate()
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('general')
@@ -705,6 +933,9 @@ export function ChatPage() {
       if (longPressTimerRef.current) {
         window.clearTimeout(longPressTimerRef.current)
       }
+      if (learnFeatureInfoTimerRef.current) {
+        window.clearTimeout(learnFeatureInfoTimerRef.current)
+      }
     }
   }, [])
 
@@ -722,11 +953,15 @@ export function ChatPage() {
           return
         }
         setShowBetaNoticeOnFirstLogin(flags.show_beta_notice_on_first_login)
+        setLearnPathsEnabled(flags.learn_paths_enabled)
+        setLearnPathCreateEnabled(flags.learn_path_create_enabled)
       } catch {
         if (!isMounted) {
           return
         }
         setShowBetaNoticeOnFirstLogin(true)
+        setLearnPathsEnabled(true)
+        setLearnPathCreateEnabled(true)
       }
     })()
 
@@ -1315,8 +1550,15 @@ export function ChatPage() {
           <button
             ref={learnTourRef}
             type="button"
-            className={chatTourEligible ? 'chat-onboarding-tour-block' : undefined}
+            className={`chat-sidebar-learn-button${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
+              isLearnPathsButtonDisabled ? ' is-disabled' : ''
+            }`}
+            aria-disabled={isLearnPathsButtonDisabled}
             onClick={() => {
+              if (isLearnPathsButtonDisabled) {
+                showLearnFeatureUnavailableInfo()
+                return
+              }
               navigate('/learn')
               setIsMobileSidebarOpen(false)
             }}
@@ -1339,6 +1581,9 @@ export function ChatPage() {
               <img className="ui-icon chat-sidebar-top-button-icon" src={accountIcon} alt="" aria-hidden="true" />
               {!isSidebarCollapsed ? 'Administrator' : null}
             </button>
+          ) : null}
+          {learnFeatureInfoVisible && !isSidebarCollapsed ? (
+            <p className="chat-learn-feature-info chat-learn-feature-info--sidebar">Noch nicht verfügbar</p>
           ) : null}
         </div>
 
@@ -1553,6 +1798,27 @@ export function ChatPage() {
                   <span>{hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}</span>
                 </button>
               ) : null}
+              {showLearningPathToolbarChip ? (
+                <button
+                  type="button"
+                  className={`chat-main-invite-chip chat-main-invite-chip--learn${
+                    isLearnPathCreateButtonDisabled ? ' is-disabled' : ''
+                  }`}
+                  onClick={openLearningPathDraft}
+                  disabled={learningPathDraftLoading}
+                  aria-disabled={isLearnPathCreateButtonDisabled}
+                  aria-label="Lernpfad erstellen"
+                >
+                  <img
+                    className="ui-icon ui-icon-md chat-main-invite-chip-icon"
+                    src={learnIcon}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span>Lernpfad erstellen</span>
+                </button>
+              ) : null}
+              {learnFeatureInfoVisible ? <p className="chat-learn-feature-info">Noch nicht verfügbar</p> : null}
             </div>
           </div>
         ) : null}
@@ -1578,6 +1844,104 @@ export function ChatPage() {
           onFinalizeWordDocument={finalizeWordDocumentExport}
           wordFinalizeBusy={wordFinalizeBusy}
         />
+        <aside
+          className={`chat-learnpath-draft-sidebar${learningPathDraftOpen ? ' is-open' : ''}`}
+          aria-label="Lernpfad vorbereiten"
+        >
+          <div className="chat-learnpath-draft-sidebar-header">
+            <h3>Lernpfad erstellen</h3>
+            <button
+              type="button"
+              className="chat-learnpath-draft-close"
+              aria-label="Lernpfad-Einrichtung schließen"
+              onClick={() => setLearningPathDraftOpen(false)}
+            >
+              X
+            </button>
+          </div>
+          {learningPathDraftLoading ? (
+            <div className="chat-learnpath-draft-loader" role="status" aria-live="polite">
+              <span className="chat-learnpath-draft-loader-ring" aria-hidden="true" />
+              <p>Chat-Inhalte werden analysiert…</p>
+            </div>
+          ) : (
+            <div className="chat-learnpath-draft-body">
+              {learningPathDraftStep === 'proficiency' ? (
+                <>
+                  <p className="chat-learnpath-draft-hint">
+                    Die Chat-Informationen wurden für den Lernpfad gespeichert.
+                  </p>
+                  <div className="chat-learnpath-draft-meta">
+                    <span>Dateien: {learningPathDraftFiles.length}</span>
+                    <span>Bilder: {learningPathDraftImages}</span>
+                    <span>Themen: {learningPathDraftContext?.topTerms.length ?? 0}</span>
+                  </div>
+                  <div className="chat-learnpath-draft-proficiency" role="radiogroup" aria-label="Kenntnisstand">
+                    <p>Wie gut beherrschst du die Inhalte?</p>
+                    <div className="chat-learnpath-draft-proficiency-options">
+                      <button
+                        type="button"
+                        className={`chat-learnpath-draft-level${
+                          learningPathDraftProficiency === 'low' ? ' is-active' : ''
+                        }`}
+                        onClick={() => setLearningPathDraftProficiency('low')}
+                      >
+                        Einsteiger
+                      </button>
+                      <button
+                        type="button"
+                        className={`chat-learnpath-draft-level${
+                          learningPathDraftProficiency === 'medium' ? ' is-active' : ''
+                        }`}
+                        onClick={() => setLearningPathDraftProficiency('medium')}
+                      >
+                        Mittel
+                      </button>
+                      <button
+                        type="button"
+                        className={`chat-learnpath-draft-level${
+                          learningPathDraftProficiency === 'high' ? ' is-active' : ''
+                        }`}
+                        onClick={() => setLearningPathDraftProficiency('high')}
+                      >
+                        Fortgeschritten
+                      </button>
+                    </div>
+                    <div className="chat-learnpath-draft-actions">
+                      <PrimaryButton
+                        type="button"
+                        disabled={!learningPathDraftProficiency}
+                        onClick={() => setLearningPathDraftStep('name')}
+                      >
+                        Weiter
+                      </PrimaryButton>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="chat-learnpath-draft-proficiency">
+                  <p>Wie soll dein Lernpfad heißen?</p>
+                  <input
+                    type="text"
+                    className="chat-learnpath-draft-name-input"
+                    value={learningPathDraftName}
+                    onChange={(event) => setLearningPathDraftName(event.currentTarget.value)}
+                    placeholder="z. B. Word Generator Mastery"
+                    maxLength={80}
+                  />
+                  <div className="chat-learnpath-draft-actions">
+                    <SecondaryButton type="button" onClick={() => setLearningPathDraftStep('proficiency')}>
+                      Zurück
+                    </SecondaryButton>
+                    <PrimaryButton type="button" onClick={proceedToLearnPageFromChatDraft}>
+                      Zum Lernbereich
+                    </PrimaryButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </aside>
       </section>
 
       <InviteToChatModal
@@ -1746,8 +2110,15 @@ export function ChatPage() {
                 ))}
                 <button
                   type="button"
-                  className={`profile-full-sheet-row${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
+                  className={`profile-full-sheet-row${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
+                    isLearnPathsButtonDisabled ? ' is-disabled' : ''
+                  }`}
+                  aria-disabled={isLearnPathsButtonDisabled}
                   onClick={() => {
+                    if (isLearnPathsButtonDisabled) {
+                      showLearnFeatureUnavailableInfo()
+                      return
+                    }
                     setMobileSheetMode('closed')
                     navigate('/learn')
                     setIsMobileSidebarOpen(false)

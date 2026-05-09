@@ -164,6 +164,7 @@ export type LearnChapterModalProps = {
   onPreviousChapterStep: () => void
   onEvaluateChapterQuestion: () => void
   onNextChapterStep: () => void
+  onCompleteChapter: () => void
 }
 
 export function LearnChapterModal(props: LearnChapterModalProps) {
@@ -187,6 +188,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
     onPreviousChapterStep,
     onEvaluateChapterQuestion,
     onNextChapterStep,
+    onCompleteChapter,
   } = props
 
   const [hintPopoverMounted, setHintPopoverMounted] = useState(false)
@@ -195,6 +197,8 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
   const hintAnchorRef = useRef<HTMLDivElement>(null)
   const activeStepId = activeChapterStep?.id ?? null
   const isHintPopoverOpen = hintPopoverMounted && !hintPopoverClosing && hintPopoverStepId === activeStepId
+  const chapterStepTotal = Math.max(1, activeChapterBlueprint?.steps.length ?? 1)
+  const isLastStepInChapter = safeChapterStepIndex >= chapterStepTotal - 1
 
   const requestCloseHintPopover = () => {
     if (!isHintPopoverOpen || hintPopoverClosing) {
@@ -256,8 +260,6 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
   const [isHelpSending, setIsHelpSending] = useState(false)
   const [helpError, setHelpError] = useState<string | null>(null)
   const helpScrollRef = useRef<HTMLDivElement>(null)
-
-  const chapterStepTotal = Math.max(1, activeChapterBlueprint?.steps.length ?? 1)
 
   useEffect(() => {
     setHelpMessages([])
@@ -323,8 +325,19 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
         <header className="learn-chapter-modal-header">
           <div className="learn-chapter-modal-header-copy">
             <h2>{activeChapterBlueprint?.title || 'Lernkapitel'}</h2>
+            <p className="learn-chapter-source-row">
+              <span
+                className={`learn-chapter-source-badge ${
+                  activeChapterBlueprint?.source === 'fallback' ? 'is-fallback' : 'is-ai'
+                }`}
+              >
+                {activeChapterBlueprint?.source === 'fallback' ? 'Quelle: Fallback' : 'Quelle: KI-generiert'}
+              </span>
+            </p>
             <p>
-              Kapitel {safeChapterIndex + 1} von {Math.max(1, effectiveChapterCount)}
+              {effectiveChapterCount <= 1
+                ? 'Kapitel 1'
+                : `Kapitel ${safeChapterIndex + 1} von ${Math.max(1, effectiveChapterCount)}`}
             </p>
           </div>
           <div className="learn-chapter-modal-header-actions">
@@ -528,7 +541,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                 </div>
               ) : null}
               <p className="learn-chapter-modal-footer-step">
-                Schritt {safeChapterStepIndex + 1} von {Math.max(1, activeChapterBlueprint?.steps.length ?? 1)}
+                Schritt {safeChapterStepIndex + 1} von {chapterStepTotal}
               </p>
             </div>
             <div className="learn-chapter-modal-footer-progress">
@@ -561,10 +574,10 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
             ) : null}
             <PrimaryButton
               type="button"
-              onClick={onNextChapterStep}
+              onClick={isLastStepInChapter ? onCompleteChapter : onNextChapterStep}
               disabled={activeChapterStep?.type === 'question' && !currentChapterFeedback}
             >
-              Weiter
+              {isLastStepInChapter ? 'Kapitel abschließen' : 'Weiter'}
             </PrimaryButton>
           </div>
             </footer>

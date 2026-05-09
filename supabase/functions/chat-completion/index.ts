@@ -10,6 +10,13 @@ declare const Deno: {
 }
 
 type Provider = 'openai' | 'anthropic'
+type LearnModelId =
+  | 'gpt-5.4'
+  | 'gpt-5.4-mini'
+  | 'gpt-5-mini'
+  | 'gpt-4o-mini'
+  | 'claude-sonnet-4-6'
+  | 'claude-3-5-haiku-latest'
 
 type InputMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -420,6 +427,58 @@ async function fetchSubscriptionPlanChatFields(
   }
 }
 
+function sanitizeLearnModelId(raw: unknown): LearnModelId {
+  if (
+    raw === 'gpt-5.4' ||
+    raw === 'gpt-5.4-mini' ||
+    raw === 'gpt-5-mini' ||
+    raw === 'gpt-4o-mini' ||
+    raw === 'claude-sonnet-4-6' ||
+    raw === 'claude-3-5-haiku-latest'
+  ) {
+    return raw
+  }
+  return 'gpt-5.4-mini'
+}
+
+type LearnAiConfig = { provider: Provider; model: LearnModelId }
+
+function normalizeLearnModelForProvider(provider: Provider, model: LearnModelId): LearnModelId {
+  const isOpenAiModel =
+    model === 'gpt-5.4' || model === 'gpt-5.4-mini' || model === 'gpt-5-mini' || model === 'gpt-4o-mini'
+  if (provider === 'openai') {
+    return isOpenAiModel ? model : 'gpt-5.4-mini'
+  }
+  return isOpenAiModel ? 'claude-sonnet-4-6' : model
+}
+
+async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<LearnAiConfig> {
+  if (!admin) {
+    return { provider: 'openai', model: 'gpt-5.4-mini' }
+  }
+  try {
+    const { data, error } = await admin
+      .from('app_feature_flags')
+      .select('learn_ai_provider_active, learn_ai_model_active')
+      .eq('id', 1)
+      .maybeSingle()
+    if (error) {
+      return { provider: 'openai', model: 'gpt-5.4-mini' }
+    }
+    const rawProvider =
+      typeof (data as { learn_ai_provider_active?: unknown } | null)?.learn_ai_provider_active === 'string'
+        ? String((data as { learn_ai_provider_active?: string }).learn_ai_provider_active).trim().toLowerCase()
+        : ''
+    const provider: Provider = rawProvider === 'anthropic' ? 'anthropic' : 'openai'
+    const model = sanitizeLearnModelId(
+      (data as { learn_ai_model_active?: unknown } | null)?.learn_ai_model_active,
+    )
+    return { provider, model: normalizeLearnModelForProvider(provider, model) }
+  } catch {
+    return { provider: 'openai', model: 'gpt-5.4-mini' }
+  }
+}
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -471,6 +530,9 @@ function normalizeMode(
   value: unknown,
 ):
   | 'chat'
+  | 'learn_setup_topic'
+  | 'learn_entry_quiz'
+  | 'learn_tutor'
   | 'evaluate_quiz'
   | 'generate_title'
   | 'generate_topic_suggestions'
@@ -478,6 +540,15 @@ function normalizeMode(
   | 'generate_worksheet'
   | 'merge_ai_chat_memory' {
   const v = typeof value === 'string' ? value.trim() : value
+  if (v === 'learn_setup_topic') {
+    return 'learn_setup_topic'
+  }
+  if (v === 'learn_entry_quiz') {
+    return 'learn_entry_quiz'
+  }
+  if (v === 'learn_tutor') {
+    return 'learn_tutor'
+  }
   if (v === 'merge_ai_chat_memory') {
     return 'merge_ai_chat_memory'
   }
@@ -1672,7 +1743,7 @@ async function handleMergeAiChatMemory(
   const usage = await callOpenAi(mergeMessages, apiKey, ['gpt-5-mini', 'gpt-4o-mini'], undefined)
   await tryLogTokenUsage(admin, userId, 'openai', 'merge_ai_chat_memory', usage)
 
-  let nextMemory = clipAiChatMemoryText(stripOuterMarkdownFence(usage.text))
+  const nextMemory = clipAiChatMemoryText(stripOuterMarkdownFence(usage.text))
 
   const { error: upErr } = await userClient.from('profiles').update({ ai_chat_memory: nextMemory }).eq('id', userId)
 
@@ -1766,6 +1837,15 @@ serve(async (req) => {
     }
 
     let provider = normalizeProvider(body.provider)
+    if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') {
+      const learnAiConfig = await fetchActiveLearnAiConfig(admin)
+      provider = learnAiConfig.provider
+      if (provider === 'openai') {
+        openAiModels = [learnAiConfig.model, ...DEFAULT_OPENAI_CHAT_MODELS]
+      } else {
+        anthropicModelChat = learnAiConfig.model
+      }
+    }
 
     if (
       mode === 'chat' &&
