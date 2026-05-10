@@ -80,7 +80,16 @@ export function useVisualKeyboardInset(): void {
       if (isChatInputFocused()) {
         const layoutH = Math.max(window.innerHeight, document.documentElement.clientHeight)
         const visibleBottom = vv.offsetTop + vv.height
-        const blockHeight = Math.min(layoutH, Math.max(0, Math.ceil(visibleBottom)))
+        /*
+         * WKWebView meldet die untere vv-Kante oft noch *über* der Accessory-Leiste (Prev/Next/Fertig).
+         * Dann ist `offsetTop + height` zu groß → `--straton-visual-layout-height` zu groß → Composer wird vom
+         * Native-Layer beschnitten. Scrollen im Thread hilft nicht: der Composer liegt nicht in `.chat-messages`.
+         */
+        const iosExtra = isLikelyIosWebKit() ? 34 : 14
+        const blockHeight = Math.max(
+          120,
+          Math.min(layoutH, Math.max(0, Math.floor(visibleBottom - iosExtra))),
+        )
         document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
         document.documentElement.style.setProperty(CSS_VAR, '0px')
         return
