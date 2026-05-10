@@ -20,17 +20,22 @@
  * Höhe kommt aus base.css `--straton-app-height` (Browser: dvh; installierte PWA: lvh — vermeidet Lücke unten).
  */
 @media (max-width: 860px) {
+  /*
+   * Optional `--straton-visual-layout-height` (set by useVisualKeyboardInset bei fokussiertem Chat-Textfeld):
+   * Kürzt den Layout-Baum auf die untere Kante des Visual Viewports, damit PWA/Tastatur nicht hinter
+   * 100lvh «weiterreicht». Ohne Variable: unverändert `--straton-app-height` (100dvh/100lvh).
+   */
   html {
-    height: var(--straton-app-height);
-    min-height: var(--straton-app-height);
+    height: var(--straton-visual-layout-height, var(--straton-app-height));
+    min-height: var(--straton-visual-layout-height, var(--straton-app-height));
     overflow: hidden;
     overflow-x: clip;
     overscroll-behavior: none;
   }
 
   body {
-    height: var(--straton-app-height);
-    max-height: var(--straton-app-height);
+    height: var(--straton-visual-layout-height, var(--straton-app-height));
+    max-height: var(--straton-visual-layout-height, var(--straton-app-height));
     overflow: hidden;
     overscroll-behavior: none;
     position: fixed;

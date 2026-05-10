@@ -1,6 +1,13 @@
 import { useEffect } from 'react'
 
 const CSS_VAR = '--chat-visual-keyboard-inset'
+/** Kürzt `html`/`body` auf die untere Kante des Visual Viewports — siehe mobile.css. */
+const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
+
+function isChatInputFocused(): boolean {
+  const el = document.activeElement
+  return el instanceof HTMLTextAreaElement && el.classList.contains('chat-input')
+}
 
 /** iPadOS / iPhone / iPod Touch Safari & WKWebView (installierte PWA). */
 function isLikelyIosWebKit(): boolean {
@@ -58,14 +65,29 @@ export function useVisualKeyboardInset(): void {
     const timers: number[] = []
 
     function apply() {
-      const px = obscuredBottomPx()
+      if (!vv) {
+        return
+      }
       /*
-       * Zwei Schichten Zuschlag:
-       * - Basis-Puffer nach Rundungs-/Koordinatenfehler (Retina, innerHeight vs. clientHeight).
-       * - Zusätzlicher Streifen für die native Accessory-Leiste oberhalb der Buchstabentastatur,
-       *   die in den vv-Werten oft nicht vollständig «als Überdeckung» ankommt (WKWebView/PWA).
+       * Wenn nur `--chat-visual-keyboard-inset` am Panel nutzt: `html`/`body` bleiben bei PWA trotzdem
+       * auf vollem `--straton-app-height` (100lvh). Der Composer sitzt im Grid zwar über Padding,
+       * aber WKWebView meldet `visualViewport` / obscured inkonsistent — wenige px bis zur Accessory-Leiste.
+       *
+       * Zuverlässiger: Solange das Chat-Textfeld fokussiert ist, Layout-Höhe = untere Kante des
+       * Visual Viewports (`offsetTop + height`). Dann endet der Dokumentbaum exakt oberhalb von
+       * Tastatur + Accessory (nicht nur «Padding nachrechnen»). `--chat-visual-keyboard-inset` = 0.
        */
-      /* Nach Fix «sticky vs. Padding»: moderater Puffer genügt (WebKit-Accessory weiterhin +ceil oben). */
+      if (isChatInputFocused()) {
+        const layoutH = Math.max(window.innerHeight, document.documentElement.clientHeight)
+        const visibleBottom = vv.offsetTop + vv.height
+        const blockHeight = Math.min(layoutH, Math.max(0, Math.ceil(visibleBottom)))
+        document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
+        document.documentElement.style.setProperty(CSS_VAR, '0px')
+        return
+      }
+
+      document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
+      const px = obscuredBottomPx()
       const padded =
         px > 0 ? px + 16 + (typeof navigator !== 'undefined' && isLikelyIosWebKit() ? 8 : 6) : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
@@ -110,6 +132,7 @@ export function useVisualKeyboardInset(): void {
       document.removeEventListener('focusin', onFocusIn)
       document.removeEventListener('focusout', onFocusOut)
       document.documentElement.style.removeProperty(CSS_VAR)
+      document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
     }
   }, [])
 }
