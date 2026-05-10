@@ -2,10 +2,27 @@ import { useEffect } from 'react'
 
 const CSS_VAR = '--chat-visual-keyboard-inset'
 
+/** iPadOS / iPhone / iPod Touch Safari & WKWebView (installierte PWA). */
+function isLikelyIosWebKit(): boolean {
+  const ua = navigator.userAgent
+  if (/iPhone|iPad|iPod/i.test(ua)) {
+    return true
+  }
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
 /**
  * Abgedeckter Bereich am unteren Rand des *Layout*-Viewports (iPhone-Tastatur, Accessory-Bar).
  * `innerHeight − (visualViewport.offsetTop + visualViewport.height)` — gleiche Idee wie ContentBottomSheet.
- * Zusätzlich: `resize`/`focusin`-Sync und kurze Delays (iOS blendet die Tastatur verzögert ein).
+ *
+ * **Warum es trotzdem «ein paar Pixel» knapp werden kann (z. B. Screenshot mit Accessory-Leiste):**
+ * WebKit legt die Input-Accessory (Prev/Next/Fertig) und Teile der Tastatur-UI **über** den Web-Inhalt,
+ * während `visualViewport.height` den **sichtbaren Web-Bereich** nicht immer exakt auf die Linie
+ * bringt, **unter der keine native UI mehr zeichnet**. Dann ist die Formel minimal zu klein — typisch
+ * wenige px, bisweilen bis zur vollen Accessory-Höhe (vgl. WICG/visual-viewport #78, WebKit-Historie).
+ *
+ * Darum: konservative Rundung + zusätzlicher Puffer unten (nicht nur `keyboard-inset` env — Safari iOS
+ * unterstützt die VirtualKeyboard-`env()`-Variablen nicht zuverlässig).
  */
 function obscuredBottomPx(): number {
   const vv = window.visualViewport
@@ -42,8 +59,14 @@ export function useVisualKeyboardInset(): void {
 
     function apply() {
       const px = obscuredBottomPx()
-      /** Etwas Luft unter der Message Box; zu knapp = Abschneiden an Accessory/Tastatur (PWA). */
-      const padded = px > 0 ? px + 24 : 0
+      /*
+       * Zwei Schichten Zuschlag:
+       * - Basis-Puffer nach Rundungs-/Koordinatenfehler (Retina, innerHeight vs. clientHeight).
+       * - Zusätzlicher Streifen für die native Accessory-Leiste oberhalb der Buchstabentastatur,
+       *   die in den vv-Werten oft nicht vollständig «als Überdeckung» ankommt (WKWebView/PWA).
+       */
+      const padded =
+        px > 0 ? px + 28 + (typeof navigator !== 'undefined' && isLikelyIosWebKit() ? 18 : 10) : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
