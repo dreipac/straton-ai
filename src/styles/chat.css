@@ -2707,10 +2707,11 @@
    * Sonst stacken sich env(safe-area) am Panel-Padding + Composer-Margin — besonders in iOS-PWA.
    */
   :root {
-    --chat-mobile-nav-safe-offset: 0.45rem;
+    /* Extra-Luft über env(safe-area-inset-bottom); kleiner = Navbar + Composer optisch weiter unten (näher am Rand). */
+    --chat-mobile-nav-safe-offset: 0.28rem;
     /* Höhe der Pill (.chat-mobile-bottom-nav): Pad + Tab-Zeile (~3.1rem) */
     --chat-mobile-nav-pill-height: 3.62rem;
-    --chat-mobile-composer-gap-above-nav: 0.32rem;
+    --chat-mobile-composer-gap-above-nav: 0.26rem;
     --chat-mobile-composer-bottom-offset: calc(
       env(safe-area-inset-bottom, 0px) + var(--chat-mobile-nav-safe-offset) +
         var(--chat-mobile-nav-pill-height) + var(--chat-mobile-composer-gap-above-nav)
@@ -2765,8 +2766,9 @@
      * Tastatur: Inset hier (unter Pille + Hinweis), nicht am äußeren Panel — sonst greift es auf iOS im leeren Chat oft nicht.
      * Home-Indicator: einmal über `--chat-mobile-composer-bottom-offset` / Navbar — nicht zusätzlich am Panel-Boden.
      */
+    /* Horizontal kein Extra-Inset — gleiche Kanten wie `.chat-mobile-bottom-nav` (Panel hat bereits 0.65rem). */
     /* Inset leicht unter 100 % skalieren; −5px Feintuning zur Tastatur (max verhindert negatives Padding ohne Keyboard). */
-    padding: 0 0.5rem max(0px, calc(0.1rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
+    padding: 0 0 max(0px, calc(0.1rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -2886,6 +2888,16 @@
     flex-direction: column;
     align-items: flex-start;
     text-align: left;
+  }
+
+  /*
+   * Gleiche effektive Breite wie die fixierte Bottom-Nav (`left/right: 0.65rem`): kein schmalerer Composer durch clamp().
+   */
+  .chat-panel .chat-composer-stack {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+    box-sizing: border-box;
   }
 
   .chat-panel:not(.is-empty) .chat-composer-stack {
