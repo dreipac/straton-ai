@@ -17,7 +17,6 @@ import accountIcon from '../assets/icons/account.svg'
 import learnIcon from '../assets/icons/learn-outlined.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
-import triangleIcon from '../assets/icons/triangle.svg'
 import userAddIcon from '../assets/icons/userAdd.svg'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
@@ -781,7 +780,6 @@ export function ChatPage() {
   const [editingThread, setEditingThread] = useState<ChatThread | null>(null)
   const [isRenameVisible, setIsRenameVisible] = useState(false)
   const [renameDraft, setRenameDraft] = useState('')
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   /** Nur Compact-Mobile: gleiches ProfileFullSheet, Inhalt Profil-Liste oder Einstellungen */
   const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -900,7 +898,7 @@ export function ChatPage() {
   useEffect(() => {
     function handleOutsidePointer(event: MouseEvent | TouchEvent) {
       const compactSheetOpen = isCompactMobileSidebarLayout && mobileSheetMode !== 'closed'
-      if (!openMenuThreadId && !isProfileMenuOpen && !compactSheetOpen) {
+      if (!openMenuThreadId && !compactSheetOpen) {
         return
       }
 
@@ -919,14 +917,10 @@ export function ChatPage() {
         setThreadMenuVariant('none')
       }
 
-      if (!isInsideProfileMenu && (isProfileMenuOpen || compactSheetOpen)) {
-        if (isCompactMobileSidebarLayout) {
-          const insideSheet = profileFullSheetRef.current?.containsNode(target) ?? false
-          if (!insideSheet) {
-            profileFullSheetRef.current?.requestClose()
-          }
-        } else {
-          setIsProfileMenuOpen(false)
+      if (!isInsideProfileMenu && compactSheetOpen) {
+        const insideSheet = profileFullSheetRef.current?.containsNode(target) ?? false
+        if (!insideSheet) {
+          profileFullSheetRef.current?.requestClose()
         }
       }
     }
@@ -937,7 +931,7 @@ export function ChatPage() {
       document.removeEventListener('mousedown', handleOutsidePointer)
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
-  }, [openMenuThreadId, isProfileMenuOpen, isCompactMobileSidebarLayout, mobileSheetMode])
+  }, [openMenuThreadId, isCompactMobileSidebarLayout, mobileSheetMode])
 
   useEffect(() => {
     return () => {
@@ -1099,7 +1093,6 @@ export function ChatPage() {
       return
     }
 
-    setIsProfileMenuOpen(false)
     setIsSettingsMounted(true)
     window.requestAnimationFrame(() => {
       setIsSettingsVisible(true)
@@ -1119,7 +1112,6 @@ export function ChatPage() {
   }
 
   function openAdminModal() {
-    setIsProfileMenuOpen(false)
     if (isCompactMobileSidebarLayout) {
       profileFullSheetRef.current?.requestClose()
     }
@@ -1231,7 +1223,6 @@ export function ChatPage() {
     try {
       await createNewChat()
       closeThreadActionMenu()
-      setIsProfileMenuOpen(false)
       if (isCompactMobileSidebarLayout) {
         profileFullSheetRef.current?.requestClose()
       }
@@ -1248,7 +1239,6 @@ export function ChatPage() {
       await createNewChat()
       setPendingWebSearchComposer(true)
       closeThreadActionMenu()
-      setIsProfileMenuOpen(false)
       if (isCompactMobileSidebarLayout) {
         profileFullSheetRef.current?.requestClose()
       }
@@ -1283,7 +1273,6 @@ export function ChatPage() {
       }
       setIsMobileSidebarOpen(false)
       closeThreadActionMenu()
-      setIsProfileMenuOpen(false)
       profileFullSheetRef.current?.requestClose()
       return
     }
@@ -1294,7 +1283,6 @@ export function ChatPage() {
       return !prev
     })
     closeThreadActionMenu()
-    setIsProfileMenuOpen(false)
   }
 
   function openThreadContextMenuAt(threadId: string, clientX: number, clientY: number) {
@@ -1632,7 +1620,6 @@ export function ChatPage() {
                 hapticLightImpact()
                 setIsSidebarCollapsed(false)
                 closeThreadActionMenu()
-                setIsProfileMenuOpen(false)
                 profileFullSheetRef.current?.requestClose()
               }}
             >
@@ -1770,44 +1757,18 @@ export function ChatPage() {
                   )}
                   {!isSidebarCollapsed ? (
                     <div className="account-meta">
-                      {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
-                        <span className="account-admin-badge">Admin</span>
-                      ) : null}
                       <div className="account-name-row">
                         <p className="account-value">
                           {isCompactMobileSidebarLayout ? greetingName : displayName}
                         </p>
+                        {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
+                          <span className="account-admin-badge">Admin</span>
+                        ) : null}
                       </div>
                       {subscriptionPlanName ? (
                         <p className="account-subscription">{subscriptionPlanName}</p>
                       ) : null}
                     </div>
-                  ) : null}
-                  {!isSidebarCollapsed && !isCompactMobileSidebarLayout ? (
-                    <div className="account-menu-anchor">
-                      <button
-                        type="button"
-                        className="account-menu-trigger"
-                        aria-label="Profil Aktionen"
-                        onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                      >
-                        <img className="ui-icon account-menu-icon" src={triangleIcon} alt="" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ) : null}
-                  {!isSidebarCollapsed && isProfileMenuOpen && !isCompactMobileSidebarLayout ? (
-                    <ContextMenu className="account-thread-menu">
-                      <MenuItem
-                        iconSrc={logoutIcon}
-                        danger
-                        onClick={async () => {
-                          setIsProfileMenuOpen(false)
-                          await handleLogout()
-                        }}
-                      >
-                        Logout
-                      </MenuItem>
-                    </ContextMenu>
                   ) : null}
                 </div>
               </div>

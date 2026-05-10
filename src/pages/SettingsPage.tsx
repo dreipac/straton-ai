@@ -98,6 +98,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     updateEmail,
     updateUiSettings,
     updateAiChatMemory,
+    logout,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
   const [isNarrowSettings, setIsNarrowSettings] = useState(() =>
@@ -812,6 +813,24 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     setMobileStack('menu')
   }
 
+  async function handleLogoutFromMenu() {
+    await logout()
+    onClose()
+  }
+
+  const logoutMenuLabel =
+    language === 'en'
+      ? 'Sign out'
+      : language === 'hr'
+        ? 'Odjava'
+        : language === 'it'
+          ? 'Esci'
+          : language === 'sq'
+            ? 'Dilni'
+            : language === 'es-PE'
+              ? 'Cerrar sesión'
+              : 'Abmelden'
+
   const layoutNarrow = variant === 'sheet' || isNarrowSettings
 
   const settingsSidebar = (
@@ -850,6 +869,36 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             {section.label}
           </button>
         ))}
+        {user ? (
+          <button type="button" className="settings-menu-item settings-menu-item--logout" onClick={() => void handleLogoutFromMenu()}>
+            <svg
+              className="settings-menu-logout-icon"
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M8.90002 7.55999C9.21002 3.95999 11.06 2.48999 15.11 2.48999H15.24C19.71 2.48999 21.5 4.27999 21.5 8.74999V15.27C21.5 19.74 19.71 21.53 15.24 21.53H15.11C11.09 21.53 9.24002 20.08 8.91002 16.54"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path d="M15 12H3.62" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5.85 8.6499L2.5 11.9999L5.85 15.3499"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {logoutMenuLabel}
+          </button>
+        ) : null}
       </nav>
     </aside>
   )

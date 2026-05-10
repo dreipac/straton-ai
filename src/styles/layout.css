@@ -438,6 +438,13 @@
   gap: 0.55rem;
 }
 
+@media (min-width: 861px) {
+  .chat-sidebar-bottom {
+    border-top: none;
+    padding-top: 0.55rem;
+  }
+}
+
 .chat-sidebar.is-collapsed .chat-sidebar-bottom {
   display: flex;
   justify-content: center;
@@ -462,6 +469,11 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  min-width: 0;
+}
+
+.account-name-row .account-value {
+  flex: 1;
   min-width: 0;
 }
 

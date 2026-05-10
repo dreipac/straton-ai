@@ -64,6 +64,9 @@ type OpenAiPromptCacheOptions = {
   retention?: 'in_memory' | '24h'
 }
 
+/** Gleicher Default wie Client `chat.service.ts` (`OPENAI_PROMPT_CACHE_KEY_MAIN`). */
+const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v3'
+
 function sanitizePromptCacheKey(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null
@@ -104,11 +107,9 @@ function resolveOpenAiPromptCacheForRequest(
     generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
   }
   if (mode === 'chat') {
-    if (!clientKey) {
-      return undefined
-    }
+    const key = clientKey ?? OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY
     return {
-      key: clientKey,
+      key,
       retention: clientRetention ?? undefined,
     }
   }
@@ -696,6 +697,29 @@ function openAiUsesDefaultTemperatureOnly(modelId: string): boolean {
   return false
 }
 
+/**
+ * Chat Completions: `reasoning` akzeptieren nicht alle GPT-5-IDs — u. a.
+ * `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.4-…` → HTTP 400 «Unknown parameter: 'reasoning'.»
+ * (`mini`/`nano` separat, da andere Namensmuster möglich sind.)
+ */
+function openAiChatModelSupportsReasoningEffortParam(modelId: string): boolean {
+  const m = modelId.toLowerCase()
+  if (!m.startsWith('gpt-5')) {
+    return false
+  }
+  if (m.includes('-mini') || m.includes('mini-')) {
+    return false
+  }
+  if (m.includes('-nano') || m.includes('nano-')) {
+    return false
+  }
+  /* Normales gpt-5.4 (ohne «mini») — gleicher 400er wie bei Mini. */
+  if (/^gpt-5\.4(?:-|$)/.test(m)) {
+    return false
+  }
+  return true
+}
+
 function attachOpenAiMaxOutputTokens(body: Record<string, unknown>, model: string, maxOut: number): void {
   const n = Math.min(32768, Math.max(16, Math.floor(maxOut)))
   const m = model.toLowerCase()
@@ -754,7 +778,7 @@ function openAiChatRequestBody(
     body.temperature = 0.7
   }
   /** GPT-5 Standard ist «medium» — weniger Reasoning = schnellere Antworten bei Chat Completions. */
-  if (options?.includeReasoningLow && model.toLowerCase().startsWith('gpt-5')) {
+  if (options?.includeReasoningLow && openAiChatModelSupportsReasoningEffortParam(model)) {
     body.reasoning = { effort: 'low' }
   }
   const pc = options?.promptCache
@@ -798,7 +822,7 @@ async function callOpenAi(
     Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
 
   for (const model of modelsToTry) {
-    const reasoningSteps = model.toLowerCase().startsWith('gpt-5')
+    const reasoningSteps = openAiChatModelSupportsReasoningEffortParam(model)
       ? ([true, false] as const)
       : ([false] as const)
 
@@ -966,7 +990,7 @@ async function handleOpenAiChatStream(
       const modelsToTry: string[] = [...openAiModels]
 
       outer: for (const model of modelsToTry) {
-        const reasoningSteps = model.toLowerCase().startsWith('gpt-5')
+        const reasoningSteps = openAiChatModelSupportsReasoningEffortParam(model)
           ? ([true, false] as const)
           : ([false] as const)
 
@@ -1059,12 +1083,16 @@ async function handleOpenAiChatStream(
                   await writeSse({ type: 'delta', t: chunk.delta })
                 }
                 if (chunk.usage) {
-                  inputTokens = Math.max(0, Math.floor(Number(chunk.usage.prompt_tokens ?? 0)))
-                  outputTokens = Math.max(0, Math.floor(Number(chunk.usage.completion_tokens ?? 0)))
-                  cachedPromptTokens = Math.max(
+                  const pt = Math.max(0, Math.floor(Number(chunk.usage.prompt_tokens ?? 0)))
+                  const ct = Math.max(0, Math.floor(Number(chunk.usage.completion_tokens ?? 0)))
+                  inputTokens = Math.max(inputTokens, pt)
+                  outputTokens = Math.max(outputTokens, ct)
+                  const cachedThisChunk = Math.max(
                     0,
                     Math.floor(Number(chunk.usage.prompt_tokens_details?.cached_tokens ?? 0)),
                   )
+                  /* Mehrere Stream-Chunks können `usage` liefern; fehlt `cached_tokens` in einem späteren Chunk, darf der Hit nicht auf 0 zurückfallen. */
+                  cachedPromptTokens = Math.max(cachedPromptTokens, cachedThisChunk)
                 }
               }
             } catch (readErr) {
