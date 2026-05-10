@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
-import { isMobileViewport, mobileMediaQuery } from '../../../utils/mobile'
+import { chatToolbarMobileMediaQuery, isChatToolbarMobileViewport } from '../../../utils/mobile'
 import {
   CHAT_COMPOSER_MODELS,
   type ChatComposerModelId,
@@ -15,14 +15,14 @@ export type ChatComposerModelPickerProps = {
 
 function useMobileModelPickerSheet(): boolean {
   const [mobile, setMobile] = useState(() =>
-    typeof window !== 'undefined' ? isMobileViewport() : false,
+    typeof window !== 'undefined' ? isChatToolbarMobileViewport() : false,
   )
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
-    const mq = window.matchMedia(mobileMediaQuery())
+    const mq = window.matchMedia(chatToolbarMobileMediaQuery())
     const sync = () => setMobile(mq.matches)
     sync()
     mq.addEventListener('change', sync)

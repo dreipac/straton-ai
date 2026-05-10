@@ -2117,6 +2117,14 @@ export function LearnPage() {
           : activeLearnTab === 'worksheets'
             ? 3
             : 4
+  const hasExistingLearnContent =
+    chapterBlueprints.length > 0 ||
+    learningChapters.length > 0 ||
+    Boolean(entryQuizResult) ||
+    learnFlashcardSets.length > 0 ||
+    learnWorksheets.length > 0 ||
+    tutorMessages.length > 0
+  const showSetupFlow = !isSetupComplete && !hasExistingLearnContent
 
   return (
     <main
@@ -2192,7 +2200,7 @@ export function LearnPage() {
             </header>
             {error ? <p className="error-text">{error}</p> : null}
 
-            {!isSetupComplete ? (
+            {showSetupFlow ? (
               <LearnSetupPanel
                 setupStep={setupStep}
                 isAnalyzingSetupTopic={isAnalyzingSetupTopic}
@@ -2250,6 +2258,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
+                    <span className="learn-top-tab-label">Lernpfad</span>
                   </button>
                   <button
                     type="button"
@@ -2263,6 +2272,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
+                    <span className="learn-top-tab-label">Tests</span>
                   </button>
                   <button
                     type="button"
@@ -2276,6 +2286,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
+                    <span className="learn-top-tab-label">Lernkarten</span>
                   </button>
                   <button
                     type="button"
@@ -2291,6 +2302,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
+                    <span className="learn-top-tab-label">Arbeitsblätter</span>
                   </button>
                   <button
                     type="button"
@@ -2304,6 +2316,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
+                    <span className="learn-top-tab-label">Statistiken</span>
                   </button>
                 </nav>
                 {worksheetTabHintVisible &&

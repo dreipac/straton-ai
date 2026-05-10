@@ -15,6 +15,9 @@ import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
 import accountIcon from '../assets/icons/account.svg'
 import learnIcon from '../assets/icons/learn-outlined.svg'
+import chatFilledIcon from '../assets/icons/chat-filled.svg'
+import chatOutlinedIcon from '../assets/icons/chat-outlined.svg'
+import statusIcon from '../assets/icons/status.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
@@ -775,6 +778,7 @@ export function ChatPage() {
   const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isMobileBottomNavTouchActive, setIsMobileBottomNavTouchActive] = useState(false)
   const [showBetaNoticeOnFirstLogin, setShowBetaNoticeOnFirstLogin] = useState(true)
   const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
@@ -828,6 +832,8 @@ export function ChatPage() {
   const longPressTimerRef = useRef<number | null>(null)
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressThreadClickRef = useRef(false)
+  const mobileBottomNavTouchStartRef = useRef(0)
+  const mobileBottomNavReleaseTimerRef = useRef<number | null>(null)
 
   const LONG_PRESS_MS = 520
   const LONG_PRESS_MOVE_CANCEL_PX = 14
@@ -846,6 +852,41 @@ export function ChatPage() {
     } else {
       setMobileSheetMode('profile')
     }
+  }
+
+  function handleMobileBottomNavTouchStart() {
+    mobileBottomNavTouchStartRef.current = Date.now()
+    if (mobileBottomNavReleaseTimerRef.current) {
+      window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
+      mobileBottomNavReleaseTimerRef.current = null
+    }
+    setIsMobileBottomNavTouchActive(true)
+  }
+
+  function handleMobileBottomNavTouchEnd() {
+    const elapsed = Date.now() - mobileBottomNavTouchStartRef.current
+    const holdMs = Math.min(220, Math.max(120, elapsed))
+    if (mobileBottomNavReleaseTimerRef.current) {
+      window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
+    }
+    mobileBottomNavReleaseTimerRef.current = window.setTimeout(() => {
+      setIsMobileBottomNavTouchActive(false)
+      mobileBottomNavReleaseTimerRef.current = null
+    }, holdMs)
+  }
+
+  function toggleMobileSidebarFromBottomNav() {
+    if (chatTourEligible) {
+      return
+    }
+    setIsSidebarCollapsed(false)
+    setIsMobileSidebarOpen((prev) => {
+      const next = !prev
+      if (!prev && next) {
+        hapticLightImpact()
+      }
+      return next
+    })
   }
 
   useEffect(() => {
@@ -889,6 +930,14 @@ export function ChatPage() {
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
   }, [openMenuThreadId, isProfileMenuOpen, isCompactMobileSidebarLayout, mobileSheetMode])
+
+  useEffect(() => {
+    return () => {
+      if (mobileBottomNavReleaseTimerRef.current) {
+        window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)
@@ -1447,23 +1496,45 @@ export function ChatPage() {
             />
           </div>
         </section>
-        <button
-          type="button"
-          className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
-          aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
-          onClick={() => {
-            setIsSidebarCollapsed(false)
-            setIsMobileSidebarOpen((prev) => {
-              const next = !prev
-              if (!prev && next) {
-                hapticLightImpact()
-              }
-              return next
-            })
-          }}
+        <nav
+          className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}`}
+          aria-label="Chat Navigation"
+          style={{ ['--chat-active-tab-index' as any]: isMobileSidebarOpen ? 0 : 1 }}
+          onTouchStart={handleMobileBottomNavTouchStart}
+          onTouchEnd={handleMobileBottomNavTouchEnd}
+          onTouchCancel={handleMobileBottomNavTouchEnd}
         >
-          <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />
-        </button>
+          <button
+            type="button"
+            className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--sidebar${isMobileSidebarOpen ? ' is-active' : ''}`}
+            aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
+            onClick={toggleMobileSidebarFromBottomNav}
+          >
+            <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+            <span className="chat-mobile-bottom-tab-label">Menü</span>
+          </button>
+          <button
+            type="button"
+            className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
+            aria-label="Chat"
+          >
+            <img
+              className="ui-icon chat-mobile-bottom-tab-icon"
+              src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
+              alt=""
+              aria-hidden="true"
+            />
+            <span className="chat-mobile-bottom-tab-label">Chat</span>
+          </button>
+          <button
+            type="button"
+            className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
+            aria-label="Platzhalter"
+          >
+            <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
+            <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
+          </button>
+        </nav>
         <div
           className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
           onClick={() => setIsMobileSidebarOpen(false)}
@@ -2028,26 +2099,45 @@ export function ChatPage() {
           {renderParticipantsStrip('chat-participants-strip--sheet')}
         </ContentBottomSheet>
       ) : null}
-      <button
-        type="button"
-        className={`mobile-sidebar-pill ${isMobileSidebarOpen ? 'is-open' : ''}`}
-        aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
-        onClick={() => {
-          if (chatTourEligible) {
-            return
-          }
-          setIsSidebarCollapsed(false)
-          setIsMobileSidebarOpen((prev) => {
-            const next = !prev
-            if (!prev && next) {
-              hapticLightImpact()
-            }
-            return next
-          })
-        }}
+      <nav
+        className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}`}
+        aria-label="Chat Navigation"
+        style={{ ['--chat-active-tab-index' as any]: isMobileSidebarOpen ? 0 : 1 }}
+        onTouchStart={handleMobileBottomNavTouchStart}
+        onTouchEnd={handleMobileBottomNavTouchEnd}
+        onTouchCancel={handleMobileBottomNavTouchEnd}
       >
-        <img className="ui-icon mobile-sidebar-pill-icon" src={sidebarIcon} alt="" aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--sidebar${isMobileSidebarOpen ? ' is-active' : ''}`}
+          aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
+          onClick={toggleMobileSidebarFromBottomNav}
+        >
+          <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+          <span className="chat-mobile-bottom-tab-label">Menü</span>
+        </button>
+        <button
+          type="button"
+          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
+          aria-label="Chat"
+        >
+          <img
+            className="ui-icon chat-mobile-bottom-tab-icon"
+            src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
+            alt=""
+            aria-hidden="true"
+          />
+          <span className="chat-mobile-bottom-tab-label">Chat</span>
+        </button>
+        <button
+          type="button"
+          className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
+          aria-label="Platzhalter"
+        >
+          <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
+          <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
+        </button>
+      </nav>
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
         onClick={() => {

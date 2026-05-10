@@ -630,21 +630,9 @@
     linear-gradient(160deg, #13060f 0%, #25122a 50%, #07030a 100%);
 }
 
-/* OLED/Tiefschwarz: Gradient aus Theme-Palette — Standard-Dunkel bleibt „Space Navy“ */
+/* Black-Theme: Chatbereich exakt #0A0A0A (ohne zusätzlichen Verlauf). */
 :root[data-theme='dark'][data-theme-variant='black'] .chat-main::before {
-  background:
-    radial-gradient(
-      120% 90% at 50% -10%,
-      color-mix(in srgb, var(--color-surface-elevated) 42%, transparent) 0%,
-      color-mix(in srgb, var(--color-bg-app) 35%, transparent) 45%,
-      transparent 74%
-    ),
-    linear-gradient(
-      160deg,
-      var(--app-background) 0%,
-      color-mix(in srgb, var(--color-surface-soft) 65%, var(--app-background)) 56%,
-      var(--app-background) 100%
-    );
+  background: #121111;
 }
 
 .chat-main::after {

@@ -102,6 +102,10 @@
   display: inline;
 }
 
+.learn-top-tab-label {
+  display: inline;
+}
+
 .learn-mobile-inline-tab-title {
   display: none;
 }
@@ -3845,6 +3849,10 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   }
 
   .learn-top-tab-tests-label {
+    display: none;
+  }
+
+  .learn-top-tab-label {
     display: none;
   }
 

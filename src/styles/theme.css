@@ -182,14 +182,14 @@
 
 /* OLED / Tiefschwarz: noch dunkler als Standard-Dunkel, ohne Pink-Tönung */
 :root[data-theme='dark'][data-theme-variant='black'] {
-  --color-bg-app: #000000;
+  --color-bg-app: #121111;
   --color-text-app: #f1f5f9;
   --color-text-secondary: #cbd5e1;
   --color-text-muted: #8b9aaf;
   --color-border: #1e222b;
   --color-border-strong: #2a303c;
-  --color-surface: #070709;
-  --color-surface-soft: #0c0c0f;
+  --color-surface: #050505;
+  --color-surface-soft: #080808;
   --color-surface-elevated: #121218;
   --color-shadow-strong: rgba(0, 0, 0, 0.72);
   --color-shadow-soft: rgba(0, 0, 0, 0.55);
@@ -219,7 +219,7 @@
   --settings-sidebar-bg: #050506;
   --settings-body-bg: var(--color-surface);
   --settings-card-bg: var(--color-surface-soft);
-  --app-background: #000000;
+  --app-background: #121111;
   --glass-blur: 0px;
   --glass-saturation: 100%;
   --scrollbar-track: rgba(51, 65, 85, 0.35);
