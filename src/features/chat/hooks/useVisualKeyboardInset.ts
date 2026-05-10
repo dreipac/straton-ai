@@ -8,9 +8,17 @@ const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
  * Zusätzlicher Abstand unterhalb der von WebKit gemeldeten Visual-Viewport-Unterkante, solange das
  * Chat-Textfeld fokussiert ist. Die Input-Accessory (Prev/Next/Fertig) liegt oft **über** dem Bereich,
  * den `visualViewport.height` noch als „Web-Inhalt“ zählt — zu kleiner Slop → Composer wird beschnitten.
- * Absichtlich gleiche Größenordnung wie `obscuredBottomPx()` (dort Mindestpuffer 56px bei kleinem obscured).
+ * Größenordnung wie `obscuredBottomPx()` (dort Mindestpuffer 56px bei kleinem obscured); etwas höher, weil
+ * wir hier zusätzlich `IOS_FOCUS_SUBPIXEL_BUFFER_PX` abziehen (s. unten).
  */
-const IOS_CHAT_FOCUS_LAYOUT_SLOP_PX = 56
+const IOS_CHAT_FOCUS_LAYOUT_SLOP_PX = 60
+
+/**
+ * Noch ein paar Pixel unter `visibleBottom − IOS_CHAT_FOCUS_LAYOUT_SLOP_PX`: `Math.floor` auf
+ * `offsetTop + height`, Retina-Subpixel und leicht verschobene resize-Ticks lassen sonst oft **2–6px**
+ * des Composers unter der Accessory-Leiste stehen (nicht messbar „falsch“, aber sichtbar am unteren Rand).
+ */
+const IOS_FOCUS_SUBPIXEL_BUFFER_PX = 4
 
 function isChatInputFocused(): boolean {
   const el = document.activeElement
@@ -93,7 +101,8 @@ export function useVisualKeyboardInset(): void {
          * Dann ist `offsetTop + height` zu groß → `--straton-visual-layout-height` zu groß → Composer wird vom
          * Native-Layer beschnitten. Scrollen im Thread hilft nicht: der Composer liegt nicht in `.chat-messages`.
          */
-        const iosExtra = isLikelyIosWebKit() ? IOS_CHAT_FOCUS_LAYOUT_SLOP_PX : 14
+        const iosExtra =
+          (isLikelyIosWebKit() ? IOS_CHAT_FOCUS_LAYOUT_SLOP_PX + IOS_FOCUS_SUBPIXEL_BUFFER_PX : 14)
         const blockHeight = Math.max(
           120,
           Math.min(layoutH, Math.max(0, Math.floor(visibleBottom - iosExtra))),
