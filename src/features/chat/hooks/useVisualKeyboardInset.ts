@@ -19,8 +19,8 @@ function obscuredBottomPx(): number {
    * iOS Safari / installierte PWA: Die Leiste mit «Weiter / Zurück / Fertig» oberhalb der Tastatur
    * wird oft nur als sehr kleines obscured gemeldet — ohne Nachschlag bleibt der Composer unter der Leiste.
    */
-  if (obscured > 0 && obscured < 56) {
-    obscured = Math.max(obscured, 52)
+  if (obscured > 0 && obscured < 64) {
+    obscured = Math.max(obscured, 56)
   }
   return obscured
 }
@@ -38,7 +38,7 @@ export function useVisualKeyboardInset(): void {
     function apply() {
       const px = obscuredBottomPx()
       /** Etwas Luft unter der Message Box; zu knapp = Abschneiden an Accessory/Tastatur (PWA). */
-      const padded = px > 0 ? px + 12 : 0
+      const padded = px > 0 ? px + 18 : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
