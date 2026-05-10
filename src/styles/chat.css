@@ -2727,7 +2727,7 @@
      */
     --chat-mobile-composer-focus-bottom-gap: 6px;
     /* Thread mit Inhalt: stärkerer Abschnitt am Boden — Grid/sticky wirken sonst enger als im leeren Chat. */
-    --chat-mobile-composer-focus-bottom-gap-with-thread: 20px;
+    --chat-mobile-composer-focus-bottom-gap-with-thread: 25px;
   }
 
   .chat-panel {
