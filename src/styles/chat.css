@@ -2725,7 +2725,7 @@
      * Beim Fokus auf die Message-Box: WKWebView schiebt den Inhalt hoch; ohne kleinen Abstand «klebt»
      * die Composer-Pille am unteren Layout-Rand — abgerundete Ecken wirken beschnitten.
      */
-    --chat-mobile-composer-focus-bottom-gap: 3px;
+    --chat-mobile-composer-focus-bottom-gap: 6px;
   }
 
   .chat-panel {
