@@ -2721,6 +2721,11 @@
     --chat-mobile-messages-scroll-padding-bottom: calc(
       var(--chat-mobile-composer-bottom-offset) + var(--chat-mobile-messages-scroll-extra)
     );
+    /*
+     * Beim Fokus auf die Message-Box: WKWebView schiebt den Inhalt hoch; ohne kleinen Abstand «klebt»
+     * die Composer-Pille am unteren Layout-Rand — abgerundete Ecken wirken beschnitten.
+     */
+    --chat-mobile-composer-focus-bottom-gap: 3px;
   }
 
   .chat-panel {
@@ -2816,7 +2821,13 @@
   }
 
   .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-empty-compose {
-    padding-bottom: max(0px, calc(0.08rem + var(--chat-visual-keyboard-inset, 0px)));
+    padding-bottom: max(
+      0px,
+      calc(
+        0.08rem + var(--chat-mobile-composer-focus-bottom-gap) +
+          var(--chat-visual-keyboard-inset, 0px)
+      )
+    );
   }
 
   /* Neuer Chat mobil: Schnellkacheln direkt über der Message Box (Reihenfolge per flex order) */
@@ -4134,9 +4145,20 @@ button.chat-onboarding-tour-block {
     padding: 0 0.65rem calc(0.75rem + var(--chat-visual-keyboard-inset, 0px));
   }
 
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-main--share-toolbar .chat-panel:not(.is-empty) {
+    padding-bottom: calc(
+      0.75rem + var(--chat-mobile-composer-focus-bottom-gap) +
+        var(--chat-visual-keyboard-inset, 0px)
+    );
+  }
+
   /* Neuer Chat: kein Keyboard-Inset am Panel — gleiche Logik wie global .chat-panel.is-empty */
   .chat-main--share-toolbar .chat-panel.is-empty {
     padding: calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem 0.75rem;
+  }
+
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-main--share-toolbar .chat-panel.is-empty {
+    padding-bottom: calc(0.75rem + var(--chat-mobile-composer-focus-bottom-gap));
   }
 
   /*
@@ -4983,6 +5005,21 @@ button.chat-onboarding-tour-block {
     position: relative;
     bottom: auto;
     z-index: 7;
+  }
+
+  /*
+   * Sichtbarer Mini-Abstand zum Dokumentboden bei Tastatur — nicht mit Keyboard-Inset verwechseln:
+   * verhindert, dass die Message-Box optisch am unteren Rand «klebt» bzw. beschnitten wirkt.
+   */
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) {
+    padding-bottom: calc(
+      0.75rem + var(--chat-mobile-composer-focus-bottom-gap) +
+        var(--chat-visual-keyboard-inset, 0px)
+    );
+  }
+
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty {
+    padding-bottom: calc(0.75rem + var(--chat-mobile-composer-focus-bottom-gap));
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-input-row.is-centered {
