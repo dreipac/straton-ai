@@ -43,6 +43,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userWordCommand = true
   }
 
+  if (o.userWebSearchCommand === true) {
+    out.userWebSearchCommand = true
+  }
+
   if (o.liveStream === true) {
     out.liveStream = true
   }

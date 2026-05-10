@@ -35,6 +35,8 @@ export type SubscriptionPlanRow = {
   chat_daily_tier2_openai_model_id?: string
   /** Max. geschätzte Tokens für Hauptchat-Verlauf; NULL = unbegrenzt (Migration `20260504210000`). */
   chat_context_max_tokens?: number | null
+  /** Täglich +N zum Websuche-Guthaben (UTC), max. 50 Kontostand. */
+  web_search_daily_grant?: number | null
   created_at: string
 }
 
@@ -304,7 +306,7 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   const { data, error } = await supabase
     .from('subscription_plans')
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, created_at',
     )
     .order('name', { ascending: true })
 
@@ -341,6 +343,8 @@ export async function createSubscriptionPlan(params: {
   chatDailyTier1TokenBudget?: number | null
   chatDailyTier2OpenAiModelId?: string | null
   chatContextMaxTokens?: number | null
+  /** 0–50: tägliche Aufladung Websuche-Guthaben */
+  webSearchDailyGrant?: number | null
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
@@ -369,9 +373,10 @@ export async function createSubscriptionPlan(params: {
         allow ? null : params.chatDailyTier2OpenAiModelId ?? null,
       ),
       chat_context_max_tokens: params.chatContextMaxTokens ?? null,
+      web_search_daily_grant: params.webSearchDailyGrant ?? null,
     })
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, created_at',
     )
     .single()
 
@@ -394,6 +399,7 @@ export async function updateSubscriptionPlan(params: {
   chatDailyTier1TokenBudget?: number | null
   chatDailyTier2OpenAiModelId?: string | null
   chatContextMaxTokens?: number | null
+  webSearchDailyGrant?: number | null
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
@@ -428,10 +434,11 @@ export async function updateSubscriptionPlan(params: {
       ...baseRow,
       ...tierRow,
       chat_context_max_tokens: params.chatContextMaxTokens ?? null,
+      web_search_daily_grant: params.webSearchDailyGrant ?? null,
     })
     .eq('id', params.planId)
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, created_at',
     )
     .single()
 

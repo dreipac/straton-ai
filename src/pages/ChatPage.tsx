@@ -17,6 +17,8 @@ import accountIcon from '../assets/icons/account.svg'
 import learnIcon from '../assets/icons/learn-outlined.svg'
 import chatFilledIcon from '../assets/icons/chat-filled.svg'
 import chatOutlinedIcon from '../assets/icons/chat-outlined.svg'
+import webFilledIcon from '../assets/icons/web-filled.svg'
+import webOutlinedIcon from '../assets/icons/web-outlined.svg'
 import statusIcon from '../assets/icons/status.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
@@ -307,6 +309,9 @@ export function ChatPage() {
       user && applyMainChatDailyTier ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
     mainChatDailyTierConfig: user && applyMainChatDailyTier ? mainChatDailyTierConfig : undefined,
     mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
+    webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
+    isSuperadmin: profile?.is_superadmin === true,
+    onWebSearchCreditsConsumed: refreshProfile,
   })
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
@@ -323,6 +328,14 @@ export function ChatPage() {
   const [shareActionBusy, setShareActionBusy] = useState(false)
   /** Mobile «Neuer Chat» FAB: gleicher Ring wie Senden während createNewChat läuft */
   const [isNewChatPending, setIsNewChatPending] = useState(false)
+  /** Nach Tab «Web-Suche»: Composer einmal im Websuche-Modus öffnen */
+  const [pendingWebSearchComposer, setPendingWebSearchComposer] = useState(false)
+  /** Nur für Mobile-Tab: gefülltes Icon während Neuer-Chat-Lauf von «Web-Suche» */
+  const [isWebSearchNewChatPending, setIsWebSearchNewChatPending] = useState(false)
+  /** Bottom-Nav: Web-Suche-Tab aktiv (Composer-Modus), synchron über ChatWindow */
+  const [mobileWebSearchNavActive, setMobileWebSearchNavActive] = useState(false)
+  /** Chat-Tab erhöht Signal — Composer verlässt Websuche */
+  const [exitWebSearchSignal, setExitWebSearchSignal] = useState(0)
   const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const canInviteToActiveChat = Boolean(
@@ -1233,6 +1246,35 @@ export function ChatPage() {
     }
   }
 
+  async function handleCreateNewChatWithWebSearch() {
+    setIsWebSearchNewChatPending(true)
+    setIsNewChatPending(true)
+    try {
+      await createNewChat()
+      setPendingWebSearchComposer(true)
+      closeThreadActionMenu()
+      setIsProfileMenuOpen(false)
+      if (isCompactMobileSidebarLayout) {
+        profileFullSheetRef.current?.requestClose()
+      }
+      setIsMobileSidebarOpen(false)
+    } finally {
+      setIsWebSearchNewChatPending(false)
+      setIsNewChatPending(false)
+    }
+  }
+
+  const consumePendingWebSearchComposer = useCallback(() => {
+    setPendingWebSearchComposer(false)
+  }, [])
+
+  const mobileBottomNavTabIndex =
+    isMobileSidebarOpen ? 0 : mobileWebSearchNavActive || isWebSearchNewChatPending ? 2 : 1
+  const mobileChatBottomTabActive =
+    !isMobileSidebarOpen && !mobileWebSearchNavActive && !isWebSearchNewChatPending
+  const mobileWebBottomTabActive =
+    !isMobileSidebarOpen && (mobileWebSearchNavActive || isWebSearchNewChatPending)
+
   function closeThreadActionMenu() {
     setOpenMenuThreadId(null)
     setContextMenuPosition(null)
@@ -1510,7 +1552,9 @@ export function ChatPage() {
             aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
             onClick={toggleMobileSidebarFromBottomNav}
           >
-            <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+            <span className="chat-mobile-bottom-tab-icon-slot">
+              <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+            </span>
             <span className="chat-mobile-bottom-tab-label">Menü</span>
           </button>
           <button
@@ -1518,12 +1562,14 @@ export function ChatPage() {
             className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
             aria-label="Chat"
           >
-            <img
-              className="ui-icon chat-mobile-bottom-tab-icon"
-              src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
-              alt=""
-              aria-hidden="true"
-            />
+            <span className="chat-mobile-bottom-tab-icon-slot">
+              <img
+                className="ui-icon chat-mobile-bottom-tab-icon"
+                src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
+                alt=""
+                aria-hidden="true"
+              />
+            </span>
             <span className="chat-mobile-bottom-tab-label">Chat</span>
           </button>
           <button
@@ -1531,7 +1577,9 @@ export function ChatPage() {
             className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
             aria-label="Platzhalter"
           >
-            <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
+            <span className="chat-mobile-bottom-tab-icon-slot">
+              <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
+            </span>
             <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
           </button>
         </nav>
@@ -1914,6 +1962,18 @@ export function ChatPage() {
           onSendMessage={submitMessage}
           onFinalizeWordDocument={finalizeWordDocumentExport}
           wordFinalizeBusy={wordFinalizeBusy}
+          pendingWebSearchComposer={pendingWebSearchComposer}
+          onPendingWebSearchComposerConsumed={consumePendingWebSearchComposer}
+          onWebSearchModeChange={setMobileWebSearchNavActive}
+          exitWebSearchSignal={exitWebSearchSignal}
+          webSearchCreditsRemaining={
+            profile?.is_superadmin === true
+              ? undefined
+              : profile?.subscription_usages?.web_search_credit_balance ?? 0
+          }
+          webSearchDailyGrant={
+            profile?.is_superadmin === true ? undefined : profile?.subscription_plans?.web_search_daily_grant ?? null
+          }
         />
         <aside
           className={`chat-learnpath-draft-sidebar${learningPathDraftOpen ? ' is-open' : ''}`}
@@ -2102,7 +2162,7 @@ export function ChatPage() {
       <nav
         className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}`}
         aria-label="Chat Navigation"
-        style={{ ['--chat-active-tab-index' as any]: isMobileSidebarOpen ? 0 : 1 }}
+        style={{ ['--chat-active-tab-index' as any]: mobileBottomNavTabIndex }}
         onTouchStart={handleMobileBottomNavTouchStart}
         onTouchEnd={handleMobileBottomNavTouchEnd}
         onTouchCancel={handleMobileBottomNavTouchEnd}
@@ -2113,29 +2173,43 @@ export function ChatPage() {
           aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
           onClick={toggleMobileSidebarFromBottomNav}
         >
-          <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+          <span className="chat-mobile-bottom-tab-icon-slot">
+            <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+          </span>
           <span className="chat-mobile-bottom-tab-label">Menü</span>
         </button>
         <button
           type="button"
-          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
-          aria-label="Chat"
+          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${mobileChatBottomTabActive ? ' is-active' : ''}`}
+          aria-label="Chat — Standardmodus"
+          onClick={() => setExitWebSearchSignal((n) => n + 1)}
         >
-          <img
-            className="ui-icon chat-mobile-bottom-tab-icon"
-            src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
-            alt=""
-            aria-hidden="true"
-          />
+          <span className="chat-mobile-bottom-tab-icon-slot">
+            <img
+              className="ui-icon chat-mobile-bottom-tab-icon"
+              src={mobileChatBottomTabActive ? chatFilledIcon : chatOutlinedIcon}
+              alt=""
+              aria-hidden="true"
+            />
+          </span>
           <span className="chat-mobile-bottom-tab-label">Chat</span>
         </button>
         <button
           type="button"
-          className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
-          aria-label="Platzhalter"
+          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--websearch${mobileWebBottomTabActive ? ' is-active' : ''}`}
+          aria-label="Live-Web: Neuer Chat mit Websuche"
+          disabled={isNewChatPending}
+          onClick={() => void handleCreateNewChatWithWebSearch()}
         >
-          <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
-          <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
+          <span className="chat-mobile-bottom-tab-icon-slot">
+            <img
+              className="ui-icon chat-mobile-bottom-tab-icon"
+              src={mobileWebBottomTabActive ? webFilledIcon : webOutlinedIcon}
+              alt=""
+              aria-hidden="true"
+            />
+          </span>
+          <span className="chat-mobile-bottom-tab-label">Live-Web</span>
         </button>
       </nav>
       <div

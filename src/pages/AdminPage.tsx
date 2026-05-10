@@ -202,6 +202,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxTokens, setNewPlanMaxTokens] = useState('')
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
+  const [newPlanWebSearchDailyGrant, setNewPlanWebSearchDailyGrant] = useState('')
   const [newPlanChatContextMaxTokens, setNewPlanChatContextMaxTokens] = useState(
     String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS),
   )
@@ -227,6 +228,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     tier1TokenBudget: string
     tier2OpenAiModelId: ChatDailyTierOpenAiModelId
     chatContextMaxTokens: string
+    webSearchDailyGrant: string
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -813,6 +815,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return n
   }
 
+  /** Leer = keine tägliche Aufladung; sonst 0 … 50 (Websuche-Guthaben). */
+  function parseOptionalWebSearchDailyGrant(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 50) {
+      return null
+    }
+    return n
+  }
+
   /** Leer = unbegrenzter Verlauf; sonst 1000 … 5_000_000 (wie DB-Check). */
   function parseOptionalChatContextMaxTokens(raw: string): number | null {
     const t = raw.trim()
@@ -857,6 +872,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(newPlanWebSearchDailyGrant)
+    if (newPlanWebSearchDailyGrant.trim() && webSearchDailyGrant === null) {
+      setSubscriptionPlansError(
+        'Websuche pro Tag: ganze Zahl zwischen 0 und 50 (tägliche Aufladung zum Guthaben), oder leer.',
+      )
+      return
+    }
+
     let tier1Budget = 50_000
     if (!newPlanAllowModelChoice) {
       if (newPlanTier1TokenBudget.trim()) {
@@ -885,6 +908,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier1TokenBudget: tier1Budget,
         chatDailyTier2OpenAiModelId: newPlanTier2OpenAiModelId,
         chatContextMaxTokens,
+        webSearchDailyGrant,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -893,6 +917,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxTokens('')
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
+      setNewPlanWebSearchDailyGrant('')
       setNewPlanChatContextMaxTokens(String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS))
       setNewPlanAllowModelChoice(true)
       setNewPlanImageGenerationModel('gpt_image_1')
@@ -940,6 +965,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(editPlanDraft.webSearchDailyGrant)
+    if (editPlanDraft.webSearchDailyGrant.trim() && webSearchDailyGrant === null) {
+      setSubscriptionPlansError(
+        'Websuche pro Tag: ganze Zahl zwischen 0 und 50 (tägliche Aufladung zum Guthaben), oder leer.',
+      )
+      return
+    }
+
     let tier1Budget = 50_000
     if (!editPlanDraft.allowModelChoice) {
       if (editPlanDraft.tier1TokenBudget.trim()) {
@@ -969,6 +1002,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier1TokenBudget: tier1Budget,
         chatDailyTier2OpenAiModelId: editPlanDraft.tier2OpenAiModelId,
         chatContextMaxTokens,
+        webSearchDailyGrant,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -2270,6 +2304,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             ? `max. ca. ${plan.chat_context_max_tokens.toLocaleString('de-DE')} Tokens`
                             : 'unbegrenzt'}
                           <br />
+                          Websuche:{' '}
+                          {typeof plan.web_search_daily_grant === 'number'
+                            ? `+${plan.web_search_daily_grant}/Tag (Guthaben max. 50)`
+                            : 'keine tägliche Aufladung'}
+                          <br />
                           Bildgenerator:{' '}
                           {labelForSubscriptionImageGenerationModel(
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
@@ -2312,6 +2351,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               chatContextMaxTokens:
                                 typeof plan.chat_context_max_tokens === 'number'
                                   ? String(plan.chat_context_max_tokens)
+                                  : '',
+                              webSearchDailyGrant:
+                                typeof plan.web_search_daily_grant === 'number'
+                                  ? String(plan.web_search_daily_grant)
                                   : '',
                             })
                           }}
@@ -2920,6 +2963,22 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanMaxFiles(event.target.value)}
                     />
 
+                    <label htmlFor="admin-new-subscription-web-search-daily">Websuche pro Tag (Aufladung)</label>
+                    <input
+                      id="admin-new-subscription-web-search-daily"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={50}
+                      step={1}
+                      placeholder="leer = keine Aufladung — max. 50 Kontostand"
+                      value={newPlanWebSearchDailyGrant}
+                      onChange={(event) => setNewPlanWebSearchDailyGrant(event.target.value)}
+                    />
+                    <p className="admin-users-hint">
+                      Täglich (UTC) zum Websuche-Guthaben dazu; höchstens 50 gespeicherte Websuchen gleichzeitig.
+                    </p>
+
                     <label htmlFor="admin-new-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
                     <input
                       id="admin-new-subscription-chat-context-tokens"
@@ -3135,6 +3194,26 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
                       }
                     />
+
+                    <label htmlFor="admin-edit-subscription-web-search-daily">Websuche pro Tag (Aufladung)</label>
+                    <input
+                      id="admin-edit-subscription-web-search-daily"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={50}
+                      step={1}
+                      placeholder="leer = keine Aufladung — max. 50 Kontostand"
+                      value={editPlanDraft.webSearchDailyGrant}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, webSearchDailyGrant: event.target.value } : null,
+                        )
+                      }
+                    />
+                    <p className="admin-users-hint">
+                      Täglich (UTC) zum Websuche-Guthaben dazu; höchstens 50 gespeicherte Websuchen gleichzeitig.
+                    </p>
 
                     <label htmlFor="admin-edit-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
                     <input

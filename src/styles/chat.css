@@ -175,6 +175,14 @@
   color: #64748b;
 }
 
+.chat-websearch-credits-hint {
+  margin: 0.45rem 0 0;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-accent, #6366f1) 88%, var(--color-text-app) 12%);
+}
+
 .chat-limit-banner {
   width: 100%;
   justify-self: stretch;
@@ -231,6 +239,37 @@
 /* during.svg: Größe unten bei Submit-Button (höhere Spezifität — sonst setzt .chat-input-row > button .chat-send-icon) */
 .chat-send-icon--during {
   animation: none;
+}
+
+/* Zwei Icons übereinander — Umschalten per Opacity (send ↔ during), kein harter src-Wechsel */
+.chat-send-icon-stack {
+  position: relative;
+  display: inline-flex;
+  width: var(--chat-composer-icon-size);
+  height: var(--chat-composer-icon-size);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-send-icon-stack__layer {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  /* Kurz: zwei verschiedene Icons sollen sich nicht lange überlagern */
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+
+.chat-send-icon-stack__layer--on {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-send-icon-stack__layer {
+    transition-duration: 40ms;
+  }
 }
 
 .chat-message--pending {
@@ -1829,6 +1868,33 @@
   background: rgba(20, 95, 52, 0.58);
 }
 
+.chat-compose-mode-badge--websearch {
+  background: rgba(29, 78, 216, 0.38);
+  color: #1e3a8a;
+}
+
+.chat-compose-mode-badge--websearch:hover:enabled {
+  background: rgba(29, 78, 216, 0.46);
+}
+
+.chat-compose-mode-badge--websearch .chat-compose-mode-badge-icon {
+  object-fit: contain;
+}
+
+.chat-compose-mode-badge--websearch:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--websearch {
+  background: rgba(37, 99, 235, 0.42);
+  color: #93c5fd;
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--websearch:hover:enabled {
+  background: rgba(37, 99, 235, 0.52);
+}
+
 .chat-input {
   width: 100%;
 }
@@ -2259,12 +2325,106 @@
 }
 
 .chat-quick-tiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 0.55rem 0.75rem;
   width: 100%;
   margin: clamp(1rem, 1.8vw + 0.45rem, 1.4rem) 0 0;
   box-sizing: border-box;
+  transition: gap 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.chat-quick-tiles-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.75rem;
+  min-width: 0;
+}
+
+.chat-quick-tiles-row--top {
+  overflow: hidden;
+  max-height: 120px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 280ms ease,
+    margin 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.chat-quick-tiles.is-websearch-focus .chat-quick-tiles-row--top {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+.chat-quick-tiles-row--bottom {
+  transition: grid-template-columns 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.chat-quick-tile--bilder {
+  max-height: 88px;
+  transition:
+    max-height 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 260ms ease,
+    padding 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.chat-quick-tiles.is-websearch-focus .chat-quick-tiles-row--bottom {
+  grid-template-columns: 1fr;
+}
+
+.chat-quick-tiles.is-websearch-focus .chat-quick-tile--bilder {
+  max-height: 0;
+  min-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  padding-right: 0;
+  margin: 0;
+  border: none;
+  overflow: hidden;
+  transform: scale(0.94);
+  pointer-events: none;
+}
+
+.chat-quick-tiles.is-websearch-focus .chat-quick-tile--websearch {
+  transform: translateY(0);
+  animation: chat-websearch-tile-in 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes chat-websearch-tile-in {
+  from {
+    opacity: 0.75;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 860px) {
+  .chat-panel.is-empty.is-websearch-focus .chat-empty-compose {
+    animation: chat-websearch-panel-in 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+}
+
+@keyframes chat-websearch-panel-in {
+  from {
+    opacity: 0.92;
+    filter: brightness(0.96);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
 }
 
 .chat-quick-tile {
@@ -2338,6 +2498,23 @@
   flex-shrink: 0;
   object-fit: cover;
   border-radius: 5px;
+}
+
+.chat-quick-tile--websearch .chat-quick-tile-icon-wrap {
+  background: rgba(37, 99, 235, 0.3);
+}
+
+:root[data-theme='dark'] .chat-quick-tile--websearch .chat-quick-tile-icon-wrap,
+:root[data-theme='dark'][data-theme-variant='pink-glass']
+  .chat-quick-tile--websearch
+  .chat-quick-tile-icon-wrap,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-quick-tile--websearch .chat-quick-tile-icon-wrap {
+  background: rgba(37, 99, 235, 0.3);
+}
+
+.chat-quick-tile--websearch .chat-quick-tile-icon-wrap img {
+  /* Schwarzes SVG → hellblau (~ Tailwind blue-300 / #93c5fd) */
+  filter: invert(83%) sepia(26%) saturate(1352%) hue-rotate(177deg) brightness(103%) contrast(96%);
 }
 
 .chat-quick-tile-text {
@@ -2470,93 +2647,25 @@
   color: var(--accent-fab-fg, #ffffff);
 }
 
-/*
- * Ring bleibt am Send-Button: kein transform/scale (sonst «löst» sich der Ring ab).
- * Nur box-shadow-Spread am Rand — aufbauen und wieder einziehen.
- */
-@keyframes chat-send-button-ring-attached {
-  0% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-  32% {
-    box-shadow: 0 0 0 5px
-      color-mix(
-        in srgb,
-        color-mix(in srgb, var(--accent-ring-base, #6366f1) 40%, #ffffff 60%) 45%,
-        transparent
-      );
-  }
-  58% {
-    box-shadow: 0 0 0 2px
-      color-mix(
-        in srgb,
-        color-mix(in srgb, var(--accent-ring-base, #6366f1) 40%, #ffffff 60%) 28%,
-        transparent
-      );
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-
-/* Akzent-Ring nur mobil (Send-Button + Neuer-Chat-FAB) — Desktop ohne Ring-Animation */
+/* Mobil: Tap-Feedback am Send-Button (scale) — ohne Ring-Animation beim Senden */
 @media (max-width: 860px) {
-  .chat-input-row--stacked.is-sending > button[type='submit'] {
-    position: relative;
-    isolation: isolate;
-    overflow: visible;
+  .chat-input-row--stacked > button[type='submit'] {
+    transition:
+      transform 580ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      filter 160ms ease,
+      box-shadow 160ms ease;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .chat-input-row--stacked.is-sending > button[type='submit'] .chat-send-icon {
-    position: relative;
-    z-index: 1;
-  }
-
-  .chat-input-row--stacked.is-sending > button[type='submit']::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    box-sizing: border-box;
-    border-radius: 50%;
-    background: transparent;
-    pointer-events: none;
-    z-index: 0;
-    animation: chat-send-button-ring-attached 0.62s cubic-bezier(0.42, 0, 0.2, 1) forwards;
-  }
-
-  /* Mobile Sidebar: «Neuer Chat» FAB — gleicher Accent-Ring wie Senden */
-  .mobile-new-chat-fab.is-new-chat-pending {
-    isolation: isolate;
-    overflow: visible;
-  }
-
-  .mobile-new-chat-fab.is-new-chat-pending > span {
-    position: relative;
-    z-index: 1;
-  }
-
-  .mobile-new-chat-fab.is-new-chat-pending::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    box-sizing: border-box;
-    border-radius: 999px;
-    background: transparent;
-    pointer-events: none;
-    z-index: 0;
-    animation: chat-send-button-ring-attached 0.62s cubic-bezier(0.42, 0, 0.2, 1) forwards;
+  .chat-input-row--stacked > button[type='submit'].is-touch-active:enabled {
+    transform: scale3d(1.045, 1.045, 1);
   }
 }
 
 @media (max-width: 860px) and (prefers-reduced-motion: reduce) {
-  .chat-input-row--stacked.is-sending > button[type='submit']::before {
-    animation: none;
-    box-shadow: none;
-  }
-
-  .mobile-new-chat-fab.is-new-chat-pending::before {
-    animation: none;
-    box-shadow: none;
+  .chat-input-row--stacked > button[type='submit'].is-touch-active:enabled {
+    transform: none;
   }
 }
 
@@ -3453,6 +3562,18 @@
 }
 
 .chat-input-row--stacked > button[type='submit']:disabled .chat-send-icon {
+  opacity: 0.78;
+}
+
+/*
+ * Gestapelte Send-Icons: globales `:disabled .chat-send-icon { opacity }` träfe BEIDE Ebenen —
+ * dann wirken Pfeil und During gleichzeitig sichtbar. Nur die aktive Schicht ausgrauen.
+ */
+.chat-input-row--stacked > button[type='submit']:disabled .chat-send-icon-stack .chat-send-icon-stack__layer:not(.chat-send-icon-stack__layer--on) {
+  opacity: 0 !important;
+}
+
+.chat-input-row--stacked > button[type='submit']:disabled .chat-send-icon-stack .chat-send-icon-stack__layer--on.chat-send-icon {
   opacity: 0.78;
 }
 
@@ -4957,10 +5078,20 @@ button.chat-onboarding-tour-block {
     -webkit-tap-highlight-color: transparent;
   }
 
+  .chat-mobile-bottom-tab-icon-slot {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    overflow: hidden;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
   .chat-mobile-bottom-tab-icon {
     --ui-icon-size: 24px;
     filter: brightness(0) saturate(100%) invert(93%) sepia(7%) saturate(201%) hue-rotate(173deg) brightness(92%) contrast(88%);
-    transition: filter 240ms ease;
+    transition: filter 240ms ease, transform 240ms ease;
   }
 
   .chat-mobile-bottom-tab-label {
@@ -4974,12 +5105,14 @@ button.chat-onboarding-tour-block {
     text-rendering: geometricPrecision;
   }
 
-  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon {
-    filter: brightness(0) saturate(100%) invert(48%) sepia(74%) saturate(1915%) hue-rotate(217deg) brightness(100%) contrast(101%);
+  /* Aktives Tab-Icon: Silhouette + farbiger drop-shadow (nutzt dieselbe Referenz wie Akzent-Preset, `--accent-ring-base`). */
+  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-slot .chat-mobile-bottom-tab-icon {
+    filter: brightness(0) saturate(100%) drop-shadow(24px 0 0 var(--accent-ring-base, #6366f1));
+    transform: translateX(-24px);
   }
 
   .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-label {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-accent, var(--accent-ring-base, #6366f1));
     font-weight: 700;
   }
 

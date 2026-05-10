@@ -41,6 +41,7 @@ import {
   sendMessageStreaming,
   usesGatewayAi,
 } from '../services/chat.service'
+import { fetchTavilySearchContext } from '../services/tavilySearch.service'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
   matchExplicitImageGenerationRequest,
@@ -201,6 +202,11 @@ export function useChat(
     mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
     /** Abo: max. geschätzte Tokens für Chat-Verlauf; ohne Abo Default aus `mainChatContext`. */
     mainChatContextMaxTokens?: number | null
+    /** Aktuelles Websuche-Guthaben (Profil); ohne Superadmin bei 0 keine Websuche. */
+    webSearchCreditBalance?: number
+    isSuperadmin?: boolean
+    /** Nach erfolgreicher Tavily-Suche Profil aktualisieren (Guthaben). */
+    onWebSearchCreditsConsumed?: () => void | Promise<void>
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -681,7 +687,12 @@ export function useChat(
     setError(null)
   }
 
-  async function submitMessage(content: string) {
+  async function submitMessage(
+    content: string,
+    sendOpts?: {
+      useWebSearch?: boolean
+    },
+  ) {
     const wantsWord = userWantsWordExport(content)
     const wantsExcel = !wantsWord && userWantsExcelExport(content)
     let trimmed = stripExcelCommandMarker(content)
@@ -792,12 +803,45 @@ export function useChat(
         }
       }
 
+      let webSearchContext: string | undefined
+      if (
+        sendOpts?.useWebSearch &&
+        trimmed &&
+        usesGatewayAi() &&
+        !wantsWord &&
+        !wantsExcel &&
+        !imageGenPrompt
+      ) {
+        if (!options?.isSuperadmin && (options?.webSearchCreditBalance ?? 0) < 1) {
+          setError(
+            'Dein Websuche-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen (max. 50 Kontostand).',
+          )
+          return
+        }
+        try {
+          const ws = await fetchTavilySearchContext(trimmed)
+          webSearchContext = ws.contextText
+          void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
+        } catch (wsErr) {
+          const message =
+            wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
+          setError(message)
+          return
+        }
+      }
+
       const userContent = trimmed || (wantsWord ? 'Word-Dokument vorbereiten' : trimmed)
       const storedUserMessage = await createChatMessage(
         targetThreadId,
         'user',
         userContent,
-        wantsExcel ? { userExcelCommand: true } : wantsWord ? { userWordCommand: true } : undefined,
+        wantsExcel
+          ? { userExcelCommand: true }
+          : wantsWord
+            ? { userWordCommand: true }
+            : webSearchContext
+              ? { userWebSearchCommand: true }
+              : undefined,
       )
 
       let nextMessages: ChatMessage[] = []
@@ -938,6 +982,7 @@ export function useChat(
               options?.mainChatContextMaxTokens === undefined
                 ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
                 : options.mainChatContextMaxTokens,
+            webSearchContext,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -968,6 +1013,7 @@ export function useChat(
             options?.mainChatContextMaxTokens === undefined
               ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
               : options.mainChatContextMaxTokens,
+          webSearchContext,
         })
         finalAssistantContent = assistantMessage.content
       }

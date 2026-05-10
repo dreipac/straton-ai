@@ -38,6 +38,8 @@ export type ChatMessage = {
     userExcelCommand?: boolean
     /** User-Nachricht: Word-Export-Befehl (Marker entfernt). */
     userWordCommand?: boolean
+    /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */
+    userWebSearchCommand?: boolean
   }
 }
 

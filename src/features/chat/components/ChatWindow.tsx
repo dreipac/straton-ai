@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type TransitionEvent as ReactTransitionEvent,
 } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
@@ -17,6 +18,7 @@ import fileIcon from '../../../assets/icons/file.svg'
 import greenFileIcon from '../../../assets/icons/green-file.svg'
 import landscapePng from '../../../assets/png/Landscape.png'
 import sendIcon from '../../../assets/icons/send.svg'
+import webOutlinedIcon from '../../../assets/icons/web-outlined.svg'
 import wordIcon from '../../../assets/icons/word.svg'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
@@ -55,6 +57,7 @@ import {
 } from '../utils/thinkingClarify'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
+import { MAX_WEB_SEARCH_CREDIT_BALANCE } from '../constants/webSearchCredits'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
 
@@ -105,10 +108,13 @@ function buildExcelGenMatrixCells(): { key: string; delayMs: number }[] {
 const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
 
 /** Einträge im Slash-Menü (Excel, Word, Bilder) — für Pfeiltasten / Enter */
-const SLASH_MENU_ITEM_COUNT = 3
+const SLASH_MENU_ITEM_COUNT = 4
 
 /** Gleicher Breakpoint wie `chat.css` (@media max-width 860px) — Slash-Menü aus, Anhang-Bottom-Sheet */
 const MOBILE_COMPOSER_MQ = '(max-width: 860px)'
+
+/** Mobil: Touch-Scale max. ~560ms nach Loslassen + Rück-Transition ~580ms — During-Icon erst danach */
+const MOBILE_SEND_DURING_ICON_DELAY_MS = 1100
 
 type ChatWindowProps = {
   /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
@@ -132,7 +138,18 @@ type ChatWindowProps = {
   thinkingClarifyDialog?: ThinkingClarifyDialogState | null
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
-  onSendMessage: (content: string) => Promise<void>
+  onSendMessage: (content: string, opts?: { useWebSearch?: boolean }) => Promise<void>
+  /** Nach «Neuer Chat · Websuche»: einmalig Web-Modus aktivieren. */
+  pendingWebSearchComposer?: boolean
+  onPendingWebSearchComposerConsumed?: () => void
+  /** Mobile Bottom-Navigation: Websuche-Tab mit Composer-Modus synchronisieren. */
+  onWebSearchModeChange?: (active: boolean) => void
+  /** Von ChatPage erhöht — schaltet Websuche im Composer aus (z. B. Chat-Tab). */
+  exitWebSearchSignal?: number
+  /** Verbleibende Websuchen (Guthaben); bei Superadmin auslassen. */
+  webSearchCreditsRemaining?: number
+  /** Aus Abo: tägliche Aufladung für Hinweistext. */
+  webSearchDailyGrant?: number | null
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
   /** Nach /Word: Word-Datei erzeugen, wenn die Papier-Vorschau passt. */
@@ -240,14 +257,16 @@ function getImageFilesFromClipboard(data: DataTransfer | null | undefined): File
 async function buildPastedImagePendingAttachments(files: File[]): Promise<PendingAttachment[]> {
   const imageAttachments: PendingAttachment[] = []
   for (const file of files) {
-    const [text, previewDataUrl] = await Promise.all([
-      extractLearningMaterialText(file),
-      readImageFileAsVisionDataUrl(file),
-    ])
+    /*
+     * Kein `extractLearningMaterialText` / Tesseract hier: Das würde jedes iPhone-Foto (hohe Auflösung)
+     * clientseitig mit OCR blockieren und oft 10–30+ Sekunden dauern — die KI bekommt das Bild ohnehin
+     * als `[BildData]` (Vision).
+     */
+    const previewDataUrl = await readImageFileAsVisionDataUrl(file)
     imageAttachments.push({
       id: crypto.randomUUID(),
       name: file.name || `image-${Date.now()}.png`,
-      content: text.trim().slice(0, 1400),
+      content: '',
       kind: 'pasted-image',
       previewDataUrl,
     })
@@ -274,6 +293,12 @@ export function ChatWindow({
   onDismissThinkingClarify = () => {},
   onSubmitThinkingClarifyAnswer = async () => {},
   onSendMessage,
+  pendingWebSearchComposer = false,
+  onPendingWebSearchComposerConsumed,
+  onWebSearchModeChange,
+  exitWebSearchSignal,
+  webSearchCreditsRemaining,
+  webSearchDailyGrant,
   onCancelSend,
   onFinalizeWordDocument,
   wordFinalizeBusy = false,
@@ -284,14 +309,21 @@ export function ChatWindow({
   const [slashMenuHighlightIndex, setSlashMenuHighlightIndex] = useState(0)
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
+  const [isComposerSendTouchActive, setIsComposerSendTouchActive] = useState(false)
+  const composerSendTouchStartRef = useRef(0)
+  const composerSendTouchReleaseTimerRef = useRef<number | null>(null)
+  const mobileSendStartedWithTouchRef = useRef(false)
+  const [mobileDuringIconReady, setMobileDuringIconReady] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
   const [wordCommandSelected, setWordCommandSelected] = useState(false)
   const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
+  const [webSearchCommandSelected, setWebSearchCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
   const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
   const imageLightboxClosePendingRef = useRef(false)
+  const exitWebSearchSignalHandledRef = useRef(0)
   const isEmptyState = messageList.length === 0
 
   useLayoutEffect(() => {
@@ -415,8 +447,47 @@ export function ChatWindow({
     const animated = safeMessageContent(animatedAssistantContent[lastMessage.id] ?? full)
     return animated.length < full.length
   })()
-  const showDuringSendIcon = isSending || isAssistantReplyStillAnimating
+  const showDuringSendIcon =
+    isAssistantReplyStillAnimating ||
+    (isSending && (!isMobileComposer || mobileDuringIconReady))
+
+  useEffect(() => {
+    if (!isSending) {
+      setMobileDuringIconReady(false)
+      return
+    }
+    if (!isMobileComposer) {
+      return
+    }
+    const beganWithTouch = mobileSendStartedWithTouchRef.current
+    mobileSendStartedWithTouchRef.current = false
+    if (!beganWithTouch) {
+      setMobileDuringIconReady(true)
+      return
+    }
+    setMobileDuringIconReady(false)
+    const id = window.setTimeout(() => setMobileDuringIconReady(true), MOBILE_SEND_DURING_ICON_DELAY_MS)
+    return () => window.clearTimeout(id)
+  }, [isSending, isMobileComposer])
+
   const cancelWhileSending = Boolean(isSending && onCancelSend)
+
+  const composerSendIconEl = (
+    <span className="chat-send-icon-stack">
+      <img
+        className={`ui-icon chat-send-icon chat-send-icon-stack__layer${showDuringSendIcon ? '' : ' chat-send-icon-stack__layer--on'}`}
+        src={sendIcon}
+        alt=""
+        aria-hidden="true"
+      />
+      <img
+        className={`ui-icon chat-send-icon chat-send-icon--during chat-send-icon-stack__layer${showDuringSendIcon ? ' chat-send-icon-stack__layer--on' : ''}`}
+        src={duringIcon}
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+  )
 
   const composePlaceholder = tokenLimitReached
     ? 'Token-Limit erreicht'
@@ -424,15 +495,44 @@ export function ChatWindow({
       ? 'Beschreibe dein Bild …'
       : wordCommandSelected
         ? 'Optional: JSON einfügen — sonst letzte KI-Gliederung'
-        : 'Nachricht eingeben...'
+        : webSearchCommandSelected
+          ? 'Frage stellen — es wird zuerst im Web gesucht (Tavily)'
+          : 'Nachricht eingeben...'
 
   useEffect(() => {
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setAttachComposerSheetOpen(false)
   }, [threadKey])
+
+  useEffect(() => {
+    if (!pendingWebSearchComposer) {
+      return
+    }
+    setWebSearchCommandSelected(true)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    onPendingWebSearchComposerConsumed?.()
+  }, [pendingWebSearchComposer, onPendingWebSearchComposerConsumed])
+
+  useEffect(() => {
+    onWebSearchModeChange?.(webSearchCommandSelected)
+  }, [webSearchCommandSelected, onWebSearchModeChange])
+
+  useEffect(() => {
+    if (exitWebSearchSignal === undefined) {
+      return
+    }
+    if (exitWebSearchSignal <= exitWebSearchSignalHandledRef.current) {
+      return
+    }
+    exitWebSearchSignalHandledRef.current = exitWebSearchSignal
+    setWebSearchCommandSelected(false)
+  }, [exitWebSearchSignal])
 
   useEffect(() => {
     if (isMobileComposer) {
@@ -448,6 +548,50 @@ export function ChatWindow({
     event.stopPropagation()
     onCancelSend?.()
   }
+
+  /** Fokus der Textarea bleibt; Tap-Feedback läuft über Pointer (zuverlässiger als Touch-Events mit preventDefault). */
+  function handleComposerSendPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || event.currentTarget.disabled) {
+      return
+    }
+    event.preventDefault()
+
+    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
+    if (!isMobileComposer || !touchLike) {
+      return
+    }
+    mobileSendStartedWithTouchRef.current = true
+    composerSendTouchStartRef.current = Date.now()
+    if (composerSendTouchReleaseTimerRef.current) {
+      window.clearTimeout(composerSendTouchReleaseTimerRef.current)
+      composerSendTouchReleaseTimerRef.current = null
+    }
+    setIsComposerSendTouchActive(true)
+  }
+
+  function handleComposerSendPointerUpOrCancel(event: ReactPointerEvent<HTMLButtonElement>) {
+    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
+    if (!isMobileComposer || event.currentTarget.disabled || !touchLike) {
+      return
+    }
+    const elapsed = Date.now() - composerSendTouchStartRef.current
+    const holdMs = Math.min(560, Math.max(340, elapsed))
+    if (composerSendTouchReleaseTimerRef.current) {
+      window.clearTimeout(composerSendTouchReleaseTimerRef.current)
+    }
+    composerSendTouchReleaseTimerRef.current = window.setTimeout(() => {
+      setIsComposerSendTouchActive(false)
+      composerSendTouchReleaseTimerRef.current = null
+    }, holdMs)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (composerSendTouchReleaseTimerRef.current) {
+        window.clearTimeout(composerSendTouchReleaseTimerRef.current)
+      }
+    }
+  }, [])
 
   const lastMessageFingerprint =
     messageList.length > 0
@@ -811,6 +955,7 @@ export function ChatWindow({
       : excelCommandSelected
         ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
         : baseContent
+    const useWebSearch = webSearchCommandSelected && !wordCommandSelected && !excelCommandSelected
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
         entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
@@ -829,13 +974,14 @@ export function ChatWindow({
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setPendingAttachments([])
-    await onSendMessage(content)
+    await onSendMessage(content, useWebSearch ? { useWebSearch: true } : undefined)
   }
 
   function handleDraftChange(nextValue: string) {
     setDraft(nextValue)
-    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected) {
+    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected || webSearchCommandSelected) {
       setShowSlashMenu(false)
       return
     }
@@ -851,6 +997,7 @@ export function ChatWindow({
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -860,6 +1007,7 @@ export function ChatWindow({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -869,15 +1017,38 @@ export function ChatWindow({
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectWebSearchSlashCommand() {
+    setWebSearchCommandSelected(true)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectWebSearchQuickTile() {
+    setWebSearchCommandSelected(true)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    if (!isMobileComposer) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
   }
 
   function handleSelectExcelQuickTile() {
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -888,6 +1059,7 @@ export function ChatWindow({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -898,6 +1070,7 @@ export function ChatWindow({
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
+    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -940,8 +1113,10 @@ export function ChatWindow({
           handleSelectExcelSlashCommand()
         } else if (slashMenuHighlightIndex === 1) {
           handleSelectWordSlashCommand()
-        } else {
+        } else if (slashMenuHighlightIndex === 2) {
           handleSelectImageSlashCommand()
+        } else {
+          handleSelectWebSearchSlashCommand()
         }
         return
       }
@@ -1081,55 +1256,88 @@ export function ChatWindow({
 
   const quickTilesEl =
     tokenLimitReached ? null : (
-      <div className="chat-quick-tiles" role="group" aria-label="Schnellaktionen">
-        <button
-          type="button"
-          className={`chat-quick-tile${excelCommandSelected ? ' is-active' : ''}`}
-          onClick={handleSelectExcelQuickTile}
-        >
-          <span className="chat-quick-tile-icon-wrap" aria-hidden>
-            <img src={greenFileIcon} alt="" />
-          </span>
-          <span className="chat-quick-tile-text">
-            <span className="chat-quick-tile-title">Excel</span>
-            <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`chat-quick-tile${wordCommandSelected ? ' is-active' : ''}`}
-          onClick={handleSelectWordQuickTile}
-        >
-          <span className="chat-quick-tile-icon-wrap" aria-hidden>
-            <img src={wordIcon} alt="" />
-          </span>
-          <span className="chat-quick-tile-text">
-            <span className="chat-quick-tile-title">Word</span>
-            <span className="chat-quick-tile-sub">Vorlage füllen /docx</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`chat-quick-tile${imageGenCommandSelected ? ' is-active' : ''}`}
-          onClick={handleSelectImageQuickTile}
-        >
-          <span className="chat-quick-tile-icon-wrap" aria-hidden>
-            <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
-          </span>
-          <span className="chat-quick-tile-text">
-            <span className="chat-quick-tile-title">Bilder</span>
-            <span className="chat-quick-tile-sub">KI-Bild aus deiner Beschreibung — ohne Sprachbefehl</span>
-          </span>
-        </button>
+      <div
+        className={`chat-quick-tiles${webSearchCommandSelected ? ' is-websearch-focus' : ''}`}
+        role="group"
+        aria-label="Schnellaktionen"
+      >
+        <div className="chat-quick-tiles-row chat-quick-tiles-row--top">
+          <button
+            type="button"
+            className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+            onClick={handleSelectExcelQuickTile}
+          >
+            <span className="chat-quick-tile-icon-wrap" aria-hidden>
+              <img src={greenFileIcon} alt="" />
+            </span>
+            <span className="chat-quick-tile-text">
+              <span className="chat-quick-tile-title">Excel</span>
+              <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
+            onClick={handleSelectWordQuickTile}
+          >
+            <span className="chat-quick-tile-icon-wrap" aria-hidden>
+              <img src={wordIcon} alt="" />
+            </span>
+            <span className="chat-quick-tile-text">
+              <span className="chat-quick-tile-title">Word</span>
+              <span className="chat-quick-tile-sub">Word generieren</span>
+            </span>
+          </button>
+        </div>
+        <div className="chat-quick-tiles-row chat-quick-tiles-row--bottom">
+          <button
+            type="button"
+            className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
+            onClick={handleSelectImageQuickTile}
+          >
+            <span className="chat-quick-tile-icon-wrap" aria-hidden>
+              <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
+            </span>
+            <span className="chat-quick-tile-text">
+              <span className="chat-quick-tile-title">Bilder</span>
+              <span className="chat-quick-tile-sub">Bild generieren</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
+            onClick={handleSelectWebSearchQuickTile}
+          >
+            <span className="chat-quick-tile-icon-wrap" aria-hidden>
+              <img src={webOutlinedIcon} alt="" />
+            </span>
+            <span className="chat-quick-tile-text">
+              <span className="chat-quick-tile-title">Websuche</span>
+              <span className="chat-quick-tile-sub">Live-Web</span>
+            </span>
+          </button>
+        </div>
       </div>
     )
+
+  const webSearchCreditsHintEl =
+    webSearchCommandSelected &&
+    typeof webSearchCreditsRemaining === 'number' &&
+    !tokenLimitReached ? (
+      <p className="chat-websearch-credits-hint" role="status">
+        Noch {webSearchCreditsRemaining} Websuche(n) verfügbar (max. {MAX_WEB_SEARCH_CREDIT_BALANCE} Kontostand).
+        {typeof webSearchDailyGrant === 'number' && webSearchDailyGrant > 0
+          ? ` Täglich +${webSearchDailyGrant} (UTC).`
+          : ''}
+      </p>
+    ) : null
 
   const composerAttachSheet = (
     <ActionBottomSheet
       open={attachComposerSheetOpen}
       onClose={() => setAttachComposerSheetOpen(false)}
       title="Einfügen"
-      ariaLabel="Word, Excel, Bilder oder Datei wählen"
+      ariaLabel="Word, Excel, Bilder, Websuche oder Datei wählen"
       actions={[
         {
           id: 'word',
@@ -1153,6 +1361,13 @@ export function ChatWindow({
           actionClassName: 'action-bottom-sheet-action--compose-bilder',
           onClick: () => {
             handleSelectImageQuickTile()
+          },
+        },
+        {
+          id: 'websuche',
+          label: 'Websuche',
+          onClick: () => {
+            handleSelectWebSearchQuickTile()
           },
         },
         {
@@ -1186,7 +1401,11 @@ export function ChatWindow({
 
   if (isEmptyState) {
     return (
-      <section className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}>
+      <section
+        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}${
+          webSearchCommandSelected ? ' is-websearch-focus' : ''
+        }`}
+      >
         {tokenLimitReached ? (
           <p className="chat-limit-banner" role="alert">
             Dein Token-Limit für heute ist erreicht. Du kannst morgen wieder schreiben.
@@ -1246,7 +1465,8 @@ export function ChatWindow({
               {pendingAttachments.length > 0 ||
               imageGenCommandSelected ||
               excelCommandSelected ||
-              wordCommandSelected ? (
+              wordCommandSelected ||
+              webSearchCommandSelected ? (
                 <div className="chat-attachment-chips" aria-label="Anhänge">
                   {imageGenCommandSelected ? (
                     <button
@@ -1282,6 +1502,18 @@ export function ChatWindow({
                     >
                       <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
                       <span className="chat-compose-mode-badge-label">Word</span>
+                    </button>
+                  ) : null}
+                  {webSearchCommandSelected ? (
+                    <button
+                      type="button"
+                      className="chat-compose-mode-badge chat-compose-mode-badge--websearch"
+                      title="Websuche aktiv (klicken zum Entfernen)"
+                      aria-label="Websuche entfernen"
+                      onClick={() => setWebSearchCommandSelected(false)}
+                    >
+                      <img className="chat-compose-mode-badge-icon" src={webOutlinedIcon} alt="" aria-hidden="true" />
+                      <span className="chat-compose-mode-badge-label">Websuche</span>
                     </button>
                   ) : null}
                   {pendingAttachments.map((item) => (
@@ -1382,6 +1614,18 @@ export function ChatWindow({
                       >
                         Bilder
                       </button>
+                      <button
+                        type="button"
+                        className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
+                        role="menuitem"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                        }}
+                        onMouseEnter={() => setSlashMenuHighlightIndex(3)}
+                        onClick={handleSelectWebSearchSlashCommand}
+                      >
+                        Websuche
+                      </button>
                     </div>
                   ) : null}
                   <textarea
@@ -1402,12 +1646,13 @@ export function ChatWindow({
             </div>
             <button
               type="submit"
+              className={isMobileComposer && isComposerSendTouchActive ? 'is-touch-active' : undefined}
               disabled={
                 tokenLimitReached ||
                 isAttachingFiles ||
                 (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
               }
-              aria-busy={showDuringSendIcon}
+              aria-busy={isSending || isAssistantReplyStillAnimating}
               aria-label={
                 tokenLimitReached
                   ? 'Token-Limit erreicht'
@@ -1416,19 +1661,18 @@ export function ChatWindow({
                     : 'Nachricht senden'
               }
               onClick={handleComposerSendClick}
+              onPointerDown={handleComposerSendPointerDown}
+              onPointerUp={handleComposerSendPointerUpOrCancel}
+              onPointerCancel={handleComposerSendPointerUpOrCancel}
             >
-              <img
-                className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
-                src={showDuringSendIcon ? duringIcon : sendIcon}
-                alt=""
-                aria-hidden="true"
-              />
+              {composerSendIconEl}
             </button>
           </form>
           <p className="chat-input-hint">
             Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
           </p>
           {quickTilesEl}
+          {webSearchCreditsHintEl}
           {composerAttachSheet}
         </div>
         {imageLightboxEl}
@@ -1888,7 +2132,8 @@ export function ChatWindow({
           {pendingAttachments.length > 0 ||
           imageGenCommandSelected ||
           excelCommandSelected ||
-          wordCommandSelected ? (
+          wordCommandSelected ||
+          webSearchCommandSelected ? (
             <div className="chat-attachment-chips" aria-label="Anhänge">
               {imageGenCommandSelected ? (
                 <button
@@ -1924,6 +2169,18 @@ export function ChatWindow({
                 >
                   <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
                   <span className="chat-compose-mode-badge-label">Word</span>
+                </button>
+              ) : null}
+              {webSearchCommandSelected ? (
+                <button
+                  type="button"
+                  className="chat-compose-mode-badge chat-compose-mode-badge--websearch"
+                  title="Websuche aktiv (klicken zum Entfernen)"
+                  aria-label="Websuche entfernen"
+                  onClick={() => setWebSearchCommandSelected(false)}
+                >
+                  <img className="chat-compose-mode-badge-icon" src={webOutlinedIcon} alt="" aria-hidden="true" />
+                  <span className="chat-compose-mode-badge-label">Websuche</span>
                 </button>
               ) : null}
               {pendingAttachments.map((item) => (
@@ -2024,6 +2281,18 @@ export function ChatWindow({
                   >
                     Bilder
                   </button>
+                  <button
+                    type="button"
+                    className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
+                    role="menuitem"
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                    }}
+                    onMouseEnter={() => setSlashMenuHighlightIndex(3)}
+                    onClick={handleSelectWebSearchSlashCommand}
+                  >
+                    Websuche
+                  </button>
                 </div>
               ) : null}
               <textarea
@@ -2044,12 +2313,13 @@ export function ChatWindow({
         </div>
         <button
           type="submit"
+          className={isMobileComposer && isComposerSendTouchActive ? 'is-touch-active' : undefined}
           disabled={
             tokenLimitReached ||
             isAttachingFiles ||
             (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
           }
-          aria-busy={showDuringSendIcon}
+          aria-busy={isSending || isAssistantReplyStillAnimating}
           aria-label={
             tokenLimitReached
               ? 'Token-Limit erreicht'
@@ -2058,15 +2328,14 @@ export function ChatWindow({
                 : 'Nachricht senden'
           }
           onClick={handleComposerSendClick}
+          onPointerDown={handleComposerSendPointerDown}
+          onPointerUp={handleComposerSendPointerUpOrCancel}
+          onPointerCancel={handleComposerSendPointerUpOrCancel}
         >
-          <img
-            className={`ui-icon chat-send-icon${showDuringSendIcon ? ' chat-send-icon--during' : ''}`}
-            src={showDuringSendIcon ? duringIcon : sendIcon}
-            alt=""
-            aria-hidden="true"
-          />
+          {composerSendIconEl}
         </button>
         </form>
+        {webSearchCreditsHintEl}
         <p className="chat-input-hint">
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
         </p>

@@ -102,6 +102,11 @@ export type SendMessageOptions = {
    * `number` = Kürzen; `null` = kein Limit; ohne Abo: Client setzt `mainChatContextMaxTokens` auf die App-Default-Größe.
    */
   mainChatContextMaxTokens?: number | null
+  /**
+   * Hauptchat: vor dem LLM-Aufruf mit Tavily ermittelte Websnippets (Edge `tavily-search`),
+   * eingebettet in den Systemprompt — ohne die Rohdaten in der Nutzernachricht zu speichern.
+   */
+  webSearchContext?: string
 }
 
 type EvaluateQuizAnswerInput = {
@@ -251,6 +256,14 @@ function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage
   return selected
 }
 
+function getChatWebSearchGroundingInstruction(): string {
+  return [
+    'Die Nutzeranfrage wurde mit einer Live-Websuche (Tavily) ergänzt. Unten stehen Kurzauszüge inkl. URLs.',
+    'Nutze diese Auszüge als Faktenbasis. Wenn etwas nicht belegt ist, sage das klar.',
+    'Bei konkreten Behauptungen Quellen mit Seitentitel oder URL nennen.',
+  ].join('\n')
+}
+
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
@@ -279,11 +292,16 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : ''
   const thinkingClarifyUiReminder =
     isMainChat && options?.chatThinkingMode === 'thinking' ? getChatThinkingClarifyUiReminder() : ''
+  const webSearchBlock =
+    isMainChat && options?.webSearchContext?.trim()
+      ? `${getChatWebSearchGroundingInstruction()}\n\n--- Websuche ---\n${options.webSearchContext.trim()}`
+      : ''
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
+    webSearchBlock,
     mainChatBrevity,
     truthBlock,
     toneBlock,

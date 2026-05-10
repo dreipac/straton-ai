@@ -230,7 +230,9 @@ export function applyAccentPalette(accentId: string | null | undefined) {
   document.documentElement.style.setProperty('--accent-gradient-line', palette.lineGradient)
   const fabFg = ACCENT_FAB_FOREGROUND[palette.id] ?? '#ffffff'
   document.documentElement.style.setProperty('--accent-fab-fg', fabFg)
-  document.documentElement.style.setProperty('--accent-ring-base', accentRingBaseHexFromPaletteGradient(palette.gradient))
+  const ringBase = accentRingBaseHexFromPaletteGradient(palette.gradient)
+  document.documentElement.style.setProperty('--accent-ring-base', ringBase)
+  document.documentElement.style.setProperty('--color-accent', ringBase)
   /** Monochrom-SVG auf Senden: weiss bei dunklem FAB-Vordergrund, sonst wie UI-Icons (--icon-filter). */
   document.documentElement.style.setProperty(
     '--composer-send-icon-filter',
