@@ -5088,21 +5088,65 @@ button.chat-onboarding-tour-block {
   }
 
   /*
-   * Wie Lernbereich `learn.css` (`.learn-top-tab .ui-icon`): echte `<img>`-SVGs + Filter —
-   * keine Masken (die zeigten auf WebKit nur Quadrate), kein drop-shadow/translate-Trick.
+   * Wie Sidebar «Neuer Chat» (`layout.css`): Maske = SVG per url() in dieser Datei — nicht inline.
+   * iOS Safari/PWA wendet Inline-style-mask URLs oft nicht an → nur farbige Quadrate.
    */
-  .chat-mobile-bottom-tab .chat-mobile-bottom-tab-icon {
-    --ui-icon-size: 24px;
+  .chat-mobile-bottom-tab-icon-accent {
     display: inline-block;
-    filter: brightness(0) saturate(100%) invert(93%) sepia(7%) saturate(201%) hue-rotate(173deg) brightness(92%) contrast(88%);
-    transition: filter 240ms ease;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    vertical-align: middle;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    background-color: color-mix(in srgb, var(--color-text-app) 68%, transparent);
+    transition:
+      background 240ms ease,
+      opacity 240ms ease;
   }
 
-  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon {
-    filter: brightness(0) saturate(100%) invert(48%) sepia(74%) saturate(1915%) hue-rotate(217deg) brightness(100%) contrast(101%);
+  .chat-mobile-bottom-tab-icon-accent--sidebar {
+    -webkit-mask-image: url('../assets/icons/sidebar.svg');
+    mask-image: url('../assets/icons/sidebar.svg');
   }
 
-  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon {
+  .chat-mobile-bottom-tab-icon-accent--chat-filled {
+    -webkit-mask-image: url('../assets/icons/chat-filled.svg');
+    mask-image: url('../assets/icons/chat-filled.svg');
+  }
+
+  .chat-mobile-bottom-tab-icon-accent--chat-outlined {
+    -webkit-mask-image: url('../assets/icons/chat-outlined.svg');
+    mask-image: url('../assets/icons/chat-outlined.svg');
+  }
+
+  .chat-mobile-bottom-tab-icon-accent--web-filled {
+    -webkit-mask-image: url('../assets/icons/web-filled.svg');
+    mask-image: url('../assets/icons/web-filled.svg');
+  }
+
+  .chat-mobile-bottom-tab-icon-accent--web-outlined {
+    -webkit-mask-image: url('../assets/icons/web-outlined.svg');
+    mask-image: url('../assets/icons/web-outlined.svg');
+  }
+
+  .chat-mobile-bottom-tab-icon-accent--status {
+    -webkit-mask-image: url('../assets/icons/status.svg');
+    mask-image: url('../assets/icons/status.svg');
+  }
+
+  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-accent {
+    background-color: transparent;
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
+  }
+
+  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon-accent {
     opacity: 0.45;
   }
 

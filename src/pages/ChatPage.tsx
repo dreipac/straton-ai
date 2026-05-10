@@ -15,11 +15,6 @@ import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
 import accountIcon from '../assets/icons/account.svg'
 import learnIcon from '../assets/icons/learn-outlined.svg'
-import chatFilledIcon from '../assets/icons/chat-filled.svg'
-import chatOutlinedIcon from '../assets/icons/chat-outlined.svg'
-import webFilledIcon from '../assets/icons/web-filled.svg'
-import webOutlinedIcon from '../assets/icons/web-outlined.svg'
-import statusIcon from '../assets/icons/status.svg'
 import settingsIcon from '../assets/icons/settings.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import triangleIcon from '../assets/icons/triangle.svg'
@@ -1553,7 +1548,7 @@ export function ChatPage() {
             onClick={toggleMobileSidebarFromBottomNav}
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+              <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--sidebar" aria-hidden="true" />
             </span>
             <span className="chat-mobile-bottom-tab-label">Menü</span>
           </button>
@@ -1563,10 +1558,10 @@ export function ChatPage() {
             aria-label="Chat"
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <img
-                className="ui-icon chat-mobile-bottom-tab-icon"
-                src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
-                alt=""
+              <span
+                className={`chat-mobile-bottom-tab-icon-accent ${
+                  !isMobileSidebarOpen ? 'chat-mobile-bottom-tab-icon-accent--chat-filled' : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
+                }`}
                 aria-hidden="true"
               />
             </span>
@@ -1578,7 +1573,7 @@ export function ChatPage() {
             aria-label="Platzhalter"
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
+              <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--status" aria-hidden="true" />
             </span>
             <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
           </button>
@@ -2174,7 +2169,7 @@ export function ChatPage() {
           onClick={toggleMobileSidebarFromBottomNav}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+            <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--sidebar" aria-hidden="true" />
           </span>
           <span className="chat-mobile-bottom-tab-label">Menü</span>
         </button>
@@ -2185,10 +2180,12 @@ export function ChatPage() {
           onClick={() => setExitWebSearchSignal((n) => n + 1)}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <img
-              className="ui-icon chat-mobile-bottom-tab-icon"
-              src={mobileChatBottomTabActive ? chatFilledIcon : chatOutlinedIcon}
-              alt=""
+            <span
+              className={`chat-mobile-bottom-tab-icon-accent ${
+                mobileChatBottomTabActive
+                  ? 'chat-mobile-bottom-tab-icon-accent--chat-filled'
+                  : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
+              }`}
               aria-hidden="true"
             />
           </span>
@@ -2202,10 +2199,12 @@ export function ChatPage() {
           onClick={() => void handleCreateNewChatWithWebSearch()}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <img
-              className="ui-icon chat-mobile-bottom-tab-icon"
-              src={mobileWebBottomTabActive ? webFilledIcon : webOutlinedIcon}
-              alt=""
+            <span
+              className={`chat-mobile-bottom-tab-icon-accent ${
+                mobileWebBottomTabActive
+                  ? 'chat-mobile-bottom-tab-icon-accent--web-filled'
+                  : 'chat-mobile-bottom-tab-icon-accent--web-outlined'
+              }`}
               aria-hidden="true"
             />
           </span>
