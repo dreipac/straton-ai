@@ -5082,16 +5082,36 @@ button.chat-onboarding-tour-block {
     display: inline-flex;
     width: 24px;
     height: 24px;
-    overflow: hidden;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
   }
 
-  .chat-mobile-bottom-tab-icon {
-    --ui-icon-size: 24px;
-    filter: brightness(0) saturate(100%) invert(93%) sepia(7%) saturate(201%) hue-rotate(173deg) brightness(92%) contrast(88%);
-    transition: filter 240ms ease, transform 240ms ease;
+  /*
+   * Icons als CSS-Mask (nicht <img> + filter): iOS Safari/WebKit zeichnet das frühere
+   * drop-shadow+translate-Trick im Slot oft nicht — gefüllte Varianten wirkten «weg».
+   */
+  .chat-mobile-bottom-tab-icon-visual {
+    display: block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    background-color: color-mix(in srgb, var(--color-text-app) 74%, transparent);
+    transition: background-color 240ms ease, opacity 240ms ease;
+  }
+
+  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-visual {
+    background-color: var(--accent-ring-base, #6366f1);
+  }
+
+  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon-visual {
+    opacity: 0.45;
   }
 
   .chat-mobile-bottom-tab-label {
@@ -5103,12 +5123,6 @@ button.chat-onboarding-tour-block {
     white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     text-rendering: geometricPrecision;
-  }
-
-  /* Aktives Tab-Icon: Silhouette + farbiger drop-shadow (nutzt dieselbe Referenz wie Akzent-Preset, `--accent-ring-base`). */
-  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-slot .chat-mobile-bottom-tab-icon {
-    filter: brightness(0) saturate(100%) drop-shadow(24px 0 0 var(--accent-ring-base, #6366f1));
-    transform: translateX(-24px);
   }
 
   .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-label {
