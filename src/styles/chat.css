@@ -2726,6 +2726,8 @@
      * die Composer-Pille am unteren Layout-Rand — abgerundete Ecken wirken beschnitten.
      */
     --chat-mobile-composer-focus-bottom-gap: 6px;
+    /* Thread mit Inhalt: stärkerer Abschnitt am Boden — Grid/sticky wirken sonst enger als im leeren Chat. */
+    --chat-mobile-composer-focus-bottom-gap-with-thread: 20px;
   }
 
   .chat-panel {
@@ -4147,7 +4149,7 @@ button.chat-onboarding-tour-block {
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-main--share-toolbar .chat-panel:not(.is-empty) {
     padding-bottom: calc(
-      0.75rem + var(--chat-mobile-composer-focus-bottom-gap) +
+      0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) +
         var(--chat-visual-keyboard-inset, 0px)
     );
   }
@@ -5013,7 +5015,7 @@ button.chat-onboarding-tour-block {
    */
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) {
     padding-bottom: calc(
-      0.75rem + var(--chat-mobile-composer-focus-bottom-gap) +
+      0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) +
         var(--chat-visual-keyboard-inset, 0px)
     );
   }
