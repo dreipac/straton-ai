@@ -4974,8 +4974,15 @@ button.chat-onboarding-tour-block {
     transform: translate3d(var(--chat-bottom-nav-shift), calc(100% + 1.2rem), 0);
   }
 
+  /*
+   * Beim Tippen: kein `position:sticky` + kleines `bottom` — das verankert WebKit/PWA oft am
+   * Layout-Viewport-Boden (hinter Tastatur) und ignoriert faktisch das Panel-Padding mit
+   * `--chat-visual-keyboard-inset`. Composer bleibt normales Grid-Ende; nur Padding schiebt hoch.
+   */
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) .chat-composer-stack {
-    bottom: calc(var(--chat-mobile-nav-safe-offset) + env(safe-area-inset-bottom, 0px));
+    position: relative;
+    bottom: auto;
+    z-index: 7;
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-input-row.is-centered {

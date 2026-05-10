@@ -65,8 +65,9 @@ export function useVisualKeyboardInset(): void {
        * - Zusätzlicher Streifen für die native Accessory-Leiste oberhalb der Buchstabentastatur,
        *   die in den vv-Werten oft nicht vollständig «als Überdeckung» ankommt (WKWebView/PWA).
        */
+      /* Nach Fix «sticky vs. Padding»: moderater Puffer genügt (WebKit-Accessory weiterhin +ceil oben). */
       const padded =
-        px > 0 ? px + 28 + (typeof navigator !== 'undefined' && isLikelyIosWebKit() ? 18 : 10) : 0
+        px > 0 ? px + 16 + (typeof navigator !== 'undefined' && isLikelyIosWebKit() ? 8 : 6) : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
