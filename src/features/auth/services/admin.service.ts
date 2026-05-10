@@ -58,6 +58,8 @@ export type AdminAiTokenUsageRow = {
   last_name: string | null
   provider: string
   model: string
+  gross_input_tokens: number
+  cached_input_tokens: number
   input_tokens: number
   output_tokens: number
 }
@@ -71,6 +73,8 @@ export type AdminUserLastAiUsageRow = {
   provider: string
   model: string
   mode: string
+  gross_input_tokens: number
+  cached_input_tokens: number
   input_tokens: number
   output_tokens: number
   last_used_at: string
@@ -86,6 +90,8 @@ export type AdminAiTokenUsageLogRow = {
   provider: string
   model: string
   mode: string
+  gross_input_tokens: number
+  cached_input_tokens: number
   input_tokens: number
   output_tokens: number
   estimated_cost_usd: number
@@ -142,6 +148,8 @@ export async function listAdminAiTokenUsageSummary(): Promise<AdminAiTokenUsageR
     last_name: typeof row.last_name === 'string' ? row.last_name : null,
     provider: String(row.provider ?? ''),
     model: String(row.model ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
     input_tokens: toSafeInt(row.input_tokens),
     output_tokens: toSafeInt(row.output_tokens),
   }))
@@ -164,6 +172,8 @@ export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRo
     provider: String(row.provider ?? ''),
     model: String(row.model ?? ''),
     mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
     input_tokens: toSafeInt(row.input_tokens),
     output_tokens: toSafeInt(row.output_tokens),
     last_used_at: typeof row.last_used_at === 'string' ? row.last_used_at : String(row.last_used_at ?? ''),
@@ -191,6 +201,8 @@ export async function listAdminAiTokenUsageLog(limit = 8000): Promise<AdminAiTok
     provider: String(row.provider ?? ''),
     model: String(row.model ?? ''),
     mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
     input_tokens: toSafeInt(row.input_tokens),
     output_tokens: toSafeInt(row.output_tokens),
     estimated_cost_usd: toSafeUsd(row.estimated_cost_usd),

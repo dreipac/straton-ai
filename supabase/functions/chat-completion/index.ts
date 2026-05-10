@@ -154,7 +154,7 @@ type AnthropicImageBlock = {
 }
 
 type AnthropicUserContentPart =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
   | AnthropicImageBlock
 
 function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | null {
@@ -644,7 +644,7 @@ type AiCallResult = {
   model: string
   inputTokens: number
   outputTokens: number
-  /** OpenAI: Cache-Treffer aus usage.prompt_tokens_details.cached_tokens */
+  /** Cache-Treffer (OpenAI/Anthropic), die nicht erneut verrechnet werden. */
   cachedPromptTokens?: number
 }
 
@@ -658,10 +658,12 @@ async function tryLogTokenUsage(
   if (!admin) {
     return
   }
+  const cachedInputTokens = Math.max(0, Math.floor(Number(result.cachedPromptTokens ?? 0)))
+  const billableInputTokens = Math.max(0, result.inputTokens - cachedInputTokens)
   const estimated_cost_usd = estimateAiUsageUsd(
     provider,
     result.model,
-    result.inputTokens,
+    billableInputTokens,
     result.outputTokens,
   )
   const { error } = await admin.from('ai_token_usage').insert({
@@ -669,16 +671,16 @@ async function tryLogTokenUsage(
     provider,
     model: result.model.slice(0, 160),
     mode: mode.slice(0, 64),
-    input_tokens: result.inputTokens,
+    input_tokens: billableInputTokens,
+    cached_input_tokens: cachedInputTokens,
     output_tokens: result.outputTokens,
     estimated_cost_usd,
   })
   if (error) {
     console.error('[chat-completion] ai_token_usage insert failed', error.message)
   }
-  const cached = result.cachedPromptTokens
-  if (typeof cached === 'number' && cached > 0) {
-    console.log(`[chat-completion] OpenAI prompt cache: ${cached} cached input tokens (${mode})`)
+  if (cachedInputTokens > 0) {
+    console.log(`[chat-completion] OpenAI prompt cache: ${cachedInputTokens} cached input tokens (${mode})`)
   }
 }
 
@@ -1137,9 +1139,6 @@ type AnthropicCallOptions = {
   model?: string
 }
 
-/** Anthropic: Mindestgröße für sinnvolles Prompt Caching (ca. 1024 Tokens — konservativ in Zeichen). */
-const ANTHROPIC_SYSTEM_CACHE_MIN_CHARS = 2800
-
 async function callAnthropic(
   messages: InputMessage[],
   apiKey: string,
@@ -1150,30 +1149,52 @@ async function callAnthropic(
   const systemRaw =
     messages.find((message) => message.role === 'system')?.content?.trim() ??
     'Du bist ein hilfreicher Assistent.'
-  const system: string | Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> =
-    systemRaw.length >= ANTHROPIC_SYSTEM_CACHE_MIN_CHARS
-      ? [{ type: 'text', text: systemRaw, cache_control: { type: 'ephemeral' } }]
-      : systemRaw
+  // Aggressiv: System-Prompt immer als cachebarer Block markieren.
+  const system: Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> = [
+    { type: 'text', text: systemRaw, cache_control: { type: 'ephemeral' } },
+  ]
+  const dialog = messages.filter((message) => message.role === 'user' || message.role === 'assistant')
+  const lastDynamicStart = Math.max(0, dialog.length - 2)
+  const anthropicMessages = dialog.map((message, index) => {
+    const shouldCache = index < lastDynamicStart
+    if (message.role === 'assistant') {
+      if (shouldCache) {
+        return {
+          role: message.role,
+          content: [{ type: 'text', text: message.content, cache_control: { type: 'ephemeral' as const } }],
+        }
+      }
+      return {
+        role: message.role,
+        content: message.content,
+      }
+    }
+    const userContent = buildAnthropicUserMessageContent(message.content)
+    if (shouldCache && typeof userContent === 'string') {
+      return {
+        role: message.role,
+        content: [{ type: 'text', text: userContent, cache_control: { type: 'ephemeral' as const } }],
+      }
+    }
+    return {
+      role: message.role,
+      content: userContent,
+    }
+  })
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      // Erforderlich, damit Prompt-Caching (cache_control) zuverlässig aktiv ist.
+      'anthropic-beta': 'prompt-caching-2024-07-31',
       'content-type': 'application/json',
     },
     body: JSON.stringify({
       model,
       max_tokens,
-      messages: messages
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .map((message) => ({
-          role: message.role,
-          content:
-            message.role === 'user'
-              ? buildAnthropicUserMessageContent(message.content)
-              : message.content,
-        })),
+      messages: anthropicMessages,
       system,
     }),
   })
@@ -1197,7 +1218,12 @@ async function callAnthropic(
   const data = (await response.json()) as {
     model?: string
     content?: Array<{ type?: string; text?: string }>
-    usage?: { input_tokens?: number; output_tokens?: number }
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
   }
   const content = data.content?.find((entry) => entry.type === 'text')?.text?.trim()
   if (!content) {
@@ -1207,7 +1233,14 @@ async function callAnthropic(
   const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
   const inputTokens = Math.max(0, Math.floor(Number(data.usage?.input_tokens ?? 0)))
   const outputTokens = Math.max(0, Math.floor(Number(data.usage?.output_tokens ?? 0)))
-  return { text: content, model: usedModel, inputTokens, outputTokens }
+  const cachedPromptTokens = Math.max(0, Math.floor(Number(data.usage?.cache_read_input_tokens ?? 0)))
+  return {
+    text: content,
+    model: usedModel,
+    inputTokens,
+    outputTokens,
+    ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+  }
 }
 
 function uniqueAnthropicModelIds(ids: string[]): string[] {

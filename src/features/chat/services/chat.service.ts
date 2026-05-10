@@ -199,6 +199,58 @@ function scrubMainChatInlineImagesPreservingBildData(content: string): string {
   return out
 }
 
+const RAG_RECENT_TURNS = 8
+const RAG_MAX_RETRIEVED_MESSAGES = 6
+const RAG_MIN_TERM_LEN = 3
+
+function tokenizeRagTerms(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= RAG_MIN_TERM_LEN)
+}
+
+function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= RAG_RECENT_TURNS) {
+    return messages
+  }
+  const recent = messages.slice(-RAG_RECENT_TURNS)
+  const recentIds = new Set(recent.map((m) => m.id))
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
+  const queryTerms = new Set(tokenizeRagTerms(lastUserMessage?.content ?? ''))
+  if (queryTerms.size === 0) {
+    return recent
+  }
+
+  const scored = messages
+    .filter((m) => !recentIds.has(m.id))
+    .map((m) => {
+      const terms = tokenizeRagTerms(m.content)
+      let overlap = 0
+      for (const term of terms) {
+        if (queryTerms.has(term)) {
+          overlap += 1
+        }
+      }
+      const hasOverlap = overlap > 0
+      // Kürzere, überlappende Snippets bevorzugen; User-Nachrichten minimal priorisieren.
+      const density = hasOverlap ? overlap / Math.max(1, terms.length) : 0
+      const roleBoost = m.role === 'user' ? 0.08 : 0
+      const score = overlap + density + roleBoost
+      return { message: m, score }
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RAG_MAX_RETRIEVED_MESSAGES)
+    .map((entry) => entry.message)
+
+  const selected = [...scored, ...recent]
+  selected.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  return selected
+}
+
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
@@ -206,10 +258,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const wordChatHint = options?.userRequestedWord ? WORD_CHAT_DOCUMENT_BODY_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
+  const ragSelectedMessages = isMainChat ? selectMainChatMessagesWithRagLite(messages) : messages
   const threadMessages =
     isMainChat && typeof contextCap === 'number' && contextCap > 0
-      ? clipChatMessagesToEstimatedTokenBudget(messages, contextCap)
-      : messages
+      ? clipChatMessagesToEstimatedTokenBudget(ragSelectedMessages, contextCap)
+      : ragSelectedMessages
   const mainChatBrevity =
     isMainChat && !options?.userRequestedWord ? getAssistantMainChatBrevityInstruction() : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
@@ -401,12 +454,14 @@ const EXCEL_SPEC_MAX_OUTPUT_TOKENS = 8192
 const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
 
 /**
- * OpenAI Prompt Caching: stabiler Key pro identischem System-/Instruktions-Prefix (Routing + Trefferquote).
+ * OpenAI Prompt Caching:
+ * - bewusst grobe, stabile Keys pro Workload fuer hohe Hit-Rate
+ * - bei grossen Prompt-Aenderungen EPOCH hochzaehlen
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v1'
-const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v1'
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v3'
+const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -508,9 +563,10 @@ function buildChatCompletionRequestBody(
 ): Record<string, unknown> {
   const gatewayMessages = buildGatewayMessages(messages, options)
   if (options?.useLearnPathModel) {
+    const learnMode = options.learnTelemetryMode ?? 'learn_tutor'
     const body: Record<string, unknown> = {
       provider: providerForLearnPath(),
-      mode: options.learnTelemetryMode ?? 'learn_tutor',
+      mode: learnMode,
       messages: gatewayMessages,
       promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
       promptCacheRetention: '24h',

@@ -423,13 +423,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   ])
 
   const tokenUsageTotals = useMemo(() => {
+    let grossInput = 0
+    let cachedInput = 0
     let input = 0
     let output = 0
     for (const row of tokenUsageFilteredRows) {
+      grossInput += row.gross_input_tokens
+      cachedInput += row.cached_input_tokens
       input += row.input_tokens
       output += row.output_tokens
     }
-    return { input, output, total: input + output }
+    return { grossInput, cachedInput, input, output, total: input + output }
   }, [tokenUsageFilteredRows])
 
   const tokenUsageCostTotals = useMemo(() => {
@@ -1766,7 +1770,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               <th scope="col">Modell</th>
                               <th scope="col">Modus</th>
                               <th scope="col" className="admin-token-usage-num">
-                                Input
+                                Brutto Input
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Cache
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Netto Input
                               </th>
                               <th scope="col" className="admin-token-usage-num">
                                 Output
@@ -1798,6 +1808,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                   </td>
                                   <td>
                                     <code className="admin-token-model">{row.mode}</code>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">
+                                      {formatTokenInt(row.gross_input_tokens)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">
+                                      {formatTokenInt(row.cached_input_tokens)}
+                                    </span>
                                   </td>
                                   <td className="admin-token-usage-num">
                                     <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
@@ -1877,7 +1897,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                       <th scope="col">Provider</th>
                                       <th scope="col">Modell</th>
                                       <th scope="col" className="admin-token-usage-num">
-                                        Input
+                                        Brutto In
+                                      </th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Cache
+                                      </th>
+                                      <th scope="col" className="admin-token-usage-num">
+                                        Netto In
                                       </th>
                                       <th scope="col" className="admin-token-usage-num">
                                         Output
@@ -1904,6 +1930,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                           <td>{r.provider}</td>
                                           <td>
                                             <code className="admin-token-model">{r.model}</code>
+                                          </td>
+                                          <td className="admin-token-usage-num">
+                                            {formatTokenInt(r.gross_input_tokens)}
+                                          </td>
+                                          <td className="admin-token-usage-num">
+                                            {formatTokenInt(r.cached_input_tokens)}
                                           </td>
                                           <td className="admin-token-usage-num">{formatTokenInt(r.input_tokens)}</td>
                                           <td className="admin-token-usage-num">{formatTokenInt(r.output_tokens)}</td>
@@ -2055,7 +2087,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             <th scope="col">Provider</th>
                             <th scope="col">Modell</th>
                             <th scope="col" className="admin-token-usage-num">
-                              Input
+                              Brutto Input
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Cache
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Netto Input
                             </th>
                             <th scope="col" className="admin-token-usage-num">
                               Output
@@ -2082,6 +2120,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 <td>{row.provider}</td>
                                 <td>
                                   <code className="admin-token-model">{row.model}</code>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">
+                                    {formatTokenInt(row.gross_input_tokens)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">
+                                    {formatTokenInt(row.cached_input_tokens)}
+                                  </span>
                                 </td>
                                 <td className="admin-token-usage-num">
                                   <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
@@ -2111,6 +2159,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               <strong>
                                 {tokenUsageFiltersActive ? 'Gesamt (gefiltert)' : 'Gesamt (alle Nutzer)'}
                               </strong>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.grossInput)}</strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.cachedInput)}</strong>
+                              </span>
                             </td>
                             <td className="admin-token-usage-num">
                               <span className="admin-token-metric-value">
