@@ -12,9 +12,14 @@ function obscuredBottomPx(): number {
   if (!vv) {
     return 0
   }
-  const layoutH = window.innerHeight
+  /*
+   * clientHeight kann auf iOS minimal von innerHeight abweichen; für «Rest unter dem VisualViewport»
+   * konservativ das Maximum nutzen — sonst fehlen wenige px (~wie oft gemeldete «~5px»).
+   */
+  const layoutH = Math.max(window.innerHeight, document.documentElement.clientHeight)
   const visibleBottom = vv.offsetTop + vv.height
-  let obscured = Math.max(0, Math.round(layoutH - visibleBottom))
+  /** Ceil statt round: nie die Überdeckung nach unten runden (Retina-Subpixel). */
+  let obscured = Math.max(0, Math.ceil(layoutH - visibleBottom))
   /*
    * iOS Safari / installierte PWA: Die Leiste mit «Weiter / Zurück / Fertig» oberhalb der Tastatur
    * wird oft nur als sehr kleines obscured gemeldet — ohne Nachschlag bleibt der Composer unter der Leiste.
@@ -38,7 +43,7 @@ export function useVisualKeyboardInset(): void {
     function apply() {
       const px = obscuredBottomPx()
       /** Etwas Luft unter der Message Box; zu knapp = Abschneiden an Accessory/Tastatur (PWA). */
-      const padded = px > 0 ? px + 18 : 0
+      const padded = px > 0 ? px + 24 : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
