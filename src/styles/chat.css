@@ -5088,29 +5088,21 @@ button.chat-onboarding-tour-block {
   }
 
   /*
-   * Icons als CSS-Mask (nicht <img> + filter): iOS Safari/WebKit zeichnet das frühere
-   * drop-shadow+translate-Trick im Slot oft nicht — gefüllte Varianten wirkten «weg».
+   * Wie Lernbereich `learn.css` (`.learn-top-tab .ui-icon`): echte `<img>`-SVGs + Filter —
+   * keine Masken (die zeigten auf WebKit nur Quadrate), kein drop-shadow/translate-Trick.
    */
-  .chat-mobile-bottom-tab-icon-visual {
-    display: block;
-    width: 24px;
-    height: 24px;
-    flex-shrink: 0;
-    -webkit-mask-size: contain;
-    mask-size: contain;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-    background-color: color-mix(in srgb, var(--color-text-app) 74%, transparent);
-    transition: background-color 240ms ease, opacity 240ms ease;
+  .chat-mobile-bottom-tab .chat-mobile-bottom-tab-icon {
+    --ui-icon-size: 24px;
+    display: inline-block;
+    filter: brightness(0) saturate(100%) invert(93%) sepia(7%) saturate(201%) hue-rotate(173deg) brightness(92%) contrast(88%);
+    transition: filter 240ms ease;
   }
 
-  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-visual {
-    background-color: var(--accent-ring-base, #6366f1);
+  .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon {
+    filter: brightness(0) saturate(100%) invert(48%) sepia(74%) saturate(1915%) hue-rotate(217deg) brightness(100%) contrast(101%);
   }
 
-  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon-visual {
+  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon {
     opacity: 0.45;
   }
 

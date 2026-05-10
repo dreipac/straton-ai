@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
@@ -92,15 +91,6 @@ import { getSupabaseClient } from '../integrations/supabase/client'
 import { AdministratorModal } from './AdminPage'
 import { SettingsModal, type SettingsSectionId } from './SettingsPage'
 import type { ChatMessage } from '../features/chat/types'
-
-/** Mobile Bottom-Nav: WebKit (iOS PWA) rendert `filter`+`drop-shadow`+`translate` auf `<img>` oft nicht — Maske + `background-color` ist stabil. */
-function mobileBottomNavIconMaskStyle(iconSrc: string): CSSProperties {
-  const u = `url(${iconSrc})`
-  return {
-    WebkitMaskImage: u,
-    maskImage: u,
-  }
-}
 
 /** Gleicher Breakpoint wie `layout.css` Mobile-Sidebar (`max-width: 860px`). */
 const COMPACT_MOBILE_SIDEBAR_MAX_PX = 860
@@ -1563,11 +1553,7 @@ export function ChatPage() {
             onClick={toggleMobileSidebarFromBottomNav}
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <span
-                className="chat-mobile-bottom-tab-icon-visual"
-                style={mobileBottomNavIconMaskStyle(sidebarIcon)}
-                aria-hidden="true"
-              />
+              <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
             </span>
             <span className="chat-mobile-bottom-tab-label">Menü</span>
           </button>
@@ -1577,9 +1563,10 @@ export function ChatPage() {
             aria-label="Chat"
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <span
-                className="chat-mobile-bottom-tab-icon-visual"
-                style={mobileBottomNavIconMaskStyle(!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon)}
+              <img
+                className="ui-icon chat-mobile-bottom-tab-icon"
+                src={!isMobileSidebarOpen ? chatFilledIcon : chatOutlinedIcon}
+                alt=""
                 aria-hidden="true"
               />
             </span>
@@ -1591,11 +1578,7 @@ export function ChatPage() {
             aria-label="Platzhalter"
           >
             <span className="chat-mobile-bottom-tab-icon-slot">
-              <span
-                className="chat-mobile-bottom-tab-icon-visual"
-                style={mobileBottomNavIconMaskStyle(statusIcon)}
-                aria-hidden="true"
-              />
+              <img className="ui-icon chat-mobile-bottom-tab-icon" src={statusIcon} alt="" aria-hidden="true" />
             </span>
             <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
           </button>
@@ -2191,11 +2174,7 @@ export function ChatPage() {
           onClick={toggleMobileSidebarFromBottomNav}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <span
-              className="chat-mobile-bottom-tab-icon-visual"
-              style={mobileBottomNavIconMaskStyle(sidebarIcon)}
-              aria-hidden="true"
-            />
+            <img className="ui-icon chat-mobile-bottom-tab-icon" src={sidebarIcon} alt="" aria-hidden="true" />
           </span>
           <span className="chat-mobile-bottom-tab-label">Menü</span>
         </button>
@@ -2206,9 +2185,10 @@ export function ChatPage() {
           onClick={() => setExitWebSearchSignal((n) => n + 1)}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <span
-              className="chat-mobile-bottom-tab-icon-visual"
-              style={mobileBottomNavIconMaskStyle(mobileChatBottomTabActive ? chatFilledIcon : chatOutlinedIcon)}
+            <img
+              className="ui-icon chat-mobile-bottom-tab-icon"
+              src={mobileChatBottomTabActive ? chatFilledIcon : chatOutlinedIcon}
+              alt=""
               aria-hidden="true"
             />
           </span>
@@ -2222,9 +2202,10 @@ export function ChatPage() {
           onClick={() => void handleCreateNewChatWithWebSearch()}
         >
           <span className="chat-mobile-bottom-tab-icon-slot">
-            <span
-              className="chat-mobile-bottom-tab-icon-visual"
-              style={mobileBottomNavIconMaskStyle(mobileWebBottomTabActive ? webFilledIcon : webOutlinedIcon)}
+            <img
+              className="ui-icon chat-mobile-bottom-tab-icon"
+              src={mobileWebBottomTabActive ? webFilledIcon : webOutlinedIcon}
+              alt=""
               aria-hidden="true"
             />
           </span>
