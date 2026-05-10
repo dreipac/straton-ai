@@ -2767,8 +2767,8 @@
      * Home-Indicator: einmal über `--chat-mobile-composer-bottom-offset` / Navbar — nicht zusätzlich am Panel-Boden.
      */
     /* Horizontal kein Extra-Inset — gleiche Kanten wie `.chat-mobile-bottom-nav` (Panel hat bereits 0.65rem). */
-    /* Inset leicht unter 100 % skalieren; −5px Feintuning zur Tastatur (max verhindert negatives Padding ohne Keyboard). */
-    padding: 0 0 max(0px, calc(0.1rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
+    /* Volles `--chat-visual-keyboard-inset` — Skalierung (−5px) schneidet auf iOS die Box unter der Accessory-Leiste ab. */
+    padding: 0 0 max(0px, calc(0.1rem + var(--chat-visual-keyboard-inset, 0px)));
   }
 
   .chat-panel.is-empty .chat-empty-title {
@@ -2816,7 +2816,7 @@
   }
 
   .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-empty-compose {
-    padding-bottom: max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px - 10px));
+    padding-bottom: max(0px, calc(0.08rem + var(--chat-visual-keyboard-inset, 0px)));
   }
 
   /* Neuer Chat mobil: Schnellkacheln direkt über der Message Box (Reihenfolge per flex order) */

@@ -14,7 +14,15 @@ function obscuredBottomPx(): number {
   }
   const layoutH = window.innerHeight
   const visibleBottom = vv.offsetTop + vv.height
-  return Math.max(0, Math.round(layoutH - visibleBottom))
+  let obscured = Math.max(0, Math.round(layoutH - visibleBottom))
+  /*
+   * iOS Safari / installierte PWA: Die Leiste mit «Weiter / Zurück / Fertig» oberhalb der Tastatur
+   * wird oft nur als sehr kleines obscured gemeldet — ohne Nachschlag bleibt der Composer unter der Leiste.
+   */
+  if (obscured > 0 && obscured < 56) {
+    obscured = Math.max(obscured, 52)
+  }
+  return obscured
 }
 
 export function useVisualKeyboardInset(): void {
@@ -29,8 +37,8 @@ export function useVisualKeyboardInset(): void {
 
     function apply() {
       const px = obscuredBottomPx()
-      /** Kleiner Puffer; zu groß = zu viel Luft zur Tastatur im leeren Chat (Inset liegt dort am Compose). */
-      const padded = px > 0 ? px + 4 : 0
+      /** Etwas Luft unter der Message Box; zu knapp = Abschneiden an Accessory/Tastatur (PWA). */
+      const padded = px > 0 ? px + 12 : 0
       document.documentElement.style.setProperty(CSS_VAR, `${padded}px`)
     }
 
@@ -41,7 +49,7 @@ export function useVisualKeyboardInset(): void {
 
     function syncWithDelays() {
       schedule()
-      ;[48, 160, 360, 520].forEach((ms) => {
+      ;[48, 160, 360, 520, 720, 960].forEach((ms) => {
         timers.push(window.setTimeout(schedule, ms))
       })
     }
