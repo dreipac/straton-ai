@@ -2702,16 +2702,36 @@
 }
 
 @media (max-width: 860px) {
+  /*
+   * Mobile Chat unten: Safe-Area nur einmal einrechnen (fixierte Navbar + Composer-Offset).
+   * Sonst stacken sich env(safe-area) am Panel-Padding + Composer-Margin — besonders in iOS-PWA.
+   */
+  :root {
+    --chat-mobile-nav-safe-offset: 0.45rem;
+    /* Höhe der Pill (.chat-mobile-bottom-nav): Pad + Tab-Zeile (~3.1rem) */
+    --chat-mobile-nav-pill-height: 3.62rem;
+    --chat-mobile-composer-gap-above-nav: 0.32rem;
+    --chat-mobile-composer-bottom-offset: calc(
+      env(safe-area-inset-bottom, 0px) + var(--chat-mobile-nav-safe-offset) +
+        var(--chat-mobile-nav-pill-height) + var(--chat-mobile-composer-gap-above-nav)
+    );
+    /* Scrollfläche: gleiche Unterkante wie Composer + etwas Luft für letzte Zeile */
+    --chat-mobile-messages-scroll-extra: 1.35rem;
+    --chat-mobile-messages-scroll-padding-bottom: calc(
+      var(--chat-mobile-composer-bottom-offset) + var(--chat-mobile-messages-scroll-extra)
+    );
+  }
+
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
     /*
-     * Unten: Safe Area + festes Padding + optional `--chat-visual-keyboard-inset` (JS / visualViewport),
-     * wenn die Tastatur den sichtbaren Bereich überdeckt — ohne Änderung an globalen dvh/lvh-Werten.
+     * Unten: kein zusätzliches env(safe-area) — liegt bereits in `--chat-mobile-composer-bottom-offset`.
+     * Optional Tastatur-Inset (visualViewport).
      */
     padding:
       env(safe-area-inset-top, 0px) 0.65rem
-      calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+      calc(0.75rem + var(--chat-visual-keyboard-inset, 0px));
   }
 
   /*
@@ -2723,8 +2743,7 @@
     align-content: stretch;
     grid-template-rows: 1fr;
     min-height: 0;
-    padding:
-      env(safe-area-inset-top, 0px) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    padding: env(safe-area-inset-top, 0px) 0.65rem 0.75rem;
   }
 
   /*
@@ -2744,7 +2763,7 @@
     box-sizing: border-box;
     /*
      * Tastatur: Inset hier (unter Pille + Hinweis), nicht am äußeren Panel — sonst greift es auf iOS im leeren Chat oft nicht.
-     * Safe Area nur am Panel.
+     * Home-Indicator: einmal über `--chat-mobile-composer-bottom-offset` / Navbar — nicht zusätzlich am Panel-Boden.
      */
     /* Inset leicht unter 100 % skalieren; −5px Feintuning zur Tastatur (max verhindert negatives Padding ohne Keyboard). */
     padding: 0 0.5rem max(0px, calc(0.1rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
@@ -2790,7 +2809,12 @@
   .chat-panel.is-empty .chat-input-hint {
     flex-shrink: 0;
     padding-bottom: 0;
+    margin-top: 0.08rem;
     order: 6;
+  }
+
+  .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-empty-compose {
+    padding-bottom: max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px - 10px));
   }
 
   /* Neuer Chat mobil: Schnellkacheln direkt über der Message Box (Reihenfolge per flex order) */
@@ -2866,7 +2890,7 @@
 
   .chat-panel:not(.is-empty) .chat-composer-stack {
     position: sticky;
-    bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+    bottom: var(--chat-mobile-composer-bottom-offset);
     z-index: 7;
   }
 
@@ -2877,8 +2901,8 @@
   }
 
   .chat-panel:not(.is-empty) .chat-messages {
-    padding-bottom: calc(6.1rem + env(safe-area-inset-bottom, 0px));
-    scroll-padding-bottom: calc(6.1rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: var(--chat-mobile-messages-scroll-padding-bottom);
+    scroll-padding-bottom: var(--chat-mobile-messages-scroll-padding-bottom);
   }
 
   .chat-messages {
@@ -2992,41 +3016,6 @@
     margin: 0 auto;
     padding: 0 0.85rem;
     color: transparent;
-  }
-
-  /*
-   * Installierte PWA / Vollbild: weniger zusätzlicher Bodenabstand als im mobilen Browser —
-   * Home-Indicator kommt bereits über env(safe-area-inset-bottom); sonst wirkt die Pille zu „hoch“ schwebend.
-   */
-  @media (display-mode: standalone), (display-mode: fullscreen) {
-    .chat-panel {
-      padding:
-        env(safe-area-inset-top, 0px) 0.65rem
-        calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
-    }
-
-    /* Leerer Chat: kein Keyboard-Inset am Panel (siehe .chat-empty-compose). */
-    .chat-panel.is-empty {
-      padding:
-        env(safe-area-inset-top, 0px) 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
-    }
-
-    .chat-panel:not(.is-empty) .chat-composer-stack {
-      bottom: calc(3.35rem + env(safe-area-inset-bottom, 0px));
-    }
-
-    .chat-panel.is-empty .chat-empty-compose {
-      padding: 0 0.5rem max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px));
-    }
-
-    /* PWA / Vollbild: bei Fokus Message Box etwas weniger Abstand zur Tastatur (leerer Chat). */
-    .chat-panel.is-empty:has(textarea.chat-input:focus) .chat-empty-compose {
-      padding-bottom: max(0px, calc(0.08rem + (var(--chat-visual-keyboard-inset, 0px) * 0.88) - 5px - 10px));
-    }
-
-    .chat-panel.is-empty .chat-input-hint {
-      margin-top: 0.08rem;
-    }
   }
 
   /* Kein Akzent-Streifen unten, kein Rand (auch ohne Fokus) */
@@ -4122,7 +4111,7 @@ button.chat-onboarding-tour-block {
 
   .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-messages {
     scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
-    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: var(--chat-mobile-messages-scroll-padding-bottom);
   }
 
   /*
@@ -4130,24 +4119,12 @@ button.chat-onboarding-tour-block {
    * Seiten & unten wie globale mobile .chat-Regel.
    */
   .chat-main--share-toolbar .chat-panel {
-    padding: 0 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+    padding: 0 0.65rem calc(0.75rem + var(--chat-visual-keyboard-inset, 0px));
   }
 
   /* Neuer Chat: kein Keyboard-Inset am Panel — gleiche Logik wie global .chat-panel.is-empty */
   .chat-main--share-toolbar .chat-panel.is-empty {
-    padding:
-      calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px));
-  }
-
-  @media (display-mode: standalone), (display-mode: fullscreen) {
-    .chat-main--share-toolbar .chat-panel {
-      padding: 0 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
-    }
-
-    .chat-main--share-toolbar .chat-panel.is-empty {
-      padding:
-        calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem calc(0.58rem + env(safe-area-inset-bottom, 0px));
-    }
+    padding: calc(env(safe-area-inset-top, 0px) + 0.35rem) 0.65rem 0.75rem;
   }
 
   /*
@@ -4184,7 +4161,7 @@ button.chat-onboarding-tour-block {
 
   .chat-main--share-toolbar .chat-panel:not(.is-empty) .chat-input-hint {
     margin-bottom: 0;
-    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0.25rem;
   }
 
   /*
@@ -4874,11 +4851,11 @@ button.chat-onboarding-tour-block {
   }
 
   .chat-panel:not(.is-empty) .chat-input-row {
-    bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: var(--chat-mobile-composer-bottom-offset) !important;
   }
 
   .chat-panel.is-empty .chat-input-row.is-centered {
-    margin-bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+    margin-bottom: var(--chat-mobile-composer-bottom-offset);
   }
 
   .chat-input-row {
@@ -4898,7 +4875,7 @@ button.chat-onboarding-tour-block {
     position: fixed;
     left: 0.65rem;
     right: 0.65rem;
-    bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--chat-mobile-nav-safe-offset) + env(safe-area-inset-bottom, 0px));
     z-index: 81;
     margin: 0;
     padding: var(--chat-bottom-nav-pad);
@@ -4992,11 +4969,11 @@ button.chat-onboarding-tour-block {
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) .chat-composer-stack {
-    bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--chat-mobile-nav-safe-offset) + env(safe-area-inset-bottom, 0px));
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-input-row.is-centered {
-    margin-bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    margin-bottom: calc(var(--chat-mobile-nav-safe-offset) + env(safe-area-inset-bottom, 0px));
   }
 
   /* Wenn irgendein Bottom-Sheet offen ist, Bottom-Nav ausblenden (mobile). */
