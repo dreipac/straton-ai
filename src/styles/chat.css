@@ -2972,13 +2972,13 @@
      */
     --chat-mobile-composer-focus-bottom-gap: 6px;
     /* Thread mit Inhalt: stärkerer Abschnitt am Boden — Grid/sticky wirken sonst enger als im leeren Chat. */
-    --chat-mobile-composer-focus-bottom-gap-with-thread: 25px;
+    --chat-mobile-composer-focus-bottom-gap-with-thread: 35px;
     /*
      * Reservierter Bereich oben bei Tastatur: Visual-Viewport-Offset (iOS scroll) + schwebende Topbar.
      */
     --chat-mobile-keyboard-top-reserve: calc(
       var(--chat-visual-viewport-offset-top, 0px) +
-        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.65rem)) +
+        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.45rem)) +
         var(--chat-mobile-floating-pill-height, 2.75rem) + 0.35rem
     );
   }
@@ -5982,7 +5982,7 @@ button.chat-onboarding-tour-block {
     position: fixed;
     top: calc(
       var(--chat-visual-viewport-offset-top, 0px) +
-        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.65rem))
+        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.45rem))
     );
     left: 0;
     right: 0;

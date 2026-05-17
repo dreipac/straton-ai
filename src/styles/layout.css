@@ -782,7 +782,7 @@
     --mobile-sidebar-width: min(86vw, 340px);
     --mobile-sidebar-transition-ms: 520ms;
     /** Schwebende Sidebar-Pill + Freigabe-Leiste (safe area / Dynamic Island / Batterie) */
-    --chat-floating-ui-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 0.65rem);
+    --chat-floating-ui-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 0.45rem);
     /** Eine Höhe für Sidebar-Button und Modus/Freigabe-Pille (optisch bündig) */
     --chat-mobile-floating-pill-height: 2.75rem;
     grid-template-columns: 1fr;
