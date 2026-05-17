@@ -15,15 +15,25 @@ export function writeAssistantEmojisEnabled(enabled: boolean): void {
   window.localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0')
 }
 
-/** Nur normaler Chat (nicht Lernpfad): wenig Output-Tokens, aber klar lesbar (nicht «Telegramm-Stil»). */
+/** Nur normaler Chat (nicht Lernpfad / nicht Word-Export): kurze Antworten, wenig Output-Tokens. */
 export function getAssistantMainChatBrevityInstruction(): string {
   return [
-    'Hauptchat — Kompaktheit mit Qualität:',
-    'Spare Tokens: keine Wiederholung der Nutzerfrage, keine Fuell- oder Höflichkeitsfloskeln, kein Vorwort-Paragraph.',
-    'Struktur variieren: Erklärungen und Zusammenhänge oft als zusammenhängende Absätze (Fließtext); Listen nur wenn sie wirklich helfen (Schritte, Optionen, kurze Übersichten).',
-    'Trotzdem: jeder Satz und — falls du listest — jeder Punkt soll für sich verständlich sein; keine nur Stichworte ohne Kurzkontext.',
-    'Lieber eine Zeile mehr mit Klarheit als eine unverständliche Minimalantwort.',
-    'Umfang: typischerweise eine ##-Überschrift, danach je nach Frage ein bis zwei Absätze und/oder eine kurze Liste — nicht automatisch immer eine lange Bullet-Liste.',
+    'Hauptchat — Kurzantworten (verbindlich):',
+    'Standard: knapp und direkt. Keine Wiederholung der Nutzerfrage, kein «Gerne», kein Vorwort, keine Zusammenfassung am Ende, wenn nicht nötig.',
+    'Zielumfang: in der Regel höchstens etwa 80–180 Wörter (ca. 3–8 Sätze Fließtext) ODER eine kurze Liste mit maximal 5 Punkten — nicht beides ausführlich.',
+    'Nur eine ##-Überschrift; keine ###-Unterkapitel, es sei denn der Nutzer verlangt ausdrücklich Tiefe, Schritt-für-Schritt oder ein langes Dokument.',
+    'Listen nur bei echten Schritten/Optionen; sonst ein kurzer Absatz.',
+    'Ausnahme — ausführlicher werden nur wenn der Nutzer es verlangt (z. B. «ausführlich», «genauer», «erkläre Schritt für Schritt», «alles im Detail»).',
+    'Auch im Comfort-Modus: warm, aber kurz; keine langen Motivationsabsätze.',
+  ].join('\n')
+}
+
+/** Letzte Systemzeile im Hauptchat (nach Formatregeln), damit Kürze nicht überboten wird. */
+export function getAssistantMainChatBrevityFinalReminder(): string {
+  return [
+    'Letzte Priorität für diese Antwort:',
+    'Halte dich an die Kurzregeln oben. Wenn die Frage einfach ist: oft genügt ##-Titel plus 2–4 Sätze.',
+    'Lieber zu knapp und klar als lang und redundant.',
   ].join('\n')
 }
 
@@ -32,8 +42,11 @@ type ReplyToneOption = 'comfort' | 'strict' | undefined
 /** Strukturierte Markdown-Antworten (Überschriften, Listen, Quellen). */
 export function getAssistantMarkdownFormattingInstruction(options?: {
   replyTone?: ReplyToneOption
+  /** Hauptchat: kompaktes Layout, weniger Absätze/Unterüberschriften. */
+  compact?: boolean
 }): string {
   const replyTone = options?.replyTone
+  const compact = options?.compact === true
   let headingRule: string
   if (replyTone === 'strict') {
     headingRule =
@@ -47,16 +60,27 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
       ? '- Jede Überschrift mit ## und ### muss genau ein passendes Emoji unmittelbar nach den Rauten haben (z. B. "## 💡 Titel", "### 📝 Details"). Keine ##- oder ###-Zeile ohne Emoji im Titel.'
       : '- Abschnitte mit ## Überschrift. Unterabschnitte mit ###.'
   }
+  const compactRules = compact
+    ? [
+        '- Kompakt-Modus: nach der ##-Zeile höchstens **ein** kurzer Absatz **oder** eine Liste mit **max. 5** Punkten — keine langen Mischformen.',
+        '- Keine ###-Überschriften, keine Tabellen, kein `---`, kein zweiter inhaltlicher Block.',
+      ]
+    : [
+        '- Direkt darunter: **gemischte Darstellung** — was am sinnvollsten ist. Haeufig: ein oder mehrere **Absätze** (Fließtext) für Erklärung, Einordnung, Argumentation.',
+        '- **Listen** (`-` oder nummeriert `1.`): nur wenn es passt — z. B. Reihenfolge-Schritte, mehrere klar getrennte Optionen, Checklisten, oder wenn eine knappe Aufzählung die Lesbarkeit verbessert. **Nicht** jede Antwort als reine Bullet-Liste.',
+        '- Du darfst **mischen**: z. B. kurzer Einleitungsabsatz, dann optional eine kurze Liste, dann wieder ein Schlussabsatz — je nach Thema.',
+        '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt übersichtlich.',
+        '- Optional: kurzer Abschluss (nächster Schritt oder eine Frage an den Nutzer) — maximal ein Satz.',
+        '- Keine lange Einleitung vor der ##-Überschrift; optional eine Zeile `---` nur wenn zwei inhaltlich getrennte Blöcke nötig sind.',
+        '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Übersichten, kleine Datensätze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
+      ]
+
   return [
-    'Antwort-Format (Markdown, gut lesbar und tokenbewusst):',
+    compact
+      ? 'Antwort-Format (Markdown, kurz und lesbar):'
+      : 'Antwort-Format (Markdown, gut lesbar und tokenbewusst):',
     '- Pflicht: Beginne mit genau einer Zeile `## …` als kurze, inhaltliche Überschrift zum Thema (kein «Hier ist die Antwort»).',
-    '- Direkt darunter: **gemischte Darstellung** — was am sinnvollsten ist. Haeufig: ein oder mehrere **Absätze** (Fließtext) für Erklärung, Einordnung, Argumentation.',
-    '- **Listen** (`-` oder nummeriert `1.`): nur wenn es passt — z. B. Reihenfolge-Schritte, mehrere klar getrennte Optionen, Checklisten, oder wenn eine knappe Aufzählung die Lesbarkeit verbessert. **Nicht** jede Antwort als reine Bullet-Liste.',
-    '- Du darfst **mischen**: z. B. kurzer Einleitungsabsatz, dann optional eine kurze Liste, dann wieder ein Schlussabsatz — je nach Thema.',
-    '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt übersichtlich.',
-    '- Optional: kurzer Abschluss (nächster Schritt oder eine Frage an den Nutzer) — maximal ein Satz.',
-    '- Keine lange Einleitung vor der ##-Überschrift; optional eine Zeile `---` nur wenn zwei inhaltlich getrennte Blöcke nötig sind.',
-    '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Übersichten, kleine Datensätze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
+    ...compactRules,
     headingRule,
     '- Quellen als [Kurzname](https://…) oder freistehende http(s)-URLs in einer Zeile.',
     '- **Nur echte Bibelverse** in die violette Bibel-Box: Blockzitat mit >, erste Zeile **Buch Kapitel,Vers** (z. B. **Johannes 3,16**), folgende Zeilen mit > den Wortlaut.',
@@ -81,8 +105,8 @@ export function getAssistantEmojiStyleInstruction(options?: {
   if (replyTone === 'comfort') {
     return [
       'Antwort-Stil (Comfort):',
-      'Nutze viele passende Emojis: in jeder ##/###-Überschrift genau eines (siehe Format-Regeln), zusätzlich häufig und freundlich im Fließtext und in Listen, wo es zum warmen Ton passt.',
-      'Emoji unterstützen Nähe und Lesbarkeit, ersetzen aber keine Fakten.',
+      'Ton warm und ermutigend, aber **kurz** (siehe Kurzregeln).',
+      'Emoji: genau eines in der ##-Überschrift; im Fließtext höchstens 0–1, nur wenn es ohne Mehrdeutigkeit passt — keine Emoji-Ketten.',
     ].join('\n')
   }
   if (readAssistantEmojisEnabled()) {

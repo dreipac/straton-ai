@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -11,6 +12,7 @@ import {
   type TransitionEvent as ReactTransitionEvent,
 } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
+import { GlassPillTouchSurface } from '../../../components/ui/GlassPillTouchSurface'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
@@ -39,6 +41,7 @@ import {
 } from '../utils/wordOutline'
 import { WordOutlinePaper } from './WordOutlinePaper'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
+import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
 import { readImageFileAsVisionDataUrl } from '../utils/imageVisionNormalize'
 import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
 import { hapticLightImpact } from '../../../utils/haptics'
@@ -325,6 +328,7 @@ export function ChatWindow({
   const imageLightboxClosePendingRef = useRef(false)
   const exitWebSearchSignalHandledRef = useRef(0)
   const isEmptyState = messageList.length === 0
+  const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
 
   useLayoutEffect(() => {
     if (!imageLightboxSrc) {
@@ -1257,18 +1261,77 @@ export function ChatWindow({
   const quickTilesEl =
     tokenLimitReached ? null : (
       <div
-        className={`chat-quick-tiles${webSearchCommandSelected ? ' is-websearch-focus' : ''}`}
+        className={`chat-quick-tiles${webSearchCommandSelected ? ' is-websearch-focus' : ''}${
+          isMobileComposer ? ' chat-quick-tiles--mobile-rail' : ''
+        }`}
         role="group"
         aria-label="Schnellaktionen"
       >
-        <div className="chat-quick-tiles-row chat-quick-tiles-row--top">
-          <button
-            type="button"
-            className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
-            onClick={handleSelectExcelQuickTile}
-          >
+        {isMobileComposer ? (
+          <div className="chat-quick-tiles-scroll">
+            <GlassPillTouchSurface
+              type="button"
+              className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
+              onClick={handleSelectImageQuickTile}
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Bilder</span>
+                <span className="chat-quick-tile-sub">Bild generieren</span>
+              </span>
+            </GlassPillTouchSurface>
+            <GlassPillTouchSurface
+              type="button"
+              className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+              onClick={handleSelectExcelQuickTile}
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <span className="chat-quick-tile-letter-mark">X</span>
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Excel</span>
+                <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
+              </span>
+            </GlassPillTouchSurface>
+            <GlassPillTouchSurface
+              type="button"
+              className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
+              onClick={handleSelectWordQuickTile}
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <span className="chat-quick-tile-letter-mark">W</span>
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Word</span>
+                <span className="chat-quick-tile-sub">Word generieren</span>
+              </span>
+            </GlassPillTouchSurface>
+            <GlassPillTouchSurface
+              type="button"
+              className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
+              onClick={handleSelectWebSearchQuickTile}
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <img src={webOutlinedIcon} alt="" />
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Websuche</span>
+                <span className="chat-quick-tile-sub">Live-Web</span>
+              </span>
+            </GlassPillTouchSurface>
+          </div>
+        ) : (
+          <>
+            <div className="chat-quick-tiles-row chat-quick-tiles-row--top">
+              <button
+                type="button"
+                className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+                onClick={handleSelectExcelQuickTile}
+              >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
-              <img src={greenFileIcon} alt="" />
+              <span className="chat-quick-tile-letter-mark">X</span>
             </span>
             <span className="chat-quick-tile-text">
               <span className="chat-quick-tile-title">Excel</span>
@@ -1281,7 +1344,7 @@ export function ChatWindow({
             onClick={handleSelectWordQuickTile}
           >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
-              <img src={wordIcon} alt="" />
+              <span className="chat-quick-tile-letter-mark">W</span>
             </span>
             <span className="chat-quick-tile-text">
               <span className="chat-quick-tile-title">Word</span>
@@ -1317,6 +1380,8 @@ export function ChatWindow({
             </span>
           </button>
         </div>
+          </>
+        )}
       </div>
     )
 
@@ -1413,11 +1478,13 @@ export function ChatWindow({
         ) : null}
         <div className="chat-empty-compose">
           <h2 className="chat-empty-title">
-            <span className="chat-empty-title-greet">Hallo {greetingName},</span>
-            <span className="chat-empty-title-ask">Wie kann ich dir heute helfen?</span>
+            <span className="chat-empty-title-greet">{emptyChatGreeting.greet}</span>
+            <span className="chat-empty-title-ask">{emptyChatGreeting.ask}</span>
           </h2>
           {error ? <p className="error-text">{error}</p> : null}
           {thinkingClarifyOverlay}
+          {quickTilesEl}
+          {webSearchCreditsHintEl}
           <form
             className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
             onSubmit={handleSubmit}
@@ -1463,12 +1530,13 @@ export function ChatWindow({
             </div>
             <div className="chat-input-compose">
               {pendingAttachments.length > 0 ||
-              imageGenCommandSelected ||
-              excelCommandSelected ||
-              wordCommandSelected ||
-              webSearchCommandSelected ? (
+              (!isMobileComposer &&
+                (imageGenCommandSelected ||
+                  excelCommandSelected ||
+                  wordCommandSelected ||
+                  webSearchCommandSelected)) ? (
                 <div className="chat-attachment-chips" aria-label="Anhänge">
-                  {imageGenCommandSelected ? (
+                  {!isMobileComposer && imageGenCommandSelected ? (
                     <button
                       type="button"
                       className="chat-compose-mode-badge chat-compose-mode-badge--image"
@@ -1480,7 +1548,7 @@ export function ChatWindow({
                       <span className="chat-compose-mode-badge-label">Bilder</span>
                     </button>
                   ) : null}
-                  {excelCommandSelected ? (
+                  {!isMobileComposer && excelCommandSelected ? (
                     <button
                       type="button"
                       className="chat-compose-mode-badge chat-compose-mode-badge--excel"
@@ -1492,7 +1560,7 @@ export function ChatWindow({
                       <span className="chat-compose-mode-badge-label">Excel</span>
                     </button>
                   ) : null}
-                  {wordCommandSelected ? (
+                  {!isMobileComposer && wordCommandSelected ? (
                     <button
                       type="button"
                       className="chat-compose-mode-badge"
@@ -1504,7 +1572,7 @@ export function ChatWindow({
                       <span className="chat-compose-mode-badge-label">Word</span>
                     </button>
                   ) : null}
-                  {webSearchCommandSelected ? (
+                  {!isMobileComposer && webSearchCommandSelected ? (
                     <button
                       type="button"
                       className="chat-compose-mode-badge chat-compose-mode-badge--websearch"
@@ -1671,8 +1739,6 @@ export function ChatWindow({
           <p className="chat-input-hint">
             Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
           </p>
-          {quickTilesEl}
-          {webSearchCreditsHintEl}
           {composerAttachSheet}
         </div>
         {imageLightboxEl}
@@ -2084,6 +2150,8 @@ export function ChatWindow({
 
       <div className="chat-composer-stack">
         {thinkingClarifyOverlay}
+        {isMobileComposer ? quickTilesEl : null}
+        {isMobileComposer ? webSearchCreditsHintEl : null}
         {composerAttachSheet}
         <form
           className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
@@ -2130,12 +2198,13 @@ export function ChatWindow({
         </div>
         <div className="chat-input-compose">
           {pendingAttachments.length > 0 ||
-          imageGenCommandSelected ||
-          excelCommandSelected ||
-          wordCommandSelected ||
-          webSearchCommandSelected ? (
+          (!isMobileComposer &&
+            (imageGenCommandSelected ||
+              excelCommandSelected ||
+              wordCommandSelected ||
+              webSearchCommandSelected)) ? (
             <div className="chat-attachment-chips" aria-label="Anhänge">
-              {imageGenCommandSelected ? (
+              {!isMobileComposer && imageGenCommandSelected ? (
                 <button
                   type="button"
                   className="chat-compose-mode-badge chat-compose-mode-badge--image"
@@ -2147,7 +2216,7 @@ export function ChatWindow({
                   <span className="chat-compose-mode-badge-label">Bilder</span>
                 </button>
               ) : null}
-              {excelCommandSelected ? (
+              {!isMobileComposer && excelCommandSelected ? (
                 <button
                   type="button"
                   className="chat-compose-mode-badge chat-compose-mode-badge--excel"
@@ -2159,7 +2228,7 @@ export function ChatWindow({
                   <span className="chat-compose-mode-badge-label">Excel</span>
                 </button>
               ) : null}
-              {wordCommandSelected ? (
+              {!isMobileComposer && wordCommandSelected ? (
                 <button
                   type="button"
                   className="chat-compose-mode-badge"
@@ -2171,7 +2240,7 @@ export function ChatWindow({
                   <span className="chat-compose-mode-badge-label">Word</span>
                 </button>
               ) : null}
-              {webSearchCommandSelected ? (
+              {!isMobileComposer && webSearchCommandSelected ? (
                 <button
                   type="button"
                   className="chat-compose-mode-badge chat-compose-mode-badge--websearch"

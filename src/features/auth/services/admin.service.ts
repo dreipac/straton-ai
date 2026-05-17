@@ -182,11 +182,15 @@ export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRo
   }))
 }
 
-/** Einzelaufrufe neueste zuerst; Standard max. 8000 Zeilen (Server-Obergrenze 20000). */
-export async function listAdminAiTokenUsageLog(limit = 8000): Promise<AdminAiTokenUsageLogRow[]> {
+/** Einzelaufrufe neueste zuerst; fest die letzten 500 (Server-Obergrenze 500). */
+export const ADMIN_AI_TOKEN_USAGE_LOG_LIMIT = 500
+
+export async function listAdminAiTokenUsageLog(
+  limit = ADMIN_AI_TOKEN_USAGE_LOG_LIMIT,
+): Promise<AdminAiTokenUsageLogRow[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('list_admin_ai_token_usage_log', {
-    p_limit: Math.min(20000, Math.max(1, Math.floor(limit))),
+    p_limit: Math.min(ADMIN_AI_TOKEN_USAGE_LOG_LIMIT, Math.max(1, Math.floor(limit))),
   })
 
   if (error) {

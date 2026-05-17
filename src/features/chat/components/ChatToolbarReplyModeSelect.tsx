@@ -15,26 +15,33 @@ export function ChatToolbarReplyModeSelect({
   onChange,
   disabled,
 }: ChatToolbarReplyModeSelectProps) {
+  const label = CHAT_REPLY_MODE_OPTIONS.find((opt) => opt.id === value)?.label ?? 'Comfort'
+
   return (
-    <select
-      className="chat-toolbar-reply-mode-select"
-      value={value}
-      disabled={disabled}
-      aria-label="Antwortmodus: Comfort oder Strict"
-      onChange={(event) => {
-        const next = event.target.value
-        if (next === 'comfort' || next === 'strict') {
-          onChange(next)
-        }
-        /* iOS: Fokus lösen, sonst bleibt ein Rahmen/Fokuszustand und blockiert Folge-Taps */
-        event.currentTarget.blur()
-      }}
-    >
-      {CHAT_REPLY_MODE_OPTIONS.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <span className="chat-toolbar-reply-mode-select-wrap">
+      <span className="chat-toolbar-reply-mode-select-label" aria-hidden="true">
+        {label}
+      </span>
+      <select
+        className="chat-toolbar-reply-mode-select"
+        value={value}
+        disabled={disabled}
+        aria-label="Antwortmodus: Comfort oder Strict"
+        onChange={(event) => {
+          const next = event.target.value
+          if (next === 'comfort' || next === 'strict') {
+            onChange(next)
+          }
+          /* iOS: Fokus lösen, sonst bleibt ein Rahmen/Fokuszustand und blockiert Folge-Taps */
+          event.currentTarget.blur()
+        }}
+      >
+        {CHAT_REPLY_MODE_OPTIONS.map((opt) => (
+          <option key={opt.id} value={opt.id}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </span>
   )
 }

@@ -1,6 +1,7 @@
 import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import {
   getAssistantEmojiStyleInstruction,
+  getAssistantMainChatBrevityFinalReminder,
   getAssistantMainChatBrevityInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
@@ -306,9 +307,13 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     truthBlock,
     toneBlock,
     thinkingBlock,
-    getAssistantMarkdownFormattingInstruction({ replyTone }),
+    getAssistantMarkdownFormattingInstruction({
+      replyTone,
+      compact: isMainChat && !options?.userRequestedWord,
+    }),
     !options?.userRequestedWord ? getAssistantEmojiStyleInstruction({ replyTone }) : '',
     thinkingClarifyUiReminder,
+    mainChatBrevity && !thinkingClarifyUiReminder ? getAssistantMainChatBrevityFinalReminder() : '',
   ]
     .filter(Boolean)
     .join('\n\n')

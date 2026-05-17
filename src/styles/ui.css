@@ -190,3 +190,170 @@ textarea.ui-textarea:disabled {
   cursor: not-allowed;
   resize: none;
 }
+
+/*
+ * Milk-Glass Tap-Feedback (wie Mobile «Neuer Chat»): Scale + Aufhellen.
+ * Nur Interaktion — Optik der Pille bleibt komponentenspezifisch.
+ */
+.glass-pill-touch {
+  --glass-pill-touch-bg: var(--color-surface-elevated);
+  transition:
+    transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    background 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease,
+    opacity 160ms ease,
+    border-color 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.glass-pill-touch:not(.glass-pill-touch--composer-shell).is-touch-active:not(:disabled) {
+  transform: scale(1.12);
+  filter: brightness(1.1) saturate(1.06);
+  background: color-mix(in srgb, var(--glass-pill-touch-bg) 82%, #ffffff 18%) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, transparent),
+    0 4px 16px color-mix(in srgb, rgba(15, 23, 42, 0.22) 88%, transparent) !important;
+}
+
+:root[data-theme='dark'] .glass-pill-touch:not(.glass-pill-touch--composer-shell).is-touch-active:not(:disabled) {
+  background: color-mix(in srgb, var(--glass-pill-touch-bg) 74%, #ffffff 12%) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent),
+    0 6px 20px rgba(0, 0, 0, 0.38) !important;
+}
+
+/*
+ * Composer-/Nav-Pille (Neuer Chat): kein filter:brightness — flackert mit backdrop-filter.
+ * Aufhellen nur über hellere Verlauf-Layer.
+ */
+.glass-pill-touch.glass-pill-touch--composer-shell.is-touch-active:not(:disabled) {
+  transform: scale(1.12);
+  background:
+    linear-gradient(
+        color-mix(in srgb, var(--chat-composer-surface) 82%, #ffffff 18%),
+        color-mix(in srgb, var(--chat-composer-surface) 82%, #ffffff 18%)
+      )
+      padding-box,
+    radial-gradient(
+        168% 168% at -2% -2%,
+        color-mix(in srgb, var(--chat-composer-corner-top-left) 48%, #ffffff 12%) 0%,
+        color-mix(in srgb, var(--chat-composer-corner-top-left) 32%, transparent) 36%,
+        transparent 74%
+      )
+      border-box,
+    radial-gradient(
+        168% 168% at 102% 102%,
+        color-mix(in srgb, var(--chat-composer-corner-bottom-right) 48%, #ffffff 12%) 0%,
+        color-mix(in srgb, var(--chat-composer-corner-bottom-right) 32%, transparent) 36%,
+        transparent 74%
+      )
+      border-box;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, var(--chat-composer-shell-inset-highlight)),
+    0 0 0 1px color-mix(in srgb, var(--chat-bottom-nav-pill-accent, var(--color-accent, #6366f1)) 30%, transparent),
+    0 4px 16px color-mix(in srgb, var(--chat-bottom-nav-pill-accent, var(--color-accent, #6366f1)) 18%, rgba(15, 23, 42, 0.2)),
+    var(--chat-composer-shell-outer-shadow);
+}
+
+.glass-pill-touch.is-touch-active:not(:disabled) .glass-pill-touch__icon {
+  transform: scale(1.08);
+  transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled) {
+    transform: scale(1.12);
+    filter: brightness(1.1) saturate(1.06);
+  }
+
+  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled) {
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-pill-touch.is-touch-active:not(:disabled) {
+    transform: none;
+    filter: brightness(1.06);
+  }
+
+  .glass-pill-touch.is-touch-active:not(:disabled) .glass-pill-touch__icon {
+    transform: none;
+  }
+}
+
+/*
+ * Global «Neuer Chat» Tap: Scale + helles Overlay (::after) — Composer-Dock & Sidebar-FAB.
+ */
+.new-chat-touch-btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.new-chat-touch-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 160ms ease;
+}
+
+.new-chat-touch-btn.is-touch-active {
+  transform: scale(1.12);
+}
+
+.new-chat-touch-btn.is-touch-active::after {
+  opacity: 1;
+}
+
+:root[data-theme='dark'] .new-chat-touch-btn::after {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.new-chat-touch-btn.is-new-chat-pending {
+  pointer-events: none;
+}
+
+.new-chat-touch-btn__icon {
+  position: relative;
+  z-index: 1;
+  transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.new-chat-touch-btn.is-touch-active .new-chat-touch-btn__icon {
+  transform: scale(1.08);
+}
+
+@media (hover: none) {
+  .new-chat-touch-btn:active:not(.is-new-chat-pending) {
+    transform: scale(1.12);
+  }
+
+  .new-chat-touch-btn:active:not(.is-new-chat-pending)::after {
+    opacity: 1;
+  }
+
+  .new-chat-touch-btn:active:not(.is-new-chat-pending) .new-chat-touch-btn__icon {
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-chat-touch-btn.is-touch-active {
+    transform: none;
+  }
+
+  .new-chat-touch-btn.is-touch-active .new-chat-touch-btn__icon {
+    transform: none;
+  }
+}

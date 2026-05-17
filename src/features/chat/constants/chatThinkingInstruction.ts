@@ -9,7 +9,7 @@ export function getChatThinkingWorkflowInstruction(): string {
     '— Erlaubt vor dem Block: höchstens EIN kurzer Satz oder ein Absatz ohne Aufzählungszeichen.',
     '— Danach AUSSCHLIESSLICH der Marker-Block mit JSON — sonst funktioniert die App nicht.',
     '',
-    'Ablauf: Analyse → falls noch unklar: nur Clarify-Block (siehe unten). Falls schon klar genug: normale Markdown-Antwort ohne Clarify-Marker. Maximal zwei Klärungsrunden; danach finale Antwort.',
+    'Ablauf: Analyse → falls noch unklar: nur Clarify-Block (siehe unten). Falls schon klar genug: normale Markdown-Antwort ohne Clarify-Marker. Maximal zwei Klärungsrunden; danach finale Antwort — **kurz** wie im Hauptchat (Kurzregeln), ausser der Nutzer verlangt Ausführlichkeit.',
     'Vermeide Endlosschleifen: wenn etwas offen bleibt, triff knappe Annahmen und liefere trotzdem.',
     'Wahrheit sowie Comfort/Strict gelten unverändert.',
     '',

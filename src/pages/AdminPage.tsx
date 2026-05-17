@@ -1390,6 +1390,23 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  /** `ai_token_usage.created_at` — Anzeige in UTC (Spalte «Erstellt»). */
+  function formatAiTokenUsageCreatedAt(iso: string) {
+    try {
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) {
+        return iso
+      }
+      return d.toLocaleString('de-CH', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'UTC',
+      })
+    } catch {
+      return iso
+    }
+  }
+
   function getUserLabel(user: AdminUser) {
     const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
     if (fullName) {
@@ -1881,9 +1898,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       <h3 className="admin-token-section-heading">Anfragen-Protokoll (je Nutzer aufklappbar)</h3>
                       <p className="admin-token-section-hint">
                         Jede Zeile ist ein KI-Aufruf. <strong>Kosten (USD)</strong> aus der Datenbank (
-                        <code>estimated_cost_usd</code> beim Aufruf). Es werden global die neuesten Einträge geladen
-                        (Standard: 8000 Zeilen, Obergrenze 20 000) — bei sehr viel Verlauf erscheint nicht die komplette
-                        Historie.
+                        <code>estimated_cost_usd</code> beim Aufruf). Es werden global die{' '}
+                        <strong>neuesten 500</strong> Einträge geladen (ältere fallen aus dem Ausschnitt). Spalte{' '}
+                        <strong>Erstellt</strong>: Zeitpunkt des Eintrags in der Datenbank (<code>created_at</code>, UTC).
                       </p>
                       {tokenUsageLogRows.length === 0 ? (
                         <p className="admin-user-empty">Keine Einzelaufrufe im geladenen Ausschnitt.</p>
@@ -1926,7 +1943,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 >
                                   <thead>
                                     <tr>
-                                      <th scope="col">Zeit (UTC)</th>
+                                      <th scope="col">Erstellt (UTC)</th>
                                       <th scope="col">Modus</th>
                                       <th scope="col">Provider</th>
                                       <th scope="col">Modell</th>
@@ -1956,7 +1973,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                       return (
                                         <tr key={r.id}>
                                           <td>
-                                            <time dateTime={r.created_at}>{formatFeedbackDate(r.created_at)}</time>
+                                            <time dateTime={r.created_at}>{formatAiTokenUsageCreatedAt(r.created_at)}</time>
                                           </td>
                                           <td>
                                             <code className="admin-token-model">{r.mode}</code>

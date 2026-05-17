@@ -63,6 +63,8 @@ import {
   parseStoredChatThinkingMode,
 } from '../features/chat/constants/chatThinkingMode'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
+import { ChatToolbarMobileMenuSelect } from '../features/chat/components/ChatToolbarMobileMenuSelect'
+import { ChatToolbarTitleMenuSelect } from '../features/chat/components/ChatToolbarTitleMenuSelect'
 import { ChatToolbarReplyModeSelect } from '../features/chat/components/ChatToolbarReplyModeSelect'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
@@ -79,6 +81,7 @@ import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
 import { useMobileSidebarEdgeSwipe } from '../hooks/useMobileSidebarEdgeSwipe'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
+import { glassPillTouchClass, useGlassPillTouchFeedback } from '../hooks/useGlassPillTouchFeedback'
 import { isMobileViewport } from '../utils/mobile'
 import { useToast } from '../components/toast/ToastProvider'
 import { getSupabaseClient } from '../integrations/supabase/client'
@@ -311,6 +314,10 @@ export function ChatPage() {
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
   )
+  const mobileToolbarChatTitle = useMemo(() => {
+    const title = activeThread?.title?.trim()
+    return title || 'Neuer Chat'
+  }, [activeThread?.title])
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [endSharingConfirmOpen, setEndSharingConfirmOpen] = useState(false)
   /** Desktop: Overlay bleibt gemountet, `isOpen` steuert modal-fade — so Ein- und Ausblend-Animation. */
@@ -330,11 +337,20 @@ export function ChatPage() {
   const [mobileWebSearchNavActive, setMobileWebSearchNavActive] = useState(false)
   /** Chat-Tab erhöht Signal — Composer verlässt Websuche */
   const [exitWebSearchSignal, setExitWebSearchSignal] = useState(0)
+  /** Sofortige Pill-Position beim Tab-Tap (vor async. Composer-/Web-Suche-State). */
+  const [optimisticPillTabIndex, setOptimisticPillTabIndex] = useState<number | null>(null)
+  const [guestOptimisticPillTabIndex, setGuestOptimisticPillTabIndex] = useState<number | null>(null)
+  const [pillAccentPulseActive, setPillAccentPulseActive] = useState(false)
+  const [guestPillAccentPulseActive, setGuestPillAccentPulseActive] = useState(false)
+  const pillAccentPulseTimerRef = useRef<number | null>(null)
+  const guestPillAccentPulseTimerRef = useRef<number | null>(null)
   const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const canInviteToActiveChat = Boolean(
     user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
   )
+  const ownsActiveThread = Boolean(user && activeThread && isThreadOwner(activeThread, user.id))
+  const showMobileTitleMenu = ownsActiveThread && Boolean(activeThreadId)
   /** Owner oder eingeladenes Mitglied — Toolbar-Avatare & Mitgliederliste */
   const isPersistedThreadParticipant = Boolean(
     activeThread &&
@@ -785,6 +801,11 @@ export function ChatPage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isMobileBottomNavTouchActive, setIsMobileBottomNavTouchActive] = useState(false)
+  const mobileNewChatTouch = useGlassPillTouchFeedback()
+  const sidebarNewChatTouch = useGlassPillTouchFeedback()
+  const mobileTopBarModeTouch = useGlassPillTouchFeedback()
+  const mobileTopBarTitleTouch = useGlassPillTouchFeedback()
+  const mobileTopBarMenuTouch = useGlassPillTouchFeedback()
   const [showBetaNoticeOnFirstLogin, setShowBetaNoticeOnFirstLogin] = useState(true)
   const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
@@ -840,7 +861,6 @@ export function ChatPage() {
   const suppressThreadClickRef = useRef(false)
   const mobileBottomNavTouchStartRef = useRef(0)
   const mobileBottomNavReleaseTimerRef = useRef<number | null>(null)
-
   const LONG_PRESS_MS = 520
   const LONG_PRESS_MOVE_CANCEL_PX = 14
 
@@ -881,9 +901,43 @@ export function ChatPage() {
     }, holdMs)
   }
 
+  function startPillAccentPulse(target: 'main' | 'guest') {
+    const setActive = target === 'main' ? setPillAccentPulseActive : setGuestPillAccentPulseActive
+    const timerRef = target === 'main' ? pillAccentPulseTimerRef : guestPillAccentPulseTimerRef
+    setActive(true)
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+    }
+    timerRef.current = window.setTimeout(() => {
+      setActive(false)
+      timerRef.current = null
+    }, 520)
+  }
+
+  function selectMobileBottomNavTab(index: 0 | 1 | 2) {
+    setOptimisticPillTabIndex(index)
+    startPillAccentPulse('main')
+  }
+
+  function selectGuestMobileBottomNavTab(index: 0 | 1) {
+    setGuestOptimisticPillTabIndex(index)
+    startPillAccentPulse('guest')
+  }
+
   function toggleMobileSidebarFromBottomNav() {
     if (chatTourEligible) {
       return
+    }
+    const nextSidebarOpen = !isMobileSidebarOpen
+    const nextPillIndex = nextSidebarOpen
+      ? 0
+      : user && (mobileWebSearchNavActive || isWebSearchNewChatPending)
+        ? 2
+        : 1
+    if (user) {
+      selectMobileBottomNavTab(nextPillIndex as 0 | 1 | 2)
+    } else {
+      selectGuestMobileBottomNavTab(nextPillIndex as 0 | 1)
     }
     setIsSidebarCollapsed(false)
     setIsMobileSidebarOpen((prev) => {
@@ -1253,12 +1307,41 @@ export function ChatPage() {
     setPendingWebSearchComposer(false)
   }, [])
 
-  const mobileBottomNavTabIndex =
+  const computedMobileBottomNavTabIndex =
     isMobileSidebarOpen ? 0 : mobileWebSearchNavActive || isWebSearchNewChatPending ? 2 : 1
+  const computedGuestMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : 1
+  const mobileBottomNavTabIndex = optimisticPillTabIndex ?? computedMobileBottomNavTabIndex
+  const guestMobileBottomNavTabIndex = guestOptimisticPillTabIndex ?? computedGuestMobileBottomNavTabIndex
   const mobileChatBottomTabActive =
     !isMobileSidebarOpen && !mobileWebSearchNavActive && !isWebSearchNewChatPending
   const mobileWebBottomTabActive =
     !isMobileSidebarOpen && (mobileWebSearchNavActive || isWebSearchNewChatPending)
+
+  useEffect(() => {
+    if (optimisticPillTabIndex !== null && optimisticPillTabIndex === computedMobileBottomNavTabIndex) {
+      setOptimisticPillTabIndex(null)
+    }
+  }, [optimisticPillTabIndex, computedMobileBottomNavTabIndex])
+
+  useEffect(() => {
+    if (
+      guestOptimisticPillTabIndex !== null &&
+      guestOptimisticPillTabIndex === computedGuestMobileBottomNavTabIndex
+    ) {
+      setGuestOptimisticPillTabIndex(null)
+    }
+  }, [guestOptimisticPillTabIndex, computedGuestMobileBottomNavTabIndex])
+
+  useEffect(() => {
+    return () => {
+      if (pillAccentPulseTimerRef.current !== null) {
+        window.clearTimeout(pillAccentPulseTimerRef.current)
+      }
+      if (guestPillAccentPulseTimerRef.current !== null) {
+        window.clearTimeout(guestPillAccentPulseTimerRef.current)
+      }
+    }
+  }, [])
 
   function closeThreadActionMenu() {
     setOpenMenuThreadId(null)
@@ -1376,6 +1459,230 @@ export function ChatPage() {
       : `${base}assets/logo/Straton.png`
   }, [themeVariant])
 
+  function renderMobileBottomDock(variant: 'guest' | 'main') {
+    const tabIndex = variant === 'guest' ? guestMobileBottomNavTabIndex : mobileBottomNavTabIndex
+    const pillPulseActive = variant === 'guest' ? guestPillAccentPulseActive : pillAccentPulseActive
+
+    return (
+      <div className="chat-mobile-bottom-dock">
+        <nav
+          className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}${
+            pillPulseActive ? ' is-pill-accent-pulse' : ''
+          }`}
+          aria-label="Chat Navigation"
+          style={{ ['--chat-active-tab-index' as any]: tabIndex }}
+          onTouchStart={handleMobileBottomNavTouchStart}
+          onTouchEnd={handleMobileBottomNavTouchEnd}
+          onTouchCancel={handleMobileBottomNavTouchEnd}
+        >
+          <button
+            type="button"
+            className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--sidebar${isMobileSidebarOpen ? ' is-active' : ''}`}
+            aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
+            onClick={toggleMobileSidebarFromBottomNav}
+          >
+            <span className="chat-mobile-bottom-tab-icon-slot">
+              <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--sidebar" aria-hidden="true" />
+            </span>
+            <span className="chat-mobile-bottom-tab-label">Menü</span>
+          </button>
+          {variant === 'guest' ? (
+            <>
+              <button
+                type="button"
+                className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
+                aria-label="Chat"
+              >
+                <span className="chat-mobile-bottom-tab-icon-slot">
+                  <span
+                    className={`chat-mobile-bottom-tab-icon-accent ${
+                      !isMobileSidebarOpen
+                        ? 'chat-mobile-bottom-tab-icon-accent--chat-filled'
+                        : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
+                    }`}
+                    aria-hidden="true"
+                  />
+                </span>
+                <span className="chat-mobile-bottom-tab-label">Chat</span>
+              </button>
+              <button
+                type="button"
+                className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
+                aria-label="Platzhalter"
+              >
+                <span className="chat-mobile-bottom-tab-icon-slot">
+                  <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--status" aria-hidden="true" />
+                </span>
+                <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${mobileChatBottomTabActive ? ' is-active' : ''}`}
+                aria-label="Chat — Standardmodus"
+                onClick={() => {
+                  selectMobileBottomNavTab(1)
+                  setExitWebSearchSignal((n) => n + 1)
+                }}
+              >
+                <span className="chat-mobile-bottom-tab-icon-slot">
+                  <span
+                    className={`chat-mobile-bottom-tab-icon-accent ${
+                      mobileChatBottomTabActive
+                        ? 'chat-mobile-bottom-tab-icon-accent--chat-filled'
+                        : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
+                    }`}
+                    aria-hidden="true"
+                  />
+                </span>
+                <span className="chat-mobile-bottom-tab-label">Chat</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--websearch${mobileWebBottomTabActive ? ' is-active' : ''}`}
+                aria-label="Live-Web: Neuer Chat mit Websuche"
+                disabled={isNewChatPending}
+                onClick={() => {
+                  selectMobileBottomNavTab(2)
+                  void handleCreateNewChatWithWebSearch()
+                }}
+              >
+                <span className="chat-mobile-bottom-tab-icon-slot">
+                  <span
+                    className={`chat-mobile-bottom-tab-icon-accent ${
+                      mobileWebBottomTabActive
+                        ? 'chat-mobile-bottom-tab-icon-accent--web-filled'
+                        : 'chat-mobile-bottom-tab-icon-accent--web-outlined'
+                    }`}
+                    aria-hidden="true"
+                  />
+                </span>
+                <span className="chat-mobile-bottom-tab-label">Live-Web</span>
+              </button>
+            </>
+          )}
+        </nav>
+        <button
+          type="button"
+          ref={variant === 'main' && isCompactMobileSidebarLayout ? newChatTourRef : undefined}
+          className={[
+            'chat-mobile-new-chat-btn',
+            'new-chat-touch-btn',
+            mobileNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+            variant === 'main' && isNewChatPending ? 'is-new-chat-pending' : '',
+            variant === 'main' && chatTourEligible ? 'chat-onboarding-tour-block' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Neuer Chat"
+          aria-busy={variant === 'main' && isNewChatPending ? true : undefined}
+          onClick={() => {
+            if (variant === 'guest') {
+              navigate('/login')
+              return
+            }
+            void handleCreateNewChat()
+          }}
+          {...mobileNewChatTouch.touchHandlers}
+        >
+          <span className="chat-mobile-new-chat-btn-icon new-chat-touch-btn__icon" aria-hidden="true" />
+        </button>
+      </div>
+    )
+  }
+
+  function renderMobileChatTopBar() {
+    const isGuest = !user
+
+    return (
+      <div className="chat-main-toolbar chat-main-toolbar--mobile">
+        <div className="chat-mobile-top-bar">
+          <div className="chat-mobile-top-bar__start">
+            <div
+              className={glassPillTouchClass(
+                mobileTopBarModeTouch.isTouchActive,
+                'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--mode',
+              )}
+              {...mobileTopBarModeTouch.touchHandlers}
+            >
+              <ChatToolbarReplyModeSelect
+                value={isGuest ? guestChatReplyMode : chatReplyMode}
+                onChange={isGuest ? handleGuestChatReplyMode : setChatReplyMode}
+                disabled={!isGuest && isSending}
+              />
+            </div>
+          </div>
+          <div className="chat-mobile-top-bar__center">
+            <div
+              className={glassPillTouchClass(
+                mobileTopBarTitleTouch.isTouchActive,
+                'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--title',
+              )}
+              {...mobileTopBarTitleTouch.touchHandlers}
+            >
+              {showMobileTitleMenu && activeThread ? (
+                <ChatToolbarTitleMenuSelect
+                  title={mobileToolbarChatTitle}
+                  onSelectRename={() => openRenameModal(activeThread)}
+                  onSelectDelete={async () => {
+                    if (activeThreadId) {
+                      await deleteChat(activeThreadId)
+                    }
+                  }}
+                />
+              ) : (
+                <span
+                  className="chat-mobile-top-bar-title"
+                  title={isGuest ? 'Neuer Chat' : mobileToolbarChatTitle}
+                >
+                  {isGuest ? 'Neuer Chat' : mobileToolbarChatTitle}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="chat-mobile-top-bar__end">
+            {!isGuest ? (
+              <div
+                className={glassPillTouchClass(
+                  mobileTopBarMenuTouch.isTouchActive,
+                  'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--menu',
+                )}
+                {...mobileTopBarMenuTouch.touchHandlers}
+              >
+                <ChatToolbarMobileMenuSelect
+                  onSelectLearnPath={openLearningPathDraft}
+                  learnPathDisabled={isLearnPathCreateButtonDisabled}
+                  onSelectShare={
+                    showCollaborationToolbar && canInviteToActiveChat
+                      ? () => handleShareChipClick()
+                      : undefined
+                  }
+                  shareLabel={hasCollaborators ? 'Freigabe beenden' : 'Freigeben'}
+                  shareDisabled={shareActionBusy}
+                  showParticipantsOption={
+                    showCollaborationToolbar && !threadMembersLoading && toolbarAvatars.list.length > 0
+                  }
+                  onSelectParticipants={() => {
+                    if (membersForToolbarFull.length > 0) {
+                      setParticipantsOpen(true)
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <span className="chat-mobile-top-bar__end-spacer" aria-hidden="true" />
+            )}
+          </div>
+          {!isGuest && learnFeatureInfoVisible ? (
+            <p className="chat-learn-feature-info chat-learn-feature-info--mobile-bar">Noch nicht verfügbar</p>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   if (!user) {
     return (
       <main
@@ -1455,11 +1762,21 @@ export function ChatPage() {
             <div className="chat-sidebar-footer-dock chat-sidebar-footer-dock--fab-only">
               <button
                 type="button"
-                className="mobile-new-chat-fab"
+                className={[
+                  'mobile-new-chat-fab',
+                  'new-chat-touch-btn',
+                  sidebarNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 aria-label="Neuer Chat"
                 onClick={() => navigate('/login')}
+                {...sidebarNewChatTouch.touchHandlers}
               >
-                <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon" aria-hidden="true" />
+                <span
+                  className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
+                  aria-hidden="true"
+                />
                 <span className="mobile-new-chat-fab-label">Chat</span>
               </button>
             </div>
@@ -1469,16 +1786,7 @@ export function ChatPage() {
         <section
           className={`chat-main chat-main-guest${isChatToolbarMobile ? ' chat-main--share-toolbar' : ''}`}
         >
-          {isChatToolbarMobile ? (
-            <div className="chat-main-toolbar">
-              <div className="chat-main-toolbar-share-row">
-                <ChatToolbarReplyModeSelect
-                  value={guestChatReplyMode}
-                  onChange={handleGuestChatReplyMode}
-                />
-              </div>
-            </div>
-          ) : null}
+          {isChatToolbarMobile ? renderMobileChatTopBar() : null}
           <header className="guest-chat-header">
             <h1>Straton</h1>
             <div className="guest-chat-actions">
@@ -1521,51 +1829,7 @@ export function ChatPage() {
             />
           </div>
         </section>
-        <nav
-          className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}`}
-          aria-label="Chat Navigation"
-          style={{ ['--chat-active-tab-index' as any]: isMobileSidebarOpen ? 0 : 1 }}
-          onTouchStart={handleMobileBottomNavTouchStart}
-          onTouchEnd={handleMobileBottomNavTouchEnd}
-          onTouchCancel={handleMobileBottomNavTouchEnd}
-        >
-          <button
-            type="button"
-            className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--sidebar${isMobileSidebarOpen ? ' is-active' : ''}`}
-            aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
-            onClick={toggleMobileSidebarFromBottomNav}
-          >
-            <span className="chat-mobile-bottom-tab-icon-slot">
-              <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--sidebar" aria-hidden="true" />
-            </span>
-            <span className="chat-mobile-bottom-tab-label">Menü</span>
-          </button>
-          <button
-            type="button"
-            className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${!isMobileSidebarOpen ? ' is-active' : ''}`}
-            aria-label="Chat"
-          >
-            <span className="chat-mobile-bottom-tab-icon-slot">
-              <span
-                className={`chat-mobile-bottom-tab-icon-accent ${
-                  !isMobileSidebarOpen ? 'chat-mobile-bottom-tab-icon-accent--chat-filled' : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
-                }`}
-                aria-hidden="true"
-              />
-            </span>
-            <span className="chat-mobile-bottom-tab-label">Chat</span>
-          </button>
-          <button
-            type="button"
-            className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
-            aria-label="Platzhalter"
-          >
-            <span className="chat-mobile-bottom-tab-icon-slot">
-              <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--status" aria-hidden="true" />
-            </span>
-            <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
-          </button>
-        </nav>
+        {renderMobileBottomDock('guest')}
         <div
           className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
           onClick={() => setIsMobileSidebarOpen(false)}
@@ -1776,13 +2040,24 @@ export function ChatPage() {
             <button
               type="button"
               ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
-              className={`mobile-new-chat-fab${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
-                isNewChatPending ? ' is-new-chat-pending' : ''
-              }`}
+              className={[
+                'mobile-new-chat-fab',
+                'new-chat-touch-btn',
+                sidebarNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+                chatTourEligible ? 'chat-onboarding-tour-block' : '',
+                isNewChatPending ? 'is-new-chat-pending' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               aria-label="Neuer Chat"
+              aria-busy={isNewChatPending ? true : undefined}
               onClick={() => void handleCreateNewChat()}
+              {...sidebarNewChatTouch.touchHandlers}
             >
-              <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon" aria-hidden="true" />
+              <span
+                className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
+                aria-hidden="true"
+              />
               <span className="mobile-new-chat-fab-label">Chat</span>
             </button>
           </div>
@@ -1790,16 +2065,10 @@ export function ChatPage() {
       </aside>
 
       <section className={`chat-main${showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}`}>
-        {showFloatingChatToolbar ? (
+        {showFloatingChatToolbar && isChatToolbarMobile ? renderMobileChatTopBar() : null}
+        {showFloatingChatToolbar && !isChatToolbarMobile ? (
           <div className="chat-main-toolbar">
             <div className="chat-main-toolbar-share-row">
-              {isChatToolbarMobile && user ? (
-                <ChatToolbarReplyModeSelect
-                  value={chatReplyMode}
-                  onChange={setChatReplyMode}
-                  disabled={isSending}
-                />
-              ) : null}
               {showCollaborationToolbar && !threadMembersLoading && toolbarAvatars.list.length > 0 ? (
                 <div ref={participantsAnchorRef} className="chat-toolbar-participants-anchor">
                   <button
@@ -1893,7 +2162,9 @@ export function ChatPage() {
                   <span>Lernpfad erstellen</span>
                 </button>
               ) : null}
-              {learnFeatureInfoVisible ? <p className="chat-learn-feature-info">Noch nicht verfügbar</p> : null}
+              {learnFeatureInfoVisible ? (
+                <p className="chat-learn-feature-info">Noch nicht verfügbar</p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -2115,63 +2386,7 @@ export function ChatPage() {
           {renderParticipantsStrip('chat-participants-strip--sheet')}
         </ContentBottomSheet>
       ) : null}
-      <nav
-        className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}`}
-        aria-label="Chat Navigation"
-        style={{ ['--chat-active-tab-index' as any]: mobileBottomNavTabIndex }}
-        onTouchStart={handleMobileBottomNavTouchStart}
-        onTouchEnd={handleMobileBottomNavTouchEnd}
-        onTouchCancel={handleMobileBottomNavTouchEnd}
-      >
-        <button
-          type="button"
-          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--sidebar${isMobileSidebarOpen ? ' is-active' : ''}`}
-          aria-label={isMobileSidebarOpen ? 'Sidebar schließen' : 'Sidebar öffnen'}
-          onClick={toggleMobileSidebarFromBottomNav}
-        >
-          <span className="chat-mobile-bottom-tab-icon-slot">
-            <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--sidebar" aria-hidden="true" />
-          </span>
-          <span className="chat-mobile-bottom-tab-label">Menü</span>
-        </button>
-        <button
-          type="button"
-          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--chat${mobileChatBottomTabActive ? ' is-active' : ''}`}
-          aria-label="Chat — Standardmodus"
-          onClick={() => setExitWebSearchSignal((n) => n + 1)}
-        >
-          <span className="chat-mobile-bottom-tab-icon-slot">
-            <span
-              className={`chat-mobile-bottom-tab-icon-accent ${
-                mobileChatBottomTabActive
-                  ? 'chat-mobile-bottom-tab-icon-accent--chat-filled'
-                  : 'chat-mobile-bottom-tab-icon-accent--chat-outlined'
-              }`}
-              aria-hidden="true"
-            />
-          </span>
-          <span className="chat-mobile-bottom-tab-label">Chat</span>
-        </button>
-        <button
-          type="button"
-          className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--websearch${mobileWebBottomTabActive ? ' is-active' : ''}`}
-          aria-label="Live-Web: Neuer Chat mit Websuche"
-          disabled={isNewChatPending}
-          onClick={() => void handleCreateNewChatWithWebSearch()}
-        >
-          <span className="chat-mobile-bottom-tab-icon-slot">
-            <span
-              className={`chat-mobile-bottom-tab-icon-accent ${
-                mobileWebBottomTabActive
-                  ? 'chat-mobile-bottom-tab-icon-accent--web-filled'
-                  : 'chat-mobile-bottom-tab-icon-accent--web-outlined'
-              }`}
-              aria-hidden="true"
-            />
-          </span>
-          <span className="chat-mobile-bottom-tab-label">Live-Web</span>
-        </button>
-      </nav>
+      {renderMobileBottomDock('main')}
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
         onClick={() => {
