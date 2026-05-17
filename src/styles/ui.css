@@ -192,120 +192,75 @@ textarea.ui-textarea:disabled {
 }
 
 /*
- * Milk-Glass Tap-Feedback (wie Mobile «Neuer Chat»): Scale + Aufhellen.
- * Nur Interaktion — Optik der Pille bleibt komponentenspezifisch.
- *
- * Scale langsamer als Farbe/Filter; Release entfernt is-touch-active sofort (kein Halten am Peak).
+ * Tap-Feder: ein Durchlauf pro Tipp (größer → kleiner + Aufhellen), Peak ohne Stehenbleiben.
  */
 :root {
-  --tap-feedback-scale-duration: 280ms;
-  --tap-feedback-scale-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --tap-feedback-fade-duration: 200ms;
+  --tap-feedback-spring-duration: 500ms;
+  --tap-feedback-spring-ease: cubic-bezier(0.34, 1.22, 0.64, 1);
+  --tap-feedback-spring-scale-peak: 1.12;
+  --tap-feedback-spring-icon-peak: 1.08;
+}
+
+@keyframes tap-feedback-spring-scale {
+  0% {
+    transform: scale(1);
+  }
+
+  34% {
+    transform: scale(var(--tap-feedback-spring-scale-peak));
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes tap-feedback-spring-glow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  34% {
+    opacity: 1;
+  }
+}
+
+@keyframes tap-feedback-spring-icon {
+  0% {
+    transform: scale(1);
+  }
+
+  34% {
+    transform: scale(var(--tap-feedback-spring-icon-peak));
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.tap-spring-surface.is-tap-spring,
+.glass-pill-touch.is-tap-spring:not(:disabled),
+.new-chat-touch-btn.is-tap-spring {
+  animation: tap-feedback-spring-scale var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.tap-spring-surface.is-tap-spring {
+  --tap-feedback-spring-scale-peak: 1.035;
 }
 
 .glass-pill-touch {
   --glass-pill-touch-bg: var(--color-surface-elevated);
-  backface-visibility: hidden;
-  transition:
-    transform var(--tap-feedback-scale-duration) var(--tap-feedback-scale-ease),
-    background var(--tap-feedback-fade-duration) ease,
-    box-shadow var(--tap-feedback-fade-duration) ease,
-    filter var(--tap-feedback-fade-duration) ease,
-    opacity var(--tap-feedback-fade-duration) ease,
-    border-color var(--tap-feedback-fade-duration) ease;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-.glass-pill-touch:not(.glass-pill-touch--composer-shell).is-touch-active:not(:disabled) {
-  transform: scale(1.12);
-  filter: brightness(1.1) saturate(1.06);
-  background: color-mix(in srgb, var(--glass-pill-touch-bg) 82%, #ffffff 18%) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, transparent),
-    0 4px 16px color-mix(in srgb, rgba(15, 23, 42, 0.22) 88%, transparent) !important;
-}
-
-:root[data-theme='dark'] .glass-pill-touch:not(.glass-pill-touch--composer-shell).is-touch-active:not(:disabled) {
-  background: color-mix(in srgb, var(--glass-pill-touch-bg) 74%, #ffffff 12%) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent),
-    0 6px 20px rgba(0, 0, 0, 0.38) !important;
-}
-
-/*
- * Composer-/Nav-Pille (Neuer Chat): kein filter:brightness — flackert mit backdrop-filter.
- * Aufhellen nur über hellere Verlauf-Layer.
- */
-.glass-pill-touch.glass-pill-touch--composer-shell.is-touch-active:not(:disabled) {
-  transform: scale(1.12);
-  background:
-    linear-gradient(
-        color-mix(in srgb, var(--chat-composer-surface) 82%, #ffffff 18%),
-        color-mix(in srgb, var(--chat-composer-surface) 82%, #ffffff 18%)
-      )
-      padding-box,
-    radial-gradient(
-        168% 168% at -2% -2%,
-        color-mix(in srgb, var(--chat-composer-corner-top-left) 48%, #ffffff 12%) 0%,
-        color-mix(in srgb, var(--chat-composer-corner-top-left) 32%, transparent) 36%,
-        transparent 74%
-      )
-      border-box,
-    radial-gradient(
-        168% 168% at 102% 102%,
-        color-mix(in srgb, var(--chat-composer-corner-bottom-right) 48%, #ffffff 12%) 0%,
-        color-mix(in srgb, var(--chat-composer-corner-bottom-right) 32%, transparent) 36%,
-        transparent 74%
-      )
-      border-box;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, var(--chat-composer-shell-inset-highlight)),
-    0 0 0 1px color-mix(in srgb, var(--chat-bottom-nav-pill-accent, var(--color-accent, #6366f1)) 30%, transparent),
-    0 4px 16px color-mix(in srgb, var(--chat-bottom-nav-pill-accent, var(--color-accent, #6366f1)) 18%, rgba(15, 23, 42, 0.2)),
-    var(--chat-composer-shell-outer-shadow);
-}
-
-.glass-pill-touch.is-touch-active:not(:disabled) .glass-pill-touch__icon {
-  transform: scale(1.08);
-  transition: transform var(--tap-feedback-scale-duration) var(--tap-feedback-scale-ease);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled) {
-    transform: scale(1.12);
-    filter: brightness(1.1) saturate(1.06);
-  }
-
-  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled) {
-    transform: scale(1.12);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .glass-pill-touch.is-touch-active:not(:disabled) {
-    transform: none;
-    filter: brightness(1.06);
-  }
-
-  .glass-pill-touch.is-touch-active:not(:disabled) .glass-pill-touch__icon {
-    transform: none;
-  }
-}
-
-/*
- * Global «Neuer Chat» Tap: Scale + helles Overlay (::after) — Composer-Dock & Sidebar-FAB.
- */
-.new-chat-touch-btn {
   position: relative;
   isolation: isolate;
   overflow: hidden;
   backface-visibility: hidden;
-  transition: transform var(--tap-feedback-scale-duration) var(--tap-feedback-scale-ease);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
+.glass-pill-touch::after,
 .new-chat-touch-btn::after {
   content: '';
   position: absolute;
@@ -314,20 +269,31 @@ textarea.ui-textarea:disabled {
   background: rgba(255, 255, 255, 0.18);
   opacity: 0;
   pointer-events: none;
-  z-index: 0;
-  transition: opacity var(--tap-feedback-fade-duration) ease;
+  z-index: 1;
 }
 
-.new-chat-touch-btn.is-touch-active {
-  transform: scale(1.12);
-}
-
-.new-chat-touch-btn.is-touch-active::after {
-  opacity: 1;
-}
-
+:root[data-theme='dark'] .glass-pill-touch::after,
 :root[data-theme='dark'] .new-chat-touch-btn::after {
   background: rgba(255, 255, 255, 0.14);
+}
+
+.glass-pill-touch.is-tap-spring:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-spring::after {
+  animation: tap-feedback-spring-glow var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.glass-pill-touch.is-tap-spring:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-spring .new-chat-touch-btn__icon {
+  animation: tap-feedback-spring-icon var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.new-chat-touch-btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .new-chat-touch-btn.is-new-chat-pending {
@@ -336,34 +302,31 @@ textarea.ui-textarea:disabled {
 
 .new-chat-touch-btn__icon {
   position: relative;
-  z-index: 1;
-  transition: transform var(--tap-feedback-scale-duration) var(--tap-feedback-scale-ease);
+  z-index: 2;
 }
 
-.new-chat-touch-btn.is-touch-active .new-chat-touch-btn__icon {
-  transform: scale(1.08);
-}
-
-@media (hover: none) {
-  .new-chat-touch-btn:active:not(.is-new-chat-pending) {
+@media (hover: hover) and (pointer: fine) {
+  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled):not(.is-tap-spring) {
     transform: scale(1.12);
+    filter: brightness(1.1) saturate(1.06);
   }
 
-  .new-chat-touch-btn:active:not(.is-new-chat-pending)::after {
-    opacity: 1;
-  }
-
-  .new-chat-touch-btn:active:not(.is-new-chat-pending) .new-chat-touch-btn__icon {
-    transform: scale(1.08);
+  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled):not(.is-tap-spring) {
+    transform: scale(1.12);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .new-chat-touch-btn.is-touch-active {
-    transform: none;
+  .tap-spring-surface.is-tap-spring,
+  .glass-pill-touch.is-tap-spring:not(:disabled),
+  .new-chat-touch-btn.is-tap-spring {
+    animation-duration: 180ms;
   }
 
-  .new-chat-touch-btn.is-touch-active .new-chat-touch-btn__icon {
-    transform: none;
+  .glass-pill-touch.is-tap-spring:not(:disabled)::after,
+  .new-chat-touch-btn.is-tap-spring::after,
+  .glass-pill-touch.is-tap-spring:not(:disabled) .glass-pill-touch__icon,
+  .new-chat-touch-btn.is-tap-spring .new-chat-touch-btn__icon {
+    animation-duration: 180ms;
   }
 }

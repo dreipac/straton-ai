@@ -16,7 +16,7 @@ export function GlassPillTouchSurface<T extends ElementType = 'button'>({
   ...props
 }: GlassPillTouchSurfaceProps<T>): ReactElement {
   const Component = (as ?? 'button') as ElementType
-  const { isTouchActive, touchHandlers } = useGlassPillTouchFeedback()
+  const { isTapSpring, touchHandlers } = useGlassPillTouchFeedback()
   const variantClass = glassVariant === 'composer-shell' ? 'glass-pill-touch--composer-shell' : ''
   const isButton = Component === 'button'
 
@@ -25,7 +25,7 @@ export function GlassPillTouchSurface<T extends ElementType = 'button'>({
       {...(isButton ? { type: 'button' as const } : {})}
       {...props}
       {...touchHandlers}
-      className={glassPillTouchClass(isTouchActive, variantClass, className)}
+      className={glassPillTouchClass(isTapSpring, variantClass, className)}
     />
   )
 }

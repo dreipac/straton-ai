@@ -800,7 +800,7 @@ export function ChatPage() {
   const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
-  const [isMobileBottomNavTouchActive, setIsMobileBottomNavTouchActive] = useState(false)
+  const mobileBottomNavSpring = useGlassPillTouchFeedback()
   const mobileNewChatTouch = useGlassPillTouchFeedback()
   const sidebarNewChatTouch = useGlassPillTouchFeedback()
   const mobileTopBarModeTouch = useGlassPillTouchFeedback()
@@ -876,14 +876,6 @@ export function ChatPage() {
     } else {
       setMobileSheetMode('profile')
     }
-  }
-
-  function handleMobileBottomNavTouchStart() {
-    setIsMobileBottomNavTouchActive(true)
-  }
-
-  function handleMobileBottomNavTouchEnd() {
-    setIsMobileBottomNavTouchActive(false)
   }
 
   function startPillAccentPulse(target: 'main' | 'guest') {
@@ -1443,14 +1435,17 @@ export function ChatPage() {
     return (
       <div className="chat-mobile-bottom-dock">
         <nav
-          className={`chat-mobile-bottom-nav${isMobileBottomNavTouchActive ? ' is-touch-active' : ''}${
-            pillPulseActive ? ' is-pill-accent-pulse' : ''
-          }`}
+          className={[
+            'chat-mobile-bottom-nav',
+            'tap-spring-surface',
+            mobileBottomNavSpring.isTapSpring ? 'is-tap-spring' : '',
+            pillPulseActive ? 'is-pill-accent-pulse' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           aria-label="Chat Navigation"
           style={{ ['--chat-active-tab-index' as any]: tabIndex }}
-          onTouchStart={handleMobileBottomNavTouchStart}
-          onTouchEnd={handleMobileBottomNavTouchEnd}
-          onTouchCancel={handleMobileBottomNavTouchEnd}
+          {...mobileBottomNavSpring.touchHandlers}
         >
           <button
             type="button"
@@ -1547,7 +1542,7 @@ export function ChatPage() {
           className={[
             'chat-mobile-new-chat-btn',
             'new-chat-touch-btn',
-            mobileNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+            mobileNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
             variant === 'main' && isNewChatPending ? 'is-new-chat-pending' : '',
             variant === 'main' && chatTourEligible ? 'chat-onboarding-tour-block' : '',
           ]
@@ -1579,7 +1574,7 @@ export function ChatPage() {
           <div className="chat-mobile-top-bar__start">
             <div
               className={glassPillTouchClass(
-                mobileTopBarModeTouch.isTouchActive,
+                mobileTopBarModeTouch.isTapSpring,
                 'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--mode',
               )}
               {...mobileTopBarModeTouch.touchHandlers}
@@ -1594,7 +1589,7 @@ export function ChatPage() {
           <div className="chat-mobile-top-bar__center">
             <div
               className={glassPillTouchClass(
-                mobileTopBarTitleTouch.isTouchActive,
+                mobileTopBarTitleTouch.isTapSpring,
                 'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--title',
               )}
               {...mobileTopBarTitleTouch.touchHandlers}
@@ -1623,7 +1618,7 @@ export function ChatPage() {
             {!isGuest ? (
               <div
                 className={glassPillTouchClass(
-                  mobileTopBarMenuTouch.isTouchActive,
+                  mobileTopBarMenuTouch.isTapSpring,
                   'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--menu',
                 )}
                 {...mobileTopBarMenuTouch.touchHandlers}
@@ -1742,7 +1737,7 @@ export function ChatPage() {
                 className={[
                   'mobile-new-chat-fab',
                   'new-chat-touch-btn',
-                  sidebarNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+                  sidebarNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -2020,7 +2015,7 @@ export function ChatPage() {
               className={[
                 'mobile-new-chat-fab',
                 'new-chat-touch-btn',
-                sidebarNewChatTouch.isTouchActive ? 'is-touch-active' : '',
+                sidebarNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
                 chatTourEligible ? 'chat-onboarding-tour-block' : '',
                 isNewChatPending ? 'is-new-chat-pending' : '',
               ]

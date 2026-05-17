@@ -1,37 +1,40 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useRef, useState, type AnimationEvent, type PointerEvent as ReactPointerEvent } from 'react'
+
+const SPRING_ANIMATION_NAME = 'tap-feedback-spring-scale'
 
 export type GlassPillTouchHandlers = {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerLeave: (event: ReactPointerEvent<HTMLElement>) => void
+  onAnimationEnd: (event: AnimationEvent<HTMLElement>) => void
 }
 
 export type GlassPillTouchFeedback = {
-  isTouchActive: boolean
+  isTapSpring: boolean
   touchHandlers: GlassPillTouchHandlers
   touchClassName: string
 }
 
-/** Tap-Feedback wie «Neuer Chat» (Scale + Aufhellen) für Milk-Glass-Pills. */
+/** Tap-Feder: ein Durchlauf Scale + Aufhellen pro Tipp (läuft auch nach Loslassen zu Ende). */
 export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
-  const isPressedRef = useRef(false)
-  const [isTouchActive, setIsTouchActive] = useState(false)
+  const isSpringingRef = useRef(false)
+  const [isTapSpring, setIsTapSpring] = useState(false)
 
-  const activate = useCallback(() => {
-    if (isPressedRef.current) {
-      return
-    }
-    isPressedRef.current = true
-    setIsTouchActive(true)
+  const playSpring = useCallback(() => {
+    setIsTapSpring(false)
+    window.requestAnimationFrame(() => {
+      isSpringingRef.current = true
+      setIsTapSpring(true)
+    })
   }, [])
 
-  const release = useCallback(() => {
-    if (!isPressedRef.current) {
+  const finishSpring = useCallback(() => {
+    if (!isSpringingRef.current) {
       return
     }
-    isPressedRef.current = false
-    setIsTouchActive(false)
+    isSpringingRef.current = false
+    setIsTapSpring(false)
   }, [])
 
   const onPointerDown = useCallback(
@@ -40,55 +43,56 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
         return
       }
       event.currentTarget.setPointerCapture(event.pointerId)
-      activate()
+      playSpring()
     },
-    [activate],
+    [playSpring],
   )
 
-  const onPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId)
-      }
-      release()
-    },
-    [release],
-  )
+  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }, [])
 
-  const onPointerCancel = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId)
-      }
-      release()
-    },
-    [release],
-  )
+  const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }, [])
 
-  const onPointerLeave = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.pointerType === 'mouse' && event.buttons === 0) {
-        release()
+  const onPointerLeave = useCallback(() => {
+    /* Feder-Animation läuft unabhängig vom Finger weiter. */
+  }, [])
+
+  const onAnimationEnd = useCallback(
+    (event: AnimationEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) {
+        return
       }
+      if (event.animationName !== SPRING_ANIMATION_NAME) {
+        return
+      }
+      finishSpring()
     },
-    [release],
+    [finishSpring],
   )
 
   return {
-    isTouchActive,
+    isTapSpring,
     touchHandlers: {
       onPointerDown,
       onPointerUp,
       onPointerCancel,
       onPointerLeave,
+      onAnimationEnd,
     },
-    touchClassName: isTouchActive ? 'is-touch-active' : '',
+    touchClassName: isTapSpring ? 'is-tap-spring' : '',
   }
 }
 
 export function glassPillTouchClass(
-  isTouchActive: boolean,
+  isTapSpring: boolean,
   ...extra: Array<string | false | null | undefined>
 ): string {
-  return ['glass-pill-touch', isTouchActive ? 'is-touch-active' : '', ...extra.filter(Boolean)].join(' ')
+  return ['glass-pill-touch', isTapSpring ? 'is-tap-spring' : '', ...extra.filter(Boolean)].join(' ')
 }

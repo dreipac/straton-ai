@@ -5685,8 +5685,12 @@ button.chat-onboarding-tour-block {
     }
   }
 
-  .chat-mobile-bottom-nav.is-touch-active {
-    transform: scale(1.035);
+  .chat-mobile-bottom-nav.tap-spring-surface {
+    backface-visibility: hidden;
+  }
+
+  .chat-mobile-bottom-nav.is-tap-spring {
+    transition: none;
   }
 
   .chat-mobile-bottom-tab {
