@@ -5967,12 +5967,80 @@ button.chat-onboarding-tour-block {
     );
   }
 
-  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty {
-    padding-bottom: calc(0.75rem + var(--chat-mobile-composer-focus-bottom-gap));
+  /*
+   * Leerer Chat + Tastatur: kompaktes Layout — Begrüßung, Schnell-Chips, Oberleiste bleiben sichtbar.
+   */
+  html.chat-keyboard-focus .chat-main-toolbar--mobile {
+    position: fixed;
+    top: calc(var(--chat-vv-offset-top, 0px) + max(0.55rem, env(safe-area-inset-top, 0px)));
+    left: 0;
+    right: 0;
+    z-index: 85;
+    padding-left: max(0.65rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.65rem, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+    pointer-events: none;
   }
 
-  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-input-row.is-centered {
-    margin-bottom: calc(var(--chat-mobile-nav-safe-offset) + env(safe-area-inset-bottom, 0px));
+  html.chat-keyboard-focus .chat-main-toolbar--mobile .chat-mobile-top-bar {
+    pointer-events: auto;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding:
+      calc(env(safe-area-inset-top, 0px) + 3.15rem) 0.65rem
+      calc(0.35rem + var(--chat-mobile-composer-focus-bottom-gap, 6px));
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-compose {
+    min-height: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 0.24rem;
+    padding-bottom: 0.08rem;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-title {
+    flex: 0 0 auto;
+    font-size: clamp(0.95rem, 3.9vw, 1.14rem);
+    line-height: 1.18;
+    max-height: 2.75rem;
+    overflow: hidden;
+    justify-content: center;
+    padding: 0 0.2rem;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-title-greet,
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-title-ask {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-title.is-typewriting .chat-empty-title-greet.is-typewriting-line,
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-empty-title.is-typewriting .chat-empty-title-ask.is-typewriting-line {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  html.chat-keyboard-focus .chat-composer-stack > .chat-quick-tiles--mobile-rail,
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-quick-tiles--mobile-rail {
+    margin-bottom: 0.06rem;
+    flex-shrink: 0;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-input-row.is-centered {
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+
+  html.chat-keyboard-focus .chat-panel.is-empty .chat-input-hint {
+    display: none;
   }
 
   /* Wenn irgendein Bottom-Sheet offen ist, Bottom-Nav ausblenden (mobile). */
