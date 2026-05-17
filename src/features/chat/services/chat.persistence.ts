@@ -140,25 +140,40 @@ export async function listChatThreads(userId: string): Promise<ChatThread[]> {
   return threads
 }
 
+const CHAT_MESSAGE_SELECT_WITH_METADATA =
+  'id, thread_id, role, content, created_at, metadata' as const
+
+const CHAT_MESSAGE_SELECT_BASE = 'id, thread_id, role, content, created_at' as const
+
+function mapMessageRows(data: unknown): ChatMessage[] {
+  if (!Array.isArray(data)) {
+    return []
+  }
+  return data.map((row) => mapMessage(row as ChatMessageRow))
+}
+
 async function listMessagesByThreadIdsQuery(
   threadIds: string[],
   includeMetadata: boolean,
 ): Promise<ChatMessage[]> {
   const supabase = getSupabaseClient()
-  const selectCols = includeMetadata
-    ? 'id, thread_id, role, content, created_at, metadata'
-    : 'id, thread_id, role, content, created_at'
-  const { data, error } = await supabase
-    .from('chat_messages')
-    .select(selectCols)
-    .in('thread_id', threadIds)
-    .order('created_at', { ascending: true })
+  const { data, error } = includeMetadata
+    ? await supabase
+        .from('chat_messages')
+        .select(CHAT_MESSAGE_SELECT_WITH_METADATA)
+        .in('thread_id', threadIds)
+        .order('created_at', { ascending: true })
+    : await supabase
+        .from('chat_messages')
+        .select(CHAT_MESSAGE_SELECT_BASE)
+        .in('thread_id', threadIds)
+        .order('created_at', { ascending: true })
 
   if (error) {
     throw error
   }
 
-  return (data ?? []).map((row) => mapMessage(row as ChatMessageRow))
+  return mapMessageRows(data)
 }
 
 export async function listMessagesByThreadIds(threadIds: string[]): Promise<ChatMessage[]> {

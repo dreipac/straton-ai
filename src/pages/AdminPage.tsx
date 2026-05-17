@@ -50,7 +50,6 @@ import {
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import { parseChatDailyTierOpenAiModelId } from '../features/chat/constants/chatDailyOpenAiTier'
 import {
-  CHAT_COMPOSER_MODELS,
   CHAT_DAILY_TIER_OPENAI_MODELS,
   getChatDailyTierOpenAiModelLabel,
   type ChatDailyTierOpenAiModelId,
