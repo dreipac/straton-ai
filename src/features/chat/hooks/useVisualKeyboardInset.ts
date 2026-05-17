@@ -3,9 +3,8 @@ import { useEffect } from 'react'
 const CSS_VAR = '--chat-visual-keyboard-inset'
 /** Kürzt `html`/`body` auf die untere Kante des Visual Viewports — siehe mobile.css. */
 const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
-/** iOS: Layout-Viewport scrollt nach oben — Inhalt mit `body { top: -offset }` ins Sichtfeld. */
-const VV_OFFSET_TOP_VAR = '--chat-vv-offset-top'
-const KEYBOARD_FOCUS_CLASS = 'chat-keyboard-focus'
+const VIEWPORT_OFFSET_TOP_VAR = '--chat-visual-viewport-offset-top'
+const VIEWPORT_HEIGHT_VAR = '--chat-visual-viewport-height'
 
 /**
  * Zusätzlicher Abstand unterhalb der von WebKit gemeldeten Visual-Viewport-Unterkante, solange das
@@ -83,6 +82,18 @@ export function useVisualKeyboardInset(): void {
     let raf = 0
     const timers: number[] = []
 
+    function clearViewportVars() {
+      document.documentElement.style.removeProperty(VIEWPORT_OFFSET_TOP_VAR)
+      document.documentElement.style.removeProperty(VIEWPORT_HEIGHT_VAR)
+    }
+
+    function syncViewportVars() {
+      const offsetTop = Math.max(0, Math.floor(vv!.offsetTop))
+      const height = Math.max(0, Math.floor(vv!.height))
+      document.documentElement.style.setProperty(VIEWPORT_OFFSET_TOP_VAR, `${offsetTop}px`)
+      document.documentElement.style.setProperty(VIEWPORT_HEIGHT_VAR, `${height}px`)
+    }
+
     function apply() {
       if (!vv) {
         return
@@ -110,18 +121,13 @@ export function useVisualKeyboardInset(): void {
           120,
           Math.min(layoutH, Math.max(0, Math.floor(visibleBottom - iosExtra))),
         )
+        syncViewportVars()
         document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
-        document.documentElement.style.setProperty(
-          VV_OFFSET_TOP_VAR,
-          `${Math.max(0, Math.round(vv.offsetTop))}px`,
-        )
         document.documentElement.style.setProperty(CSS_VAR, '0px')
-        document.documentElement.classList.add(KEYBOARD_FOCUS_CLASS)
         return
       }
 
-      document.documentElement.classList.remove(KEYBOARD_FOCUS_CLASS)
-      document.documentElement.style.removeProperty(VV_OFFSET_TOP_VAR)
+      clearViewportVars()
       document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
       const px = obscuredBottomPx()
       const padded =
@@ -169,8 +175,7 @@ export function useVisualKeyboardInset(): void {
       document.removeEventListener('focusout', onFocusOut)
       document.documentElement.style.removeProperty(CSS_VAR)
       document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
-      document.documentElement.style.removeProperty(VV_OFFSET_TOP_VAR)
-      document.documentElement.classList.remove(KEYBOARD_FOCUS_CLASS)
+      clearViewportVars()
     }
   }, [])
 }
