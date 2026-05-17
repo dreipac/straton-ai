@@ -859,8 +859,6 @@ export function ChatPage() {
   const longPressTimerRef = useRef<number | null>(null)
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressThreadClickRef = useRef(false)
-  const mobileBottomNavTouchStartRef = useRef(0)
-  const mobileBottomNavReleaseTimerRef = useRef<number | null>(null)
   const LONG_PRESS_MS = 520
   const LONG_PRESS_MOVE_CANCEL_PX = 14
 
@@ -881,24 +879,11 @@ export function ChatPage() {
   }
 
   function handleMobileBottomNavTouchStart() {
-    mobileBottomNavTouchStartRef.current = Date.now()
-    if (mobileBottomNavReleaseTimerRef.current) {
-      window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
-      mobileBottomNavReleaseTimerRef.current = null
-    }
     setIsMobileBottomNavTouchActive(true)
   }
 
   function handleMobileBottomNavTouchEnd() {
-    const elapsed = Date.now() - mobileBottomNavTouchStartRef.current
-    const holdMs = Math.min(220, Math.max(120, elapsed))
-    if (mobileBottomNavReleaseTimerRef.current) {
-      window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
-    }
-    mobileBottomNavReleaseTimerRef.current = window.setTimeout(() => {
-      setIsMobileBottomNavTouchActive(false)
-      mobileBottomNavReleaseTimerRef.current = null
-    }, holdMs)
+    setIsMobileBottomNavTouchActive(false)
   }
 
   function startPillAccentPulse(target: 'main' | 'guest') {
@@ -986,14 +971,6 @@ export function ChatPage() {
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
   }, [openMenuThreadId, isCompactMobileSidebarLayout, mobileSheetMode])
-
-  useEffect(() => {
-    return () => {
-      if (mobileBottomNavReleaseTimerRef.current) {
-        window.clearTimeout(mobileBottomNavReleaseTimerRef.current)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)

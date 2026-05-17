@@ -1,9 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-
-/** Muss ≥ `--tap-feedback-scale-duration` in `ui.css` sein, sonst bricht Scale auf iOS ab. */
-const TAP_SCALE_TRANSITION_MS = 280
-const MIN_RELEASE_MS = TAP_SCALE_TRANSITION_MS
-const MAX_RELEASE_MS = TAP_SCALE_TRANSITION_MS + 140
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 export type GlassPillTouchHandlers = {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
@@ -20,8 +15,6 @@ export type GlassPillTouchFeedback = {
 
 /** Tap-Feedback wie «Neuer Chat» (Scale + Aufhellen) für Milk-Glass-Pills. */
 export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
-  const pressStartRef = useRef(0)
-  const releaseTimerRef = useRef<number | null>(null)
   const isPressedRef = useRef(false)
   const [isTouchActive, setIsTouchActive] = useState(false)
 
@@ -30,11 +23,6 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
       return
     }
     isPressedRef.current = true
-    pressStartRef.current = Date.now()
-    if (releaseTimerRef.current !== null) {
-      window.clearTimeout(releaseTimerRef.current)
-      releaseTimerRef.current = null
-    }
     setIsTouchActive(true)
   }, [])
 
@@ -43,15 +31,7 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
       return
     }
     isPressedRef.current = false
-    const elapsed = Date.now() - pressStartRef.current
-    const holdMs = Math.min(MAX_RELEASE_MS, Math.max(MIN_RELEASE_MS, elapsed))
-    if (releaseTimerRef.current !== null) {
-      window.clearTimeout(releaseTimerRef.current)
-    }
-    releaseTimerRef.current = window.setTimeout(() => {
-      setIsTouchActive(false)
-      releaseTimerRef.current = null
-    }, holdMs)
+    setIsTouchActive(false)
   }, [])
 
   const onPointerDown = useCallback(
@@ -93,14 +73,6 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     },
     [release],
   )
-
-  useEffect(() => {
-    return () => {
-      if (releaseTimerRef.current !== null) {
-        window.clearTimeout(releaseTimerRef.current)
-      }
-    }
-  }, [])
 
   return {
     isTouchActive,

@@ -195,7 +195,7 @@ textarea.ui-textarea:disabled {
  * Milk-Glass Tap-Feedback (wie Mobile «Neuer Chat»): Scale + Aufhellen.
  * Nur Interaktion — Optik der Pille bleibt komponentenspezifisch.
  *
- * Scale langsamer als Farbe/Filter — passt zu useGlassPillTouchFeedback (Release-Delay).
+ * Scale langsamer als Farbe/Filter; Release entfernt is-touch-active sofort (kein Halten am Peak).
  */
 :root {
   --tap-feedback-scale-duration: 280ms;
