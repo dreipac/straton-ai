@@ -41,6 +41,7 @@ import {
 } from '../utils/wordOutline'
 import { WordOutlinePaper } from './WordOutlinePaper'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
+import { ChatEmptyGreetingTitle } from './ChatEmptyGreetingTitle'
 import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
 import { readImageFileAsVisionDataUrl } from '../utils/imageVisionNormalize'
 import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
@@ -1477,10 +1478,11 @@ export function ChatWindow({
           </p>
         ) : null}
         <div className="chat-empty-compose">
-          <h2 className="chat-empty-title">
-            <span className="chat-empty-title-greet">{emptyChatGreeting.greet}</span>
-            <span className="chat-empty-title-ask">{emptyChatGreeting.ask}</span>
-          </h2>
+          <ChatEmptyGreetingTitle
+            greet={emptyChatGreeting.greet}
+            ask={emptyChatGreeting.ask}
+            animationKey={threadKey ?? 'new'}
+          />
           {error ? <p className="error-text">{error}</p> : null}
           {thinkingClarifyOverlay}
           {quickTilesEl}

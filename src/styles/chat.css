@@ -93,13 +93,14 @@
 
 .chat-empty-title {
   margin: 0;
-  text-align: left;
+  text-align: center;
   /* Fallback ohne Container-Query: mit Viewport wieder anwachsen */
   font-size: clamp(1rem, 0.45rem + 0.65vw, 1.85rem);
   line-height: 1.22;
   font-weight: 600;
   white-space: normal;
   max-width: min(42rem, 100%);
+  justify-self: center;
 }
 
 /* Hellmodus: Vorname-Zeile schwarz, Frage grau */
@@ -109,6 +110,90 @@
 
 .chat-empty-title-ask {
   color: #64748b;
+}
+
+.chat-empty-title-caret-wrap {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: -0.08em;
+  overflow: visible;
+}
+
+.chat-empty-title-caret-blur {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1.15rem;
+  height: 1.2em;
+  transform: translate3d(-78%, -50%, 0);
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.38;
+  filter: blur(8px);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.chat-empty-title-caret {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2px;
+  height: 0.88em;
+  transform: translate3d(0, -50%, 0);
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.92;
+  box-shadow: 0 0 10px color-mix(in srgb, currentColor 55%, transparent);
+  animation: chat-empty-title-caret-blink 1.25s ease-in-out infinite;
+  will-change: opacity;
+}
+
+/* Weicher Übergang am Tipp-Rand (nur die aktive Zeile, GPU-Layer) */
+.chat-empty-title.is-typewriting .chat-empty-title-greet.is-typewriting-line,
+.chat-empty-title.is-typewriting .chat-empty-title-ask.is-typewriting-line {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 0%,
+    #000 calc(100% - 1.65rem),
+    rgba(0, 0, 0, 0.45) calc(100% - 0.85rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 0%,
+    #000 calc(100% - 1.65rem),
+    rgba(0, 0, 0, 0.45) calc(100% - 0.85rem),
+    transparent 100%
+  );
+}
+
+@keyframes chat-empty-title-caret-blink {
+  0%,
+  42% {
+    opacity: 0.92;
+  }
+
+  50%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty-title-caret-wrap {
+    display: none;
+  }
+
+  .chat-empty-title.is-typewriting .chat-empty-title-greet.is-typewriting-line,
+  .chat-empty-title.is-typewriting .chat-empty-title-ask.is-typewriting-line {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 
 /* Desktop: Leerzeichen vor der Frage (eine Zeile) */
@@ -2927,7 +3012,7 @@
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
-    gap: 1rem;
+    gap: 0.55rem;
     box-sizing: border-box;
     /*
      * Tastatur: Inset hier (unter Pille + Hinweis), nicht am äußeren Panel — sonst greift es auf iOS im leeren Chat oft nicht.
@@ -2945,16 +3030,18 @@
     width: 100%;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
-    text-align: left;
+    text-align: center;
     font-size: clamp(1.28rem, 5.8vw, 1.68rem);
     line-height: 1.22;
   }
 
+  .chat-empty-title-greet,
   .chat-empty-title-ask {
     display: block;
     width: 100%;
+    text-align: center;
   }
 
   .chat-panel.is-empty .chat-empty-compose > .error-text {
@@ -3004,7 +3091,7 @@
   }
   .chat-panel.is-empty .chat-empty-compose > .chat-quick-tiles {
     order: 4;
-    margin: 0 0 0.2rem;
+    margin: 0;
     width: 100%;
     gap: 0.38rem 0.45rem;
   }
@@ -3049,21 +3136,31 @@
     justify-content: center;
   }
 
+  .chat-composer-stack {
+    gap: 0.18rem;
+  }
+
+  .chat-composer-stack > .chat-websearch-credits-hint,
+  .chat-panel.is-empty .chat-empty-compose > .chat-websearch-credits-hint {
+    margin: 0.06rem 0 0;
+  }
+
   .chat-quick-tiles--mobile-rail {
-    margin: 0 0 0.42rem;
+    margin: 0;
     width: 100%;
     gap: 0;
   }
 
-  .chat-composer-stack > .chat-quick-tiles--mobile-rail {
-    margin-bottom: 0.38rem;
+  .chat-composer-stack > .chat-quick-tiles--mobile-rail,
+  .chat-panel.is-empty .chat-empty-compose > .chat-quick-tiles--mobile-rail {
+    margin-bottom: 0.1rem;
   }
 
   .chat-quick-tiles--mobile-rail .chat-quick-tiles-scroll {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 0.34rem;
+    gap: 0.26rem;
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
@@ -3071,7 +3168,7 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     overscroll-behavior-x: contain;
-    padding: 0.08rem 0.05rem 0.16rem;
+    padding: 0.02rem 0.04rem 0.04rem;
   }
 
   .chat-quick-tiles--mobile-rail .chat-quick-tiles-scroll::-webkit-scrollbar {
@@ -3246,8 +3343,8 @@
     flex: 0 1 auto;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
+    align-items: center;
+    text-align: center;
   }
 
   /*
@@ -3304,7 +3401,7 @@
   }
 
   .chat-empty-title {
-    text-align: left;
+    text-align: center;
     font-size: clamp(1.28rem, 5.8vw, 1.68rem);
     line-height: 1.22;
     white-space: normal;
@@ -3348,7 +3445,27 @@
   }
 
   .chat-input-row--stacked {
-    padding: 0.45rem 0.5rem 0.52rem;
+    gap: 0.26rem;
+    padding: 0.36rem 0.46rem 0.4rem;
+  }
+
+  .chat-input-row--stacked .chat-input-compose {
+    gap: 0.2rem;
+  }
+
+  .chat-input-row--stacked .chat-attachment-chips {
+    padding: 0.28rem 0.48rem 0.06rem 0.58rem;
+  }
+
+  .chat-left-actions {
+    gap: 0.2rem;
+    margin-left: 0.06rem;
+  }
+
+  .chat-model-picker-trigger {
+    min-height: 36px;
+    padding-top: 0.22rem;
+    padding-bottom: 0.22rem;
   }
 
   .chat-input-row--stacked .chat-attach-button,
