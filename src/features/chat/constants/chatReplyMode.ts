@@ -7,6 +7,12 @@ export const CHAT_REPLY_MODE_OPTIONS: { id: ChatReplyMode; label: string }[] = [
   { id: 'strict', label: 'Strict' },
 ]
 
+/** Kurzlabel für die mobile Topbar-Pille (Untermenü behält volle `label`). */
+export const CHAT_REPLY_MODE_SHORT_LABEL: Record<ChatReplyMode, string> = {
+  comfort: 'C',
+  strict: 'S',
+}
+
 export function parseStoredChatReplyMode(raw: string | null): ChatReplyMode {
   if (raw === 'strict' || raw === 'comfort') {
     return raw

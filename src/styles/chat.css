@@ -3087,6 +3087,7 @@
   /* Neuer Chat mobil: Schnellkacheln direkt über der Message Box (Reihenfolge per flex order) */
   .chat-panel.is-empty .chat-empty-compose > .chat-empty-title {
     order: 1;
+    margin-bottom: 0.28rem;
   }
   .chat-panel.is-empty .chat-empty-compose > .error-text {
     order: 2;
@@ -4564,7 +4565,7 @@ button.chat-onboarding-tour-block {
     grid-column: 2;
     grid-row: 1;
     justify-self: center;
-    max-width: min(58vw, 14.75rem);
+    max-width: min(52vw, 13.25rem);
     min-width: 0;
     z-index: 1;
   }
@@ -4598,8 +4599,16 @@ button.chat-onboarding-tour-block {
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
   }
 
-  .chat-mobile-top-bar-pill--mode {
-    padding: 0.1rem 0.22rem;
+  /* Modus (C/S) und Menü (⋯): gleiche runde Glas-Pille */
+  .chat-mobile-top-bar-pill--mode,
+  .chat-mobile-top-bar-pill--menu {
+    padding: 0;
+    flex-shrink: 0;
+    width: 2.35rem;
+    min-width: 2.35rem;
+    height: 2.35rem;
+    min-height: 2.35rem;
+    transform-origin: center;
   }
 
   .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select-wrap {
@@ -4607,19 +4616,22 @@ button.chat-onboarding-tour-block {
     align-items: center;
     justify-content: center;
     position: relative;
-    min-width: 4.35rem;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
     box-sizing: border-box;
   }
 
   .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select-label {
-    padding: 0.1rem 0.22rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    line-height: 1.2;
+    padding: 0;
+    font-size: 0.82rem;
+    font-weight: 700;
+    line-height: 1;
     color: var(--color-text-app);
     white-space: nowrap;
     pointer-events: none;
     text-align: center;
+    min-width: 0;
   }
 
   .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select {
@@ -4633,9 +4645,9 @@ button.chat-onboarding-tour-block {
   }
 
   .chat-mobile-top-bar-pill--title {
-    padding: 0.12rem 1rem;
-    min-width: 7.75rem;
-    max-width: min(58vw, 14.75rem);
+    padding: 0.1rem 0.72rem;
+    min-width: 6.25rem;
+    max-width: min(52vw, 13.25rem);
   }
 
   .chat-mobile-top-bar-title {
@@ -4687,20 +4699,10 @@ button.chat-onboarding-tour-block {
     outline: none;
   }
 
-  .chat-mobile-top-bar-pill--menu {
-    padding: 0;
-    flex-shrink: 0;
-    width: 2.5rem;
-    min-width: 2.5rem;
-    height: 2.5rem;
-    min-height: 2.5rem;
-    transform-origin: center;
-  }
-
   .chat-mobile-top-bar__end-spacer {
     display: block;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.35rem;
+    height: 2.35rem;
     flex-shrink: 0;
   }
 
@@ -6011,16 +6013,21 @@ button.chat-onboarding-tour-block {
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     justify-content: flex-end;
-    gap: 0.32rem;
+    gap: 0.58rem;
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-empty-title {
     flex: 0 0 auto;
     justify-content: center;
-    font-size: clamp(1.02rem, 4.6vw, 1.34rem);
-    line-height: 1.18;
-    padding: 0.06rem 0 0.18rem;
-    transition: font-size 240ms ease, padding 240ms ease;
+    font-size: clamp(1.22rem, 5.4vw, 1.56rem);
+    line-height: 1.2;
+    margin-bottom: 0.42rem;
+    padding: 0.08rem 0 0.12rem;
+    transition: font-size 240ms ease, margin 240ms ease, padding 240ms ease;
+  }
+
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-quick-tiles {
+    margin-bottom: 0.12rem;
   }
 
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel.is-empty .chat-input-row.is-centered {

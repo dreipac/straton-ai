@@ -1,4 +1,8 @@
-import { CHAT_REPLY_MODE_OPTIONS, type ChatReplyMode } from '../constants/chatReplyMode'
+import {
+  CHAT_REPLY_MODE_OPTIONS,
+  CHAT_REPLY_MODE_SHORT_LABEL,
+  type ChatReplyMode,
+} from '../constants/chatReplyMode'
 
 export type ChatToolbarReplyModeSelectProps = {
   value: ChatReplyMode
@@ -15,12 +19,12 @@ export function ChatToolbarReplyModeSelect({
   onChange,
   disabled,
 }: ChatToolbarReplyModeSelectProps) {
-  const label = CHAT_REPLY_MODE_OPTIONS.find((opt) => opt.id === value)?.label ?? 'Comfort'
+  const shortLabel = CHAT_REPLY_MODE_SHORT_LABEL[value] ?? 'C'
 
   return (
     <span className="chat-toolbar-reply-mode-select-wrap">
       <span className="chat-toolbar-reply-mode-select-label" aria-hidden="true">
-        {label}
+        {shortLabel}
       </span>
       <select
         className="chat-toolbar-reply-mode-select"
