@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-const MIN_RELEASE_MS = 120
-const MAX_RELEASE_MS = 220
+/** Muss ≥ `--tap-feedback-scale-duration` in `ui.css` sein, sonst bricht Scale auf iOS ab. */
+const TAP_SCALE_TRANSITION_MS = 280
+const MIN_RELEASE_MS = TAP_SCALE_TRANSITION_MS
+const MAX_RELEASE_MS = TAP_SCALE_TRANSITION_MS + 140
 
 export type GlassPillTouchHandlers = {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
