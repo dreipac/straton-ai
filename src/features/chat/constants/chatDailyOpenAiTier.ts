@@ -1,4 +1,9 @@
-import type { ChatDailyTierOpenAiModelId } from './chatComposerModels'
+import {
+  type ChatDailyTierOpenAiModelId,
+  parseChatDailyTierOpenAiModelId,
+} from './chatComposerModels'
+
+export { parseChatDailyTierOpenAiModelId } from './chatComposerModels'
 
 /** Fallback wenn kein Abo / keine Spalten (entspricht früherem Standard). */
 export const DEFAULT_CHAT_DAILY_OPENAI_TIER = {
@@ -11,13 +16,6 @@ export type ChatDailyOpenAiTierConfig = {
   tier1ModelId: ChatDailyTierOpenAiModelId
   tier1TokenBudget: number
   tier2ModelId: ChatDailyTierOpenAiModelId
-}
-
-export function parseChatDailyTierOpenAiModelId(raw: unknown): ChatDailyTierOpenAiModelId {
-  if (raw === 'gpt-5.4' || raw === 'gpt-5.4-mini') {
-    return raw
-  }
-  return DEFAULT_CHAT_DAILY_OPENAI_TIER.tier1ModelId
 }
 
 export function parseChatDailyTierConfigFromPlan(plan: {
@@ -39,10 +37,16 @@ export function parseChatDailyTierConfigFromPlan(plan: {
 }
 
 export function openAiApiChainForTierModel(modelId: ChatDailyTierOpenAiModelId): string[] {
-  if (modelId === 'gpt-5.4-mini') {
-    return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+  switch (modelId) {
+    case 'gpt-4o':
+      return ['gpt-4o', 'gpt-4o-mini']
+    case 'gpt-4o-mini':
+      return ['gpt-4o-mini', 'gpt-5-mini']
+    case 'gpt-5.4-mini':
+      return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+    default:
+      return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
   }
-  return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
 }
 
 /** Modellkette für Hauptchat gemäß Tages-Verbrauch und Abo-Tiers (`subscription_usages.used_tokens`). */

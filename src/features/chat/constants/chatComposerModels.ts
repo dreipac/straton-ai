@@ -3,8 +3,35 @@ export const CHAT_COMPOSER_MODEL_STORAGE_KEY = 'straton-chat-composer-model'
 
 export type ChatComposerModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
 
-/** Nur OpenAI — für Abo «Tages-Staffel» (Tier 1 / Tier 2). */
-export type ChatDailyTierOpenAiModelId = Extract<ChatComposerModelId, 'gpt-5.4' | 'gpt-5.4-mini'>
+/** Nur OpenAI — für Abo «Tages-Staffel» (Tier 1 / Tier 2), Admin Abo-Eigenschaften. */
+export type ChatDailyTierOpenAiModelId =
+  | 'gpt-5.4'
+  | 'gpt-5.4-mini'
+  | 'gpt-4o'
+  | 'gpt-4o-mini'
+
+export const CHAT_DAILY_TIER_OPENAI_MODELS: readonly {
+  id: ChatDailyTierOpenAiModelId
+  label: string
+}[] = [
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+  { id: 'gpt-4o', label: 'GPT-4' },
+  { id: 'gpt-4o-mini', label: 'GPT-4 mini' },
+]
+
+const CHAT_DAILY_TIER_OPENAI_MODEL_ID_SET = new Set<string>(CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => m.id))
+
+export function parseChatDailyTierOpenAiModelId(raw: unknown): ChatDailyTierOpenAiModelId {
+  if (typeof raw === 'string' && CHAT_DAILY_TIER_OPENAI_MODEL_ID_SET.has(raw)) {
+    return raw as ChatDailyTierOpenAiModelId
+  }
+  return 'gpt-5.4'
+}
+
+export function getChatDailyTierOpenAiModelLabel(id: ChatDailyTierOpenAiModelId): string {
+  return CHAT_DAILY_TIER_OPENAI_MODELS.find((m) => m.id === id)?.label ?? id
+}
 
 export type ChatComposerModelOption = {
   id: ChatComposerModelId
@@ -97,9 +124,9 @@ export function getChatModelPolicyFromPlan(plan: SubscriptionPlanChatModelFields
       ),
     }
   }
-  const t1 = plan.chat_daily_tier1_openai_model_id
+  const t1 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier1_openai_model_id)
   const forced: ChatComposerModelId =
-    t1 === 'gpt-5.4' || t1 === 'gpt-5.4-mini' ? t1 : 'gpt-5.4'
+    t1 === 'gpt-5.4' || t1 === 'gpt-5.4-mini' ? t1 : 'gpt-5.4-mini'
   return { allowModelChoice: false, forcedModelId: forced }
 }
 
@@ -107,6 +134,9 @@ export function getComposerApiModelIdsForAdminFilter(): string[] {
   const ids = new Set<string>()
   /** Zusätzlich: Lernpfad / Lernkarten / Arbeitsblätter (nicht im Chat-Composer). */
   ids.add('gpt-5.4')
+  for (const m of CHAT_DAILY_TIER_OPENAI_MODELS) {
+    ids.add(m.id)
+  }
   for (const m of CHAT_COMPOSER_MODELS) {
     if (m.provider === 'openai' && m.openAiModels?.length) {
       for (const id of m.openAiModels) {

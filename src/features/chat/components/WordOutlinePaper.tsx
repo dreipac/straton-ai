@@ -44,6 +44,29 @@ export function WordOutlinePaper({ outline, bannerTitle }: Props) {
       <div className="word-outline-paper" role="region" aria-label="Word-Gliederung">
         <div className="word-outline-paper__body">
         {outline.blocks.map((b, i) => {
+          if (b.type === 'table') {
+            return (
+              <div key={`tbl-${i}`} className="word-outline-paper__table-wrap">
+                <table className="word-outline-paper__table">
+                  <tbody>
+                    {b.rows.map((row, ri) => (
+                      <tr key={`r-${ri}`}>
+                        {row.map((cell, ci) =>
+                          b.header === true && ri === 0 ? (
+                            <th key={`c-${ci}`} scope="col">
+                              {cell}
+                            </th>
+                          ) : (
+                            <td key={`c-${ci}`}>{cell}</td>
+                          ),
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
           if (b.type === 'heading') {
             const num = numByIndex.get(i)
             const displayText = stripLeadingEnumerationFromHeadingDisplay(

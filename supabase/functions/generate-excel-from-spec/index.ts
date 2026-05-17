@@ -18,6 +18,16 @@ const corsHeaders = {
 }
 
 const BUCKET = 'chat-excel-exports'
+
+function sanitizeDbText(text: string): string {
+  return text.replace(/\u0000/g, '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+}
+
+function sanitizeJsonbMetadata<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (_k, v) => (typeof v === 'string' ? sanitizeDbText(v) : v)),
+  ) as T
+}
 const MAX_SHEETS = 10
 const MAX_COLS = 100
 const MAX_ROWS_PER_SHEET = 4000
@@ -581,8 +591,8 @@ serve(async (req) => {
     const { error: upErr } = await admin
       .from('chat_messages')
       .update({
-        content: newContent,
-        metadata: nextMetadata,
+        content: sanitizeDbText(newContent),
+        metadata: sanitizeJsonbMetadata(nextMetadata),
       })
       .eq('id', messageId)
 

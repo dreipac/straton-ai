@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { MAX_IMAGE_CREDIT_BALANCE } from '../../auth/constants/imageCredits'
 import { MAX_TOKEN_BALANCE } from '../../auth/constants/tokenBalance'
+import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
 import { labelForSubscriptionImageGenerationModel } from '../../auth/constants/subscriptionImageGenerationModels'
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
@@ -19,6 +20,9 @@ type AccountSettingsSectionProps = {
     max_images: number | null
     max_files: number | null
     image_generation_model?: string | null
+    image_credit_max?: number | null
+    thinking_daily_grant?: number | null
+    thinking_credit_max?: number | null
   } | null
   subscriptionUsage: {
     used_tokens: number
@@ -26,6 +30,8 @@ type AccountSettingsSectionProps = {
     used_files: number
     image_credit_balance: number
     token_balance: number
+    thinking_credit_balance?: number
+    used_thinking_requests?: number
   } | null
   isSavingAccount: boolean
   isSavingEmail: boolean
@@ -71,6 +77,15 @@ export function AccountSettingsSection({
 }: AccountSettingsSectionProps) {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const avatarFallback = (firstNameDraft.trim()[0] || lastNameDraft.trim()[0] || '?').toUpperCase()
+  const imageCreditMax =
+    typeof subscriptionPlan?.image_credit_max === 'number'
+      ? subscriptionPlan.image_credit_max
+      : MAX_IMAGE_CREDIT_BALANCE
+  const thinkingCreditMax =
+    typeof subscriptionPlan?.thinking_credit_max === 'number'
+      ? subscriptionPlan.thinking_credit_max
+      : DEFAULT_THINKING_CREDIT_MAX
+  const thinkingDailyGrant = subscriptionPlan?.thinking_daily_grant ?? 0
 
   const normalizedDraft = emailDraft.trim().toLowerCase()
   const normalizedCurrent = currentEmail.trim().toLowerCase()
@@ -246,10 +261,17 @@ export function AccountSettingsSection({
               )}
             </p>
             <p className="account-subscription">
-              Bild-Guthaben: {subscriptionUsage?.image_credit_balance ?? 0} / max. {MAX_IMAGE_CREDIT_BALANCE}{' '}
+              Bild-Guthaben: {subscriptionUsage?.image_credit_balance ?? 0} / max. {imageCreditMax}{' '}
               {subscriptionPlan.max_images != null
                 ? `(+${subscriptionPlan.max_images} pro Tag, ungenutztes läuft mit)`
                 : ''}
+            </p>
+            <p className="account-subscription">
+              Thinking-Guthaben: {subscriptionUsage?.thinking_credit_balance ?? 0} / max. {thinkingCreditMax}
+              {thinkingDailyGrant > 0 ? ` (+${thinkingDailyGrant} pro Tag)` : ''}
+            </p>
+            <p className="account-subscription">
+              Thinking (heute): {subscriptionUsage?.used_thinking_requests ?? 0} Anfragen
             </p>
             <p className="account-subscription">
               Bilder (heute erzeugt): {subscriptionUsage?.used_images ?? 0}

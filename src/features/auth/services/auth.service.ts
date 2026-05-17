@@ -77,19 +77,19 @@ async function resolveCurrentSession(): Promise<Session | null> {
 
 /** Volle Profil-Spalten inkl. KI-Speicher (`20260425120000_profiles_ai_chat_memory`). */
 const PROFILE_SELECT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
 
 /** Ohne KI-Speicher-Spalten — wenn Migration noch nicht ausgerollt. */
 const PROFILE_SELECT_WITHOUT_AI_MEMORY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
 const PROFILE_SELECT_COMPAT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 /** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
 const PROFILE_SELECT_COMPAT_LEGACY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -166,6 +166,11 @@ type ProfileRow = {
         chat_daily_tier2_openai_model_id?: string | null
         chat_context_max_tokens?: number | null
         web_search_daily_grant?: number | null
+        image_start_balance?: number | null
+        image_credit_max?: number | null
+        thinking_start_balance?: number | null
+        thinking_daily_grant?: number | null
+        thinking_credit_max?: number | null
       }
     | {
         id: string
@@ -181,6 +186,11 @@ type ProfileRow = {
         chat_daily_tier2_openai_model_id?: string | null
         chat_context_max_tokens?: number | null
         web_search_daily_grant?: number | null
+        image_start_balance?: number | null
+        image_credit_max?: number | null
+        thinking_start_balance?: number | null
+        thinking_daily_grant?: number | null
+        thinking_credit_max?: number | null
       }[]
     | null
   subscription_usages:
@@ -192,6 +202,8 @@ type ProfileRow = {
         token_balance?: number | null
         web_search_credit_balance?: number | null
         used_web_searches?: number | null
+        thinking_credit_balance?: number | null
+        used_thinking_requests?: number | null
         last_reset_date: string | null
       }
     | {
@@ -202,6 +214,8 @@ type ProfileRow = {
         token_balance?: number | null
         web_search_credit_balance?: number | null
         used_web_searches?: number | null
+        thinking_credit_balance?: number | null
+        used_thinking_requests?: number | null
         last_reset_date: string | null
       }[]
     | null
@@ -242,6 +256,8 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     typeof rawUsage?.token_balance === 'number' ? rawUsage.token_balance : 0
   const wsBal =
     typeof rawUsage?.web_search_credit_balance === 'number' ? rawUsage.web_search_credit_balance : 0
+  const thinkBal =
+    typeof rawUsage?.thinking_credit_balance === 'number' ? rawUsage.thinking_credit_balance : 0
   const usage =
     rawUsage && rawUsage.last_reset_date !== currentUtcDateString()
       ? {
@@ -249,9 +265,11 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
           used_images: 0,
           used_files: 0,
           used_web_searches: 0,
+          used_thinking_requests: 0,
           image_credit_balance: bal,
           token_balance: tokBal,
           web_search_credit_balance: wsBal,
+          thinking_credit_balance: thinkBal,
         }
       : rawUsage
         ? {
@@ -260,9 +278,12 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
             used_files: rawUsage.used_files,
             used_web_searches:
               typeof rawUsage.used_web_searches === 'number' ? rawUsage.used_web_searches : 0,
+            used_thinking_requests:
+              typeof rawUsage.used_thinking_requests === 'number' ? rawUsage.used_thinking_requests : 0,
             image_credit_balance: bal,
             token_balance: tokBal,
             web_search_credit_balance: wsBal,
+            thinking_credit_balance: thinkBal,
           }
         : null
   return {
@@ -317,13 +338,18 @@ export type UserProfile = {
         chat_context_max_tokens?: number | null
         /** Tägliche Aufladung Websuche-Guthaben (UTC); bis zu 50 Kontostand. */
         web_search_daily_grant?: number | null
+        image_start_balance?: number | null
+        image_credit_max?: number | null
+        thinking_start_balance?: number | null
+        thinking_daily_grant?: number | null
+        thinking_credit_max?: number | null
       }
     | null
   subscription_usages: {
     used_tokens: number
     used_images: number
     used_files: number
-    /** Verfügbare Bilder aus Guthaben (max. 60); täglich +max_images vom Abo (UTC). */
+    /** Verfügbare Bilder aus Guthaben; täglich +max_images vom Abo (UTC), gecappt mit image_credit_max. */
     image_credit_balance: number
     /** Ungenutztes Token-Kontingent aus Vorperioden; max. 3 Mio.; täglich nutzbar mit Tageslimit. */
     token_balance: number
@@ -331,6 +357,9 @@ export type UserProfile = {
     web_search_credit_balance: number
     /** Websuchen am heutigen UTC-Tag (Anzeige; DB kann noch alten Tag haben bis Lazy-Reset). */
     used_web_searches: number
+    /** Verfügbare Thinking-Modus-Anfragen; täglich +thinking_daily_grant (UTC). */
+    thinking_credit_balance: number
+    used_thinking_requests: number
   } | null
   /** Aus profiles.ai_chat_memory; für persönlichen Hauptchat-Kontext. */
   ai_chat_memory: string | null

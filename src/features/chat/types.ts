@@ -20,6 +20,7 @@ export type WordOutlineV1 = {
   blocks: Array<
     | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
     | { type: 'paragraph'; text: string }
+    | { type: 'table'; rows: string[][]; header?: boolean }
   >
 }
 

@@ -5,6 +5,9 @@
 /** Passt zu Kurzantwort-Systemprompt; senkt Output-Kosten und lange Markdown-Walls. */
 export const MAIN_CHAT_MAX_OUTPUT_TOKENS = 1536
 
+/** Thinking-Modus: ausführliche Antworten, Dokument-Zusammenfassungen mit vielen Abschnitten. */
+export const THINKING_MAX_OUTPUT_TOKENS = 8192
+
 /**
  * Lernpfad-Antworten über dieselbe Route: etwas höheres Limit für Kapitel-/Übungsantworten.
  */

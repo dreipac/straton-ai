@@ -51,6 +51,8 @@ import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants
 import { parseChatDailyTierOpenAiModelId } from '../features/chat/constants/chatDailyOpenAiTier'
 import {
   CHAT_COMPOSER_MODELS,
+  CHAT_DAILY_TIER_OPENAI_MODELS,
+  getChatDailyTierOpenAiModelLabel,
   type ChatDailyTierOpenAiModelId,
   getComposerApiModelIdsForAdminFilter,
 } from '../features/chat/constants/chatComposerModels'
@@ -83,8 +85,6 @@ import {
   type AppWordTemplateMeta,
 } from '../features/chat/services/wordTemplate.service'
 
-const OPENAI_CHAT_MODEL_OPTIONS = CHAT_COMPOSER_MODELS.filter((m) => m.provider === 'openai')
-
 function formatSubscriptionPlanDailyTierSummary(plan: SubscriptionPlanRow): string {
   const t1 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier1_openai_model_id ?? null)
   const t2 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier2_openai_model_id ?? null)
@@ -92,8 +92,8 @@ function formatSubscriptionPlanDailyTierSummary(plan: SubscriptionPlanRow): stri
     typeof plan.chat_daily_tier1_token_budget === 'number' && Number.isFinite(plan.chat_daily_tier1_token_budget)
       ? Math.max(0, Math.floor(plan.chat_daily_tier1_token_budget))
       : 50_000
-  const l1 = CHAT_COMPOSER_MODELS.find((m) => m.id === t1)?.label ?? t1
-  const l2 = CHAT_COMPOSER_MODELS.find((m) => m.id === t2)?.label ?? t2
+  const l1 = getChatDailyTierOpenAiModelLabel(t1)
+  const l2 = getChatDailyTierOpenAiModelLabel(t2)
   return `OpenAI Tages-Staffel: erste ${b.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
 }
 
@@ -203,6 +203,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
   const [newPlanWebSearchDailyGrant, setNewPlanWebSearchDailyGrant] = useState('')
+  const [newPlanImageStartBalance, setNewPlanImageStartBalance] = useState('0')
+  const [newPlanImageCreditMax, setNewPlanImageCreditMax] = useState('60')
+  const [newPlanThinkingStartBalance, setNewPlanThinkingStartBalance] = useState('0')
+  const [newPlanThinkingDailyGrant, setNewPlanThinkingDailyGrant] = useState('3')
+  const [newPlanThinkingCreditMax, setNewPlanThinkingCreditMax] = useState('10')
   const [newPlanChatContextMaxTokens, setNewPlanChatContextMaxTokens] = useState(
     String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS),
   )
@@ -229,6 +234,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     tier2OpenAiModelId: ChatDailyTierOpenAiModelId
     chatContextMaxTokens: string
     webSearchDailyGrant: string
+    imageStartBalance: string
+    imageCreditMax: string
+    thinkingStartBalance: string
+    thinkingDailyGrant: string
+    thinkingCreditMax: string
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -828,6 +838,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return n
   }
 
+  /** Guthaben-Felder pro Abo (0 … 10 000). */
+  function parseOptionalPlanCreditField(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 10_000) {
+      return null
+    }
+    return n
+  }
+
   /** Leer = unbegrenzter Verlauf; sonst 1000 … 5_000_000 (wie DB-Check). */
   function parseOptionalChatContextMaxTokens(raw: string): number | null {
     const t = raw.trim()
@@ -880,6 +903,32 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    const imageStartBalance = parseOptionalPlanCreditField(newPlanImageStartBalance)
+    if (newPlanImageStartBalance.trim() && imageStartBalance === null) {
+      setSubscriptionPlansError('Bilder Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const imageCreditMax = parseOptionalPlanCreditField(newPlanImageCreditMax)
+    if (newPlanImageCreditMax.trim() && imageCreditMax === null) {
+      setSubscriptionPlansError('Bilder max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingStartBalance = parseOptionalPlanCreditField(newPlanThinkingStartBalance)
+    if (newPlanThinkingStartBalance.trim() && thinkingStartBalance === null) {
+      setSubscriptionPlansError('Thinking Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingDailyGrant = parseOptionalPlanCreditField(newPlanThinkingDailyGrant)
+    if (newPlanThinkingDailyGrant.trim() && thinkingDailyGrant === null) {
+      setSubscriptionPlansError('Thinking pro Tag: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingCreditMax = parseOptionalPlanCreditField(newPlanThinkingCreditMax)
+    if (newPlanThinkingCreditMax.trim() && thinkingCreditMax === null) {
+      setSubscriptionPlansError('Thinking max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+
     let tier1Budget = 50_000
     if (!newPlanAllowModelChoice) {
       if (newPlanTier1TokenBudget.trim()) {
@@ -909,6 +958,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier2OpenAiModelId: newPlanTier2OpenAiModelId,
         chatContextMaxTokens,
         webSearchDailyGrant,
+        imageStartBalance: imageStartBalance ?? 0,
+        imageCreditMax: imageCreditMax ?? 60,
+        thinkingStartBalance: thinkingStartBalance ?? 0,
+        thinkingDailyGrant: thinkingDailyGrant ?? 0,
+        thinkingCreditMax: thinkingCreditMax ?? 10,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -918,6 +972,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
       setNewPlanWebSearchDailyGrant('')
+      setNewPlanImageStartBalance('0')
+      setNewPlanImageCreditMax('60')
+      setNewPlanThinkingStartBalance('0')
+      setNewPlanThinkingDailyGrant('3')
+      setNewPlanThinkingCreditMax('10')
       setNewPlanChatContextMaxTokens(String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS))
       setNewPlanAllowModelChoice(true)
       setNewPlanImageGenerationModel('gpt_image_1')
@@ -973,6 +1032,32 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       return
     }
 
+    const imageStartBalance = parseOptionalPlanCreditField(editPlanDraft.imageStartBalance)
+    if (editPlanDraft.imageStartBalance.trim() && imageStartBalance === null) {
+      setSubscriptionPlansError('Bilder Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const imageCreditMax = parseOptionalPlanCreditField(editPlanDraft.imageCreditMax)
+    if (editPlanDraft.imageCreditMax.trim() && imageCreditMax === null) {
+      setSubscriptionPlansError('Bilder max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingStartBalance = parseOptionalPlanCreditField(editPlanDraft.thinkingStartBalance)
+    if (editPlanDraft.thinkingStartBalance.trim() && thinkingStartBalance === null) {
+      setSubscriptionPlansError('Thinking Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingDailyGrant = parseOptionalPlanCreditField(editPlanDraft.thinkingDailyGrant)
+    if (editPlanDraft.thinkingDailyGrant.trim() && thinkingDailyGrant === null) {
+      setSubscriptionPlansError('Thinking pro Tag: ganze Zahl 0–10 000.')
+      return
+    }
+    const thinkingCreditMax = parseOptionalPlanCreditField(editPlanDraft.thinkingCreditMax)
+    if (editPlanDraft.thinkingCreditMax.trim() && thinkingCreditMax === null) {
+      setSubscriptionPlansError('Thinking max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+
     let tier1Budget = 50_000
     if (!editPlanDraft.allowModelChoice) {
       if (editPlanDraft.tier1TokenBudget.trim()) {
@@ -1003,6 +1088,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         chatDailyTier2OpenAiModelId: editPlanDraft.tier2OpenAiModelId,
         chatContextMaxTokens,
         webSearchDailyGrant,
+        imageStartBalance: imageStartBalance ?? 0,
+        imageCreditMax: imageCreditMax ?? 60,
+        thinkingStartBalance: thinkingStartBalance ?? 0,
+        thinkingDailyGrant: thinkingDailyGrant ?? 0,
+        thinkingCreditMax: thinkingCreditMax ?? 10,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -2311,7 +2401,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         <p className="admin-subscriptions-meta">
                           Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder:{' '}
                           {plan.max_images != null
-                            ? `+${plan.max_images}/Tag Guthaben (max. 60)`
+                            ? `Start ${plan.image_start_balance ?? 0}, +${plan.max_images}/Tag, max. ${plan.image_credit_max ?? 60}`
                             : 'unbegrenzt'}{' '}
                           · Dateien:{' '}
                           {plan.max_files ?? 'unbegrenzt'}
@@ -2325,6 +2415,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           {typeof plan.web_search_daily_grant === 'number'
                             ? `+${plan.web_search_daily_grant}/Tag (Guthaben max. 50)`
                             : 'keine tägliche Aufladung'}
+                          <br />
+                          Thinking: Start {plan.thinking_start_balance ?? 0}, +
+                          {plan.thinking_daily_grant ?? 0}/Tag, max. {plan.thinking_credit_max ?? 10}
                           <br />
                           Bildgenerator:{' '}
                           {labelForSubscriptionImageGenerationModel(
@@ -2373,6 +2466,26 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 typeof plan.web_search_daily_grant === 'number'
                                   ? String(plan.web_search_daily_grant)
                                   : '',
+                              imageStartBalance:
+                                typeof plan.image_start_balance === 'number'
+                                  ? String(plan.image_start_balance)
+                                  : '0',
+                              imageCreditMax:
+                                typeof plan.image_credit_max === 'number'
+                                  ? String(plan.image_credit_max)
+                                  : '60',
+                              thinkingStartBalance:
+                                typeof plan.thinking_start_balance === 'number'
+                                  ? String(plan.thinking_start_balance)
+                                  : '0',
+                              thinkingDailyGrant:
+                                typeof plan.thinking_daily_grant === 'number'
+                                  ? String(plan.thinking_daily_grant)
+                                  : '0',
+                              thinkingCreditMax:
+                                typeof plan.thinking_credit_max === 'number'
+                                  ? String(plan.thinking_credit_max)
+                                  : '10',
                             })
                           }}
                         >
@@ -2940,7 +3053,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanMaxTokens(event.target.value)}
                     />
 
-                    <label htmlFor="admin-new-subscription-max-images">Max. Bilder pro Tag</label>
+                    <label htmlFor="admin-new-subscription-max-images">Bilder: Aufladung pro Tag (+/Tag)</label>
                     <input
                       id="admin-new-subscription-max-images"
                       type="number"
@@ -2951,6 +3064,72 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       value={newPlanMaxImages}
                       onChange={(event) => setNewPlanMaxImages(event.target.value)}
                     />
+                    <p className="admin-users-hint">
+                      Wird täglich (UTC) zum Bild-Guthaben addiert (Feld max_images).
+                    </p>
+
+                    <label htmlFor="admin-new-subscription-image-start">Bilder: Start-Guthaben</label>
+                    <input
+                      id="admin-new-subscription-image-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={newPlanImageStartBalance}
+                      onChange={(event) => setNewPlanImageStartBalance(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-image-max">Bilder: max. Guthaben (Deckel)</label>
+                    <input
+                      id="admin-new-subscription-image-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={newPlanImageCreditMax}
+                      onChange={(event) => setNewPlanImageCreditMax(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-thinking-start">Thinking: Start-Guthaben</label>
+                    <input
+                      id="admin-new-subscription-thinking-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={newPlanThinkingStartBalance}
+                      onChange={(event) => setNewPlanThinkingStartBalance(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-thinking-daily">Thinking: Anfragen pro Tag (+/Tag)</label>
+                    <input
+                      id="admin-new-subscription-thinking-daily"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={newPlanThinkingDailyGrant}
+                      onChange={(event) => setNewPlanThinkingDailyGrant(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-subscription-thinking-max">Thinking: max. Guthaben (Deckel)</label>
+                    <input
+                      id="admin-new-subscription-thinking-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={newPlanThinkingCreditMax}
+                      onChange={(event) => setNewPlanThinkingCreditMax(event.target.value)}
+                    />
+                    <p className="admin-users-hint">
+                      Eine Thinking-Anfrage = ein Senden im Thinking-Modus (Start bei Abo-Zuweisung).
+                    </p>
 
                     <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
                     <select
@@ -3044,7 +3223,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             setNewPlanTier1OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
                           }
                         >
-                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.label}
                             </option>
@@ -3071,7 +3250,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             setNewPlanTier2OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
                           }
                         >
-                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.label}
                             </option>
@@ -3161,7 +3340,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
 
-                    <label htmlFor="admin-edit-subscription-max-images">Max. Bilder pro Tag</label>
+                    <label htmlFor="admin-edit-subscription-max-images">Bilder: Aufladung pro Tag (+/Tag)</label>
                     <input
                       id="admin-edit-subscription-max-images"
                       type="number"
@@ -3174,6 +3353,92 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
                       }
                     />
+                    <p className="admin-users-hint">
+                      Wird täglich (UTC) zum Bild-Guthaben addiert (Feld max_images).
+                    </p>
+
+                    <label htmlFor="admin-edit-subscription-image-start">Bilder: Start-Guthaben</label>
+                    <input
+                      id="admin-edit-subscription-image-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={editPlanDraft.imageStartBalance}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, imageStartBalance: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-image-max">Bilder: max. Guthaben (Deckel)</label>
+                    <input
+                      id="admin-edit-subscription-image-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={editPlanDraft.imageCreditMax}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, imageCreditMax: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-thinking-start">Thinking: Start-Guthaben</label>
+                    <input
+                      id="admin-edit-subscription-thinking-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={editPlanDraft.thinkingStartBalance}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, thinkingStartBalance: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-thinking-daily">Thinking: Anfragen pro Tag (+/Tag)</label>
+                    <input
+                      id="admin-edit-subscription-thinking-daily"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={editPlanDraft.thinkingDailyGrant}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, thinkingDailyGrant: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-subscription-thinking-max">Thinking: max. Guthaben (Deckel)</label>
+                    <input
+                      id="admin-edit-subscription-thinking-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={editPlanDraft.thinkingCreditMax}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, thinkingCreditMax: event.target.value } : null,
+                        )
+                      }
+                    />
+                    <p className="admin-users-hint">
+                      Eine Thinking-Anfrage = ein Senden im Thinking-Modus. Start-Guthaben gilt bei neuer Abo-Zuweisung.
+                    </p>
 
                     <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
                     <select
@@ -3295,7 +3560,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             )
                           }
                         >
-                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.label}
                             </option>
@@ -3333,7 +3598,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             )
                           }
                         >
-                          {OPENAI_CHAT_MODEL_OPTIONS.map((m) => (
+                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.label}
                             </option>

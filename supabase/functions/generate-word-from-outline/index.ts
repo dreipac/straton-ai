@@ -14,6 +14,16 @@ const corsHeaders = {
 }
 
 const EXPORT_BUCKET = 'chat-word-exports'
+
+function sanitizeDbText(text: string): string {
+  return text.replace(/\u0000/g, '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+}
+
+function sanitizeJsonbMetadata<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (_k, v) => (typeof v === 'string' ? sanitizeDbText(v) : v)),
+  ) as T
+}
 const TEMPLATE_BUCKET = 'word-templates'
 
 const PLACEHOLDER_TOKEN = '[[STRATON_WORD_BODY]]'
@@ -23,6 +33,7 @@ type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
 type WordBlock =
   | { type: 'heading'; level: HeadingLevel; text: string }
   | { type: 'paragraph'; text: string }
+  | { type: 'table'; rows: string[][]; header?: boolean }
 
 type WordOutlineV1 = {
   version: 1
@@ -155,11 +166,56 @@ function buildStylePickers(zip: PizZip): StylePickers {
   }
 }
 
+function tableToWordMl(table: { rows: string[][]; header?: boolean }, styles: StylePickers): string {
+  const rows = table.rows.filter((r) => r.length > 0)
+  if (rows.length === 0) {
+    return ''
+  }
+  const colCount = Math.max(...rows.map((r) => r.length))
+  const colWidth = Math.max(1200, Math.floor(9000 / colCount))
+  const grid = Array.from({ length: colCount }, () => `<w:gridCol w:w="${colWidth}"/>`).join('')
+  const bodySid = escapeXmlAttr(styles.body())
+  const parts: string[] = [
+    '<w:tbl>',
+    '<w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>',
+    '<w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '<w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
+    '</w:tblBorders></w:tblPr>',
+    `<w:tblGrid>${grid}</w:tblGrid>`,
+  ]
+  rows.forEach((row, rowIndex) => {
+    parts.push('<w:tr>')
+    for (let c = 0; c < colCount; c += 1) {
+      const text = escapeXmlText(String(row[c] ?? '').trim())
+      const bold =
+        table.header === true && rowIndex === 0 ? '<w:b/>' : ''
+      parts.push(
+        `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/></w:tcPr>` +
+          `<w:p><w:pPr><w:pStyle w:val="${bodySid}"/></w:pPr>` +
+          `<w:r><w:rPr>${bold}<w:sz w:val="${BODY_RUN_HALF_POINTS}"/><w:szCs w:val="${BODY_RUN_HALF_POINTS}"/></w:rPr>` +
+          `<w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:tc>`,
+      )
+    }
+    parts.push('</w:tr>')
+  })
+  parts.push('</w:tbl>')
+  return parts.join('')
+}
+
 /** OOXML-Absätze: Absatzstil aus Vorlage + klare Lauf-Formatierung als Fallback. */
 function blocksToWordMl(blocks: WordBlock[], styles: StylePickers): string {
   const parts: string[] = []
   for (const b of blocks) {
-    if (b.type === 'heading') {
+    if (b.type === 'table') {
+      const tbl = tableToWordMl(b, styles)
+      if (tbl) {
+        parts.push(tbl)
+      }
+    } else if (b.type === 'heading') {
       const sid = escapeXmlAttr(styles.heading(b.level))
       const hp = headingRunHalfPoints(b.level)
       const text = escapeXmlText(b.text.trim())
@@ -220,6 +276,30 @@ function parseOutline(raw: unknown): WordOutlineV1 | null {
     } else if (t === 'paragraph') {
       const text = typeof b.text === 'string' ? b.text : ''
       blocks.push({ type: 'paragraph', text })
+    } else if (t === 'table') {
+      if (!Array.isArray(b.rows) || b.rows.length === 0) {
+        return null
+      }
+      const rows: string[][] = []
+      for (const row of b.rows) {
+        if (!Array.isArray(row) || row.length === 0) {
+          return null
+        }
+        rows.push(row.map((c) => (typeof c === 'string' ? c : String(c ?? ''))))
+      }
+      const colCount = Math.max(...rows.map((r) => r.length))
+      const normalized = rows.map((r) => {
+        const copy = r.slice(0, colCount)
+        while (copy.length < colCount) {
+          copy.push('')
+        }
+        return copy
+      })
+      blocks.push({
+        type: 'table',
+        header: b.header === true,
+        rows: normalized,
+      })
     } else {
       return null
     }
@@ -410,8 +490,8 @@ serve(async (req) => {
     const { error: upErr } = await admin
       .from('chat_messages')
       .update({
-        content: newContent,
-        metadata: nextMetadata,
+        content: sanitizeDbText(newContent),
+        metadata: sanitizeJsonbMetadata(nextMetadata),
       })
       .eq('id', messageId)
 

@@ -13,6 +13,7 @@ import {
 } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { GlassPillTouchSurface } from '../../../components/ui/GlassPillTouchSurface'
+import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
@@ -62,6 +63,7 @@ import {
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
 import { MAX_WEB_SEARCH_CREDIT_BALANCE } from '../constants/webSearchCredits'
+import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
 
@@ -154,6 +156,12 @@ type ChatWindowProps = {
   webSearchCreditsRemaining?: number
   /** Aus Abo: tägliche Aufladung für Hinweistext. */
   webSearchDailyGrant?: number | null
+  /** Thinking-Modus: verbleibendes Guthaben (Superadmin: auslassen). */
+  thinkingCreditsRemaining?: number
+  thinkingCreditMax?: number
+  thinkingDailyGrant?: number | null
+  /** Thinking-Guthaben leer — Senden gesperrt. */
+  thinkingCreditsBlocked?: boolean
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
   /** Nach /Word: Word-Datei erzeugen, wenn die Papier-Vorschau passt. */
@@ -303,6 +311,10 @@ export function ChatWindow({
   exitWebSearchSignal,
   webSearchCreditsRemaining,
   webSearchDailyGrant,
+  thinkingCreditsRemaining,
+  thinkingCreditMax,
+  thinkingDailyGrant,
+  thinkingCreditsBlocked = false,
   onCancelSend,
   onFinalizeWordDocument,
   wordFinalizeBusy = false,
@@ -313,9 +325,7 @@ export function ChatWindow({
   const [slashMenuHighlightIndex, setSlashMenuHighlightIndex] = useState(0)
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
-  const [isComposerSendTouchActive, setIsComposerSendTouchActive] = useState(false)
-  const composerSendTouchStartRef = useRef(0)
-  const composerSendTouchReleaseTimerRef = useRef<number | null>(null)
+  const mobileComposerSendTouch = useGlassPillTouchFeedback()
   const mobileSendStartedWithTouchRef = useRef(false)
   const [mobileDuringIconReady, setMobileDuringIconReady] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
@@ -477,8 +487,18 @@ export function ChatWindow({
 
   const cancelWhileSending = Boolean(isSending && onCancelSend)
 
+  const composerSendButtonClassName = isMobileComposer
+    ? ['new-chat-touch-btn', mobileComposerSendTouch.isTapSpring ? 'is-tap-spring' : '']
+        .filter(Boolean)
+        .join(' ')
+    : undefined
+
   const composerSendIconEl = (
-    <span className="chat-send-icon-stack">
+    <span
+      className={
+        isMobileComposer ? 'chat-send-icon-stack new-chat-touch-btn__icon' : 'chat-send-icon-stack'
+      }
+    >
       <img
         className={`ui-icon chat-send-icon chat-send-icon-stack__layer${showDuringSendIcon ? '' : ' chat-send-icon-stack__layer--on'}`}
         src={sendIcon}
@@ -496,7 +516,9 @@ export function ChatWindow({
 
   const composePlaceholder = tokenLimitReached
     ? 'Token-Limit erreicht'
-    : imageGenCommandSelected
+    : thinkingCreditsBlocked
+      ? 'Thinking-Guthaben aufgebraucht'
+      : imageGenCommandSelected
       ? 'Beschreibe dein Bild …'
       : wordCommandSelected
         ? 'Optional: JSON einfügen — sonst letzte KI-Gliederung'
@@ -554,49 +576,19 @@ export function ChatWindow({
     onCancelSend?.()
   }
 
-  /** Fokus der Textarea bleibt; Tap-Feedback läuft über Pointer (zuverlässiger als Touch-Events mit preventDefault). */
+  /** Fokus der Textarea bleibt; globales Tap-Spring wie Sidebar/Topbar (`new-chat-touch-btn`). */
   function handleComposerSendPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0 || event.currentTarget.disabled) {
       return
     }
-    event.preventDefault()
-
     const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
     if (!isMobileComposer || !touchLike) {
       return
     }
+    event.preventDefault()
     mobileSendStartedWithTouchRef.current = true
-    composerSendTouchStartRef.current = Date.now()
-    if (composerSendTouchReleaseTimerRef.current) {
-      window.clearTimeout(composerSendTouchReleaseTimerRef.current)
-      composerSendTouchReleaseTimerRef.current = null
-    }
-    setIsComposerSendTouchActive(true)
+    mobileComposerSendTouch.touchHandlers.onPointerDown(event)
   }
-
-  function handleComposerSendPointerUpOrCancel(event: ReactPointerEvent<HTMLButtonElement>) {
-    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
-    if (!isMobileComposer || event.currentTarget.disabled || !touchLike) {
-      return
-    }
-    const elapsed = Date.now() - composerSendTouchStartRef.current
-    const holdMs = Math.min(560, Math.max(340, elapsed))
-    if (composerSendTouchReleaseTimerRef.current) {
-      window.clearTimeout(composerSendTouchReleaseTimerRef.current)
-    }
-    composerSendTouchReleaseTimerRef.current = window.setTimeout(() => {
-      setIsComposerSendTouchActive(false)
-      composerSendTouchReleaseTimerRef.current = null
-    }, holdMs)
-  }
-
-  useEffect(() => {
-    return () => {
-      if (composerSendTouchReleaseTimerRef.current) {
-        window.clearTimeout(composerSendTouchReleaseTimerRef.current)
-      }
-    }
-  }, [])
 
   const lastMessageFingerprint =
     messageList.length > 0
@@ -944,7 +936,12 @@ export function ChatWindow({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if ((!draft.trim() && pendingAttachments.length === 0) || isSending || isAttachingFiles) {
+    if (
+      (!draft.trim() && pendingAttachments.length === 0) ||
+      isSending ||
+      isAttachingFiles ||
+      thinkingCreditsBlocked
+    ) {
       return
     }
 
@@ -1083,7 +1080,7 @@ export function ChatWindow({
   }
 
   function handleAttachComposerButtonClick() {
-    if (isSending || isAttachingFiles || tokenLimitReached) {
+    if (isSending || isAttachingFiles || tokenLimitReached || thinkingCreditsBlocked) {
       return
     }
     if (isMobileComposer) {
@@ -1131,7 +1128,7 @@ export function ChatWindow({
     }
     event.preventDefault()
     const form = event.currentTarget.form
-    if (!form || tokenLimitReached || isSending || isAttachingFiles) {
+    if (!form || tokenLimitReached || isSending || isAttachingFiles || thinkingCreditsBlocked) {
       return
     }
     if (!draft.trim() && pendingAttachments.length === 0) {
@@ -1141,7 +1138,14 @@ export function ChatWindow({
   }
 
   async function handleAttachFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0 || isSending || isAttachingFiles || tokenLimitReached) {
+    if (
+      !fileList ||
+      fileList.length === 0 ||
+      isSending ||
+      isAttachingFiles ||
+      tokenLimitReached ||
+      thinkingCreditsBlocked
+    ) {
       return
     }
 
@@ -1185,7 +1189,7 @@ export function ChatWindow({
   }
 
   function handleComposePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    if (isSending || isAttachingFiles || tokenLimitReached) {
+    if (isSending || isAttachingFiles || tokenLimitReached || thinkingCreditsBlocked) {
       return
     }
     const imageFiles = getImageFilesFromClipboard(event.clipboardData)
@@ -1194,7 +1198,7 @@ export function ChatWindow({
     }
     event.preventDefault()
     void (async () => {
-      if (isSending || isAttachingFiles || tokenLimitReached) {
+      if (isSending || isAttachingFiles || tokenLimitReached || thinkingCreditsBlocked) {
         return
       }
       setIsAttachingFiles(true)
@@ -1398,6 +1402,26 @@ export function ChatWindow({
       </p>
     ) : null
 
+  const thinkingMaxCap =
+    typeof thinkingCreditMax === 'number' ? thinkingCreditMax : DEFAULT_THINKING_CREDIT_MAX
+
+  const thinkingCreditsHintEl =
+    chatThinkingMode === 'thinking' && typeof thinkingCreditsRemaining === 'number' && !tokenLimitReached ? (
+      <p
+        className={`chat-websearch-credits-hint${thinkingCreditsBlocked ? ' chat-thinking-credits-hint--empty' : ''}`}
+        role="status"
+      >
+        {thinkingCreditsBlocked
+          ? 'Thinking-Guthaben aufgebraucht. Weitere Anfragen nach der täglichen Aufladung (UTC) oder mit neuem Abo-Guthaben.'
+          : `Noch ${thinkingCreditsRemaining} Thinking-Anfrage(n) (max. ${thinkingMaxCap} Kontostand).`}
+        {!thinkingCreditsBlocked &&
+        typeof thinkingDailyGrant === 'number' &&
+        thinkingDailyGrant > 0
+          ? ` Täglich +${thinkingDailyGrant} (UTC).`
+          : ''}
+      </p>
+    ) : null
+
   const composerAttachSheet = (
     <ActionBottomSheet
       open={attachComposerSheetOpen}
@@ -1487,6 +1511,7 @@ export function ChatWindow({
           {thinkingClarifyOverlay}
           {quickTilesEl}
           {webSearchCreditsHintEl}
+          {thinkingCreditsHintEl}
           <form
             className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
             onSubmit={handleSubmit}
@@ -1707,7 +1732,7 @@ export function ChatWindow({
                     onKeyDown={handleComposeKeyDown}
                     onPaste={handleComposePaste}
                     placeholder={composePlaceholder}
-                    disabled={isSending || tokenLimitReached}
+                    disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
                     aria-multiline="true"
                     autoComplete="off"
                   />
@@ -1716,9 +1741,10 @@ export function ChatWindow({
             </div>
             <button
               type="submit"
-              className={isMobileComposer && isComposerSendTouchActive ? 'is-touch-active' : undefined}
+              className={composerSendButtonClassName}
               disabled={
                 tokenLimitReached ||
+                thinkingCreditsBlocked ||
                 isAttachingFiles ||
                 (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
               }
@@ -1726,14 +1752,18 @@ export function ChatWindow({
               aria-label={
                 tokenLimitReached
                   ? 'Token-Limit erreicht'
-                  : cancelWhileSending
-                    ? 'Antwort abbrechen'
-                    : 'Nachricht senden'
+                  : thinkingCreditsBlocked
+                    ? 'Thinking-Guthaben aufgebraucht'
+                    : cancelWhileSending
+                      ? 'Antwort abbrechen'
+                      : 'Nachricht senden'
               }
               onClick={handleComposerSendClick}
               onPointerDown={handleComposerSendPointerDown}
-              onPointerUp={handleComposerSendPointerUpOrCancel}
-              onPointerCancel={handleComposerSendPointerUpOrCancel}
+              onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
+              onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
+              onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
+              onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
             >
               {composerSendIconEl}
             </button>
@@ -1769,8 +1799,9 @@ export function ChatWindow({
               }
             }
           }
-          const useWordOutlinePaperChrome =
+          const isWordAssistantTurn =
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userWordCommand)
+          const useWordOutlinePaperChrome = isWordAssistantTurn
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
@@ -1785,12 +1816,15 @@ export function ChatWindow({
           const assistantAfterExcel = stripExcelSpecBlock(rawAssistantDisplay)
           const thinkingClarifyStreaming =
             isAssistant &&
+            !isWordAssistantTurn &&
             chatThinkingMode === 'thinking' &&
             Boolean(message.metadata?.liveStream) &&
             !messageContainsCompleteThinkingClarifyBlock(rawContent)
           /** Immer Clarify-JSON ausblenden, wenn der Block gültig ist — nicht an den aktuellen Composer-Modus koppeln (nach Reload oft «normal»). */
           const displayContent = isAssistant
-            ? stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
+            ? isWordAssistantTurn
+              ? assistantAfterExcel
+              : stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
             : stripAttachmentBlocksForDisplay(rawContent)
           const showWordPaperLayout =
             isAssistant &&
@@ -2154,6 +2188,7 @@ export function ChatWindow({
         {thinkingClarifyOverlay}
         {isMobileComposer ? quickTilesEl : null}
         {isMobileComposer ? webSearchCreditsHintEl : null}
+        {isMobileComposer ? thinkingCreditsHintEl : null}
         {composerAttachSheet}
         <form
           className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
@@ -2375,7 +2410,7 @@ export function ChatWindow({
                 onKeyDown={handleComposeKeyDown}
                 onPaste={handleComposePaste}
                 placeholder={composePlaceholder}
-                disabled={isSending || tokenLimitReached}
+                disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
                 aria-multiline="true"
                 autoComplete="off"
               />
@@ -2384,9 +2419,10 @@ export function ChatWindow({
         </div>
         <button
           type="submit"
-          className={isMobileComposer && isComposerSendTouchActive ? 'is-touch-active' : undefined}
+          className={composerSendButtonClassName}
           disabled={
             tokenLimitReached ||
+            thinkingCreditsBlocked ||
             isAttachingFiles ||
             (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
           }
@@ -2394,19 +2430,24 @@ export function ChatWindow({
           aria-label={
             tokenLimitReached
               ? 'Token-Limit erreicht'
-              : cancelWhileSending
-                ? 'Antwort abbrechen'
-                : 'Nachricht senden'
+              : thinkingCreditsBlocked
+                ? 'Thinking-Guthaben aufgebraucht'
+                : cancelWhileSending
+                  ? 'Antwort abbrechen'
+                  : 'Nachricht senden'
           }
           onClick={handleComposerSendClick}
           onPointerDown={handleComposerSendPointerDown}
-          onPointerUp={handleComposerSendPointerUpOrCancel}
-          onPointerCancel={handleComposerSendPointerUpOrCancel}
+          onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
+          onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
+          onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
+          onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
         >
           {composerSendIconEl}
         </button>
         </form>
         {webSearchCreditsHintEl}
+        {!isMobileComposer ? thinkingCreditsHintEl : null}
         <p className="chat-input-hint">
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
         </p>

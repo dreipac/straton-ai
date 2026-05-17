@@ -1,8 +1,31 @@
 import mammoth from 'mammoth'
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import * as XLSX from 'xlsx'
 
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+
 const MAX_EXCERPT_LENGTH = 2500
+
+/** Ergebnis von `file.text()` auf einer PDF — kein lesbarer Dokumenttext. */
+function looksLikeRawPdfPayload(text: string): boolean {
+  const head = text.trimStart().slice(0, 512)
+  if (head.startsWith('%PDF-')) {
+    return true
+  }
+  if (/\/Type\s*\/Catalog|\/FlateDecode|endobj|stream\r?\n/i.test(head)) {
+    return true
+  }
+  const sample = head.slice(0, 2000)
+  let nonPrintable = 0
+  for (let i = 0; i < sample.length; i += 1) {
+    const c = sample.charCodeAt(i)
+    if (c < 9 || (c > 13 && c < 32)) {
+      nonPrintable += 1
+    }
+  }
+  return sample.length > 80 && nonPrintable / sample.length > 0.12
+}
 
 /** Raster-Bilder: OCR (kein SVG — das ist Vektor/Markup) */
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'])
@@ -21,7 +44,7 @@ function getExtension(filename: string): string {
 
 async function parsePdf(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
-  const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise
+  const pdf = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise
   const pages: string[] = []
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo)
@@ -31,7 +54,11 @@ async function parsePdf(file: File): Promise<string> {
       .filter((entry): entry is string => Boolean(entry))
     pages.push(chunks.join(' '))
   }
-  return pages.join('\n')
+  const joined = pages.join('\n').trim()
+  if (!joined || looksLikeRawPdfPayload(joined)) {
+    return ''
+  }
+  return joined
 }
 
 async function parseDocx(file: File): Promise<string> {
@@ -104,9 +131,13 @@ export async function extractLearningMaterialText(file: File): Promise<string> {
     }
     return normalizeExtractedText(await file.text())
   } catch {
-    if (isRasterImageFile(file, ext)) {
+    if (isRasterImageFile(file, ext) || ext === 'pdf') {
       return ''
     }
-    return normalizeExtractedText(await file.text().catch(() => ''))
+    const fallback = await file.text().catch(() => '')
+    if (looksLikeRawPdfPayload(fallback)) {
+      return ''
+    }
+    return normalizeExtractedText(fallback)
   }
 }

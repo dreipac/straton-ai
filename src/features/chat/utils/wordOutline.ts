@@ -1,4 +1,5 @@
 import type { ChatMessage, WordOutlineV1 } from '../types'
+import { expandWordOutlineTables, parseWordOutlineTableBlock } from './wordOutlineTables'
 
 export type { WordOutlineV1 }
 
@@ -37,6 +38,12 @@ export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
     } else if (t === 'paragraph') {
       const text = typeof b.text === 'string' ? b.text : ''
       blocks.push({ type: 'paragraph', text })
+    } else if (t === 'table') {
+      const table = parseWordOutlineTableBlock(b)
+      if (!table) {
+        return null
+      }
+      blocks.push(table)
     } else {
       return null
     }
@@ -48,7 +55,7 @@ export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
     version: 1,
     fileName: typeof o.fileName === 'string' ? o.fileName : undefined,
     title: typeof o.title === 'string' ? o.title : undefined,
-    blocks,
+    blocks: expandWordOutlineTables(blocks),
   }
 }
 
@@ -276,7 +283,7 @@ export function tryParseWordMarkdownConvention(text: string): WordOutlineV1 | nu
     return null
   }
 
-  return { version: 1, blocks }
+  return { version: 1, blocks: expandWordOutlineTables(blocks) }
 }
 
 /** Entfernt «1. » / «2) » am Zeilenanfang — die KI nummeriert oft die gesamte Gliederung. */
@@ -440,7 +447,7 @@ export function tryHeuristicWordOutlineFromPlainText(text: string): WordOutlineV
 
   return {
     version: 1,
-    blocks,
+    blocks: expandWordOutlineTables(blocks),
   }
 }
 

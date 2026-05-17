@@ -15,6 +15,7 @@ export const WORD_CHAT_DOCUMENT_BODY_HINT = [
   'VERBOTEN: Absätze, die nur Leitfragen oder Platzhalterlisten sind (z. B. nur «Warum? Wer? Was?» ohne konkrete Antworttexte). Schreibe stattdessen klare, vollständige Sätze mit realem Inhalt zum Thema.',
   'VERBOTEN: Extra-Abschnitte wie «Direkt nutzbare Vorlage», Metatabellen oder Trenner mit Platzhaltern nur zur Struktur — schreibe den echten Kapitelinhalt.',
   'Erlaubt: nummerierte Überschriften und Unterpunkte mit #### / ##### / ###### gemäß App-Konvention; darunter Fließtext mit konkretem Fachinhalt (Definitionen, Schritte, Hinweise), nicht nur Stichworte.',
+  'Tabellen: GFM-Pipe (`| Spalte |` + Trennzeile `| --- |`) oder im WordOutline-JSON `{"type":"table","header":true,"rows":[["A","B"]]}`.',
 ].join('\n')
 
 export function userWantsWordExport(text: string): boolean {

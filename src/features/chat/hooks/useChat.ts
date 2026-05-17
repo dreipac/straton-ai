@@ -47,9 +47,11 @@ import {
   matchExplicitImageGenerationRequest,
   matchFollowUpImageEditRequest,
 } from '../utils/imageGenerationIntent'
+import { errorMessageFromUnknown } from '../../../utils/errorMessage'
 import {
   parseThinkingClarifyContent,
   shouldOpenThinkingFallbackPopup,
+  thinkingTurnExpectsClarifyOnly,
 } from '../utils/thinkingClarify'
 import {
   createChatMessage,
@@ -207,6 +209,10 @@ export function useChat(
     isSuperadmin?: boolean
     /** Nach erfolgreicher Tavily-Suche Profil aktualisieren (Guthaben). */
     onWebSearchCreditsConsumed?: () => void | Promise<void>
+    /** Thinking-Modus-Guthaben (Profil); ohne Superadmin bei 0 keine Thinking-Anfrage. */
+    thinkingCreditBalance?: number
+    /** Nach erfolgreicher Thinking-Buchung Profil aktualisieren. */
+    onThinkingCreditsConsumed?: () => void | Promise<void>
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -235,7 +241,19 @@ export function useChat(
   const [thinkingClarifyDialog, setThinkingClarifyDialog] = useState<ThinkingClarifyDialogState | null>(
     null,
   )
+  /** Lokal gepflegt (Profil + optimistisch nach Thinking-Anfrage); Superadmin: null = unbegrenzt. */
+  const [thinkingCreditsRemaining, setThinkingCreditsRemaining] = useState<number | null>(() =>
+    options?.isSuperadmin === true ? null : (options?.thinkingCreditBalance ?? 0),
+  )
   const removeTimersRef = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    if (options?.isSuperadmin === true) {
+      setThinkingCreditsRemaining(null)
+      return
+    }
+    setThinkingCreditsRemaining(options?.thinkingCreditBalance ?? 0)
+  }, [options?.isSuperadmin, options?.thinkingCreditBalance])
 
   function persistComposerModelId(id: ChatComposerModelId) {
     if (chatModelPolicy && !chatModelPolicy.allowModelChoice) {
@@ -282,7 +300,27 @@ export function useChat(
   const isChatModelLocked = Boolean(chatModelPolicy && !chatModelPolicy.allowModelChoice)
 
   const messages = activeThreadId ? (messagesByThreadId[activeThreadId] ?? []) : []
-  const canSend = useMemo(() => !isSending, [isSending])
+  const thinkingCreditsBlocked =
+    usesGatewayAi() &&
+    chatThinkingMode === 'thinking' &&
+    options?.isSuperadmin !== true &&
+    (thinkingCreditsRemaining ?? 0) < 1
+
+  const canSend = useMemo(() => !isSending && !thinkingCreditsBlocked, [isSending, thinkingCreditsBlocked])
+
+  function markThinkingCreditConsumedLocally() {
+    if (options?.isSuperadmin === true) {
+      return
+    }
+    setThinkingCreditsRemaining((prev) => Math.max(0, (prev ?? 0) - 1))
+  }
+
+  function markThinkingCreditsDepletedLocally() {
+    if (options?.isSuperadmin === true) {
+      return
+    }
+    setThinkingCreditsRemaining(0)
+  }
 
   const refreshThreadsFromServer = useCallback(
     async (
@@ -706,6 +744,18 @@ export function useChat(
     }
 
     const imageCmd = wantsWord ? null : matchExplicitImageGenerationRequest(trimmed)
+    const wantsThinkingTurn =
+      usesGatewayAi() &&
+      chatThinkingMode === 'thinking' &&
+      !wantsExcel &&
+      imageCmd?.kind !== 'prompt'
+
+    if (wantsThinkingTurn && options?.isSuperadmin !== true && (thinkingCreditsRemaining ?? 0) < 1) {
+      setError(
+        'Dein Thinking-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen.',
+      )
+      return
+    }
     if (imageCmd?.kind === 'empty') {
       setError(
         'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
@@ -997,7 +1047,17 @@ export function useChat(
             ...prev,
             [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
           }))
+          if (
+            wantsThinkingTurn &&
+            streamErr instanceof Error &&
+            streamErr.message.includes('Thinking-Guthaben')
+          ) {
+            markThinkingCreditsDepletedLocally()
+          }
           throw streamErr
+        }
+        if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+          markThinkingCreditConsumedLocally()
         }
       } else {
         const { assistantMessage } = await sendMessage(nextMessages, {
@@ -1016,6 +1076,9 @@ export function useChat(
           webSearchContext,
         })
         finalAssistantContent = assistantMessage.content
+        if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+          markThinkingCreditConsumedLocally()
+        }
       }
       if (usesGatewayAi() && wantsExcel) {
         try {
@@ -1092,10 +1155,12 @@ export function useChat(
         return upsertThreadMessages(prev, targetThreadId, mergedAssistantMessage)
       })
 
-      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel) {
+      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel && !wantsWord) {
         const rawAssistant = mergedAssistantMessage.content
         if (!hasExcelSpecMarkers(rawAssistant)) {
           const clarify = parseThinkingClarifyContent(rawAssistant)
+          const expectedClarifyOnly = thinkingTurnExpectsClarifyOnly(nextMessages)
+
           if (clarify.kind === 'clarify') {
             setThinkingClarifyDialog({
               kind: 'structured',
@@ -1104,12 +1169,17 @@ export function useChat(
               introMarkdown: clarify.introMarkdown,
               payload: clarify.payload,
             })
-          } else if (shouldOpenThinkingFallbackPopup(rawAssistant)) {
+          } else if (
+            expectedClarifyOnly &&
+            shouldOpenThinkingFallbackPopup(rawAssistant)
+          ) {
             setThinkingClarifyDialog({
               kind: 'freeText',
               threadId: targetThreadId,
               messageId: mergedAssistantMessage.id,
-              previewText: rawAssistant.trim(),
+              previewText:
+                rawAssistant.trim() ||
+                'Kurze Rückfrage: Was ist dir bei dieser Aufgabe am wichtigsten (Ziel, Tiefe oder Format)?',
             })
           }
         }
@@ -1192,10 +1262,18 @@ export function useChat(
         })()
       }
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Beim Senden ist ein unbekannter Fehler aufgetreten.'
-      setError(message)
+      if (
+        wantsThinkingTurn &&
+        err instanceof Error &&
+        err.message.includes('Thinking-Guthaben')
+      ) {
+        markThinkingCreditsDepletedLocally()
+      }
+      setError(errorMessageFromUnknown(err))
     } finally {
+      if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+        await options?.onThinkingCreditsConsumed?.()?.catch(() => {})
+      }
       setIsSending(false)
     }
   }
@@ -1225,5 +1303,7 @@ export function useChat(
     setChatThinkingMode: persistChatThinkingMode,
     thinkingClarifyDialog,
     dismissThinkingClarify: () => setThinkingClarifyDialog(null),
+    thinkingCreditsRemaining,
+    thinkingCreditsBlocked,
   }
 }

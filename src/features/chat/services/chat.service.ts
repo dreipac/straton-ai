@@ -6,6 +6,7 @@ import {
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import { env } from '../../../config/env'
+import { errorMessageFromUnknown, parseApiErrorField } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
@@ -22,9 +23,18 @@ import { buildMainChatOpenAiModelChain } from '../constants/chatDailyOpenAiTier'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import {
+  buildThinkingDocumentUserContextBlock,
+  getAssistantThinkingMarkdownInstruction,
   getChatThinkingClarifyUiReminder,
+  getChatThinkingDetailDepthInstruction,
+  getChatThinkingEmojiStyleInstruction,
+  getChatThinkingFinalAnswerTurnInstruction,
+  getChatThinkingFinalAnswerUiReminder,
+  getChatThinkingMandatoryClarifyTurnInstruction,
+  getChatThinkingWordDocumentInstruction,
   getChatThinkingWorkflowInstruction,
 } from '../constants/chatThinkingInstruction'
+import { thinkingTurnExpectsDetailedAnswer } from '../utils/thinkingClarify'
 import {
   getChatComfortToneInstruction,
   getChatStrictToneInstruction,
@@ -34,6 +44,7 @@ import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatCon
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
+  THINKING_MAX_OUTPUT_TOKENS,
 } from '../constants/mainChatOutput'
 import type {
   ChatMessage,
@@ -89,7 +100,7 @@ export type SendMessageOptions = {
    */
   chatReplyMode?: ChatReplyMode
   /**
-   * Hauptchat: Thinking nutzt Claude Sonnet 4.6, klärt per Rückfragen (max. 2 Runden), ohne Profil-Speicher.
+   * Hauptchat: Thinking nutzt GPT-5.4, ausführliche Antworten, klärt per Rückfragen (max. 2 Runden), ohne Profil-Speicher.
    */
   chatThinkingMode?: ChatThinkingMode
   /**
@@ -131,8 +142,8 @@ type GatewayMessage = {
   content: string
 }
 
-/** Thinking-Modus: immer dieses Modell (Sonnet 4.6), unabhängig von der Composer-Modellwahl. */
-const THINKING_ROUTE_MODEL_ID = 'claude-sonnet-4-6' satisfies ChatComposerModelId
+/** Thinking-Modus: immer GPT-5.4, unabhängig von der Composer-Modellwahl. */
+const THINKING_ROUTE_MODEL_ID = 'gpt-5.4' satisfies ChatComposerModelId
 
 function isMainChatThinking(options?: SendMessageOptions): boolean {
   return Boolean(!options?.useLearnPathModel && options?.chatThinkingMode === 'thinking')
@@ -159,9 +170,15 @@ async function messageFromFunctionsInvokeFailure(
       const text = (await response.text()).trim()
       if (text) {
         try {
-          const parsed = JSON.parse(text) as { error?: unknown }
-          if (typeof parsed.error === 'string' && parsed.error.trim()) {
-            return parsed.error.trim()
+          const parsed = JSON.parse(text) as { error?: unknown; message?: unknown }
+          if (parsed.error === 'THINKING_LIMIT') {
+            return typeof parsed.message === 'string' && parsed.message.trim()
+              ? parsed.message.trim()
+              : 'Dein Thinking-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen.'
+          }
+          const apiErr = parseApiErrorField(parsed)
+          if (apiErr) {
+            return apiErr
           }
         } catch {
           if (text.length < 800) {
@@ -176,10 +193,7 @@ async function messageFromFunctionsInvokeFailure(
       return 'Nicht angemeldet oder Sitzung abgelaufen. Bitte neu anmelden.'
     }
   }
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-  return 'Unbekannter Edge-Function-Fehler.'
+  return errorMessageFromUnknown(error, 'Unbekannter Edge-Function-Fehler.')
 }
 
 /**
@@ -277,8 +291,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat && typeof contextCap === 'number' && contextCap > 0
       ? clipChatMessagesToEstimatedTokenBudget(ragSelectedMessages, contextCap)
       : ragSelectedMessages
+  const thinking = isMainChat && options?.chatThinkingMode === 'thinking'
+  const thinkingWord = thinking && Boolean(options?.userRequestedWord)
   const mainChatBrevity =
-    isMainChat && !options?.userRequestedWord ? getAssistantMainChatBrevityInstruction() : ''
+    isMainChat && !options?.userRequestedWord && !thinking ? getAssistantMainChatBrevityInstruction() : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -287,12 +303,32 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : isMainChat && replyTone === 'comfort'
         ? getChatComfortToneInstruction()
         : ''
-  const thinkingBlock =
-    isMainChat && options?.chatThinkingMode === 'thinking'
-      ? getChatThinkingWorkflowInstruction()
-      : ''
+  const lastUserMessage = [...threadMessages].reverse().find((m) => m.role === 'user')
+  const thinkingClarifyPhase = thinking
+    ? thinkingWord
+      ? 'final'
+      : thinkingTurnExpectsDetailedAnswer(threadMessages)
+        ? 'final'
+        : 'clarify'
+    : null
+  const thinkingBlock = thinking
+    ? [
+        getChatThinkingWorkflowInstruction(),
+        thinkingWord ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
+        thinkingWord ? '' : getChatThinkingDetailDepthInstruction(),
+        thinkingClarifyPhase === 'clarify'
+          ? getChatThinkingMandatoryClarifyTurnInstruction()
+          : getChatThinkingFinalAnswerTurnInstruction(),
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    : ''
   const thinkingClarifyUiReminder =
-    isMainChat && options?.chatThinkingMode === 'thinking' ? getChatThinkingClarifyUiReminder() : ''
+    thinkingClarifyPhase === 'clarify'
+      ? getChatThinkingClarifyUiReminder()
+      : thinkingClarifyPhase === 'final'
+        ? getChatThinkingFinalAnswerUiReminder()
+        : ''
   const webSearchBlock =
     isMainChat && options?.webSearchContext?.trim()
       ? `${getChatWebSearchGroundingInstruction()}\n\n--- Websuche ---\n${options.webSearchContext.trim()}`
@@ -307,11 +343,17 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     truthBlock,
     toneBlock,
     thinkingBlock,
-    getAssistantMarkdownFormattingInstruction({
-      replyTone,
-      compact: isMainChat && !options?.userRequestedWord,
-    }),
-    !options?.userRequestedWord ? getAssistantEmojiStyleInstruction({ replyTone }) : '',
+    thinking
+      ? ''
+      : getAssistantMarkdownFormattingInstruction({
+          replyTone,
+          compact: isMainChat && !options?.userRequestedWord,
+        }),
+    thinking
+      ? getChatThinkingEmojiStyleInstruction()
+      : !options?.userRequestedWord
+        ? getAssistantEmojiStyleInstruction({ replyTone })
+        : '',
     thinkingClarifyUiReminder,
     mainChatBrevity && !thinkingClarifyUiReminder ? getAssistantMainChatBrevityFinalReminder() : '',
   ]
@@ -334,6 +376,18 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       if (message.role === 'user' && message.metadata?.userWordCommand) {
         const t = content.trim()
         content = t ? `${t}\n\n${WORD_EXPORT_COMMAND_MARKER}` : WORD_EXPORT_COMMAND_MARKER
+      }
+      if (
+        thinking &&
+        message.role === 'user' &&
+        lastUserMessage &&
+        message.id === lastUserMessage.id
+      ) {
+        const docBlock = buildThinkingDocumentUserContextBlock(message.content)
+        if (docBlock) {
+          const base = content.trim()
+          content = base ? `${base}\n\n${docBlock}` : docBlock
+        }
       }
       return {
         role: message.role,
@@ -484,6 +538,8 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v3'
+/** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
+const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v1'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
@@ -607,6 +663,7 @@ function buildChatCompletionRequestBody(
     ? getChatComposerModelMeta(THINKING_ROUTE_MODEL_ID)
     : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
+    mode: 'chat',
     provider: meta.provider,
     messages: gatewayMessages,
     includeProfileMemory: thinking ? false : true,
@@ -631,10 +688,13 @@ function buildChatCompletionRequestBody(
     body.anthropicModel = meta.anthropicModel
   }
   if (meta.provider === 'openai') {
-    body.promptCacheKey = OPENAI_PROMPT_CACHE_KEY_MAIN
+    body.promptCacheKey = thinking ? OPENAI_PROMPT_CACHE_KEY_THINKING : OPENAI_PROMPT_CACHE_KEY_MAIN
     body.promptCacheRetention = '24h'
   }
-  body.maxTokens = MAIN_CHAT_MAX_OUTPUT_TOKENS
+  body.maxTokens = thinking ? THINKING_MAX_OUTPUT_TOKENS : MAIN_CHAT_MAX_OUTPUT_TOKENS
+  if (thinking) {
+    body.billingConsumeThinkingCredit = true
+  }
   return body
 }
 
@@ -936,17 +996,31 @@ export async function sendMessageStreaming(
       const t = await res.text()
       if (t) {
         try {
-          const j = JSON.parse(t) as { error?: unknown }
-          if (typeof j.error === 'string' && j.error.trim()) {
-            msg = j.error.trim()
+          const j = JSON.parse(t) as { error?: unknown; message?: unknown }
+          if (j.error === 'THINKING_LIMIT') {
+            throw new Error(
+              typeof j.message === 'string' && j.message.trim()
+                ? j.message.trim()
+                : 'Dein Thinking-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen.',
+            )
           }
-        } catch {
+          const apiErr = parseApiErrorField(j)
+          if (apiErr) {
+            msg = apiErr
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof Error && parseErr.message.includes('Thinking-Guthaben')) {
+            throw parseErr
+          }
           if (t.length < 600) {
             msg = t.trim()
           }
         }
       }
-    } catch {
+    } catch (outer) {
+      if (outer instanceof Error && outer.message.includes('Thinking-Guthaben')) {
+        throw outer
+      }
       /* ignore */
     }
     throw new Error(msg)
@@ -957,9 +1031,7 @@ export async function sendMessageStreaming(
     let fromJson = ''
     try {
       const j = JSON.parse(t) as { error?: unknown }
-      if (typeof j.error === 'string' && j.error.trim()) {
-        fromJson = j.error.trim()
-      }
+      fromJson = parseApiErrorField(j)
     } catch {
       /* kein JSON */
     }

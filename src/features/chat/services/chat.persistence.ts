@@ -1,4 +1,9 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import {
+  isPostgresUnicodeEscapeError,
+  sanitizeChatMessageContentForDb,
+  sanitizeForJsonbStorage,
+} from '../../../utils/sanitizeDatabaseText'
 import type { ChatMessage, ChatRole, ChatThread } from '../types'
 
 type ChatThreadRow = {
@@ -135,15 +140,17 @@ export async function listChatThreads(userId: string): Promise<ChatThread[]> {
   return threads
 }
 
-export async function listMessagesByThreadIds(threadIds: string[]): Promise<ChatMessage[]> {
-  if (threadIds.length === 0) {
-    return []
-  }
-
+async function listMessagesByThreadIdsQuery(
+  threadIds: string[],
+  includeMetadata: boolean,
+): Promise<ChatMessage[]> {
   const supabase = getSupabaseClient()
+  const selectCols = includeMetadata
+    ? 'id, thread_id, role, content, created_at, metadata'
+    : 'id, thread_id, role, content, created_at'
   const { data, error } = await supabase
     .from('chat_messages')
-    .select('id, thread_id, role, content, created_at, metadata')
+    .select(selectCols)
     .in('thread_id', threadIds)
     .order('created_at', { ascending: true })
 
@@ -152,6 +159,21 @@ export async function listMessagesByThreadIds(threadIds: string[]): Promise<Chat
   }
 
   return (data ?? []).map((row) => mapMessage(row as ChatMessageRow))
+}
+
+export async function listMessagesByThreadIds(threadIds: string[]): Promise<ChatMessage[]> {
+  if (threadIds.length === 0) {
+    return []
+  }
+
+  try {
+    return await listMessagesByThreadIdsQuery(threadIds, true)
+  } catch (err) {
+    if (!isPostgresUnicodeEscapeError(err)) {
+      throw err
+    }
+    return listMessagesByThreadIdsQuery(threadIds, false)
+  }
 }
 
 export async function createChatThread(userId: string, title: string): Promise<ChatThread> {
@@ -197,6 +219,7 @@ export async function createChatMessage(
   metadata?: ChatMessage['metadata'],
 ): Promise<ChatMessage> {
   const supabase = getSupabaseClient()
+  const safeContent = sanitizeChatMessageContentForDb(content)
   const insertPayload: {
     thread_id: string
     role: ChatRole
@@ -205,10 +228,10 @@ export async function createChatMessage(
   } = {
     thread_id: threadId,
     role,
-    content,
+    content: safeContent,
   }
   if (metadata && Object.keys(metadata).length > 0) {
-    insertPayload.metadata = metadata
+    insertPayload.metadata = sanitizeForJsonbStorage(metadata)
   }
   const { data, error } = await supabase.from('chat_messages').insert(insertPayload).select('id, thread_id, role, content, created_at, metadata').single()
 

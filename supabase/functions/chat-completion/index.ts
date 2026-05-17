@@ -26,6 +26,20 @@ type InputMessage = {
 /** Gleicher Marker wie Client `wordExportPrompt.ts` — Word-Slash-Befehl. */
 const STRATON_WORD_EXPORT_COMMAND_MARKER = '[[STRATON_WORD_COMMAND]]'
 
+/** jsonb / OpenAI: NUL und Steuerzeichen entfernen (PDF/OCR-Anhänge). */
+function sanitizeChatTextForTransport(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+}
+
+function sanitizeInputMessages(messages: InputMessage[]): InputMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    content: sanitizeChatTextForTransport(m.content),
+  }))
+}
+
 /**
  * Wenn der Nutzer /Word ausgelöst hat: Systemhinweis für die #### / ##### / ######-Konvention,
  * damit die KI nicht nur «normales» Markdown (#–###) liefert.
@@ -45,7 +59,9 @@ function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[
     '- `#### ` = Absatz/Fließtext',
     '- `##### ` = Überschrift 1',
     '- `###### ` = Überschrift 2',
-    'Jeder Block beginnt mit einer dieser Zeilen; Folgezeilen ohne Präfix gehören zum letzten `####`-Absatz. Optional zusätzlich gültiges WordOutline-JSON in ```json … ```.',
+    'Jeder Block beginnt mit einer dieser Zeilen; Folgezeilen ohne Präfix gehören zum letzten `####`-Absatz.',
+    'Tabellen: GFM-Pipe (`| Spalte |` + `| --- |`) unter einem Absatz oder im WordOutline-JSON `{"type":"table","header":true,"rows":[["A","B"]]}`.',
+    'Optional zusätzlich gültiges WordOutline-JSON in ```json … ``` (`version`: 1, `blocks`: heading, paragraph, table).',
     'Keine langen Meta-Vorreden — beginne direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments.',
     'Die .docx erzeugt die App erst nach Bestätigung in der UI; du lieferst nur Text/JSON für die Vorschau.',
   ].join('\n')
@@ -220,10 +236,12 @@ const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt
 /** Nach Erreichen des Kosten-Budgets: günstigeres Modell zuerst (ohne gpt-5.4-mini). */
 const ECONOMY_OPENAI_CHAT_MODELS: string[] = ['gpt-5-mini', 'gpt-4o-mini']
 
+type ChatDailyTierOpenAiModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-4o' | 'gpt-4o-mini'
+
 type PlanDailyOpenAiTierEdge = {
-  tier1ModelId: 'gpt-5.4' | 'gpt-5.4-mini'
+  tier1ModelId: ChatDailyTierOpenAiModelId
   tier1TokenBudget: number
-  tier2ModelId: 'gpt-5.4' | 'gpt-5.4-mini'
+  tier2ModelId: ChatDailyTierOpenAiModelId
 }
 
 const DEFAULT_PLAN_DAILY_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
@@ -232,18 +250,24 @@ const DEFAULT_PLAN_DAILY_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
   tier2ModelId: 'gpt-5.4-mini',
 }
 
-function parseTierOpenAiModelId(raw: unknown): 'gpt-5.4' | 'gpt-5.4-mini' {
-  if (raw === 'gpt-5.4' || raw === 'gpt-5.4-mini') {
+function parseTierOpenAiModelId(raw: unknown): ChatDailyTierOpenAiModelId {
+  if (raw === 'gpt-5.4' || raw === 'gpt-5.4-mini' || raw === 'gpt-4o' || raw === 'gpt-4o-mini') {
     return raw
   }
   return 'gpt-5.4'
 }
 
-function openAiChainForTierModelId(id: 'gpt-5.4' | 'gpt-5.4-mini'): string[] {
-  if (id === 'gpt-5.4-mini') {
-    return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+function openAiChainForTierModelId(id: ChatDailyTierOpenAiModelId): string[] {
+  switch (id) {
+    case 'gpt-4o':
+      return ['gpt-4o', 'gpt-4o-mini']
+    case 'gpt-4o-mini':
+      return ['gpt-4o-mini', 'gpt-5-mini']
+    case 'gpt-5.4-mini':
+      return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+    default:
+      return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
   }
-  return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
 }
 
 function mainChatOpenAiModelsForPlanDailyUsage(
@@ -799,8 +823,13 @@ function openAiChatRequestBody(
 function formatOpenAiHttpError(status: number, errorText: string): string {
   if (status === 400 || status === 403) {
     try {
-      const parsed = JSON.parse(errorText) as { error?: { message?: string } }
-      const msg = typeof parsed.error?.message === 'string' ? parsed.error.message.trim() : ''
+      const parsed = JSON.parse(errorText) as { error?: { message?: string } | string }
+      const msg =
+        typeof parsed.error === 'string'
+          ? parsed.error.trim()
+          : typeof parsed.error?.message === 'string'
+            ? parsed.error.message.trim()
+            : ''
       if (msg) {
         return `OpenAI Anfrage fehlgeschlagen (${status}): ${msg}`
       }
@@ -809,6 +838,14 @@ function formatOpenAiHttpError(status: number, errorText: string): string {
     }
   }
   return `OpenAI Anfrage fehlgeschlagen (${status}).`
+}
+
+function isOpenAiPromptCacheRejection(status: number, errorText: string): boolean {
+  if (status !== 400) {
+    return false
+  }
+  const e = errorText.toLowerCase()
+  return e.includes('prompt_cache') || e.includes('prompt cache')
 }
 
 async function callOpenAi(
@@ -827,48 +864,59 @@ async function callOpenAi(
       : ([false] as const)
 
     for (const includeReasoningLow of reasoningSteps) {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(
-          openAiChatRequestBody(model, messages, {
-            includeReasoningLow,
-            promptCache,
-            maxOutputTokens,
-          }),
-        ),
-      })
+      let activePromptCache: OpenAiPromptCacheOptions | undefined = promptCache
+      let strippedPromptCache = false
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('[chat-completion] OpenAI HTTP error', response.status, errorText.slice(0, 800))
-        const errLower = errorText.toLowerCase()
-        const reasoningRejected =
-          includeReasoningLow &&
-          response.status === 400 &&
-          (errLower.includes('reasoning') ||
-            errLower.includes('unsupported') ||
-            errLower.includes('unknown parameter'))
+      while (true) {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(
+            openAiChatRequestBody(model, messages, {
+              includeReasoningLow,
+              promptCache: activePromptCache,
+              maxOutputTokens,
+            }),
+          ),
+        })
 
-        if (reasoningRejected) {
-          continue
-        }
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('[chat-completion] OpenAI HTTP error', response.status, errorText.slice(0, 800))
+          const errLower = errorText.toLowerCase()
 
-        const modelUnavailable =
+          if (!strippedPromptCache && activePromptCache && isOpenAiPromptCacheRejection(response.status, errorText)) {
+            activePromptCache = undefined
+            strippedPromptCache = true
+            continue
+          }
+
+          const reasoningRejected =
+            includeReasoningLow &&
+            response.status === 400 &&
+            (errLower.includes("unknown parameter: 'reasoning'") ||
+              errLower.includes('unknown parameter: "reasoning"') ||
+              (errLower.includes('reasoning') && errLower.includes('unknown parameter')))
+
+          if (reasoningRejected) {
+            break
+          }
+
+          const modelUnavailable =
           response.status === 400 &&
           (errorText.includes('model') || errorText.includes('does not exist') || errorText.includes('not found'))
 
-        if (modelUnavailable && model !== modelsToTry[modelsToTry.length - 1]) {
-          break
+          if (modelUnavailable && model !== modelsToTry[modelsToTry.length - 1]) {
+            break
+          }
+
+          throw new Error(formatOpenAiHttpError(response.status, errorText))
         }
 
-        throw new Error(formatOpenAiHttpError(response.status, errorText))
-      }
-
-      const data = (await response.json()) as {
+        const data = (await response.json()) as {
         model?: string
         choices?: Array<{ message?: { content?: string } }>
         usage?: {
@@ -878,23 +926,24 @@ async function callOpenAi(
         }
       }
       const content = data.choices?.[0]?.message?.content?.trim()
-      if (content) {
-        const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
-        const inputTokens = Math.max(0, Math.floor(Number(data.usage?.prompt_tokens ?? 0)))
-        const outputTokens = Math.max(0, Math.floor(Number(data.usage?.completion_tokens ?? 0)))
-        const cachedPromptTokens = Math.max(
-          0,
-          Math.floor(Number(data.usage?.prompt_tokens_details?.cached_tokens ?? 0)),
-        )
-        return {
-          text: content,
-          model: usedModel,
-          inputTokens,
-          outputTokens,
-          ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+        if (content) {
+          const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
+          const inputTokens = Math.max(0, Math.floor(Number(data.usage?.prompt_tokens ?? 0)))
+          const outputTokens = Math.max(0, Math.floor(Number(data.usage?.completion_tokens ?? 0)))
+          const cachedPromptTokens = Math.max(
+            0,
+            Math.floor(Number(data.usage?.prompt_tokens_details?.cached_tokens ?? 0)),
+          )
+          return {
+            text: content,
+            model: usedModel,
+            inputTokens,
+            outputTokens,
+            ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+          }
         }
+        break
       }
-      break
     }
   }
 
@@ -996,12 +1045,14 @@ async function handleOpenAiChatStream(
 
         inner: for (const includeReasoningLow of reasoningSteps) {
           let includeUsageFlag = true
+          let activePromptCache: OpenAiPromptCacheOptions | undefined = promptCache
+          let strippedPromptCache = false
 
           while (true) {
             const reqBody: Record<string, unknown> = {
               ...openAiChatRequestBody(model, messages, {
                 includeReasoningLow,
-                promptCache,
+                promptCache: activePromptCache,
                 maxOutputTokens,
               }),
               stream: true,
@@ -1034,12 +1085,18 @@ async function handleOpenAiChatStream(
                 continue
               }
 
+              if (!strippedPromptCache && activePromptCache && isOpenAiPromptCacheRejection(res.status, errorText)) {
+                activePromptCache = undefined
+                strippedPromptCache = true
+                continue
+              }
+
               const reasoningRejected =
                 includeReasoningLow &&
                 res.status === 400 &&
-                (errLower.includes('reasoning') ||
-                  errLower.includes('unsupported') ||
-                  errLower.includes('unknown parameter'))
+                (errLower.includes("unknown parameter: 'reasoning'") ||
+                  errLower.includes('unknown parameter: "reasoning"') ||
+                  (errLower.includes('reasoning') && errLower.includes('unknown parameter')))
 
               if (reasoningRejected) {
                 continue inner
@@ -1881,6 +1938,8 @@ serve(async (req) => {
       promptCacheRetention?: unknown
       /** Nur bei `true`: gespeicherten Nutzer-Kontext für den Hauptchat einfügen (nicht Excel/Lernpfad). */
       includeProfileMemory?: unknown
+      /** Thinking-Modus: 1 Guthaben pro Anfrage (`consume_one_thinking_credit`). */
+      billingConsumeThinkingCredit?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
@@ -2061,7 +2120,40 @@ serve(async (req) => {
     }
 
     if (mode === 'chat') {
-      chatMessages = injectWordExportMarkdownConventionSystemMessage(chatMessages)
+      chatMessages = sanitizeInputMessages(
+        injectWordExportMarkdownConventionSystemMessage(chatMessages),
+      )
+    } else {
+      chatMessages = sanitizeInputMessages(chatMessages)
+    }
+
+    if (mode === 'chat' && body.billingConsumeThinkingCredit === true) {
+      const { data: profThink } = await userClient
+        .from('profiles')
+        .select('is_superadmin')
+        .eq('id', user.id)
+        .maybeSingle()
+      const thinkSuperadmin = profThink?.is_superadmin === true
+      if (!thinkSuperadmin) {
+        const { error: thinkConsumeErr } = await userClient.rpc('consume_one_thinking_credit')
+        if (thinkConsumeErr) {
+          const em = String(thinkConsumeErr.message ?? '')
+          if (em.includes('THINKING_LIMIT')) {
+            return jsonResponse(
+              {
+                error: 'THINKING_LIMIT',
+                message:
+                  'Dein Thinking-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen.',
+              },
+              402,
+            )
+          }
+          return jsonResponse(
+            { error: em || 'Thinking-Guthaben konnte nicht gebucht werden.' },
+            500,
+          )
+        }
+      }
     }
 
     const rawMax = body.maxTokens

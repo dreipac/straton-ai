@@ -299,6 +299,8 @@ export function ChatPage() {
     setChatThinkingMode,
     thinkingClarifyDialog,
     dismissThinkingClarify,
+    thinkingCreditsRemaining,
+    thinkingCreditsBlocked,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
@@ -309,6 +311,8 @@ export function ChatPage() {
     webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
     isSuperadmin: profile?.is_superadmin === true,
     onWebSearchCreditsConsumed: refreshProfile,
+    thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
+    onThinkingCreditsConsumed: refreshProfile,
   })
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
@@ -2173,6 +2177,20 @@ export function ChatPage() {
           webSearchDailyGrant={
             profile?.is_superadmin === true ? undefined : profile?.subscription_plans?.web_search_daily_grant ?? null
           }
+          thinkingCreditsRemaining={
+            profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
+          }
+          thinkingCreditMax={
+            profile?.is_superadmin === true
+              ? undefined
+              : profile?.subscription_plans?.thinking_credit_max ?? undefined
+          }
+          thinkingDailyGrant={
+            profile?.is_superadmin === true
+              ? undefined
+              : profile?.subscription_plans?.thinking_daily_grant ?? null
+          }
+          thinkingCreditsBlocked={thinkingCreditsBlocked}
         />
         <aside
           className={`chat-learnpath-draft-sidebar${learningPathDraftOpen ? ' is-open' : ''}`}
