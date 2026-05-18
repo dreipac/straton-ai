@@ -31,6 +31,7 @@ import {
   getChatThinkingFinalAnswerTurnInstruction,
   getChatThinkingFinalAnswerUiReminder,
   getChatThinkingMandatoryClarifyTurnInstruction,
+  getChatThinkingMixedLayoutInstruction,
   getChatThinkingWordDocumentInstruction,
   getChatThinkingWorkflowInstruction,
 } from '../constants/chatThinkingInstruction'
@@ -109,6 +110,8 @@ export type SendMessageOptions = {
   mainChatUsedTokensToday?: number
   /** Aus `subscription_plans`: Tier 1 (bis Token-Budget) / Tier 2 für OpenAI-Hauptchat pro Tag. */
   mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
+  /** Thinking-Modus: OpenAI-Staffel aus `subscription_plans` (thinking_tier_*). */
+  mainChatThinkingTierConfig?: ChatDailyOpenAiTierConfig | null
   /**
    * Hauptchat: Obergrenze für geschätzte Tokens des User/Assistant-Verlaufs (ohne Systemprompt).
    * `number` = Kürzen; `null` = kein Limit; ohne Abo: Client setzt `mainChatContextMaxTokens` auf die App-Default-Größe.
@@ -141,9 +144,6 @@ type GatewayMessage = {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
-
-/** Thinking-Modus: immer GPT-5.4, unabhängig von der Composer-Modellwahl. */
-const THINKING_ROUTE_MODEL_ID = 'gpt-5.4' satisfies ChatComposerModelId
 
 function isMainChatThinking(options?: SendMessageOptions): boolean {
   return Boolean(!options?.useLearnPathModel && options?.chatThinkingMode === 'thinking')
@@ -315,6 +315,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     ? [
         getChatThinkingWorkflowInstruction(),
         thinkingWord ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
+        thinkingWord ? '' : getChatThinkingMixedLayoutInstruction(),
         thinkingWord ? '' : getChatThinkingDetailDepthInstruction(),
         thinkingClarifyPhase === 'clarify'
           ? getChatThinkingMandatoryClarifyTurnInstruction()
@@ -539,7 +540,7 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v3'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
-const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v1'
+const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v3'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
@@ -660,7 +661,7 @@ function buildChatCompletionRequestBody(
 
   const thinking = isMainChatThinking(options)
   const meta = thinking
-    ? getChatComposerModelMeta(THINKING_ROUTE_MODEL_ID)
+    ? { provider: 'openai' as const, openAiModels: [] as string[] }
     : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     mode: 'chat',
@@ -668,19 +669,26 @@ function buildChatCompletionRequestBody(
     messages: gatewayMessages,
     includeProfileMemory: thinking ? false : true,
   }
-  if (meta.provider === 'openai' && meta.openAiModels?.length) {
-    if (
+  if (meta.provider === 'openai') {
+    if (!options?.useLearnPathModel && thinking) {
+      const usedToday =
+        typeof options?.mainChatUsedTokensToday === 'number' ? options.mainChatUsedTokensToday : 0
+      body.openAiModels = [
+        ...buildMainChatOpenAiModelChain(usedToday, options?.mainChatThinkingTierConfig ?? undefined),
+      ]
+    } else if (
       !options?.useLearnPathModel &&
       !thinking &&
+      options?.mainChatDailyTierConfig != null &&
       typeof options?.mainChatUsedTokensToday === 'number'
     ) {
       body.openAiModels = [
         ...buildMainChatOpenAiModelChain(
           options.mainChatUsedTokensToday,
-          options.mainChatDailyTierConfig ?? undefined,
+          options.mainChatDailyTierConfig,
         ),
       ]
-    } else {
+    } else if (meta.openAiModels?.length) {
       body.openAiModels = [...meta.openAiModels]
     }
   }
@@ -950,7 +958,7 @@ export async function sendMessageStreaming(
 
   const thinkingMain = !options.useLearnPathModel && options.chatThinkingMode === 'thinking'
   const streamMeta = thinkingMain
-    ? getChatComposerModelMeta(THINKING_ROUTE_MODEL_ID)
+    ? { provider: 'openai' as const }
     : getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
   if (streamMeta.provider === 'anthropic') {
     if (signal?.aborted) {

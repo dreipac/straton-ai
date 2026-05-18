@@ -202,6 +202,7 @@ export function useChat(
     /** `subscription_usages.used_tokens` — Tages-Staffelung OpenAI im Hauptchat */
     mainChatUsedTokensToday?: number
     mainChatDailyTierConfig?: ChatDailyOpenAiTierConfig | null
+    mainChatThinkingTierConfig?: ChatDailyOpenAiTierConfig | null
     /** Abo: max. geschätzte Tokens für Chat-Verlauf; ohne Abo Default aus `mainChatContext`. */
     mainChatContextMaxTokens?: number | null
     /** Aktuelles Websuche-Guthaben (Profil); ohne Superadmin bei 0 keine Websuche. */
@@ -1028,6 +1029,7 @@ export function useChat(
             chatThinkingMode,
             mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
             mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
+            mainChatThinkingTierConfig: options?.mainChatThinkingTierConfig,
             mainChatContextMaxTokens:
               options?.mainChatContextMaxTokens === undefined
                 ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
@@ -1069,6 +1071,7 @@ export function useChat(
           chatThinkingMode,
           mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
           mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
+          mainChatThinkingTierConfig: options?.mainChatThinkingTierConfig,
           mainChatContextMaxTokens:
             options?.mainChatContextMaxTokens === undefined
               ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS

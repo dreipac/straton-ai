@@ -236,7 +236,7 @@ const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt
 /** Nach Erreichen des Kosten-Budgets: günstigeres Modell zuerst (ohne gpt-5.4-mini). */
 const ECONOMY_OPENAI_CHAT_MODELS: string[] = ['gpt-5-mini', 'gpt-4o-mini']
 
-type ChatDailyTierOpenAiModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-4o' | 'gpt-4o-mini'
+type ChatDailyTierOpenAiModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o' | 'gpt-4o-mini'
 
 type PlanDailyOpenAiTierEdge = {
   tier1ModelId: ChatDailyTierOpenAiModelId
@@ -250,8 +250,18 @@ const DEFAULT_PLAN_DAILY_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
   tier2ModelId: 'gpt-5.4-mini',
 }
 
+const DEFAULT_PLAN_THINKING_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
+  ...DEFAULT_PLAN_DAILY_OPENAI_TIER,
+}
+
 function parseTierOpenAiModelId(raw: unknown): ChatDailyTierOpenAiModelId {
-  if (raw === 'gpt-5.4' || raw === 'gpt-5.4-mini' || raw === 'gpt-4o' || raw === 'gpt-4o-mini') {
+  if (
+    raw === 'gpt-5.4' ||
+    raw === 'gpt-5.4-mini' ||
+    raw === 'gpt-5-mini' ||
+    raw === 'gpt-4o' ||
+    raw === 'gpt-4o-mini'
+  ) {
     return raw
   }
   return 'gpt-5.4'
@@ -263,6 +273,8 @@ function openAiChainForTierModelId(id: ChatDailyTierOpenAiModelId): string[] {
       return ['gpt-4o', 'gpt-4o-mini']
     case 'gpt-4o-mini':
       return ['gpt-4o-mini', 'gpt-5-mini']
+    case 'gpt-5-mini':
+      return ['gpt-5-mini', 'gpt-4o-mini']
     case 'gpt-5.4-mini':
       return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
     default:
@@ -410,6 +422,7 @@ type PlanChatFields = {
   chat_allow_model_choice: boolean
   default_chat_model_id: string | null
   dailyOpenAiTier: PlanDailyOpenAiTierEdge
+  thinkingOpenAiTier: PlanDailyOpenAiTierEdge
 }
 
 async function fetchSubscriptionPlanChatFields(
@@ -422,7 +435,7 @@ async function fetchSubscriptionPlanChatFields(
   const { data, error } = await admin
     .from('profiles')
     .select(
-      'subscription_plans ( chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id )',
+      'subscription_plans ( chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id )',
     )
     .eq('id', userId)
     .maybeSingle()
@@ -441,6 +454,11 @@ async function fetchSubscriptionPlanChatFields(
     typeof budgetRaw === 'number' && Number.isFinite(budgetRaw)
       ? Math.max(0, Math.floor(budgetRaw))
       : DEFAULT_PLAN_DAILY_OPENAI_TIER.tier1TokenBudget
+  const thinkingBudgetRaw = p.thinking_tier1_token_budget
+  const thinkingBudget =
+    typeof thinkingBudgetRaw === 'number' && Number.isFinite(thinkingBudgetRaw)
+      ? Math.max(0, Math.floor(thinkingBudgetRaw))
+      : DEFAULT_PLAN_THINKING_OPENAI_TIER.tier1TokenBudget
   return {
     chat_allow_model_choice: p.chat_allow_model_choice !== false,
     default_chat_model_id: typeof p.default_chat_model_id === 'string' ? p.default_chat_model_id : null,
@@ -448,6 +466,11 @@ async function fetchSubscriptionPlanChatFields(
       tier1ModelId: parseTierOpenAiModelId(p.chat_daily_tier1_openai_model_id),
       tier1TokenBudget: budget,
       tier2ModelId: parseTierOpenAiModelId(p.chat_daily_tier2_openai_model_id),
+    },
+    thinkingOpenAiTier: {
+      tier1ModelId: parseTierOpenAiModelId(p.thinking_tier1_openai_model_id),
+      tier1TokenBudget: thinkingBudget,
+      tier2ModelId: parseTierOpenAiModelId(p.thinking_tier2_openai_model_id),
     },
   }
 }
@@ -1978,6 +2001,19 @@ serve(async (req) => {
       if (usedToday !== null) {
         const tier = planChatFields?.dailyOpenAiTier ?? DEFAULT_PLAN_DAILY_OPENAI_TIER
         openAiModels = mainChatOpenAiModelsForPlanDailyUsage(usedToday, tier)
+      }
+    }
+
+    if (
+      mode === 'chat' &&
+      provider === 'openai' &&
+      body.billingConsumeThinkingCredit === true &&
+      admin
+    ) {
+      const usedTodayThink = await fetchSubscriptionUsedTokensToday(admin, user.id)
+      if (usedTodayThink !== null) {
+        const thinkTier = planChatFields?.thinkingOpenAiTier ?? DEFAULT_PLAN_THINKING_OPENAI_TIER
+        openAiModels = mainChatOpenAiModelsForPlanDailyUsage(usedTodayThink, thinkTier)
       }
     }
 

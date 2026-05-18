@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { chatToolbarMobileMediaQuery, isChatToolbarMobileViewport } from '../../../utils/mobile'
 import { CHAT_THINKING_MODE_OPTIONS, type ChatThinkingMode } from '../constants/chatThinkingMode'
 
@@ -42,7 +43,7 @@ export function ChatComposerThinkingModePicker({
   const isMobileSheet = useMobileThinkingPickerSheet()
 
   const currentLabel =
-    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Normal'
+    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Instant'
 
   const sheetActions = useMemo(
     () =>
@@ -94,6 +95,7 @@ export function ChatComposerThinkingModePicker({
           aria-expanded={open}
           aria-haspopup={isMobileSheet ? 'dialog' : 'listbox'}
           aria-label={`Bearbeitungsmodus: ${currentLabel}. Auswahl öffnen`}
+          onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
           onClick={() => setOpen((prev) => !prev)}
         >
           <span className="chat-model-picker-label">{currentLabel}</span>
@@ -103,7 +105,7 @@ export function ChatComposerThinkingModePicker({
           <div
             className="chat-slash-menu thread-menu chat-model-picker-dropdown"
             role="listbox"
-            aria-label="Normal oder Thinking wählen"
+            aria-label="Instant oder Thinking wählen"
           >
             {CHAT_THINKING_MODE_OPTIONS.map((option) => (
               <button
@@ -131,7 +133,7 @@ export function ChatComposerThinkingModePicker({
           open={open}
           onClose={() => setOpen(false)}
           title="Bearbeitungsmodus"
-          ariaLabel="Normal oder Thinking wählen"
+          ariaLabel="Instant oder Thinking wählen"
           actions={sheetActions}
         />
       ) : null}

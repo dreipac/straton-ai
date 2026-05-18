@@ -1,12 +1,19 @@
 /** Auswahl im Chat-Composer (Hauptchat); IDs sind API-Modellnamen wo möglich. */
 export const CHAT_COMPOSER_MODEL_STORAGE_KEY = 'straton-chat-composer-model'
 
-export type ChatComposerModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
+export type ChatComposerModelId =
+  | 'gpt-5.4'
+  | 'gpt-5.4-mini'
+  | 'gpt-5-mini'
+  | 'gpt-4o-mini'
+  | 'claude-sonnet-4-6'
+  | 'claude-opus-4-7'
 
 /** Nur OpenAI — für Abo «Tages-Staffel» (Tier 1 / Tier 2), Admin Abo-Eigenschaften. */
 export type ChatDailyTierOpenAiModelId =
   | 'gpt-5.4'
   | 'gpt-5.4-mini'
+  | 'gpt-5-mini'
   | 'gpt-4o'
   | 'gpt-4o-mini'
 
@@ -16,6 +23,7 @@ export const CHAT_DAILY_TIER_OPENAI_MODELS: readonly {
 }[] = [
   { id: 'gpt-5.4', label: 'GPT-5.4' },
   { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+  { id: 'gpt-5-mini', label: 'GPT-5 mini' },
   { id: 'gpt-4o', label: 'GPT-4' },
   { id: 'gpt-4o-mini', label: 'GPT-4 mini' },
 ]
@@ -59,6 +67,18 @@ export const CHAT_COMPOSER_MODELS: readonly ChatComposerModelOption[] = [
     label: 'GPT-5.4 mini',
     provider: 'openai',
     openAiModels: ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'],
+  },
+  {
+    id: 'gpt-5-mini',
+    label: 'GPT-5 mini',
+    provider: 'openai',
+    openAiModels: ['gpt-5-mini', 'gpt-4o-mini'],
+  },
+  {
+    id: 'gpt-4o-mini',
+    label: 'GPT-4 mini',
+    provider: 'openai',
+    openAiModels: ['gpt-4o-mini', 'gpt-5-mini'],
   },
   {
     id: 'claude-sonnet-4-6',
@@ -125,9 +145,25 @@ export function getChatModelPolicyFromPlan(plan: SubscriptionPlanChatModelFields
     }
   }
   const t1 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier1_openai_model_id)
-  const forced: ChatComposerModelId =
-    t1 === 'gpt-5.4' || t1 === 'gpt-5.4-mini' ? t1 : 'gpt-5.4-mini'
+  const forced: ChatComposerModelId = tierOpenAiIdToComposerModelId(t1)
   return { allowModelChoice: false, forcedModelId: forced }
+}
+
+function tierOpenAiIdToComposerModelId(tierId: ChatDailyTierOpenAiModelId): ChatComposerModelId {
+  switch (tierId) {
+    case 'gpt-5.4':
+      return 'gpt-5.4'
+    case 'gpt-5.4-mini':
+      return 'gpt-5.4-mini'
+    case 'gpt-5-mini':
+      return 'gpt-5-mini'
+    case 'gpt-4o-mini':
+      return 'gpt-4o-mini'
+    case 'gpt-4o':
+      return 'gpt-4o-mini'
+    default:
+      return 'gpt-5.4-mini'
+  }
 }
 
 export function getComposerApiModelIdsForAdminFilter(): string[] {

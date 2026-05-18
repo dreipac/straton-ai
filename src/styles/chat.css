@@ -1819,6 +1819,42 @@
   margin-bottom: 0;
 }
 
+/* Thinking-Modus: nur blauer Schatten, langsam «atmend» */
+@keyframes chat-thinking-shadow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.85)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 18px rgba(15, 23, 42, 0.08)),
+      0 10px 28px rgba(59, 130, 246, 0.11),
+      0 0 20px rgba(96, 165, 250, 0.07);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.85)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 18px rgba(15, 23, 42, 0.08)),
+      0 16px 40px rgba(59, 130, 246, 0.2),
+      0 0 32px rgba(96, 165, 250, 0.13);
+  }
+}
+
+.chat-input-row--thinking-mode:not(.is-sending),
+.chat-input-row--thinking-mode:focus-within:not(.is-sending) {
+  animation: chat-thinking-shadow-breathe 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-row--thinking-mode:not(.is-sending),
+  .chat-input-row--thinking-mode:focus-within:not(.is-sending) {
+    animation: none;
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.85)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 18px rgba(15, 23, 42, 0.08)),
+      0 12px 32px rgba(59, 130, 246, 0.15),
+      0 0 24px rgba(96, 165, 250, 0.1);
+  }
+}
+
 .chat-input-row::after {
   content: '';
   position: absolute;
@@ -3162,6 +3198,13 @@
   .chat-composer-stack > .chat-quick-tiles--mobile-rail,
   .chat-panel.is-empty .chat-empty-compose > .chat-quick-tiles--mobile-rail {
     margin-bottom: 0.1rem;
+    position: relative;
+    z-index: 2;
+  }
+
+  .chat-input-row--stacked .chat-left-actions {
+    position: relative;
+    z-index: 2;
   }
 
   .chat-quick-tiles--mobile-rail .chat-quick-tiles-scroll {
@@ -3961,7 +4004,50 @@
 }
 
 :root[data-theme='dark'] .chat-app-shell,
-:root[data-theme='dark'] .chat-app-shell-guest,
+:root[data-theme='dark'] .chat-app-shell-guest {
+  --chat-composer-corner-top-left: rgba(148, 163, 184, 0.42);
+  --chat-composer-corner-bottom-right: rgba(148, 163, 184, 0.42);
+  --chat-composer-surface: #151a22;
+  --chat-composer-shell-inset-highlight: rgba(255, 255, 255, 0.03);
+  --chat-composer-shell-outer-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  --chat-bottom-nav-active-pill-bg: color-mix(in srgb, var(--chat-composer-surface) 55%, rgba(255, 255, 255, 0.22) 45%);
+  --chat-bottom-nav-pill-accent: var(--color-accent, var(--accent-ring-base, #6366f1));
+}
+
+@keyframes chat-thinking-shadow-breathe-dark {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.03)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 20px rgba(0, 0, 0, 0.24)),
+      0 10px 30px rgba(59, 130, 246, 0.16),
+      0 0 22px rgba(96, 165, 250, 0.1);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.03)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 20px rgba(0, 0, 0, 0.24)),
+      0 16px 42px rgba(59, 130, 246, 0.28),
+      0 0 34px rgba(96, 165, 250, 0.16);
+  }
+}
+
+:root[data-theme='dark'] .chat-input-row--thinking-mode:not(.is-sending),
+:root[data-theme='dark'] .chat-input-row--thinking-mode:focus-within:not(.is-sending) {
+  animation: chat-thinking-shadow-breathe-dark 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme='dark'] .chat-input-row--thinking-mode:not(.is-sending),
+  :root[data-theme='dark'] .chat-input-row--thinking-mode:focus-within:not(.is-sending) {
+    box-shadow:
+      inset 0 1px 0 var(--chat-composer-shell-inset-highlight, rgba(255, 255, 255, 0.03)),
+      var(--chat-composer-shell-outer-shadow, 0 8px 20px rgba(0, 0, 0, 0.24)),
+      0 12px 34px rgba(59, 130, 246, 0.2),
+      0 0 26px rgba(96, 165, 250, 0.12);
+  }
+}
+
 :root[data-theme='dark'] .chat-input-row {
   --chat-composer-corner-top-left: rgba(148, 163, 184, 0.42);
   --chat-composer-corner-bottom-right: rgba(148, 163, 184, 0.42);
@@ -5828,7 +5914,9 @@ button.chat-onboarding-tour-block {
     backface-visibility: hidden;
   }
 
-  .chat-mobile-bottom-nav.is-tap-spring {
+  .chat-mobile-bottom-nav.is-tap-spring,
+  .chat-mobile-bottom-nav.is-tap-held,
+  .chat-mobile-bottom-nav.is-tap-held-release {
     transition: none;
   }
 

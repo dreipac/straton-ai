@@ -192,13 +192,22 @@ textarea.ui-textarea:disabled {
 }
 
 /*
- * Tap-Feder: ein Durchlauf pro Tipp (größer → kleiner + Aufhellen), Peak ohne Stehenbleiben.
+ * Tap-Feder: kurzer Tipp = ein Durchlauf (größer → kleiner + Aufhellen).
+ * Gedrückthalten (.is-tap-held) = Peak-Scale bis Loslassen.
  */
 :root {
   --tap-feedback-spring-duration: 500ms;
   --tap-feedback-spring-ease: cubic-bezier(0.34, 1.22, 0.64, 1);
-  --tap-feedback-spring-scale-peak: 1.12;
-  --tap-feedback-spring-icon-peak: 1.08;
+  --tap-feedback-spring-scale-peak: 1.14;
+  --tap-feedback-spring-icon-peak: 1.1;
+  --tap-feedback-spring-hold-release-ms: 220ms;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --tap-feedback-spring-scale-peak: 1.2;
+    --tap-feedback-spring-icon-peak: 1.16;
+  }
 }
 
 @keyframes tap-feedback-spring-scale {
@@ -246,8 +255,77 @@ textarea.ui-textarea:disabled {
   animation: tap-feedback-spring-scale var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
 }
 
-.tap-spring-surface.is-tap-spring {
-  --tap-feedback-spring-scale-peak: 1.035;
+.tap-spring-surface.is-tap-spring,
+.tap-spring-surface.is-tap-held {
+  --tap-feedback-spring-scale-peak: 1.06;
+}
+
+@media (pointer: coarse) {
+  .tap-spring-surface.is-tap-spring,
+  .tap-spring-surface.is-tap-held {
+    --tap-feedback-spring-scale-peak: 1.1;
+  }
+}
+
+.tap-spring-surface.is-tap-held,
+.glass-pill-touch.is-tap-held:not(:disabled),
+.new-chat-touch-btn.is-tap-held {
+  animation: none;
+  transform: scale(var(--tap-feedback-spring-scale-peak));
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tap-spring-surface.is-tap-held:not(.is-tap-spring) {
+  transition-duration: 0.1s;
+}
+
+.glass-pill-touch.is-tap-held:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-held::after {
+  animation: none;
+  opacity: 1;
+}
+
+.glass-pill-touch.is-tap-held:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-held .new-chat-touch-btn__icon {
+  animation: none;
+  transform: scale(var(--tap-feedback-spring-icon-peak));
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes tap-feedback-hold-release {
+  from {
+    transform: scale(var(--tap-feedback-spring-scale-peak));
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes tap-feedback-hold-release-icon {
+  from {
+    transform: scale(var(--tap-feedback-spring-icon-peak));
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+.tap-spring-surface.is-tap-held-release,
+.glass-pill-touch.is-tap-held-release:not(:disabled),
+.new-chat-touch-btn.is-tap-held-release {
+  animation: tap-feedback-hold-release var(--tap-feedback-spring-hold-release-ms) ease-out both;
+}
+
+.glass-pill-touch.is-tap-held-release:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-held-release .new-chat-touch-btn__icon {
+  animation: tap-feedback-hold-release-icon var(--tap-feedback-spring-hold-release-ms) ease-out both;
+}
+
+.glass-pill-touch.is-tap-held-release:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-held-release::after {
+  animation: tap-feedback-spring-glow var(--tap-feedback-spring-hold-release-ms) ease-out both;
 }
 
 .glass-pill-touch {
@@ -306,12 +384,14 @@ textarea.ui-textarea:disabled {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled):not(.is-tap-spring) {
+  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled):not(.is-tap-spring):not(
+      .is-tap-held
+    ) {
     transform: scale(1.12);
     filter: brightness(1.1) saturate(1.06);
   }
 
-  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled):not(.is-tap-spring) {
+  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled):not(.is-tap-spring):not(.is-tap-held) {
     transform: scale(1.12);
   }
 }
@@ -328,5 +408,11 @@ textarea.ui-textarea:disabled {
   .glass-pill-touch.is-tap-spring:not(:disabled) .glass-pill-touch__icon,
   .new-chat-touch-btn.is-tap-spring .new-chat-touch-btn__icon {
     animation-duration: 180ms;
+  }
+
+  .tap-spring-surface.is-tap-held,
+  .glass-pill-touch.is-tap-held:not(:disabled),
+  .new-chat-touch-btn.is-tap-held {
+    transition-duration: 80ms;
   }
 }

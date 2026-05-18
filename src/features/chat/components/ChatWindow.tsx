@@ -14,6 +14,7 @@ import {
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { GlassPillTouchSurface } from '../../../components/ui/GlassPillTouchSurface'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
@@ -488,7 +489,7 @@ export function ChatWindow({
   const cancelWhileSending = Boolean(isSending && onCancelSend)
 
   const composerSendButtonClassName = isMobileComposer
-    ? ['new-chat-touch-btn', mobileComposerSendTouch.isTapSpring ? 'is-tap-spring' : '']
+    ? ['new-chat-touch-btn', mobileComposerSendTouch.touchStateClass]
         .filter(Boolean)
         .join(' ')
     : undefined
@@ -513,6 +514,9 @@ export function ChatWindow({
       />
     </span>
   )
+
+  const thinkingComposerRowClass =
+    chatThinkingMode === 'thinking' ? ' chat-input-row--thinking-mode' : ''
 
   const composePlaceholder = tokenLimitReached
     ? 'Token-Limit erreicht'
@@ -1333,6 +1337,7 @@ export function ChatWindow({
               <button
                 type="button"
                 className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
                 onClick={handleSelectExcelQuickTile}
               >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
@@ -1346,6 +1351,7 @@ export function ChatWindow({
           <button
             type="button"
             className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
+            onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
             onClick={handleSelectWordQuickTile}
           >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
@@ -1361,6 +1367,7 @@ export function ChatWindow({
           <button
             type="button"
             className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
+            onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
             onClick={handleSelectImageQuickTile}
           >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
@@ -1374,6 +1381,7 @@ export function ChatWindow({
           <button
             type="button"
             className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
+            onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
             onClick={handleSelectWebSearchQuickTile}
           >
             <span className="chat-quick-tile-icon-wrap" aria-hidden>
@@ -1513,7 +1521,7 @@ export function ChatWindow({
           {webSearchCreditsHintEl}
           {thinkingCreditsHintEl}
           <form
-            className={`chat-input-row is-centered chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+            className={`chat-input-row is-centered chat-input-row--stacked${thinkingComposerRowClass}${isSending ? ' is-sending' : ''}`}
             onSubmit={handleSubmit}
           >
             <input
@@ -1531,6 +1539,7 @@ export function ChatWindow({
                 className="chat-attach-button"
                 disabled={isSending || isAttachingFiles || tokenLimitReached}
                 aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
                 onClick={handleAttachComposerButtonClick}
               >
                 <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
@@ -2184,14 +2193,16 @@ export function ChatWindow({
         </div>
       ) : null}
 
-      <div className="chat-composer-stack">
+      <div
+        className="chat-composer-stack"
+      >
         {thinkingClarifyOverlay}
         {isMobileComposer ? quickTilesEl : null}
         {isMobileComposer ? webSearchCreditsHintEl : null}
         {isMobileComposer ? thinkingCreditsHintEl : null}
         {composerAttachSheet}
         <form
-          className={`chat-input-row chat-input-row--stacked${isSending ? ' is-sending' : ''}`}
+          className={`chat-input-row chat-input-row--stacked${thinkingComposerRowClass}${isSending ? ' is-sending' : ''}`}
           onSubmit={handleSubmit}
         >
         <input
@@ -2209,6 +2220,7 @@ export function ChatWindow({
             className="chat-attach-button"
             disabled={isSending || isAttachingFiles || tokenLimitReached}
             aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
+            onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
             onClick={handleAttachComposerButtonClick}
           >
             <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />

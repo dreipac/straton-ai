@@ -19,6 +19,7 @@ export function getChatThinkingWorkflowInstruction(): string {
     'Regeln zum JSON:',
     '- prompt: eine klare, kurze Frage (ein Satz).',
     '- options: 2 bis 5 Objekte mit id und label; IDs kurz und eindeutig; keine Option „Eigene Antwort“ (die App ergänzt sie).',
+    '- Bei Detailtiefe-Fragen: Labels z. B. «Kurz», «Standard — Fließtext + Stichpunkte», «Ausführlich» (nicht nur «3–5 Bullets»).',
     '- JSON gültig, doppelte Anführungszeichen, kein Text ausserhalb der Marker ausser dem optionalen Satz davor.',
     '- Pro Nachricht nur EIN Clarify-Block.',
   ].join('\n')
@@ -40,7 +41,8 @@ export function getChatThinkingFinalAnswerTurnInstruction(): string {
     'Thinking — Phase 2 (diese Antwort):',
     'Der Nutzer hat deine Rückfrage beantwortet. Jetzt die vollständige, ausführliche Antwort liefern.',
     'KEIN Clarify-Block in dieser Nachricht. NICHT die Kurzregeln des Normal-Modus.',
-    'Struktur und Tiefe gemäss Thinking-Format- und Umfangsregeln (nummerierte Abschnitte, Tabellen wo sinnvoll).',
+    'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
+    'Glossare/Begriffe nur als Tabelle; bei ausführlicher Bearbeitung alles Relevante aus dem Material mitnehmen.',
     'Offene Kleinigkeiten: knappe Annahmen nennen und trotzdem liefern.',
   ].join('\n')
 }
@@ -56,22 +58,52 @@ export function getAssistantThinkingMarkdownInstruction(): string {
     '— Beginne mit `## Zusammenfassung` + kurzem Themennamen (kein «Hier ist…»).',
     '— Direkt darunter ein Satz: «Diese Zusammenfassung basiert auf deinem Dokument.» (oder sinngleich).',
     '— Hauptteile als nummerierte Kapitel: `## 1. …`, `## 2. …`, `## 3. …` (fortlaufend, inhaltlich vollständig).',
-    '— Zwischen größeren Kapiteln optional eine Zeile `---` zur visuellen Trennung.',
-    '— Unterkapitel mit `###` (z. B. «Personenversicherungen», «Grundversicherung»).',
-    '— Vor Listen oft ein **fettes Label** mit Doppelpunkt (z. B. **Deckt:**, **Muss:**, **Ziel:**, **Versichert:**) und darunter Bullet- oder nummerierte Listen.',
-    '— Vergleiche und Typen-Übersichten als Markdown-Tabelle (| Spalte | Spalte |) mit Kopfzeile und Trennzeile `| --- | --- |`.',
-    '— Prozessabläufe mit Pfeilen im Fließtext erlaubt (z. B. «Prämien → Versicherer → Leistungen»).',
+    '',
+    'Rhythmus pro Hauptkapitel (verbindlich — keine reine Stichpunktwand):',
+    '1) Zuerst 1–2 kurze Fließtext-Sätze (vollständige Sätze, kein Stichwort-Fraktionieren).',
+    '2) Danach optional **Label:** (fett) + 2–6 Stichpunkte für Details, Fakten, Aufzählungen.',
+    '3) Optional ein abschließender Kurzsatz zur Einordnung.',
+    '4) Nach jedem Hauptkapitel (ausser dem letzten) eine eigene Zeile mit nur `---` (horizontale Trennlinie).',
+  ].join('\n')
+}
+
+/** Zusatz: Mischformat und Verbote gegen reine Bullet-Listen (Phase 2). */
+export function getChatThinkingMixedLayoutInstruction(): string {
+  return [
+    'Thinking — Layout-Mix (Phase 2, gilt für alle ausführlichen Antworten):',
+    '— Jeder nummerierte Hauptabschnitt braucht mindestens einen Fließtext-Satz; Stichpunkte nur als Ergänzung, nicht als Ersatz.',
+    '— Zwischen Hauptabschnitten `---` setzen (visuelle Trennung).',
+    '— Unterkapitel mit `###` wenn das Thema es braucht.',
+    '— Vor Listen gern ein **fettes Label** mit Doppelpunkt (z. B. **Deckt:**, **Ziel:**, **Ablauf:**).',
+    '— Vergleiche und Typen-Übersichten als Markdown-Tabelle (| Spalte | Spalte |) mit `| --- | --- |`.',
+    '— Prozessabläufe auch als Kurzsatz mit Pfeilen (z. B. «Prämien → Versicherer → Leistungen»).',
+    '',
+    'Glossar / Begriffe (verbindlich):',
+    '— Wenn Fachbegriffe, Abkürzungen oder «Wörter erklärt» vorkommen (eigener Abschnitt «Glossar», «Begriffe», «Wichtige Begriffe» oder eingestreut): **immer als Markdown-Tabelle**, nie als reine Bullet-Liste.',
+    '— Standard-Spalten: `| Begriff | Erklärung |` oder `| Wort | Bedeutung |` (Kopfzeile + `| --- | --- |`).',
+    '— Pro Zeile ein Begriff; Erklärung in 1–3 klaren Sätzen (nicht nur ein Stichwort).',
+    '— Alle relevanten Begriffe aus dem Material aufnehmen, nicht nur eine Auswahl.',
+    '',
+    'VERBOTEN in Phase 2:',
+    '— Das gesamte Dokument nur aus `-`-Listen ohne Fließtext-Absätze.',
+    '— Drei gleiche Blöcke «nur 3 Bullets unter Überschrift» hintereinander — variiere: Satz + Bullets, Tabelle, zwei Sätze, ###-Unterkapitel.',
+    '— Leere Platzhalter oder Meta-Sätze («In diesem Abschnitt…»).',
+    '— Glossar/Begriffserklärungen als Bullet-Liste statt Tabelle.',
   ].join('\n')
 }
 
 export function getChatThinkingDetailDepthInstruction(): string {
   return [
-    'Thinking — Umfang (an Material anpassen; gilt in Phase 2):',
-    '— Sehr kleines Material (unter ca. 2 500 Zeichen Anhang): 3–5 nummerierte Hauptabschnitte, je 1–3 Unterpunkte.',
-    '— Mittleres Material (ca. 2 500–12 000 Zeichen): 6–10 Hauptabschnitte mit ###-Unterthemen und Tabellen wo sinnvoll.',
-    '— Grosses Material (über ca. 12 000 Zeichen): 10–18+ nummerierte Hauptabschnitte, alle wichtigen Themen des Dokuments abdecken, nicht oberflächlich.',
+    'Thinking — Umfang & Vollständigkeit (an Material anpassen; gilt in Phase 2):',
+    '— Grundsatz: bei ausführlichen Aufgaben, Zusammenfassungen und «alles erklären» **nichts Wesentliches weglassen** — lieber vollständig als gekürzt.',
+    '— Alle im Material genannten Themen, Unterthemen, Termine, Aufgaben, Personen/Rollen und definierten Begriffe mitnehmen, sofern zum Auftrag gehören.',
+    '— Kein «… und weitere», kein bewusstes Ausblenden von Kapiteln «aus Platzgründen».',
+    '— Sehr kleines Material (unter ca. 2 500 Zeichen Anhang): 3–5 nummerierte Hauptabschnitte; je Abschnitt Satz + optional Bullets, dazwischen `---`.',
+    '— Mittleres Material (ca. 2 500–12 000 Zeichen): 6–10 Hauptabschnitte mit ###-Unterthemen, Tabellen wo sinnvoll, durchgehend Mischformat.',
+    '— Grosses Material (über ca. 12 000 Zeichen): 10–18+ nummerierte Hauptabschnitte; **jedes wichtige Thema** des Dokuments abdecken, nicht oberflächlich zusammenfassen.',
     '— Allgemeine Aufgaben ohne Dokument: so viele Abschnitte wie nötig, Schritt-für-Schritt wo passend.',
-    '— Lieber zu vollständig als zu knapp; keine absichtliche Kürzung.',
+    '— Wenn der Nutzer «Ausführlich» wählt oder viel Anhang mitliefert: maximale inhaltliche Abdeckung — Glossar als Tabelle, alle Abschnitte des Quelltexts berücksichtigen.',
+    '— Wenn der Nutzer «Standard» oder «3–5 Abschnitte» wählt: trotzdem pro Abschnitt Fließtext + optional Stichpunkte; inhaltlich nichts Wichtiges aus dem Dokument streichen.',
   ].join('\n')
 }
 
@@ -95,7 +127,9 @@ export function getChatThinkingWordDocumentInstruction(): string {
     '- `#### ` = Absatz/Fließtext',
     'Fortsetzungszeilen ohne Präfix gehören zum letzten `####`-Absatz.',
     '',
-    'Tabellen (verbindlich wenn Vergleiche, Kennzahlen, Übersichten sinnvoll):',
+    'Glossar/Begriffe im Word-Dokument: immer als Tabelle (`type: "table"` oder GFM), Spalten z. B. Begriff | Erklärung — nie nur Stichwortliste.',
+    '',
+    'Tabellen (verbindlich wenn Vergleiche, Kennzahlen, Übersichten, Glossar sinnvoll):',
     '- Entweder GFM im Fließtext unter einem `####`-Absatz:',
     '  | Spalte A | Spalte B |',
     '  | --- | --- |',
@@ -157,7 +191,8 @@ export function buildThinkingDocumentUserContextBlock(userContent: string): stri
     `Geschätzter Umfang: ca. ${totalChars.toLocaleString('de-DE')} Zeichen (~${approxPages} Seiten).`,
     filesLine,
     depthLine,
-    'Bei Zusammenfassungswunsch in Phase 2: Format «Zusammenfassung» aus den Thinking-Formatregeln strikt einhalten.',
+    'Bei Zusammenfassungswunsch in Phase 2: Format «Zusammenfassung» — Mischung Fließtext, Stichpunkte, `---` zwischen Kapiteln; alle wesentlichen Inhalte des Anhangs mitnehmen.',
+    'Begriffe/Glossar in Phase 2: immer als Tabelle (| Begriff | Erklärung |), vollständig aus dem Material.',
     '---',
   ]
     .filter(Boolean)
@@ -179,6 +214,6 @@ export function getChatThinkingClarifyUiReminder(): string {
 export function getChatThinkingFinalAnswerUiReminder(): string {
   return [
     'Thinking — letzte Priorität für diese Antwort (Phase 2):',
-    'Ausführliche strukturierte Antwort gemäss Thinking-Formatregeln. Kein Clarify-Block.',
+    'Ausführliche Antwort: vollständig (nichts Wichtiges weglassen), ##-Kapitel, `---` zwischen Kapiteln, Glossar nur als Tabelle. Kein Clarify-Block.',
   ].join('\n')
 }

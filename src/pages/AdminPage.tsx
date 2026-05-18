@@ -48,7 +48,10 @@ import {
   type SubscriptionImageGenerationModelId,
 } from '../features/auth/constants/subscriptionImageGenerationModels'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
-import { parseChatDailyTierOpenAiModelId } from '../features/chat/constants/chatDailyOpenAiTier'
+import {
+  parseChatDailyTierOpenAiModelId,
+  parseThinkingTierConfigFromPlan,
+} from '../features/chat/constants/chatDailyOpenAiTier'
 import {
   CHAT_DAILY_TIER_OPENAI_MODELS,
   getChatDailyTierOpenAiModelLabel,
@@ -94,6 +97,13 @@ function formatSubscriptionPlanDailyTierSummary(plan: SubscriptionPlanRow): stri
   const l1 = getChatDailyTierOpenAiModelLabel(t1)
   const l2 = getChatDailyTierOpenAiModelLabel(t2)
   return `OpenAI Tages-Staffel: erste ${b.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
+}
+
+function formatSubscriptionPlanThinkingTierSummary(plan: SubscriptionPlanRow): string {
+  const cfg = parseThinkingTierConfigFromPlan(plan)
+  const l1 = getChatDailyTierOpenAiModelLabel(cfg.tier1ModelId)
+  const l2 = getChatDailyTierOpenAiModelLabel(cfg.tier2ModelId)
+  return `Thinking OpenAI-Staffel: erste ${cfg.tier1TokenBudget.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
 }
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -218,6 +228,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanTier1TokenBudget, setNewPlanTier1TokenBudget] = useState('50000')
   const [newPlanTier2OpenAiModelId, setNewPlanTier2OpenAiModelId] =
     useState<ChatDailyTierOpenAiModelId>('gpt-5.4-mini')
+  const [newPlanThinkingTier1OpenAiModelId, setNewPlanThinkingTier1OpenAiModelId] =
+    useState<ChatDailyTierOpenAiModelId>('gpt-5.4')
+  const [newPlanThinkingTier1TokenBudget, setNewPlanThinkingTier1TokenBudget] = useState('50000')
+  const [newPlanThinkingTier2OpenAiModelId, setNewPlanThinkingTier2OpenAiModelId] =
+    useState<ChatDailyTierOpenAiModelId>('gpt-5.4-mini')
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [editPlanDraft, setEditPlanDraft] = useState<{
@@ -238,6 +253,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     thinkingStartBalance: string
     thinkingDailyGrant: string
     thinkingCreditMax: string
+    thinkingTier1OpenAiModelId: ChatDailyTierOpenAiModelId
+    thinkingTier1TokenBudget: string
+    thinkingTier2OpenAiModelId: ChatDailyTierOpenAiModelId
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -942,6 +960,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       }
     }
 
+    let thinkingTier1Budget = 50_000
+    if (newPlanThinkingTier1TokenBudget.trim()) {
+      const tbThink = parseOptionalNonNegativeInt(newPlanThinkingTier1TokenBudget)
+      if (tbThink === null) {
+        setSubscriptionPlansError(
+          'Thinking Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
+        )
+        return
+      }
+      thinkingTier1Budget = tbThink
+    }
+
     setSubscriptionPlansError(null)
     setIsCreatingPlan(true)
     try {
@@ -962,6 +992,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingStartBalance: thinkingStartBalance ?? 0,
         thinkingDailyGrant: thinkingDailyGrant ?? 0,
         thinkingCreditMax: thinkingCreditMax ?? 10,
+        thinkingTier1OpenAiModelId: newPlanThinkingTier1OpenAiModelId,
+        thinkingTier1TokenBudget: thinkingTier1Budget,
+        thinkingTier2OpenAiModelId: newPlanThinkingTier2OpenAiModelId,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -982,6 +1015,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanTier1OpenAiModelId('gpt-5.4')
       setNewPlanTier1TokenBudget('50000')
       setNewPlanTier2OpenAiModelId('gpt-5.4-mini')
+      setNewPlanThinkingTier1OpenAiModelId('gpt-5.4')
+      setNewPlanThinkingTier1TokenBudget('50000')
+      setNewPlanThinkingTier2OpenAiModelId('gpt-5.4-mini')
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
     } finally {
@@ -1071,6 +1107,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       }
     }
 
+    let thinkingTier1Budget = 50_000
+    if (editPlanDraft.thinkingTier1TokenBudget.trim()) {
+      const tbThink = parseOptionalNonNegativeInt(editPlanDraft.thinkingTier1TokenBudget)
+      if (tbThink === null) {
+        setSubscriptionPlansError(
+          'Thinking Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
+        )
+        return
+      }
+      thinkingTier1Budget = tbThink
+    }
+
     setSubscriptionPlansError(null)
     setIsUpdatingPlan(true)
     try {
@@ -1092,6 +1140,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingStartBalance: thinkingStartBalance ?? 0,
         thinkingDailyGrant: thinkingDailyGrant ?? 0,
         thinkingCreditMax: thinkingCreditMax ?? 10,
+        thinkingTier1OpenAiModelId: editPlanDraft.thinkingTier1OpenAiModelId,
+        thinkingTier1TokenBudget: thinkingTier1Budget,
+        thinkingTier2OpenAiModelId: editPlanDraft.thinkingTier2OpenAiModelId,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -2418,6 +2469,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           Thinking: Start {plan.thinking_start_balance ?? 0}, +
                           {plan.thinking_daily_grant ?? 0}/Tag, max. {plan.thinking_credit_max ?? 10}
                           <br />
+                          {formatSubscriptionPlanThinkingTierSummary(plan)}
+                          <br />
                           Bildgenerator:{' '}
                           {labelForSubscriptionImageGenerationModel(
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
@@ -2485,6 +2538,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 typeof plan.thinking_credit_max === 'number'
                                   ? String(plan.thinking_credit_max)
                                   : '10',
+                              thinkingTier1OpenAiModelId: parseChatDailyTierOpenAiModelId(
+                                plan.thinking_tier1_openai_model_id ?? null,
+                              ),
+                              thinkingTier1TokenBudget:
+                                plan.thinking_tier1_token_budget != null
+                                  ? String(plan.thinking_tier1_token_budget)
+                                  : '50000',
+                              thinkingTier2OpenAiModelId: parseChatDailyTierOpenAiModelId(
+                                plan.thinking_tier2_openai_model_id ?? null,
+                              ),
                             })
                           }}
                         >
@@ -3130,6 +3193,54 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       Eine Thinking-Anfrage = ein Senden im Thinking-Modus (Start bei Abo-Zuweisung).
                     </p>
 
+                    <p className="admin-users-hint subscription-plan-tier-intro">
+                      Thinking-Modus (OpenAI): nach Verbrauch in{' '}
+                      <code>subscription_usages.used_tokens</code> pro Tag — erstes Modell bis zum Budget, danach
+                      zweites Modell.
+                    </p>
+                    <label htmlFor="admin-new-thinking-tier1-openai-model">Thinking: erstes OpenAI-Modell</label>
+                    <select
+                      id="admin-new-thinking-tier1-openai-model"
+                      className="admin-user-subscription-select"
+                      value={newPlanThinkingTier1OpenAiModelId}
+                      onChange={(event) =>
+                        setNewPlanThinkingTier1OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
+                      }
+                    >
+                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label htmlFor="admin-new-thinking-tier1-token-budget">Thinking: Token-Budget (Tier 1)</label>
+                    <input
+                      id="admin-new-thinking-tier1-token-budget"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      value={newPlanThinkingTier1TokenBudget}
+                      onChange={(event) => setNewPlanThinkingTier1TokenBudget(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-thinking-tier2-openai-model">Thinking: zweites OpenAI-Modell</label>
+                    <select
+                      id="admin-new-thinking-tier2-openai-model"
+                      className="admin-user-subscription-select"
+                      value={newPlanThinkingTier2OpenAiModelId}
+                      onChange={(event) =>
+                        setNewPlanThinkingTier2OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
+                      }
+                    >
+                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+
                     <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
                     <select
                       id="admin-new-subscription-image-gen-model"
@@ -3438,6 +3549,72 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <p className="admin-users-hint">
                       Eine Thinking-Anfrage = ein Senden im Thinking-Modus. Start-Guthaben gilt bei neuer Abo-Zuweisung.
                     </p>
+
+                    <p className="admin-users-hint subscription-plan-tier-intro">
+                      Thinking-Modus (OpenAI): nach Verbrauch in{' '}
+                      <code>subscription_usages.used_tokens</code> pro Tag — erstes Modell bis zum Budget, danach
+                      zweites Modell.
+                    </p>
+                    <label htmlFor="admin-edit-thinking-tier1-openai-model">Thinking: erstes OpenAI-Modell</label>
+                    <select
+                      id="admin-edit-thinking-tier1-openai-model"
+                      className="admin-user-subscription-select"
+                      value={editPlanDraft.thinkingTier1OpenAiModelId}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                thinkingTier1OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
+                              }
+                            : null,
+                        )
+                      }
+                    >
+                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label htmlFor="admin-edit-thinking-tier1-token-budget">Thinking: Token-Budget (Tier 1)</label>
+                    <input
+                      id="admin-edit-thinking-tier1-token-budget"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      value={editPlanDraft.thinkingTier1TokenBudget}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, thinkingTier1TokenBudget: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-thinking-tier2-openai-model">Thinking: zweites OpenAI-Modell</label>
+                    <select
+                      id="admin-edit-thinking-tier2-openai-model"
+                      className="admin-user-subscription-select"
+                      value={editPlanDraft.thinkingTier2OpenAiModelId}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                thinkingTier2OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
+                              }
+                            : null,
+                        )
+                      }
+                    >
+                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
 
                     <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
                     <select

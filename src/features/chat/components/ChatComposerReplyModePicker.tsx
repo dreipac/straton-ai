@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { CHAT_REPLY_MODE_OPTIONS, type ChatReplyMode } from '../constants/chatReplyMode'
 
 export type ChatComposerReplyModePickerProps = {
@@ -56,6 +57,7 @@ export function ChatComposerReplyModePicker({
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={`Antwortmodus: ${currentLabel}. Auswahl öffnen`}
+        onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span className="chat-model-picker-label">{currentLabel}</span>

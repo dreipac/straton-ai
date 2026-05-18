@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { chatToolbarMobileMediaQuery, isChatToolbarMobileViewport } from '../../../utils/mobile'
 import {
   CHAT_COMPOSER_MODELS,
@@ -93,6 +94,7 @@ export function ChatComposerModelPicker({ value, onChange, disabled }: ChatCompo
           aria-expanded={open}
           aria-haspopup={isMobileSheet ? 'dialog' : 'listbox'}
           aria-label={`KI-Modell: ${current.label}. Auswahl öffnen`}
+          onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
           onClick={() => setOpen((prev) => !prev)}
         >
           <span className="chat-model-picker-label">{current.label}</span>

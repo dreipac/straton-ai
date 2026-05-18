@@ -44,7 +44,10 @@ import {
   getUserDisplayName,
 } from '../features/auth/utils/userDisplay'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
-import { parseChatDailyTierConfigFromPlan } from '../features/chat/constants/chatDailyOpenAiTier'
+import {
+  parseChatDailyTierConfigFromPlan,
+  parseThinkingTierConfigFromPlan,
+} from '../features/chat/constants/chatDailyOpenAiTier'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
@@ -262,6 +265,10 @@ export function ChatPage() {
       applyMainChatDailyTier ? parseChatDailyTierConfigFromPlan(profile?.subscription_plans ?? null) : undefined,
     [applyMainChatDailyTier, profile?.subscription_plans],
   )
+  const mainChatThinkingTierConfig = useMemo(
+    () => parseThinkingTierConfigFromPlan(profile?.subscription_plans ?? null),
+    [profile?.subscription_plans],
+  )
   const mainChatContextMaxTokens = useMemo((): number | null => {
     if (!profile?.subscription_plans) {
       return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
@@ -304,9 +311,9 @@ export function ChatPage() {
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
-    mainChatUsedTokensToday:
-      user && applyMainChatDailyTier ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
+    mainChatUsedTokensToday: user ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
     mainChatDailyTierConfig: user && applyMainChatDailyTier ? mainChatDailyTierConfig : undefined,
+    mainChatThinkingTierConfig: user ? mainChatThinkingTierConfig : undefined,
     mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
     webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
     isSuperadmin: profile?.is_superadmin === true,
@@ -1442,7 +1449,7 @@ export function ChatPage() {
           className={[
             'chat-mobile-bottom-nav',
             'tap-spring-surface',
-            mobileBottomNavSpring.isTapSpring ? 'is-tap-spring' : '',
+            mobileBottomNavSpring.touchStateClass,
             pillPulseActive ? 'is-pill-accent-pulse' : '',
           ]
             .filter(Boolean)
@@ -1546,7 +1553,7 @@ export function ChatPage() {
           className={[
             'chat-mobile-new-chat-btn',
             'new-chat-touch-btn',
-            mobileNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
+            mobileNewChatTouch.touchStateClass,
             variant === 'main' && isNewChatPending ? 'is-new-chat-pending' : '',
             variant === 'main' && chatTourEligible ? 'chat-onboarding-tour-block' : '',
           ]
@@ -1578,7 +1585,7 @@ export function ChatPage() {
           <div className="chat-mobile-top-bar__start">
             <div
               className={glassPillTouchClass(
-                mobileTopBarModeTouch.isTapSpring,
+                mobileTopBarModeTouch,
                 'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--mode',
               )}
               {...mobileTopBarModeTouch.touchHandlers}
@@ -1593,7 +1600,7 @@ export function ChatPage() {
           <div className="chat-mobile-top-bar__center">
             <div
               className={glassPillTouchClass(
-                mobileTopBarTitleTouch.isTapSpring,
+                mobileTopBarTitleTouch,
                 'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--title',
               )}
               {...mobileTopBarTitleTouch.touchHandlers}
@@ -1622,7 +1629,7 @@ export function ChatPage() {
             {!isGuest ? (
               <div
                 className={glassPillTouchClass(
-                  mobileTopBarMenuTouch.isTapSpring,
+                  mobileTopBarMenuTouch,
                   'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--menu',
                 )}
                 {...mobileTopBarMenuTouch.touchHandlers}
@@ -1741,7 +1748,7 @@ export function ChatPage() {
                 className={[
                   'mobile-new-chat-fab',
                   'new-chat-touch-btn',
-                  sidebarNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
+                  sidebarNewChatTouch.touchStateClass,
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -2019,7 +2026,7 @@ export function ChatPage() {
               className={[
                 'mobile-new-chat-fab',
                 'new-chat-touch-btn',
-                sidebarNewChatTouch.isTapSpring ? 'is-tap-spring' : '',
+                sidebarNewChatTouch.touchStateClass,
                 chatTourEligible ? 'chat-onboarding-tour-block' : '',
                 isNewChatPending ? 'is-new-chat-pending' : '',
               ]
