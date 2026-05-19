@@ -81,7 +81,7 @@ type OpenAiPromptCacheOptions = {
 }
 
 /** Gleicher Default wie Client `chat.service.ts` (`OPENAI_PROMPT_CACHE_KEY_MAIN`). */
-const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v3'
+const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v4'
 
 function sanitizePromptCacheKey(value: unknown): string | null {
   if (typeof value !== 'string') {

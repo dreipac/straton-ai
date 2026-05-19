@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type TransitionEvent as ReactTransitionEvent,
 } from 'react'
+import { useToast } from '../../../components/toast/ToastProvider'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { GlassPillTouchSurface } from '../../../components/ui/GlassPillTouchSurface'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
@@ -55,7 +56,9 @@ import { ChatComposerModelPicker } from './ChatComposerModelPicker'
 import { ChatComposerReplyModePicker } from './ChatComposerReplyModePicker'
 import { ChatComposerThinkingModePicker } from './ChatComposerThinkingModePicker'
 import { ThinkingClarifyModal } from './ThinkingClarifyModal'
+import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
 import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
+import { extractUserMessageCopyText } from '../utils/chatMessageCopy'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
   messageContainsCompleteThinkingClarifyBlock,
@@ -63,6 +66,7 @@ import {
 } from '../utils/thinkingClarify'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
+import { ChatUserMessageMenuSelect } from './ChatUserMessageMenuSelect'
 import { MAX_WEB_SEARCH_CREDIT_BALANCE } from '../constants/webSearchCredits'
 import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
 
@@ -326,7 +330,10 @@ export function ChatWindow({
   const [slashMenuHighlightIndex, setSlashMenuHighlightIndex] = useState(0)
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
+  const { push: pushToast } = useToast()
+  const userMessageLongPress = useUserMessageLongPress(isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
+  const mobileComposerMessageBoxTouch = useGlassPillTouchFeedback()
   const mobileSendStartedWithTouchRef = useRef(false)
   const [mobileDuringIconReady, setMobileDuringIconReady] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
@@ -515,8 +522,22 @@ export function ChatWindow({
     </span>
   )
 
-  const thinkingComposerRowClass =
-    chatThinkingMode === 'thinking' ? ' chat-input-row--thinking-mode' : ''
+  const composerInputRowTouchHandlers = isMobileComposer
+    ? mobileComposerMessageBoxTouch.touchHandlers
+    : undefined
+
+  const buildComposerInputRowClass = (centered: boolean) =>
+    [
+      'chat-input-row',
+      centered ? 'is-centered' : '',
+      'chat-input-row--stacked',
+      chatThinkingMode === 'thinking' ? 'chat-input-row--thinking-mode' : '',
+      isSending ? 'is-sending' : '',
+      isMobileComposer ? 'tap-spring-surface' : '',
+      isMobileComposer ? mobileComposerMessageBoxTouch.touchStateClass : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
 
   const composePlaceholder = tokenLimitReached
     ? 'Token-Limit erreicht'
@@ -1237,12 +1258,16 @@ export function ChatWindow({
   }
 
   function stripAttachmentBlocksForDisplay(content: string): string {
-    return content
-      .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
-      .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
-      .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
+    return extractUserMessageCopyText(content)
+  }
+
+  async function handleCopyUserMessageText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      pushToast('Nachricht kopiert')
+    } catch {
+      pushToast('Kopieren fehlgeschlagen')
+    }
   }
 
   const thinkingClarifyOverlay =
@@ -1521,8 +1546,9 @@ export function ChatWindow({
           {webSearchCreditsHintEl}
           {thinkingCreditsHintEl}
           <form
-            className={`chat-input-row is-centered chat-input-row--stacked${thinkingComposerRowClass}${isSending ? ' is-sending' : ''}`}
+            className={buildComposerInputRowClass(true)}
             onSubmit={handleSubmit}
+            {...composerInputRowTouchHandlers}
           >
             <input
               ref={fileInputRef}
@@ -1865,10 +1891,20 @@ export function ChatWindow({
               animatedContent.length < rawContent.length)
           const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
 
+          const userMessageCopyText =
+            message.role === 'user' ? stripAttachmentBlocksForDisplay(rawContent) : ''
+          const userMessageLongPressHandlers =
+            message.role === 'user' && userMessageCopyText
+              ? userMessageLongPress.bindUserMessageLongPress(message.id, userMessageCopyText)
+              : undefined
+          const userMessagePressActive =
+            message.role === 'user' && userMessageLongPress.isMessagePressActive(message.id)
+
           return (
             <article
               key={message.id}
-              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}`}
+              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}${userMessagePressActive ? ' is-message-press-active' : ''}`}
+              {...userMessageLongPressHandlers}
             >
               {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
               {hasReloadedImageSrc ? (
@@ -2010,6 +2046,17 @@ export function ChatWindow({
                 <p className="chat-message-body chat-excel-fallback-text">
                   Die Word-Datei ist bereit — nutze den Download-Button unten.
                 </p>
+              ) : null}
+              {isMobileComposer && userMessageLongPress.menuState?.messageId === message.id ? (
+                <ChatUserMessageMenuSelect
+                  onSelectCopy={() => {
+                    const text = userMessageLongPress.menuState?.copyText
+                    if (text) {
+                      void handleCopyUserMessageText(text)
+                    }
+                  }}
+                  onClose={userMessageLongPress.closeMenu}
+                />
               ) : null}
 
               {message.metadata?.excelExport ? (
@@ -2202,8 +2249,9 @@ export function ChatWindow({
         {isMobileComposer ? thinkingCreditsHintEl : null}
         {composerAttachSheet}
         <form
-          className={`chat-input-row chat-input-row--stacked${thinkingComposerRowClass}${isSending ? ' is-sending' : ''}`}
+          className={buildComposerInputRowClass(false)}
           onSubmit={handleSubmit}
+          {...composerInputRowTouchHandlers}
         >
         <input
           ref={fileInputRef}

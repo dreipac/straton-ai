@@ -3440,6 +3440,70 @@
     border-radius: 16px;
   }
 
+  .chat-message.is-user {
+    position: relative;
+    -webkit-touch-callout: none;
+    user-select: none;
+    transition:
+      transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      box-shadow 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .chat-user-message-menu {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border-radius: inherit;
+    cursor: pointer;
+  }
+
+  .chat-user-message-menu-select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 1rem;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .chat-user-message-menu-select:focus,
+  .chat-user-message-menu-select:focus-visible {
+    outline: none;
+  }
+
+  .chat-message.is-user.is-message-press-active {
+    position: relative;
+    z-index: 4;
+    transform: scale(1.045);
+    box-shadow:
+      0 12px 28px rgba(15, 23, 42, 0.2),
+      0 0 0 1px color-mix(in srgb, var(--chat-user-bubble-bg, #2563eb) 70%, #ffffff 30%);
+  }
+
+  :root[data-theme='dark'] .chat-message.is-user.is-message-press-active {
+    box-shadow:
+      0 16px 34px rgba(0, 0, 0, 0.42),
+      0 0 0 1px color-mix(in srgb, var(--chat-user-bubble-bg, #1e3a5f) 65%, #93c5fd 35%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-message.is-user {
+      transition: none;
+    }
+
+    .chat-message.is-user.is-message-press-active {
+      transform: none;
+    }
+  }
+
   .chat-message.is-assistant {
     width: 100%;
     max-width: 100%;
@@ -5772,6 +5836,31 @@ button.chat-onboarding-tour-block {
     transition: box-shadow 220ms ease;
   }
 
+  /* Message Box (mobil): dezente Tap-Feder + dauerhaft leichte Transparenz. */
+  .chat-input-row.tap-spring-surface {
+    backface-visibility: hidden;
+    opacity: 0.9;
+  }
+
+  .chat-input-row.tap-spring-surface.is-sending {
+    opacity: 0.9;
+  }
+
+  .chat-input-row.tap-spring-surface.is-tap-spring,
+  .chat-input-row.tap-spring-surface.is-tap-held,
+  .chat-input-row.tap-spring-surface.is-tap-held-release {
+    --tap-feedback-spring-scale-peak: 1.008;
+    transition: none;
+  }
+
+  @media (pointer: coarse) {
+    .chat-input-row.tap-spring-surface.is-tap-spring,
+    .chat-input-row.tap-spring-surface.is-tap-held,
+    .chat-input-row.tap-spring-surface.is-tap-held-release {
+      --tap-feedback-spring-scale-peak: 1.015;
+    }
+  }
+
   .chat-mobile-bottom-dock {
     --chat-bottom-nav-shift: 0px;
     position: fixed;
@@ -5912,6 +6001,21 @@ button.chat-onboarding-tour-block {
 
   .chat-mobile-bottom-nav.tap-spring-surface {
     backface-visibility: hidden;
+  }
+
+  /* Nur Bottom-Nav: etwas dezenterer Tap-Scale als andere tap-spring-surface-Flächen. */
+  .chat-mobile-bottom-nav.tap-spring-surface.is-tap-spring,
+  .chat-mobile-bottom-nav.tap-spring-surface.is-tap-held,
+  .chat-mobile-bottom-nav.tap-spring-surface.is-tap-held-release {
+    --tap-feedback-spring-scale-peak: 1.03;
+  }
+
+  @media (pointer: coarse) {
+    .chat-mobile-bottom-nav.tap-spring-surface.is-tap-spring,
+    .chat-mobile-bottom-nav.tap-spring-surface.is-tap-held,
+    .chat-mobile-bottom-nav.tap-spring-surface.is-tap-held-release {
+      --tap-feedback-spring-scale-peak: 1.06;
+    }
   }
 
   .chat-mobile-bottom-nav.is-tap-spring,

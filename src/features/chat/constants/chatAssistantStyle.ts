@@ -15,25 +15,25 @@ export function writeAssistantEmojisEnabled(enabled: boolean): void {
   window.localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0')
 }
 
-/** Nur normaler Chat (nicht Lernpfad / nicht Word-Export): kurze Antworten, wenig Output-Tokens. */
+/** Nur Instant-Modus im Hauptchat (nicht Lernpfad / nicht Word-Export / nicht Thinking). */
 export function getAssistantMainChatBrevityInstruction(): string {
   return [
-    'Hauptchat — Kurzantworten (verbindlich):',
-    'Standard: knapp und direkt. Keine Wiederholung der Nutzerfrage, kein «Gerne», kein Vorwort, keine Zusammenfassung am Ende, wenn nicht nötig.',
-    'Zielumfang: in der Regel höchstens etwa 80–180 Wörter (ca. 3–8 Sätze Fließtext) ODER eine kurze Liste mit maximal 5 Punkten — nicht beides ausführlich.',
-    'Nur eine ##-Überschrift; keine ###-Unterkapitel, es sei denn der Nutzer verlangt ausdrücklich Tiefe, Schritt-für-Schritt oder ein langes Dokument.',
-    'Listen nur bei echten Schritten/Optionen; sonst ein kurzer Absatz.',
-    'Ausnahme — ausführlicher werden nur wenn der Nutzer es verlangt (z. B. «ausführlich», «genauer», «erkläre Schritt für Schritt», «alles im Detail»).',
-    'Auch im Comfort-Modus: warm, aber kurz; keine langen Motivationsabsätze.',
+    'Hauptchat — Instant-Modus (verbindlicher Umfang):',
+    'Standard: ausgewogen und verständlich — weder Telegram-kurz noch Thinking-ausführlich.',
+    'Zielumfang: in der Regel etwa 150–350 Wörter (ca. 8–18 Sätze Fließtext) ODER ein strukturierter Aufbau mit kurzem Einleitungsabsatz plus Liste mit 5–8 Punkten — du darfst beides moderat mischen, wenn es die Frage klarer macht.',
+    'Eine ##-Überschrift; ###-Unterabschnitte nur wenn das Thema es wirklich braucht (z. B. mehrere klar getrennte Teilaspekte), sonst eher fließend ohne Kapitel-Wand.',
+    'Keine Wiederholung der Nutzerfrage, kein langes «Gerne helfe ich…»-Vorwort; optional ein knapper Schluss (1 Satz) mit nächstem Schritt oder Rückfrage.',
+    'Ausnahme — deutlich länger nur wenn der Nutzer es verlangt (z. B. «ausführlich», «genauer», «Schritt für Schritt», «alles im Detail») — dann näher an Thinking-Tiefe.',
+    'Comfort-Modus: warm und unterstützend, ohne ausufernde Motivationsabsätze; Strict: sachlich, gleicher Umfang.',
   ].join('\n')
 }
 
-/** Letzte Systemzeile im Hauptchat (nach Formatregeln), damit Kürze nicht überboten wird. */
+/** Letzte Systemzeile im Hauptchat (nach Formatregeln), damit der Instant-Umfang nicht überboten wird. */
 export function getAssistantMainChatBrevityFinalReminder(): string {
   return [
-    'Letzte Priorität für diese Antwort:',
-    'Halte dich an die Kurzregeln oben. Wenn die Frage einfach ist: oft genügt ##-Titel plus 2–4 Sätze.',
-    'Lieber zu knapp und klar als lang und redundant.',
+    'Letzte Priorität für diese Antwort (Instant):',
+    'Halte den mittleren Umfang ein: genug Kontext und Struktur, dass die Frage beantwortet ist — ohne Fülltext und ohne absichtliche Kürze.',
+    'Einfache Fragen: oft ##-Titel plus 1–2 Absätze (ca. 4–8 Sätze); komplexere Themen dürfen den oberen Bereich des Zielumfangs nutzen.',
   ].join('\n')
 }
 
@@ -105,7 +105,7 @@ export function getAssistantEmojiStyleInstruction(options?: {
   if (replyTone === 'comfort') {
     return [
       'Antwort-Stil (Comfort):',
-      'Ton warm und ermutigend, aber **kurz** (siehe Kurzregeln).',
+      'Ton warm und ermutigend, im **mittleren Umfang** (siehe Instant-Regeln oben).',
       'Emoji: genau eines in der ##-Überschrift; im Fließtext höchstens 0–1, nur wenn es ohne Mehrdeutigkeit passt — keine Emoji-Ketten.',
     ].join('\n')
   }

@@ -40,7 +40,7 @@ export function getChatThinkingFinalAnswerTurnInstruction(): string {
   return [
     'Thinking — Phase 2 (diese Antwort):',
     'Der Nutzer hat deine Rückfrage beantwortet. Jetzt die vollständige, ausführliche Antwort liefern.',
-    'KEIN Clarify-Block in dieser Nachricht. NICHT die Kurzregeln des Normal-Modus.',
+    'KEIN Clarify-Block in dieser Nachricht. NICHT die Umfangsregeln des Instant-Modus.',
     'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
     'Glossare/Begriffe nur als Tabelle; bei ausführlicher Bearbeitung alles Relevante aus dem Material mitnehmen.',
     'Offene Kleinigkeiten: knappe Annahmen nennen und trotzdem liefern.',

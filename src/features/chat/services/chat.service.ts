@@ -348,7 +348,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       ? ''
       : getAssistantMarkdownFormattingInstruction({
           replyTone,
-          compact: isMainChat && !options?.userRequestedWord,
+          compact: false,
         }),
     thinking
       ? getChatThinkingEmojiStyleInstruction()
@@ -538,7 +538,7 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v3'
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v3'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
