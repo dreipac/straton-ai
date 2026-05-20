@@ -75,6 +75,19 @@ import {
   buildLearnMaterialOutlineFromBlueprints,
   type LearnMaterialPersonalizationMode,
 } from '../features/learn/utils/flashcardSourceFromBlueprints'
+import { LearnErrorLogbookHintCard } from '../features/learn/components/LearnErrorLogbookHintCard'
+import { LearnErrorLogbookPanel } from '../features/learn/components/LearnErrorLogbookPanel'
+import {
+  buildErrorLogbookEntries,
+  getErrorLogbookStats,
+} from '../features/learn/utils/errorLogbook'
+import {
+  applyFlashcardReview,
+  getDueFlashcardsFromSets,
+  getFlashcardSrStats,
+  initializeNewFlashcardSet,
+  isFlashcardDue,
+} from '../features/learn/utils/spacedRepetition'
 import { LearnChapterModal } from '../features/learn/components/LearnChapterModal'
 import { LearnFlashcardsModal } from '../features/learn/components/LearnFlashcardsModal'
 import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheetModal'
@@ -190,6 +203,8 @@ export function LearnPage() {
   const [isMobileSidebarButtonTouchActive, setIsMobileSidebarButtonTouchActive] = useState(false)
   const [flashcardsModalFocusCardId, setFlashcardsModalFocusCardId] = useState<string | null>(null)
   const [flashcardsModalSetId, setFlashcardsModalSetId] = useState<string | null>(null)
+  const [flashcardsModalReviewMode, setFlashcardsModalReviewMode] = useState<'all' | 'due'>('all')
+  const [flashcardsDueSessionTotal, setFlashcardsDueSessionTotal] = useState(0)
   const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
   const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
   const [isPostEntryPrepLoading, setIsPostEntryPrepLoading] = useState(false)
@@ -1361,23 +1376,40 @@ export function LearnPage() {
     return getWorksheetChapterProgress(learnWorksheets, worksheetRequiredChapterIndex)
   }, [worksheetRequiredChapterIndex, learnWorksheets])
 
-  const flashcardStats = useMemo(() => {
-    const all = learnFlashcardSets.flatMap((s) => s.cards)
-    const known = all.filter((c) => c.selfRating === 'known').length
-    const unknown = all.filter((c) => c.selfRating === 'unknown').length
-    const total = all.length
-    return {
-      known,
-      unknown,
-      total,
-      unrated: total - known - unknown,
-    }
-  }, [learnFlashcardSets])
+  const flashcardSrStats = useMemo(() => getFlashcardSrStats(learnFlashcardSets), [learnFlashcardSets])
 
-  const flashcardsModalCards = useMemo(
-    () => learnFlashcardSets.find((s) => s.id === flashcardsModalSetId)?.cards ?? [],
-    [learnFlashcardSets, flashcardsModalSetId],
+  const errorLogbookEntries = useMemo(
+    () =>
+      buildErrorLogbookEntries({
+        entryQuiz,
+        entryQuizAnswers,
+        entryQuizResult,
+        chapterBlueprints,
+        chapterSession,
+        learningChapters,
+        learnWorksheets,
+      }),
+    [
+      entryQuiz,
+      entryQuizAnswers,
+      entryQuizResult,
+      chapterBlueprints,
+      chapterSession,
+      learningChapters,
+      learnWorksheets,
+    ],
   )
+  const errorLogbookStats = useMemo(() => getErrorLogbookStats(errorLogbookEntries), [errorLogbookEntries])
+
+  const flashcardsModalCards = useMemo(() => {
+    if (flashcardsModalReviewMode === 'due') {
+      return getDueFlashcardsFromSets(learnFlashcardSets)
+    }
+    if (!flashcardsModalSetId) {
+      return []
+    }
+    return learnFlashcardSets.find((s) => s.id === flashcardsModalSetId)?.cards ?? []
+  }, [flashcardsModalReviewMode, flashcardsModalSetId, learnFlashcardSets])
 
   const runCreateFlashcards = useCallback(
     async (personalization: LearnMaterialPersonalizationMode) => {
@@ -1433,7 +1465,7 @@ export function LearnPage() {
     setIsGeneratingFlashcards(true)
     try {
       const cards = await generateLearnFlashcards(outlineForApi)
-      const newSet: LearnFlashcardSet = { id: crypto.randomUUID(), cards }
+      const newSet: LearnFlashcardSet = { id: crypto.randomUUID(), cards: initializeNewFlashcardSet(cards) }
       setFlashcardsModalSetId(newSet.id)
       setLearnFlashcardSets((prev) => {
         const merged = [...prev, newSet]
@@ -1661,7 +1693,7 @@ export function LearnPage() {
       setLearnFlashcardSets((prev) => {
         const merged = prev.map((set) => ({
           ...set,
-          cards: set.cards.map((c) => (c.id === cardId ? { ...c, selfRating: rating } : c)),
+          cards: set.cards.map((c) => (c.id === cardId ? applyFlashcardReview(c, rating) : c)),
         }))
         if (pathId) {
           void updateLearningPathById(pathId, {
@@ -1978,6 +2010,8 @@ export function LearnPage() {
     setIsFlashcardsModalVisible(false)
     setFlashcardsModalFocusCardId(null)
     setFlashcardsModalSetId(null)
+    setFlashcardsModalReviewMode('all')
+    setFlashcardsDueSessionTotal(0)
     flashcardsModalCloseTimerRef.current = window.setTimeout(() => {
       setIsFlashcardsModalMounted(false)
       flashcardsModalCloseTimerRef.current = null
@@ -2004,8 +2038,40 @@ export function LearnPage() {
       flashcardsModalCloseTimerRef.current = null
     }
     setFlashcardsError(null)
+    setFlashcardsModalReviewMode('all')
+    setFlashcardsDueSessionTotal(0)
     setFlashcardsModalSetId(resolvedSetId)
     setFlashcardsModalFocusCardId(focusCardId === undefined ? null : focusCardId)
+    setIsFlashcardsModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsFlashcardsModalVisible(true)
+    })
+  }
+
+  function openErrorLogbookTab() {
+    setActiveLearnTab('statistics')
+  }
+
+  function openDueFlashcardsReview() {
+    const due = getDueFlashcardsFromSets(learnFlashcardSets)
+    if (due.length === 0) {
+      return
+    }
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    setIsWorksheetModalVisible(false)
+    setIsWorksheetModalMounted(false)
+    if (flashcardsModalCloseTimerRef.current) {
+      window.clearTimeout(flashcardsModalCloseTimerRef.current)
+      flashcardsModalCloseTimerRef.current = null
+    }
+    setFlashcardsError(null)
+    setFlashcardsModalReviewMode('due')
+    setFlashcardsDueSessionTotal(due.length)
+    setFlashcardsModalSetId(null)
+    setFlashcardsModalFocusCardId(null)
     setIsFlashcardsModalMounted(true)
     window.requestAnimationFrame(() => {
       setIsFlashcardsModalVisible(true)
@@ -2193,7 +2259,11 @@ export function LearnPage() {
         </header>
         {learnFeatureInfoVisible ? <p className="chat-learn-feature-info">Noch nicht verfügbar</p> : null}
         <div className="learn-page-grid">
-          <article className="learn-card learn-workspace-card">
+          <article
+            className={`learn-card learn-workspace-card${
+              activeLearnTab === 'path' && errorLogbookStats.total > 0 ? ' has-error-logbook-hint' : ''
+            }`}
+          >
             <header className="learn-workspace-header">
               <span className="learn-workspace-title-icon" aria-hidden="true" />
               <h1 className="learn-page-title-text">{getDisplayPathTitle(activePath?.title ?? '')}</h1>
@@ -2306,9 +2376,15 @@ export function LearnPage() {
                   </button>
                   <button
                     type="button"
-                    className={`learn-top-tab learn-top-tab--statistics${activeLearnTab === 'statistics' ? ' is-active' : ''}`}
+                    className={`learn-top-tab learn-top-tab--statistics${activeLearnTab === 'statistics' ? ' is-active' : ''}${
+                      errorLogbookStats.total > 0 ? ' has-attention' : ''
+                    }`}
                     onClick={() => setActiveLearnTab('statistics')}
-                    aria-label="Statistiken"
+                    aria-label={
+                      errorLogbookStats.total > 0
+                        ? `Statistiken, ${errorLogbookStats.total} Lücken`
+                        : 'Statistiken'
+                    }
                   >
                     <img
                       className="ui-icon learn-top-tab-statistics-icon"
@@ -2473,28 +2549,58 @@ export function LearnPage() {
                 {activeLearnTab === 'flashcards' ? (
                   <section className="learn-tab-panel">
                     <div className="learn-next-step-actions learn-next-step-actions--flashcards">
-                      <PrimaryButton type="button" onClick={() => setLearnMaterialChoiceTarget('flashcards')}>Lernkarten</PrimaryButton>
+                      <PrimaryButton
+                        type="button"
+                        onClick={openDueFlashcardsReview}
+                        disabled={flashcardSrStats.dueNow === 0}
+                      >
+                        {flashcardSrStats.dueNow > 0
+                          ? `Heute wiederholen (${flashcardSrStats.dueNow})`
+                          : 'Heute wiederholen'}
+                      </PrimaryButton>
+                      <SecondaryButton type="button" onClick={() => setLearnMaterialChoiceTarget('flashcards')}>
+                        Neue Lernkarten
+                      </SecondaryButton>
                     </div>
+                    {flashcardSrStats.dueNow > 0 ? (
+                      <button type="button" className="learn-flashcards-due-cta" onClick={openDueFlashcardsReview}>
+                        <span className="learn-flashcards-due-cta-title">
+                          Heute wiederholen · {flashcardSrStats.dueNow} Karte
+                          {flashcardSrStats.dueNow === 1 ? '' : 'n'}
+                        </span>
+                        <span className="learn-flashcards-due-cta-meta">Spaced Repetition — fällige Karten jetzt durchgehen</span>
+                      </button>
+                    ) : flashcardSrStats.total > 0 ? (
+                      <p className="learn-flashcards-sr-summary learn-muted">
+                        Keine Karten heute fällig
+                        {flashcardSrStats.scheduledLater > 0
+                          ? ` · ${flashcardSrStats.scheduledLater} später geplant`
+                          : ''}
+                      </p>
+                    ) : null}
                     <section className="learn-tests-list learn-flashcards-list-spaced" aria-label="Lernkarten Sets">
                       {learnFlashcardSets.length === 0 ? (
                         <p className="learn-muted">Noch keine Lernkarten vorhanden.</p>
                       ) : (
                         learnFlashcardSets.map((set, setIndex) => {
                           const total = set.cards.length
+                          const dueInSet = set.cards.filter((c) => isFlashcardDue(c)).length
                           const known = set.cards.filter((c) => c.selfRating === 'known').length
                           const unknown = set.cards.filter((c) => c.selfRating === 'unknown').length
                           const fcStatus: 'open' | 'in_progress' | 'completed' =
-                            total > 0 && known === total
+                            total > 0 && dueInSet === 0 && known + unknown === total
                               ? 'completed'
-                              : known > 0 || unknown > 0
+                              : known > 0 || unknown > 0 || dueInSet > 0
                                 ? 'in_progress'
                                 : 'open'
                           const fcLabel =
-                            total > 0 && known === total
-                              ? 'Komplett'
-                              : known > 0 || unknown > 0
-                                ? 'Teilweise'
-                                : 'Offen'
+                            dueInSet > 0
+                              ? `${dueInSet} fällig`
+                              : total > 0 && known + unknown === total
+                                ? 'Geplant'
+                                : known > 0 || unknown > 0
+                                  ? 'Teilweise'
+                                  : 'Offen'
                           const title =
                             set.title?.trim() ||
                             `Lernkarten-Set ${setIndex + 1}`
@@ -2511,7 +2617,10 @@ export function LearnPage() {
                                   <span className={`learn-tests-status-badge is-${fcStatus}`}>{fcLabel}</span>
                                 </div>
                                 <p className="learn-tests-list-item-meta">
-                                  {total} Fragen · {known} gewusst · {unknown} nicht gewusst
+                                  {total} Karten
+                                  {dueInSet > 0 ? ` · ${dueInSet} heute fällig` : ''}
+                                  {known > 0 ? ` · ${known} gewusst` : ''}
+                                  {unknown > 0 ? ` · ${unknown} nicht gewusst` : ''}
                                 </p>
                               </div>
                             </button>
@@ -2532,25 +2641,29 @@ export function LearnPage() {
                 {activeLearnTab === 'statistics' ? (
                   <section className="learn-tab-panel learn-stats-tab-panel" aria-label="Lernstatistik">
                     <div className="learn-stats-grid">
-                      <article className="learn-stats-card">
-                        <p className="learn-stats-card-value">{flashcardStats.known}</p>
-                        <p className="learn-stats-card-label">Karten gewusst</p>
+                      <article
+                        className={`learn-stats-card${errorLogbookStats.total > 0 ? ' learn-stats-card--highlight' : ''}`}
+                      >
+                        <p className="learn-stats-card-value">{errorLogbookStats.total}</p>
+                        <p className="learn-stats-card-label">Offene Lücken</p>
+                      </article>
+                      <article className="learn-stats-card learn-stats-card--highlight">
+                        <p className="learn-stats-card-value">{flashcardSrStats.dueNow}</p>
+                        <p className="learn-stats-card-label">Karten heute fällig</p>
                       </article>
                       <article className="learn-stats-card">
-                        <p className="learn-stats-card-value">{flashcardStats.unknown}</p>
-                        <p className="learn-stats-card-label">Karten nicht gewusst</p>
+                        <p className="learn-stats-card-value">{flashcardSrStats.scheduledLater}</p>
+                        <p className="learn-stats-card-label">Karten geplant</p>
                       </article>
                       <article className="learn-stats-card">
-                        <p className="learn-stats-card-value">{flashcardStats.unrated}</p>
-                        <p className="learn-stats-card-label">Noch nicht bewertet</p>
-                      </article>
-                      <article className="learn-stats-card">
-                        <p className="learn-stats-card-value">{flashcardStats.total}</p>
+                        <p className="learn-stats-card-value">{flashcardSrStats.total}</p>
                         <p className="learn-stats-card-label">Lernkarten gesamt</p>
                       </article>
                     </div>
+                    <LearnErrorLogbookPanel entries={errorLogbookEntries} stats={errorLogbookStats} />
                     <p className="learn-muted learn-stats-footnote">
-                      Bewertungen gibst du nach dem Umdrehen einer Karte im Lernkarten-Modal ab (Gewusst / Nicht gewusst).
+                      Lernkarten: Nach «Gewusst» steigen die Intervalle (1, 3, 7, 14, 30 Tage). «Nicht gewusst» → morgen
+                      wieder.
                     </p>
                   </section>
                 ) : null}
@@ -2645,6 +2758,10 @@ export function LearnPage() {
                 ) : null}
               </>
             )}
+
+            {activeLearnTab === 'path' ? (
+              <LearnErrorLogbookHintCard count={errorLogbookStats.total} onOpen={openErrorLogbookTab} />
+            ) : null}
 
           </article>
 
@@ -2758,6 +2875,8 @@ export function LearnPage() {
         onClose={closeFlashcardsModal}
         focusCardId={flashcardsModalFocusCardId}
         onRateCard={handleFlashcardSelfRating}
+        reviewMode={flashcardsModalReviewMode}
+        dueSessionTotal={flashcardsDueSessionTotal}
       />
       <LearnWorksheetModal
         isMounted={isWorksheetModalMounted}

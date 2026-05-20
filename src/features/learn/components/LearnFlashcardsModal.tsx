@@ -3,6 +3,7 @@ import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 import type { LearnFlashcard } from '../services/learn.persistence'
+import { formatNextReviewHint } from '../utils/spacedRepetition'
 
 export type LearnFlashcardsModalProps = {
   isMounted: boolean
@@ -14,12 +15,26 @@ export type LearnFlashcardsModalProps = {
   /** Beim Öffnen aus der Liste: zu dieser Karte springen */
   focusCardId?: string | null
   onRateCard?: (cardId: string, rating: 'known' | 'unknown') => void
+  /** `due`: nur fällige Karten, nach Bewertung automatisch zur nächsten */
+  reviewMode?: 'all' | 'due'
+  dueSessionTotal?: number
 }
 
 export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
-  const { isMounted, isVisible, cards, isLoading, error, onClose, focusCardId, onRateCard } = props
+  const {
+    isMounted,
+    isVisible,
+    cards,
+    isLoading,
+    error,
+    onClose,
+    focusCardId,
+    onRateCard,
+    reviewMode = 'all',
+    dueSessionTotal,
+  } = props
   const cardsKey = useMemo(
-    () => cards.map((card) => `${card.question}::${card.answer}`).join('||'),
+    () => cards.map((card) => `${card.id}::${card.nextReviewAt ?? ''}`).join('||'),
     [cards],
   )
   const [state, setState] = useState<{ index: number; isFlipped: boolean; cardsKey: string }>({
@@ -64,6 +79,19 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
     })
   }, [isVisible, focusCardId, cards, cardsKey])
 
+  useEffect(() => {
+    if (!isVisible || reviewMode !== 'due' || cards.length === 0) {
+      return
+    }
+    setState((prev) => {
+      const nextIndex = Math.min(prev.index, cards.length - 1)
+      if (prev.cardsKey === cardsKey && nextIndex === prev.index) {
+        return prev
+      }
+      return { index: nextIndex, isFlipped: false, cardsKey }
+    })
+  }, [cards.length, cardsKey, isVisible, reviewMode])
+
   if (!isMounted) {
     return null
   }
@@ -74,6 +102,20 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
   const card = cards[index]
   const total = cards.length
   const canNavigate = total > 1
+  const sessionTotal = dueSessionTotal ?? total
+  const reviewedInSession = reviewMode === 'due' && sessionTotal > 0 ? Math.max(0, sessionTotal - total) : 0
+  const nextReviewHint = card ? formatNextReviewHint(card.nextReviewAt) : null
+
+  function handleRate(rating: 'known' | 'unknown') {
+    if (!card || !onRateCard) {
+      return
+    }
+    onRateCard(card.id, rating)
+    setState((prev) => ({
+      ...prev,
+      isFlipped: false,
+    }))
+  }
 
   return (
     <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
@@ -89,12 +131,29 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
             <p className="learn-muted learn-flashcards-modal-status">Lernkarten werden erstellt…</p>
           ) : error ? (
             <p className="error-text learn-flashcards-modal-status">{error}</p>
+          ) : reviewMode === 'due' && total === 0 && !isLoading ? (
+            <div className="learn-flashcards-due-done">
+              <p className="learn-flashcards-due-done-title">Heute erledigt</p>
+              <p className="learn-muted">Alle fälligen Karten sind für heute durch. Nächste Wiederholungen kommen automatisch.</p>
+              <PrimaryButton type="button" onClick={onClose}>
+                Schließen
+              </PrimaryButton>
+            </div>
           ) : !card ? (
             <p className="learn-muted learn-flashcards-modal-status">Keine Karten vorhanden.</p>
           ) : (
             <>
               <p className="learn-flashcards-counter" aria-live="polite">
-                Karte {index + 1} von {total} — zum Drehen auf die Karte tippen
+                {reviewMode === 'due' ? (
+                  <>
+                    Wiederholung {reviewedInSession + 1} von {sessionTotal}
+                    {total > 1 ? ` · noch ${total} fällig` : ''}
+                  </>
+                ) : (
+                  <>Karte {index + 1} von {total}</>
+                )}
+                {' '}
+                — zum Drehen auf die Karte tippen
               </p>
               <button
                 type="button"
@@ -149,6 +208,9 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
                   </PrimaryButton>
                 </div>
               ) : null}
+              {card && onRateCard && isFlipped && nextReviewHint && reviewMode === 'all' ? (
+                <p className="learn-flashcard-sr-hint learn-muted">{nextReviewHint}</p>
+              ) : null}
               {card && onRateCard && isFlipped ? (
                 <div className="learn-flashcard-rating" role="group" aria-label="Selbsteinschätzung">
                   <SecondaryButton
@@ -156,7 +218,7 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
                     className={`learn-flashcard-rating-btn learn-flashcard-rating-btn--unknown${
                       card.selfRating === 'unknown' ? ' is-active' : ''
                     }`}
-                    onClick={() => onRateCard(card.id, 'unknown')}
+                    onClick={() => handleRate('unknown')}
                   >
                     Nicht gewusst
                   </SecondaryButton>
@@ -165,7 +227,7 @@ export function LearnFlashcardsModal(props: LearnFlashcardsModalProps) {
                     className={`learn-flashcard-rating-btn learn-flashcard-rating-btn--known${
                       card.selfRating === 'known' ? ' is-active' : ''
                     }`}
-                    onClick={() => onRateCard(card.id, 'known')}
+                    onClick={() => handleRate('known')}
                   >
                     Gewusst
                   </PrimaryButton>

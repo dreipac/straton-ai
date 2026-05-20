@@ -177,6 +177,217 @@
   gap: 0.9rem;
 }
 
+.learn-error-logbook {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.learn-error-logbook-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.learn-error-logbook-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.learn-error-logbook-lead {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.learn-error-logbook-empty {
+  margin: 0;
+  padding: 0.75rem 0;
+}
+
+.learn-error-logbook-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.learn-error-logbook-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-text-app) 18%, transparent);
+  background: color-mix(in srgb, var(--color-text-app) 6%, transparent);
+  color: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.learn-error-logbook-filter.is-active {
+  border-color: color-mix(in srgb, var(--color-accent, #6ee7b7) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent, #6ee7b7) 14%, transparent);
+}
+
+.learn-error-logbook-filter:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.learn-error-logbook-filter-count {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.learn-error-logbook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.learn-error-logbook-item {
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-text-app) 14%, transparent);
+  background: color-mix(in srgb, var(--color-text-app) 5%, transparent);
+}
+
+.learn-error-logbook-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.learn-error-logbook-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-text-app) 12%, transparent);
+}
+
+.learn-error-logbook-badge.is-entry_quiz {
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+}
+
+.learn-error-logbook-badge.is-chapter {
+  background: color-mix(in srgb, #60a5fa 22%, transparent);
+}
+
+.learn-error-logbook-badge.is-worksheet {
+  background: color-mix(in srgb, #f87171 22%, transparent);
+}
+
+.learn-error-logbook-context {
+  font-size: 0.82rem;
+  opacity: 0.88;
+}
+
+.learn-error-logbook-prompt {
+  margin: 0 0 0.55rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.learn-error-logbook-details {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.learn-error-logbook-details > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.learn-error-logbook-details dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.learn-error-logbook-details dd {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.learn-error-logbook-hint {
+  flex-shrink: 0;
+  margin-top: 0.65rem;
+}
+
+.learn-error-logbook-hint-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  background: color-mix(in srgb, var(--color-surface-elevated) 72%, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.learn-error-logbook-hint-card:hover {
+  border-color: color-mix(in srgb, var(--color-accent, #6ee7b7) 35%, transparent);
+  background: color-mix(in srgb, var(--color-surface-elevated) 88%, transparent);
+}
+
+.learn-error-logbook-hint-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--color-text-app) 10%, transparent);
+  color: inherit;
+}
+
+.learn-error-logbook-hint-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.learn-error-logbook-hint-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.learn-error-logbook-hint-meta {
+  font-size: 0.76rem;
+  opacity: 0.72;
+  line-height: 1.25;
+}
+
 .learn-stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1023,6 +1234,69 @@ button.learn-flashcard:active:enabled {
   max-width: 420px;
   text-align: center;
   font-size: 0.82rem;
+}
+
+.learn-flashcard-sr-hint {
+  margin: 0.5rem auto 0;
+  max-width: 420px;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.learn-flashcards-due-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem 2rem;
+  text-align: center;
+}
+
+.learn-flashcards-due-done-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.learn-flashcards-sr-summary {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+}
+
+.learn-flashcards-due-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  margin: 0 0 0.65rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent, #6ee7b7) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-accent, #6ee7b7) 12%, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.learn-flashcards-due-cta-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.learn-flashcards-due-cta-meta {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.learn-next-step-actions--flashcards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.learn-stats-card--highlight .learn-stats-card-value {
+  color: var(--color-accent, #6ee7b7);
 }
 
 /* Arbeitsblatt: gleicher Modalausschnitt wie Lernkarten — kein heller Kasten, Dark-Mode-Tokens */
@@ -3900,6 +4174,27 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     min-height: auto;
     max-height: none;
     overflow: hidden;
+  }
+
+  .learn-workspace-card.has-error-logbook-hint {
+    padding-bottom: 5.35rem;
+  }
+
+  .learn-error-logbook-hint {
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(4.05rem + env(safe-area-inset-bottom, 0px));
+    z-index: 17;
+    margin-top: 0;
+    pointer-events: none;
+  }
+
+  .learn-error-logbook-hint-card {
+    pointer-events: auto;
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
   }
 
   .learn-setup-actions {

@@ -5,6 +5,7 @@ import {
   type InteractiveQuizPayload,
 } from '../../chat/utils/interactiveQuiz'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
+import { normalizeFlashcardSr } from '../utils/spacedRepetition'
 
 export type LearningPathSummary = {
   id: string
@@ -44,6 +45,11 @@ export type LearnFlashcard = {
   answer: string
   /** Selbsteinschätzung nach dem Umdrehen */
   selfRating?: 'known' | 'unknown'
+  /** Spaced repetition: 0 = neu / zurückgesetzt, höher = längere Intervalle */
+  srStage?: number
+  /** ISO-Zeitpunkt: Karte ist fällig, wenn <= jetzt */
+  nextReviewAt?: string
+  lastReviewedAt?: string
 }
 
 /** Ein erzeugter Stapel Lernkarten (ein API-Lauf / eine Session). */
@@ -753,12 +759,26 @@ function mapLearnFlashcardsFlat(value: unknown): LearnFlashcard[] {
       const sr = o.selfRating
       const selfRating =
         sr === 'known' || sr === 'unknown' ? sr : undefined
-      out.push({
-        id,
-        question,
-        answer,
-        ...(selfRating ? { selfRating } : {}),
-      })
+      const srStageRaw = o.srStage
+      const srStage =
+        typeof srStageRaw === 'number' && Number.isFinite(srStageRaw) && srStageRaw >= 0
+          ? Math.floor(srStageRaw)
+          : undefined
+      const nextReviewAt =
+        typeof o.nextReviewAt === 'string' && o.nextReviewAt.trim() ? o.nextReviewAt.trim() : undefined
+      const lastReviewedAt =
+        typeof o.lastReviewedAt === 'string' && o.lastReviewedAt.trim() ? o.lastReviewedAt.trim() : undefined
+      out.push(
+        normalizeFlashcardSr({
+          id,
+          question,
+          answer,
+          ...(selfRating ? { selfRating } : {}),
+          ...(srStage !== undefined ? { srStage } : {}),
+          ...(nextReviewAt ? { nextReviewAt } : {}),
+          ...(lastReviewedAt ? { lastReviewedAt } : {}),
+        }),
+      )
     }
   }
   return out.slice(0, 50)
