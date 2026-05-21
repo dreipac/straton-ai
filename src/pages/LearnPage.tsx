@@ -79,8 +79,15 @@ import { LearnErrorLogbookHintCard } from '../features/learn/components/LearnErr
 import { LearnErrorLogbookPanel } from '../features/learn/components/LearnErrorLogbookPanel'
 import {
   buildErrorLogbookEntries,
+  getErrorHintDismissedCount,
   getErrorLogbookStats,
+  setErrorHintDismissed,
+  shouldShowErrorLogbookHint,
 } from '../features/learn/utils/errorLogbook'
+import {
+  buildEntryQuizReadyTutorMessage,
+  buildTutorCoachMessage,
+} from '../features/learn/utils/learnTutorCoachMessages'
 import {
   applyFlashcardReview,
   getDueFlashcardsFromSets,
@@ -1205,9 +1212,7 @@ export function LearnPage() {
           {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content:
-              (parsedCleanText || 'Dein Einstiegstest ist bereit.') +
-              '\n\nHier ist dein Test: Einstiegstest starten',
+            content: buildEntryQuizReadyTutorMessage(parsedCleanText || ''),
             action: 'open-entry-test',
           },
         ])
@@ -1400,6 +1405,28 @@ export function LearnPage() {
     ],
   )
   const errorLogbookStats = useMemo(() => getErrorLogbookStats(errorLogbookEntries), [errorLogbookEntries])
+  const [errorHintDismissedAtCount, setErrorHintDismissedAtCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!activePathId) {
+      setErrorHintDismissedAtCount(null)
+      return
+    }
+    setErrorHintDismissedAtCount(getErrorHintDismissedCount(activePathId))
+  }, [activePathId])
+
+  const showErrorLogbookHint = useMemo(
+    () => shouldShowErrorLogbookHint(activePathId, errorLogbookStats.total),
+    [activePathId, errorLogbookStats.total, errorHintDismissedAtCount],
+  )
+
+  const handleDismissErrorLogbookHint = useCallback(() => {
+    if (!activePathId) {
+      return
+    }
+    setErrorHintDismissed(activePathId, errorLogbookStats.total)
+    setErrorHintDismissedAtCount(errorLogbookStats.total)
+  }, [activePathId, errorLogbookStats.total])
 
   const flashcardsModalCards = useMemo(() => {
     if (flashcardsModalReviewMode === 'due') {
@@ -1725,19 +1752,36 @@ export function LearnPage() {
 
     if (!hasCompletedUnlockedChapter) {
       action = 'start-next-chapter'
-      content = `Einstiegstest: ${entryQuizResult.score}/${entryQuizResult.total}. Starte jetzt Kapitel ${lastUnlockedIndex + 1} und schließe es vollständig ab.`
+      content = buildTutorCoachMessage({
+        kind: 'start-chapter',
+        chapterNumber: lastUnlockedIndex + 1,
+        entryScore: entryQuizResult.score,
+        entryTotal: entryQuizResult.total,
+      })
     } else if (!hasWorksheetItems) {
       action = 'create-worksheet'
-      content = `Kapitel ${lastUnlockedIndex + 1} ist abgeschlossen. Erstelle jetzt das zugehörige Arbeitsblatt, um das nächste Kapitel freizuschalten.`
+      content = buildTutorCoachMessage({
+        kind: 'need-worksheet',
+        chapterNumber: lastUnlockedIndex + 1,
+      })
     } else if (!worksheetChapterComplete) {
       action = 'create-worksheet'
-      content = `Kapitel ${lastUnlockedIndex + 1}: Arbeitsblatt ${wsStats.evaluatedCount}/${wsStats.total} Aufgaben mit Kreis geprüft. Bitte alle Aufgaben prüfen lassen (Kreis), um das nächste Kapitel freizuschalten.`
+      content = buildTutorCoachMessage({
+        kind: 'worksheet-progress',
+        chapterNumber: lastUnlockedIndex + 1,
+        evaluatedCount: wsStats.evaluatedCount,
+        total: wsStats.total,
+      })
     } else if (unlockedChapterCount < maxPlannedCount) {
       action = 'start-next-chapter'
-      content = `Alle Aufgaben des Arbeitsblatts zu Kapitel ${lastUnlockedIndex + 1} sind geprüft. Jetzt ist Kapitel ${nextChapterNumber} der nächste sinnvolle Schritt.`
+      content = buildTutorCoachMessage({
+        kind: 'next-chapter',
+        completedChapterNumber: lastUnlockedIndex + 1,
+        nextChapterNumber,
+      })
     } else {
       action = undefined
-      content = 'Alle geplanten Kapitel und die zugehörigen Arbeitsblätter sind abgeschlossen. Sehr stark! 😎'
+      content = buildTutorCoachMessage({ kind: 'all-done' })
     }
 
     setTutorMessages((prev) => {
@@ -2261,7 +2305,7 @@ export function LearnPage() {
         <div className="learn-page-grid">
           <article
             className={`learn-card learn-workspace-card${
-              activeLearnTab === 'path' && errorLogbookStats.total > 0 ? ' has-error-logbook-hint' : ''
+              activeLearnTab === 'path' && showErrorLogbookHint ? ' has-error-logbook-hint' : ''
             }`}
           >
             <header className="learn-workspace-header">
@@ -2377,11 +2421,11 @@ export function LearnPage() {
                   <button
                     type="button"
                     className={`learn-top-tab learn-top-tab--statistics${activeLearnTab === 'statistics' ? ' is-active' : ''}${
-                      errorLogbookStats.total > 0 ? ' has-attention' : ''
+                      showErrorLogbookHint ? ' has-attention' : ''
                     }`}
                     onClick={() => setActiveLearnTab('statistics')}
                     aria-label={
-                      errorLogbookStats.total > 0
+                      showErrorLogbookHint
                         ? `Statistiken, ${errorLogbookStats.total} Lücken`
                         : 'Statistiken'
                     }
@@ -2759,8 +2803,12 @@ export function LearnPage() {
               </>
             )}
 
-            {activeLearnTab === 'path' ? (
-              <LearnErrorLogbookHintCard count={errorLogbookStats.total} onOpen={openErrorLogbookTab} />
+            {activeLearnTab === 'path' && showErrorLogbookHint ? (
+              <LearnErrorLogbookHintCard
+                count={errorLogbookStats.total}
+                onOpen={openErrorLogbookTab}
+                onDismiss={handleDismissErrorLogbookHint}
+              />
             ) : null}
 
           </article>

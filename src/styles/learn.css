@@ -329,9 +329,19 @@
 .learn-error-logbook-hint {
   flex-shrink: 0;
   margin-top: 0.65rem;
+  overflow: visible;
+}
+
+.learn-error-logbook-hint-card-wrap {
+  position: relative;
+  width: 100%;
+  overflow: visible;
+  pointer-events: auto;
 }
 
 .learn-error-logbook-hint-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -386,6 +396,51 @@
   font-size: 0.76rem;
   opacity: 0.72;
   line-height: 1.25;
+}
+
+.learn-error-logbook-hint-close {
+  position: absolute;
+  top: -0.55rem;
+  right: -0.45rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.28);
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease;
+}
+
+.learn-error-logbook-hint-close:hover {
+  background: color-mix(in srgb, var(--color-text-app) 22%, transparent);
+}
+
+.learn-error-logbook-hint-close:active {
+  transform: scale(0.94);
+}
+
+.learn-error-logbook-hint-close-icon {
+  display: block;
+  width: 0.72rem;
+  height: 0.72rem;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  opacity: 0.82;
 }
 
 .learn-stats-grid {
@@ -1258,6 +1313,93 @@ button.learn-flashcard:active:enabled {
   font-weight: 600;
 }
 
+.learn-flashcards-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  padding:
+    calc(0.75rem + env(safe-area-inset-top, 0px))
+    0.65rem
+    calc(0.55rem + env(safe-area-inset-bottom, 0px));
+  background: var(--color-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.learn-flashcards-mobile-deck {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.35rem 0.25rem 0.75rem;
+  /* Klicks auf den leeren Bereich um die Karte durchlassen → Overlay schließt */
+  pointer-events: none;
+}
+
+.learn-flashcards-mobile-deck > * {
+  pointer-events: auto;
+}
+
+.learn-flashcards-mobile-status {
+  margin: 0;
+  text-align: center;
+  max-width: 20rem;
+}
+
+.learn-flashcards-counter--mobile {
+  flex-shrink: 0;
+}
+
+.learn-flashcard--mobile {
+  width: min(100%, 26rem);
+  max-width: 100%;
+  flex: 0 1 auto;
+  min-height: min(52dvh, 420px);
+  margin: 0;
+}
+
+.learn-flashcard--mobile .learn-flashcard-inner {
+  min-height: min(52dvh, 420px);
+}
+
+.learn-flashcards-mobile-bar {
+  flex-shrink: 0;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.35rem 0.15rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border-radius: 16px 16px 0 0;
+}
+
+.learn-flashcards-mobile-nav {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.learn-flashcard-rating--mobile {
+  margin-top: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.learn-flashcard-rating--mobile .learn-flashcard-rating-btn {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.learn-flashcards-due-done--mobile {
+  padding: 1rem;
+}
+
 .learn-flashcards-sr-summary {
   margin: 0 0 0.35rem;
   font-size: 0.88rem;
@@ -1951,6 +2093,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
 }
 
 .learn-conversation-message.is-assistant p {
+  white-space: pre-line;
   margin-top: 0.15rem;
 }
 
@@ -4058,9 +4201,8 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   .learn-top-tab {
     min-height: 2.65rem;
     padding: 0.35rem 0.2rem;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    border-bottom: 1px solid transparent;
+    border: none;
+    border-radius: 999px;
     font-size: 0.71rem;
     font-weight: 700;
     line-height: 1.2;
@@ -4070,6 +4212,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     justify-content: center;
     position: relative;
     z-index: 1;
+    background: transparent;
   }
 
   .learn-top-tab--path {
@@ -4131,7 +4274,6 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   }
 
   .learn-top-tab.is-active {
-    border-color: transparent;
     background: transparent;
   }
 
@@ -4144,9 +4286,52 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     filter: brightness(0) saturate(100%) invert(48%) sepia(74%) saturate(1915%) hue-rotate(217deg) brightness(100%) contrast(101%);
   }
 
-  .learn-top-tab.has-attention {
-    border-color: color-mix(in srgb, #f59e0b 58%, transparent);
-    background: color-mix(in srgb, #f59e0b 18%, transparent);
+  /* Hinweis (Lücken / Pflicht-Arbeitsblatt): Pill-Hintergrund, sanft pulsierend */
+  .learn-top-tab.has-attention:not(.is-active) {
+    animation: learn-tab-attention-pulse 3.6s ease-in-out infinite;
+  }
+
+  .learn-top-tab.is-active.has-attention {
+    background: transparent;
+  }
+
+  .learn-top-tabs:has(> .learn-top-tab.is-active.has-attention)::before {
+    animation: learn-tab-slider-attention-pulse 3.6s ease-in-out infinite;
+  }
+
+  @keyframes learn-tab-attention-pulse {
+    0%,
+    100% {
+      background: color-mix(in srgb, #f59e0b 12%, transparent);
+    }
+    50% {
+      background: color-mix(in srgb, #f59e0b 26%, transparent);
+    }
+  }
+
+  @keyframes learn-tab-slider-attention-pulse {
+    0%,
+    100% {
+      background: color-mix(in srgb, var(--color-surface-elevated) 88%, rgba(255, 255, 255, 0.06) 12%);
+    }
+    50% {
+      background: color-mix(
+        in srgb,
+        var(--color-surface-elevated) 82%,
+        color-mix(in srgb, #f59e0b 28%, transparent) 18%
+      );
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .learn-top-tab.has-attention:not(.is-active) {
+      animation: none;
+      background: color-mix(in srgb, #f59e0b 20%, transparent);
+    }
+
+    .learn-top-tabs:has(> .learn-top-tab.is-active.has-attention)::before {
+      animation: none;
+    }
   }
 
   .learn-page-grid {
@@ -4187,14 +4372,24 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     bottom: calc(4.05rem + env(safe-area-inset-bottom, 0px));
     z-index: 17;
     margin-top: 0;
+    padding-top: 0.35rem;
+    padding-right: 0.2rem;
     pointer-events: none;
   }
 
-  .learn-error-logbook-hint-card {
+  .learn-error-logbook-hint-card-wrap {
     pointer-events: auto;
+  }
+
+  .learn-error-logbook-hint-card {
     backdrop-filter: blur(14px) saturate(150%);
     -webkit-backdrop-filter: blur(14px) saturate(150%);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+  }
+
+  .learn-error-logbook-hint-close {
+    top: -0.5rem;
+    right: -0.35rem;
   }
 
   .learn-setup-actions {

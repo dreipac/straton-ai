@@ -190,3 +190,37 @@ export function filterErrorLogbookEntries(
   }
   return entries.filter((e) => e.source === filter)
 }
+
+const ERROR_HINT_DISMISS_STORAGE_PREFIX = 'straton-learn-error-hint-dismissed:'
+
+/** Gespeicherte Lücken-Anzahl beim Schließen des Hinweises (pro Lernpfad). */
+export function getErrorHintDismissedCount(pathId: string): number | null {
+  if (typeof window === 'undefined' || !pathId.trim()) {
+    return null
+  }
+  const raw = window.localStorage.getItem(`${ERROR_HINT_DISMISS_STORAGE_PREFIX}${pathId}`)
+  if (raw === null) {
+    return null
+  }
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+export function setErrorHintDismissed(pathId: string, errorCount: number): void {
+  if (typeof window === 'undefined' || !pathId.trim()) {
+    return
+  }
+  window.localStorage.setItem(`${ERROR_HINT_DISMISS_STORAGE_PREFIX}${pathId}`, String(Math.max(0, errorCount)))
+}
+
+/** Hinweis-Karte / Tab-Hervorhebung, solange nicht geschlossen oder neue Lücken dazu kamen. */
+export function shouldShowErrorLogbookHint(pathId: string, currentErrorTotal: number): boolean {
+  if (!pathId.trim() || currentErrorTotal <= 0) {
+    return false
+  }
+  const dismissedAt = getErrorHintDismissedCount(pathId)
+  if (dismissedAt === null) {
+    return true
+  }
+  return currentErrorTotal > dismissedAt
+}

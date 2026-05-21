@@ -3,6 +3,7 @@ import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnTutorState, TutorChatEntry } from '../services/learn.persistence'
 import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
+import { buildPostEntryQuizTutorMessage } from '../utils/learnTutorCoachMessages'
 
 function isRateLimitError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -169,17 +170,11 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       setPostEntryPrepPercents([0, 0])
       setIsPostEntryPrepLoading(false)
 
-      const scoreLine = `Dein Einstiegstest ist ausgewertet: ${score}/${entryQuiz.questions.length} korrekt.`
-      const strengths = score >= Math.ceil(entryQuiz.questions.length * 0.6) ? 'Du hast eine gute Basis in den Kernfragen.' : 'Stärken: Grundverständnis ist vorhanden.'
-      const weaknesses =
-        score < Math.ceil(entryQuiz.questions.length * 0.6)
-          ? 'Schwächen: Bei Anwendung und Randfällen gibt es Lücken.'
-          : 'Schwächen: Bei schwierigeren Detailfragen gibt es noch Potenzial.'
       setTutorMessages([
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: `${scoreLine} ${strengths} ${weaknesses} Nächster sinnvoller Schritt: Starte mit Kapitel 1.`,
+          content: buildPostEntryQuizTutorMessage(score, entryQuiz.questions.length),
           action: 'start-next-chapter',
         },
       ])
