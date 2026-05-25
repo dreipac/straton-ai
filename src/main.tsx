@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import '@fontsource-variable/inter'
-import '@fontsource-variable/inter/wght-italic.css'
+import '@fontsource-variable/manrope'
 import App from './App.tsx'
 import {
   ACCENT_STORAGE_KEY,

@@ -156,6 +156,10 @@
   font-weight: 500;
 }
 
+.chat-sidebar-top .chat-sidebar-nav-button {
+  font-weight: 700;
+}
+
 .chat-sidebar-top .sidebar-toggle-button {
   width: 30px;
   min-width: 30px;

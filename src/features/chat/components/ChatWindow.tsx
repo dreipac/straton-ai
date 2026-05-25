@@ -13,10 +13,10 @@ import {
 } from 'react'
 import { useToast } from '../../../components/toast/ToastProvider'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
-import { GlassPillTouchSurface } from '../../../components/ui/GlassPillTouchSurface'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
 import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
+import { useMobileComposerCompact } from '../../../hooks/useMobileComposerCompact'
 import attachmentIcon from '../../../assets/icons/attachment.svg'
 import duringIcon from '../../../assets/icons/during.svg'
 import fileIcon from '../../../assets/icons/file.svg'
@@ -330,6 +330,8 @@ export function ChatWindow({
   const [slashMenuHighlightIndex, setSlashMenuHighlightIndex] = useState(0)
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const isMobileComposer = useMediaQuery(MOBILE_COMPOSER_MQ)
+  const mobileComposerCompact = useMobileComposerCompact()
+  const isMobileCompactComposer = isMobileComposer && mobileComposerCompact
   const { push: pushToast } = useToast()
   const userMessageLongPress = useUserMessageLongPress(isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
@@ -522,6 +524,37 @@ export function ChatWindow({
     </span>
   )
 
+  const composerSendButton = (
+    <button
+      type="submit"
+      className={composerSendButtonClassName}
+      disabled={
+        tokenLimitReached ||
+        thinkingCreditsBlocked ||
+        isAttachingFiles ||
+        (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
+      }
+      aria-busy={isSending || isAssistantReplyStillAnimating}
+      aria-label={
+        tokenLimitReached
+          ? 'Token-Limit erreicht'
+          : thinkingCreditsBlocked
+            ? 'Thinking-Guthaben aufgebraucht'
+            : cancelWhileSending
+              ? 'Antwort abbrechen'
+              : 'Nachricht senden'
+      }
+      onClick={handleComposerSendClick}
+      onPointerDown={handleComposerSendPointerDown}
+      onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
+      onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
+      onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
+      onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
+    >
+      {composerSendIconEl}
+    </button>
+  )
+
   const composerInputRowTouchHandlers = isMobileComposer
     ? mobileComposerMessageBoxTouch.touchHandlers
     : undefined
@@ -531,6 +564,7 @@ export function ChatWindow({
       'chat-input-row',
       centered ? 'is-centered' : '',
       'chat-input-row--stacked',
+      isMobileCompactComposer ? 'chat-input-row--mobile-compact' : '',
       chatThinkingMode === 'thinking' ? 'chat-input-row--thinking-mode' : '',
       isSending ? 'is-sending' : '',
       isMobileComposer ? 'tap-spring-surface' : '',
@@ -539,17 +573,20 @@ export function ChatWindow({
       .filter(Boolean)
       .join(' ')
 
+  const showComposerInlinePickers = !isMobileCompactComposer
+
+  const attachButtonClassName = [
+    'chat-attach-button',
+    isMobileCompactComposer ? 'chat-compact-composer-surface' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   const composePlaceholder = tokenLimitReached
     ? 'Token-Limit erreicht'
     : thinkingCreditsBlocked
       ? 'Thinking-Guthaben aufgebraucht'
-      : imageGenCommandSelected
-      ? 'Beschreibe dein Bild …'
-      : wordCommandSelected
-        ? 'Optional: JSON einfügen — sonst letzte KI-Gliederung'
-        : webSearchCommandSelected
-          ? 'Frage stellen — es wird zuerst im Web gesucht (Tavily)'
-          : 'Nachricht eingeben...'
+      : 'Straton fragen'
 
   useEffect(() => {
     setExcelCommandSelected(false)
@@ -657,7 +694,7 @@ export function ChatWindow({
 
   useLayoutEffect(() => {
     adjustComposeHeight()
-  }, [draft])
+  }, [draft, isMobileCompactComposer])
 
   /** Thread gewechselt: Historie sofort voll anzeigen, Stream-Refs zurücksetzen. */
   useLayoutEffect(() => {
@@ -1303,58 +1340,64 @@ export function ChatWindow({
       >
         {isMobileComposer ? (
           <div className="chat-quick-tiles-scroll">
-            <GlassPillTouchSurface
-              type="button"
-              className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
-              onClick={handleSelectImageQuickTile}
-            >
-              <span className="chat-quick-tile-icon-wrap" aria-hidden>
-                <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
-              </span>
-              <span className="chat-quick-tile-text">
-                <span className="chat-quick-tile-title">Bilder</span>
-                <span className="chat-quick-tile-sub">Bild generieren</span>
-              </span>
-            </GlassPillTouchSurface>
-            <GlassPillTouchSurface
-              type="button"
-              className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
-              onClick={handleSelectExcelQuickTile}
-            >
-              <span className="chat-quick-tile-icon-wrap" aria-hidden>
-                <span className="chat-quick-tile-letter-mark">X</span>
-              </span>
-              <span className="chat-quick-tile-text">
-                <span className="chat-quick-tile-title">Excel</span>
-                <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
-              </span>
-            </GlassPillTouchSurface>
-            <GlassPillTouchSurface
-              type="button"
-              className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
-              onClick={handleSelectWordQuickTile}
-            >
-              <span className="chat-quick-tile-icon-wrap" aria-hidden>
-                <span className="chat-quick-tile-letter-mark">W</span>
-              </span>
-              <span className="chat-quick-tile-text">
-                <span className="chat-quick-tile-title">Word</span>
-                <span className="chat-quick-tile-sub">Word generieren</span>
-              </span>
-            </GlassPillTouchSurface>
-            <GlassPillTouchSurface
-              type="button"
-              className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
-              onClick={handleSelectWebSearchQuickTile}
-            >
-              <span className="chat-quick-tile-icon-wrap" aria-hidden>
-                <img src={webOutlinedIcon} alt="" />
-              </span>
-              <span className="chat-quick-tile-text">
-                <span className="chat-quick-tile-title">Websuche</span>
-                <span className="chat-quick-tile-sub">Live-Web</span>
-              </span>
-            </GlassPillTouchSurface>
+            <div className="chat-quick-tiles-scroll-track">
+              <button
+                type="button"
+                className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+                onClick={handleSelectImageQuickTile}
+              >
+                <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                  <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
+                </span>
+                <span className="chat-quick-tile-text">
+                  <span className="chat-quick-tile-title">Bilder</span>
+                  <span className="chat-quick-tile-sub">Bild generieren</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+                onClick={handleSelectExcelQuickTile}
+              >
+                <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                  <span className="chat-quick-tile-letter-mark">X</span>
+                </span>
+                <span className="chat-quick-tile-text">
+                  <span className="chat-quick-tile-title">Excel</span>
+                  <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+                onClick={handleSelectWordQuickTile}
+              >
+                <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                  <span className="chat-quick-tile-letter-mark">W</span>
+                </span>
+                <span className="chat-quick-tile-text">
+                  <span className="chat-quick-tile-title">Word</span>
+                  <span className="chat-quick-tile-sub">Word generieren</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
+                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+                onClick={handleSelectWebSearchQuickTile}
+              >
+                <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                  <img src={webOutlinedIcon} alt="" />
+                </span>
+                <span className="chat-quick-tile-text">
+                  <span className="chat-quick-tile-title">Websuche</span>
+                  <span className="chat-quick-tile-sub">Live-Web</span>
+                </span>
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -1562,7 +1605,7 @@ export function ChatWindow({
             <div className="chat-left-actions">
               <button
                 type="button"
-                className="chat-attach-button"
+                className={attachButtonClassName}
                 disabled={isSending || isAttachingFiles || tokenLimitReached}
                 aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
                 onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
@@ -1570,27 +1613,33 @@ export function ChatWindow({
               >
                 <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
               </button>
-              {showComposerModelPicker ? (
+              {showComposerInlinePickers && showComposerModelPicker ? (
                 <ChatComposerModelPicker
                   value={composerModelId}
                   onChange={onComposerModelChange}
                   disabled={isSending || tokenLimitReached}
                 />
               ) : null}
-              {showReplyModePicker ? (
+              {showComposerInlinePickers && showReplyModePicker ? (
                 <ChatComposerReplyModePicker
                   value={chatReplyMode}
                   onChange={onChatReplyModeChange}
                   disabled={isSending || tokenLimitReached}
                 />
               ) : null}
-              <ChatComposerThinkingModePicker
-                value={chatThinkingMode}
-                onChange={onChatThinkingModeChange}
-                disabled={isSending || tokenLimitReached}
-              />
+              {showComposerInlinePickers ? (
+                <ChatComposerThinkingModePicker
+                  value={chatThinkingMode}
+                  onChange={onChatThinkingModeChange}
+                  disabled={isSending || tokenLimitReached}
+                />
+              ) : null}
             </div>
-            <div className="chat-input-compose">
+            <div
+              className={['chat-input-compose', isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '']
+                .filter(Boolean)
+                .join(' ')}
+            >
               {pendingAttachments.length > 0 ||
               (!isMobileComposer &&
                 (imageGenCommandSelected ||
@@ -1702,106 +1751,102 @@ export function ChatWindow({
                   ))}
                 </div>
               ) : null}
-              <div className="chat-input-field">
-                <div className="chat-input-field-grow">
-                  {showSlashMenu ? (
-                    <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
-                      <button
-                        type="button"
-                        className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
-                        role="menuitem"
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                        }}
-                        onMouseEnter={() => setSlashMenuHighlightIndex(0)}
-                        onClick={handleSelectExcelSlashCommand}
-                      >
-                        Excel
-                      </button>
-                      <button
-                        type="button"
-                        className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
-                        role="menuitem"
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                        }}
-                        onMouseEnter={() => setSlashMenuHighlightIndex(1)}
-                        onClick={handleSelectWordSlashCommand}
-                      >
-                        Word
-                      </button>
-                      <button
-                        type="button"
-                        className={`thread-menu-item thread-menu-item--slash-image${
-                          slashMenuHighlightIndex === 2 ? ' is-selected' : ''
-                        }`}
-                        role="menuitem"
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                        }}
-                        onMouseEnter={() => setSlashMenuHighlightIndex(2)}
-                        onClick={handleSelectImageSlashCommand}
-                      >
-                        Bilder
-                      </button>
-                      <button
-                        type="button"
-                        className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
-                        role="menuitem"
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                        }}
-                        onMouseEnter={() => setSlashMenuHighlightIndex(3)}
-                        onClick={handleSelectWebSearchSlashCommand}
-                      >
-                        Websuche
-                      </button>
+              {isMobileCompactComposer ? (
+                <div className="chat-input-pill chat-compact-composer-surface">
+                  <div className="chat-input-field">
+                    <div className="chat-input-field-grow">
+                      <textarea
+                        ref={inputRef}
+                        className="chat-input"
+                        rows={1}
+                        value={draft}
+                        onChange={(event) => handleDraftChange(event.target.value)}
+                        onKeyDown={handleComposeKeyDown}
+                        onPaste={handleComposePaste}
+                        placeholder={composePlaceholder}
+                        disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
+                        aria-multiline="true"
+                        autoComplete="off"
+                      />
                     </div>
-                  ) : null}
-                  <textarea
-                    ref={inputRef}
-                    className="chat-input"
-                    rows={1}
-                    value={draft}
-                    onChange={(event) => handleDraftChange(event.target.value)}
-                    onKeyDown={handleComposeKeyDown}
-                    onPaste={handleComposePaste}
-                    placeholder={composePlaceholder}
-                    disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
-                    aria-multiline="true"
-                    autoComplete="off"
-                  />
+                  </div>
+                  {composerSendButton}
                 </div>
-              </div>
+              ) : (
+                <div className="chat-input-field">
+                  <div className="chat-input-field-grow">
+                    {showSlashMenu ? (
+                      <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                        <button
+                          type="button"
+                          className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
+                          role="menuitem"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                          }}
+                          onMouseEnter={() => setSlashMenuHighlightIndex(0)}
+                          onClick={handleSelectExcelSlashCommand}
+                        >
+                          Excel
+                        </button>
+                        <button
+                          type="button"
+                          className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
+                          role="menuitem"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                          }}
+                          onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                          onClick={handleSelectWordSlashCommand}
+                        >
+                          Word
+                        </button>
+                        <button
+                          type="button"
+                          className={`thread-menu-item thread-menu-item--slash-image${
+                            slashMenuHighlightIndex === 2 ? ' is-selected' : ''
+                          }`}
+                          role="menuitem"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                          }}
+                          onMouseEnter={() => setSlashMenuHighlightIndex(2)}
+                          onClick={handleSelectImageSlashCommand}
+                        >
+                          Bilder
+                        </button>
+                        <button
+                          type="button"
+                          className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
+                          role="menuitem"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                          }}
+                          onMouseEnter={() => setSlashMenuHighlightIndex(3)}
+                          onClick={handleSelectWebSearchSlashCommand}
+                        >
+                          Websuche
+                        </button>
+                      </div>
+                    ) : null}
+                    <textarea
+                      ref={inputRef}
+                      className="chat-input"
+                      rows={1}
+                      value={draft}
+                      onChange={(event) => handleDraftChange(event.target.value)}
+                      onKeyDown={handleComposeKeyDown}
+                      onPaste={handleComposePaste}
+                      placeholder={composePlaceholder}
+                      disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
+                      aria-multiline="true"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            <button
-              type="submit"
-              className={composerSendButtonClassName}
-              disabled={
-                tokenLimitReached ||
-                thinkingCreditsBlocked ||
-                isAttachingFiles ||
-                (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
-              }
-              aria-busy={isSending || isAssistantReplyStillAnimating}
-              aria-label={
-                tokenLimitReached
-                  ? 'Token-Limit erreicht'
-                  : thinkingCreditsBlocked
-                    ? 'Thinking-Guthaben aufgebraucht'
-                    : cancelWhileSending
-                      ? 'Antwort abbrechen'
-                      : 'Nachricht senden'
-              }
-              onClick={handleComposerSendClick}
-              onPointerDown={handleComposerSendPointerDown}
-              onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
-              onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
-              onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
-              onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
-            >
-              {composerSendIconEl}
-            </button>
+            {!isMobileCompactComposer ? composerSendButton : null}
           </form>
           <p className="chat-input-hint">
             Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
@@ -2265,7 +2310,7 @@ export function ChatWindow({
         <div className="chat-left-actions">
           <button
             type="button"
-            className="chat-attach-button"
+            className={attachButtonClassName}
             disabled={isSending || isAttachingFiles || tokenLimitReached}
             aria-label={isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Datei anhängen'}
             onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
@@ -2273,27 +2318,33 @@ export function ChatWindow({
           >
             <img className="ui-icon chat-send-icon" src={attachmentIcon} alt="" aria-hidden="true" />
           </button>
-          {showComposerModelPicker ? (
+          {showComposerInlinePickers && showComposerModelPicker ? (
             <ChatComposerModelPicker
               value={composerModelId}
               onChange={onComposerModelChange}
               disabled={isSending || tokenLimitReached}
             />
           ) : null}
-          {showReplyModePicker ? (
+          {showComposerInlinePickers && showReplyModePicker ? (
             <ChatComposerReplyModePicker
               value={chatReplyMode}
               onChange={onChatReplyModeChange}
               disabled={isSending || tokenLimitReached}
             />
           ) : null}
-          <ChatComposerThinkingModePicker
-            value={chatThinkingMode}
-            onChange={onChatThinkingModeChange}
-            disabled={isSending || tokenLimitReached}
-          />
+          {showComposerInlinePickers ? (
+            <ChatComposerThinkingModePicker
+              value={chatThinkingMode}
+              onChange={onChatThinkingModeChange}
+              disabled={isSending || tokenLimitReached}
+            />
+          ) : null}
         </div>
-        <div className="chat-input-compose">
+        <div
+          className={['chat-input-compose', isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '']
+            .filter(Boolean)
+            .join(' ')}
+        >
           {pendingAttachments.length > 0 ||
           (!isMobileComposer &&
             (imageGenCommandSelected ||
@@ -2405,106 +2456,102 @@ export function ChatWindow({
               ))}
             </div>
           ) : null}
-          <div className="chat-input-field">
-            <div className="chat-input-field-grow">
-              {showSlashMenu ? (
-                <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
-                  <button
-                    type="button"
-                    className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
-                    role="menuitem"
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                    }}
-                    onMouseEnter={() => setSlashMenuHighlightIndex(0)}
-                    onClick={handleSelectExcelSlashCommand}
-                  >
-                    Excel
-                  </button>
-                  <button
-                    type="button"
-                    className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
-                    role="menuitem"
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                    }}
-                    onMouseEnter={() => setSlashMenuHighlightIndex(1)}
-                    onClick={handleSelectWordSlashCommand}
-                  >
-                    Word
-                  </button>
-                  <button
-                    type="button"
-                    className={`thread-menu-item thread-menu-item--slash-image${
-                      slashMenuHighlightIndex === 2 ? ' is-selected' : ''
-                    }`}
-                    role="menuitem"
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                    }}
-                    onMouseEnter={() => setSlashMenuHighlightIndex(2)}
-                    onClick={handleSelectImageSlashCommand}
-                  >
-                    Bilder
-                  </button>
-                  <button
-                    type="button"
-                    className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
-                    role="menuitem"
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                    }}
-                    onMouseEnter={() => setSlashMenuHighlightIndex(3)}
-                    onClick={handleSelectWebSearchSlashCommand}
-                  >
-                    Websuche
-                  </button>
+          {isMobileCompactComposer ? (
+            <div className="chat-input-pill chat-compact-composer-surface">
+              <div className="chat-input-field">
+                <div className="chat-input-field-grow">
+                  <textarea
+                    ref={inputRef}
+                    className="chat-input"
+                    rows={1}
+                    value={draft}
+                    onChange={(event) => handleDraftChange(event.target.value)}
+                    onKeyDown={handleComposeKeyDown}
+                    onPaste={handleComposePaste}
+                    placeholder={composePlaceholder}
+                    disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
+                    aria-multiline="true"
+                    autoComplete="off"
+                  />
                 </div>
-              ) : null}
-              <textarea
-                ref={inputRef}
-                className="chat-input"
-                rows={1}
-                value={draft}
-                onChange={(event) => handleDraftChange(event.target.value)}
-                onKeyDown={handleComposeKeyDown}
-                onPaste={handleComposePaste}
-                placeholder={composePlaceholder}
-                disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
-                aria-multiline="true"
-                autoComplete="off"
-              />
+              </div>
+              {composerSendButton}
             </div>
-          </div>
+          ) : (
+            <div className="chat-input-field">
+              <div className="chat-input-field-grow">
+                {showSlashMenu ? (
+                  <div className="chat-slash-menu thread-menu" role="menu" aria-label="Slash Befehle">
+                    <button
+                      type="button"
+                      className={`thread-menu-item${slashMenuHighlightIndex === 0 ? ' is-selected' : ''}`}
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onMouseEnter={() => setSlashMenuHighlightIndex(0)}
+                      onClick={handleSelectExcelSlashCommand}
+                    >
+                      Excel
+                    </button>
+                    <button
+                      type="button"
+                      className={`thread-menu-item${slashMenuHighlightIndex === 1 ? ' is-selected' : ''}`}
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onMouseEnter={() => setSlashMenuHighlightIndex(1)}
+                      onClick={handleSelectWordSlashCommand}
+                    >
+                      Word
+                    </button>
+                    <button
+                      type="button"
+                      className={`thread-menu-item thread-menu-item--slash-image${
+                        slashMenuHighlightIndex === 2 ? ' is-selected' : ''
+                      }`}
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onMouseEnter={() => setSlashMenuHighlightIndex(2)}
+                      onClick={handleSelectImageSlashCommand}
+                    >
+                      Bilder
+                    </button>
+                    <button
+                      type="button"
+                      className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
+                      role="menuitem"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                      }}
+                      onMouseEnter={() => setSlashMenuHighlightIndex(3)}
+                      onClick={handleSelectWebSearchSlashCommand}
+                    >
+                      Websuche
+                    </button>
+                  </div>
+                ) : null}
+                <textarea
+                  ref={inputRef}
+                  className="chat-input"
+                  rows={1}
+                  value={draft}
+                  onChange={(event) => handleDraftChange(event.target.value)}
+                  onKeyDown={handleComposeKeyDown}
+                  onPaste={handleComposePaste}
+                  placeholder={composePlaceholder}
+                  disabled={isSending || tokenLimitReached || thinkingCreditsBlocked}
+                  aria-multiline="true"
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+          )}
         </div>
-        <button
-          type="submit"
-          className={composerSendButtonClassName}
-          disabled={
-            tokenLimitReached ||
-            thinkingCreditsBlocked ||
-            isAttachingFiles ||
-            (!cancelWhileSending && !draft.trim() && pendingAttachments.length === 0)
-          }
-          aria-busy={isSending || isAssistantReplyStillAnimating}
-          aria-label={
-            tokenLimitReached
-              ? 'Token-Limit erreicht'
-              : thinkingCreditsBlocked
-                ? 'Thinking-Guthaben aufgebraucht'
-                : cancelWhileSending
-                  ? 'Antwort abbrechen'
-                  : 'Nachricht senden'
-          }
-          onClick={handleComposerSendClick}
-          onPointerDown={handleComposerSendPointerDown}
-          onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
-          onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
-          onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
-          onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
-        >
-          {composerSendIconEl}
-        </button>
+        {!isMobileCompactComposer ? composerSendButton : null}
         </form>
         {webSearchCreditsHintEl}
         {!isMobileComposer ? thinkingCreditsHintEl : null}

@@ -4158,12 +4158,14 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   }
 
   .learn-top-tabs {
-    --learn-tabs-pad: 0.26rem;
-    --learn-tabs-gap: 0.25rem;
+    --learn-tabs-pad: 0.34rem;
+    --learn-tabs-gap: 0.2rem;
+    --learn-nav-shell-radius: 1.35rem;
+    --learn-tab-slide-radius: calc(var(--learn-nav-shell-radius) - var(--learn-tabs-pad));
     position: fixed;
-    left: 0.6rem;
-    right: 0.6rem;
-    bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    left: 0.55rem;
+    right: 0.55rem;
+    bottom: calc(0.42rem + env(safe-area-inset-bottom, 0px));
     z-index: 18;
     margin: 0;
     padding: var(--learn-tabs-pad);
@@ -4171,12 +4173,13 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: var(--learn-tabs-gap);
     border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
-    border-radius: 999px;
+    border-radius: var(--learn-nav-shell-radius);
     background: color-mix(in srgb, var(--color-surface-elevated) 68%, transparent);
     backdrop-filter: blur(18px) saturate(165%);
     -webkit-backdrop-filter: blur(18px) saturate(165%);
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
     transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    overflow: hidden;
   }
 
   .learn-top-tabs::before {
@@ -4186,8 +4189,11 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     bottom: var(--learn-tabs-pad);
     left: var(--learn-tabs-pad);
     width: calc((100% - (var(--learn-tabs-pad) * 2) - (var(--learn-tabs-gap) * 4)) / 5);
-    border-radius: 999px;
+    border-radius: var(--learn-tab-slide-radius);
     background: color-mix(in srgb, var(--color-surface-elevated) 90%, rgba(255, 255, 255, 0.08) 10%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-surface) 40%, rgba(255, 255, 255, 0.14)),
+      0 1px 2px rgba(15, 23, 42, 0.1);
     transform: translateX(calc(var(--learn-active-tab-index, 0) * (100% + var(--learn-tabs-gap))));
     transition: transform 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
     pointer-events: none;
@@ -4199,78 +4205,55 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   }
 
   .learn-top-tab {
-    min-height: 2.65rem;
-    padding: 0.35rem 0.2rem;
+    min-height: 4.35rem;
+    padding: 0.4rem 0.12rem 0.36rem;
     border: none;
-    border-radius: 999px;
-    font-size: 0.71rem;
-    font-weight: 700;
-    line-height: 1.2;
+    border-radius: var(--learn-tab-slide-radius, 0.88rem);
+    font: inherit;
     text-align: center;
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 0.2rem;
     position: relative;
     z-index: 1;
     background: transparent;
+    color: var(--color-text-secondary);
   }
 
-  .learn-top-tab--path {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-  }
-
-  .learn-top-tab--tests {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-  }
-
-  .learn-top-tab--flashcards {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-  }
-
-  .learn-top-tab--worksheets {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-  }
-
-  .learn-top-tab--statistics {
-    padding-top: 0.2rem;
-    padding-bottom: 0.2rem;
-  }
-
-  .learn-top-tab-path-icon {
-    display: inline-block;
-    --ui-icon-size: 30px;
-  }
-
-  .learn-top-tab-tests-icon {
-    display: inline-block;
-    --ui-icon-size: 30px;
-  }
-
-  .learn-top-tab-flashcards-icon {
-    display: inline-block;
-    --ui-icon-size: 30px;
-  }
-
-  .learn-top-tab-worksheets-icon {
-    display: inline-block;
-    --ui-icon-size: 30px;
-  }
-
+  .learn-top-tab-path-icon,
+  .learn-top-tab-tests-icon,
+  .learn-top-tab-flashcards-icon,
+  .learn-top-tab-worksheets-icon,
   .learn-top-tab-statistics-icon {
     display: inline-block;
-    --ui-icon-size: 30px;
-  }
-
-  .learn-top-tab-tests-label {
-    display: none;
+    flex-shrink: 0;
+    --ui-icon-size: 26px;
   }
 
   .learn-top-tab-label {
-    display: none;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    max-width: 100%;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.14;
+    letter-spacing: -0.02em;
+    white-space: normal;
+    word-break: break-word;
+    hyphens: auto;
+    color: inherit;
+  }
+
+  .learn-top-tab.is-active .learn-top-tab-label {
+    color: var(--color-accent, #6366f1);
+  }
+
+  .learn-top-tab.has-attention:not(.is-active) .learn-top-tab-label {
+    color: #f59e0b;
   }
 
   .learn-top-tab.is-active {
@@ -4362,14 +4345,14 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   }
 
   .learn-workspace-card.has-error-logbook-hint {
-    padding-bottom: 5.35rem;
+    padding-bottom: 6.35rem;
   }
 
   .learn-error-logbook-hint {
     position: fixed;
     left: 0.75rem;
     right: 0.75rem;
-    bottom: calc(4.05rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(5.35rem + env(safe-area-inset-bottom, 0px));
     z-index: 17;
     margin-top: 0;
     padding-top: 0.35rem;
@@ -4411,6 +4394,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
 
   .learn-tab-panel {
     min-height: 0;
+    padding-bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px));
   }
 
   .learn-flashcards-list-spaced {
@@ -4431,7 +4415,7 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   .learn-mobile-floating-create-pill {
     position: fixed;
     right: 0.8rem;
-    bottom: calc(4.65rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(5.55rem + env(safe-area-inset-bottom, 0px));
     z-index: 19;
     border: 1px solid color-mix(in srgb, var(--color-accent, #2563eb) 70%, transparent);
     background: color-mix(in srgb, var(--color-accent, #2563eb) 85%, #1d4ed8 15%);

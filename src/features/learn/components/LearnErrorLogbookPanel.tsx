@@ -15,7 +15,7 @@ const FILTER_OPTIONS: { id: ErrorLogbookFilter; label: string }[] = [
   { id: 'all', label: 'Alle' },
   { id: 'entry_quiz', label: 'Einstiegstest' },
   { id: 'chapter', label: 'Kapitel' },
-  { id: 'worksheet', label: 'Arbeitsblatt' },
+  { id: 'worksheet', label: 'Lernblatt' },
 ]
 
 export function LearnErrorLogbookPanel(props: LearnErrorLogbookPanelProps) {
@@ -39,13 +39,13 @@ export function LearnErrorLogbookPanel(props: LearnErrorLogbookPanelProps) {
       <header className="learn-error-logbook-header">
         <h3 className="learn-error-logbook-title">Meine Lücken</h3>
         <p className="learn-muted learn-error-logbook-lead">
-          Falsch beantwortete Fragen aus Einstiegstest, Kapiteln und Arbeitsblättern — zum gezielten Nacharbeiten.
+          Falsch beantwortete Fragen aus Einstiegstest, Kapiteln und Lernblättern — zum gezielten Nacharbeiten.
         </p>
       </header>
 
       {stats.total === 0 ? (
         <p className="learn-muted learn-error-logbook-empty">
-          Noch keine erfassten Fehler. Sobald du im Einstiegstest, in einem Kapitel oder am Arbeitsblatt etwas falsch
+          Noch keine erfassten Fehler. Sobald du im Einstiegstest, in einem Kapitel oder am Lernblatt etwas falsch
           hast, erscheint es hier.
         </p>
       ) : (

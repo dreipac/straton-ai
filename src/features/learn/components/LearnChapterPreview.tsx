@@ -155,13 +155,13 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
               disabled={!canCreateWorksheet || isGeneratingWorksheet || isGeneratingFlashcards}
               onClick={onCreateWorksheet}
               aria-busy={isGeneratingWorksheet}
-              aria-label={isGeneratingWorksheet ? 'Arbeitsblatt wird erstellt' : 'Arbeitsblatt erstellen'}
+              aria-label={isGeneratingWorksheet ? 'Lernblatt wird erstellt' : 'Lernblatt erstellen'}
             >
               <span className="learn-chapter-preview-pill-icon" aria-hidden="true">
                 <img src={filePenOutline} alt="" />
               </span>
               <span className="learn-chapter-preview-pill-label">
-                {isGeneratingWorksheet ? 'Wird erstellt…' : 'Arbeitsblatt erstellen'}
+                {isGeneratingWorksheet ? 'Wird erstellt…' : 'Lernblatt erstellen'}
               </span>
             </button>
           </div>
@@ -189,13 +189,13 @@ export function LearnChapterPreview(props: LearnChapterPreviewProps) {
                   type="button"
                   className="learn-entry-test-link learn-chapter-preview-file-chip"
                   onClick={onOpenSavedWorksheets}
-                  aria-label="Arbeitsblatt öffnen"
+                  aria-label="Lernblatt öffnen"
                 >
                   <span className="learn-entry-test-link-icon-wrap" aria-hidden="true">
                     <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
                   </span>
                   <span className="learn-entry-test-link-content learn-chapter-preview-file-chip-text">
-                    <span className="learn-entry-test-link-title">Arbeitsblatt</span>
+                    <span className="learn-entry-test-link-title">Lernblatt</span>
                   </span>
                 </button>
               ) : null}

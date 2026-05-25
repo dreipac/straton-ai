@@ -50,13 +50,13 @@ export function buildTutorCoachMessage(step: TutorCoachStep): string {
       return `Hey! 👋 Dein Einstiegstest: ${entryScore}/${entryTotal} ${emoji}\n\nLass uns Kapitel ${chapterNumber} angehen — nimm dir Zeit, ich begleite dich.`
     }
     case 'need-worksheet':
-      return `Kapitel ${step.chapterNumber} — geschafft! 🎉\n\nAls Nächstes ein kurzes Arbeitsblatt dazu. Wenn du das durch hast, schalten wir das nächste Kapitel frei.`
+      return `Kapitel ${step.chapterNumber} — geschafft! 🎉\n\nAls Nächstes ein kurzes Lernblatt dazu. Wenn du das durch hast, schalten wir das nächste Kapitel frei.`
     case 'worksheet-progress':
-      return `Du bist auf einem guten Weg 📌\n\nArbeitsblatt zu Kapitel ${step.chapterNumber}: noch ${step.evaluatedCount}/${step.total} Aufgaben mit dem Kreis prüfen — dann geht's weiter.`
+      return `Du bist auf einem guten Weg 📌\n\nLernblatt zu Kapitel ${step.chapterNumber}: noch ${step.evaluatedCount}/${step.total} Aufgaben mit dem Kreis prüfen — dann geht's weiter.`
     case 'next-chapter':
-      return `Arbeitsblatt zu Kapitel ${step.completedChapterNumber} — alles geprüft ✅\n\nBereit für Kapitel ${step.nextChapterNumber}? Los geht's. 🚀`
+      return `Lernblatt zu Kapitel ${step.completedChapterNumber} — alles geprüft ✅\n\nBereit für Kapitel ${step.nextChapterNumber}? Los geht's. 🚀`
     case 'all-done':
-      return `Wow — du hast alle geplanten Kapitel und Arbeitsblätter durch! 🏆\n\nDas war richtig ordentlich. Gönn dir kurz eine Pause — du hast es dir verdient. 😊`
+      return `Wow — du hast alle geplanten Kapitel und Lernblätter durch! 🏆\n\nDas war richtig ordentlich. Gönn dir kurz eine Pause — du hast es dir verdient. 😊`
     default:
       return ''
   }

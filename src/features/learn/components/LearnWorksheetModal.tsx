@@ -154,16 +154,16 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
 
   return (
     <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
-      <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Arbeitsblatt">
+      <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Lernblatt">
         <header className="learn-flashcards-modal-header">
-          <h2>Arbeitsblatt</h2>
+          <h2>Lernblatt</h2>
           <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">
             <span className="ui-icon settings-close-icon" aria-hidden="true" />
           </button>
         </header>
         <div className="learn-flashcards-modal-body learn-worksheet-modal-body">
           {isLoading ? (
-            <p className="learn-muted learn-flashcards-modal-status">Arbeitsblatt wird erstellt…</p>
+            <p className="learn-muted learn-flashcards-modal-status">Lernblatt wird erstellt…</p>
           ) : error ? (
             <p className="error-text learn-flashcards-modal-status">{error}</p>
           ) : items.length === 0 ? (
@@ -171,7 +171,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
           ) : (
             <article className="learn-worksheet-content">
               <header className="learn-worksheet-content-header">
-                <h3 className="learn-worksheet-content-title">Arbeitsblatt</h3>
+                <h3 className="learn-worksheet-content-title">Lernblatt</h3>
                 <p className="learn-worksheet-content-subtitle">{title}</p>
               </header>
               <div className="learn-worksheet-list" role="list">

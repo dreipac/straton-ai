@@ -21,6 +21,10 @@ type Block =
   | { type: 'emailDraft'; body: string }
   /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
   | { type: 'table'; rows: string[][] }
+  /** Multiple-Choice (Frage + A–D), getrennt von Standard-Listen */
+  | { type: 'mcq'; title?: string; questionNumber: number; prompt: string; options: McqOption[] }
+
+type McqOption = { letter: string; text: string }
 
 function stripBoldMarkers(line: string): string {
   return line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').trim()
@@ -367,7 +371,130 @@ function parseBlocks(raw: string): Block[] {
   flushCode()
   flushList()
   flushPara()
-  return promotePlainParagraphEmailDrafts(blocks)
+  return transformBlocksWithMcq(promotePlainParagraphEmailDrafts(blocks))
+}
+
+function isFragenHeading(text: string): boolean {
+  const t = stripBoldMarkers(text).trim().replace(/:$/, '').trim()
+  return /^fragen$/i.test(t)
+}
+
+function parseMcqOptionLine(raw: string): McqOption | null {
+  const t = stripBoldMarkers(raw.trim())
+  const m = t.match(/^([A-Da-d])\)\s+(.+)$/s)
+  if (!m) {
+    return null
+  }
+  return { letter: m[1].toUpperCase(), text: m[2].trim() }
+}
+
+function isMcqOptionsList(items: string[]): boolean {
+  if (items.length < 2) {
+    return false
+  }
+  const parsed = items.map(parseMcqOptionLine).filter((x): x is McqOption => x !== null)
+  return parsed.length >= 2 && parsed.length >= Math.ceil(items.length * 0.75)
+}
+
+function parseMcqOptions(items: string[]): McqOption[] {
+  return items.map(parseMcqOptionLine).filter((x): x is McqOption => x !== null)
+}
+
+function tryParseSingleMcqBlock(
+  blocks: Block[],
+  index: number,
+): { block: Extract<Block, { type: 'mcq' }>; end: number } | null {
+  const ol = blocks[index]
+  const ul = blocks[index + 1]
+
+  if (ol?.type === 'ol' && ol.items.length === 1 && ul?.type === 'ul' && isMcqOptionsList(ul.items)) {
+    const options = parseMcqOptions(ul.items)
+    if (options.length < 2) {
+      return null
+    }
+    const prompt = ol.items[0]?.trim() ?? ''
+    if (!prompt) {
+      return null
+    }
+    return {
+      block: { type: 'mcq', questionNumber: 1, prompt, options },
+      end: index + 2,
+    }
+  }
+
+  const p = blocks[index]
+  if (p?.type === 'p' && ul?.type === 'ul' && isMcqOptionsList(ul.items)) {
+    const plain = stripBoldMarkers(p.text.trim())
+    const qm = plain.match(/^(\d{1,2})[.)]\s+(.+)$/s)
+    if (qm) {
+      const options = parseMcqOptions(ul.items)
+      if (options.length < 2) {
+        return null
+      }
+      return {
+        block: {
+          type: 'mcq',
+          questionNumber: Math.max(1, Number.parseInt(qm[1], 10) || 1),
+          prompt: qm[2].trim(),
+          options,
+        },
+        end: index + 2,
+      }
+    }
+  }
+
+  return null
+}
+
+function transformBlocksWithMcq(blocks: Block[]): Block[] {
+  const out: Block[] = []
+  let i = 0
+  let questionCounter = 0
+
+  while (i < blocks.length) {
+    let title: string | undefined
+    let scan = i
+    const head = blocks[scan]
+    if (
+      head &&
+      (head.type === 'p' || head.type === 'h2' || head.type === 'h3') &&
+      isFragenHeading(head.type === 'p' ? head.text : head.text)
+    ) {
+      title = 'Fragen'
+      scan++
+    }
+
+    const mcqBatch: Extract<Block, { type: 'mcq' }>[] = []
+    let cursor = scan
+    while (cursor < blocks.length) {
+      const parsed = tryParseSingleMcqBlock(blocks, cursor)
+      if (!parsed) {
+        break
+      }
+      questionCounter += 1
+      mcqBatch.push({
+        ...parsed.block,
+        questionNumber: parsed.block.questionNumber > 1 ? parsed.block.questionNumber : questionCounter,
+      })
+      cursor = parsed.end
+    }
+
+    if (mcqBatch.length > 0) {
+      mcqBatch.forEach((mcq, idx) => {
+        out.push({
+          ...mcq,
+          title: idx === 0 ? title : undefined,
+        })
+      })
+      i = cursor
+      continue
+    }
+
+    out.push(blocks[i])
+    i++
+  }
+
+  return out
 }
 
 function splitBetreffFromEmailBody(body: string): { subject?: string; rest: string } {
@@ -531,6 +658,57 @@ function EmailDraftBlock({ body }: { body: string }) {
   )
 }
 
+function McqBlock({
+  title,
+  questionNumber,
+  prompt,
+  options,
+  imageOptions,
+}: {
+  title?: string
+  questionNumber: number
+  prompt: string
+  options: McqOption[]
+  imageOptions?: AssistantInlineImageOptions
+}) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+
+  function toggleOption(letter: string) {
+    setChecked((prev) => ({ ...prev, [letter]: !prev[letter] }))
+  }
+
+  return (
+    <section className="chat-mcq-block" aria-label={title ?? 'Multiple Choice'}>
+      {title ? <p className="chat-mcq-heading">{title}</p> : null}
+      <div className="chat-mcq-question">
+        <span className="chat-mcq-number" aria-hidden="true">
+          {questionNumber}
+        </span>
+        <p className="chat-mcq-prompt">{renderAssistantInline(prompt, imageOptions)}</p>
+      </div>
+      <ul className="chat-mcq-options" role="group" aria-label="Antwortmöglichkeiten">
+        {options.map((option) => {
+          const isChecked = Boolean(checked[option.letter])
+          return (
+            <li key={option.letter} className="chat-mcq-option-item">
+              <button
+                type="button"
+                className={`chat-mcq-option${isChecked ? ' is-checked' : ''}`}
+                aria-pressed={isChecked}
+                onClick={() => toggleOption(option.letter)}
+              >
+                <span className="chat-mcq-checkbox" aria-hidden="true" />
+                <span className="chat-mcq-option-letter">{option.letter}</span>
+                <span className="chat-mcq-option-text">{renderAssistantInline(option.text, imageOptions)}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
@@ -650,6 +828,17 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
       return <CodeBlock key={key} code={block.code} language={block.language} />
     case 'emailDraft':
       return <EmailDraftBlock key={key} body={block.body} />
+    case 'mcq':
+      return (
+        <McqBlock
+          key={key}
+          title={block.title}
+          questionNumber={block.questionNumber}
+          prompt={block.prompt}
+          options={block.options}
+          imageOptions={imageOptions}
+        />
+      )
     case 'table': {
       const [headerRow, ...bodyRows] = block.rows
       if (!headerRow?.length) {

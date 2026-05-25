@@ -6,9 +6,12 @@ const HOLD_RELEASE_ANIMATION_NAME = 'tap-feedback-hold-release'
 /** Nach ~Peak der Feder (34 % von 500 ms) oder längerem Druck → Größe halten bis Loslassen. */
 const HOLD_ACTIVATE_MS = 165
 const HOLD_RELEASE_MS = 220
+/** Horizontaler Wisch in Scroll-Leisten (z. B. Schnellaktionen) — kein Pointer-Capture. */
+const HORIZONTAL_SCROLL_SLOP_PX = 10
 
 export type GlassPillTouchHandlers = {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
+  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerLeave: (event: ReactPointerEvent<HTMLElement>) => void
@@ -22,6 +25,8 @@ export type GlassPillTouchFeedback = {
   touchHandlers: GlassPillTouchHandlers
   touchClassName: string
   touchStateClass: string
+  /** Nach horizontalem Wisch: nächsten Click unterdrücken (kein versehentlicher Tap). */
+  consumeScrollGestureClick: () => boolean
 }
 
 function buildTouchStateClass(
@@ -49,6 +54,10 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
   const [isTapHeld, setIsTapHeld] = useState(false)
   const [isTapHeldReleasing, setIsTapHeldReleasing] = useState(false)
   const holdReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollGestureRef = useRef(false)
+  const pointerOriginRef = useRef<{ x: number; y: number } | null>(null)
+  const activeTargetRef = useRef<HTMLElement | null>(null)
+  const activePointerIdRef = useRef<number | null>(null)
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current !== null) {
@@ -76,13 +85,22 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
   }, [clearHoldReleaseTimer])
 
   const activateHold = useCallback(() => {
-    if (!isPressedRef.current || holdActivatedRef.current) {
+    if (!isPressedRef.current || holdActivatedRef.current || scrollGestureRef.current) {
       return
     }
     holdActivatedRef.current = true
     isSpringingRef.current = false
     setIsTapSpring(false)
     setIsTapHeld(true)
+    const target = activeTargetRef.current
+    const pointerId = activePointerIdRef.current
+    if (target && pointerId !== null) {
+      try {
+        target.setPointerCapture(pointerId)
+      } catch {
+        /* ignore */
+      }
+    }
   }, [])
 
   const finishSpring = useCallback(() => {
@@ -93,8 +111,28 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     setIsTapSpring(false)
   }, [])
 
+  const releasePointerCapture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }, [])
+
+  const cancelPressForScroll = useCallback(() => {
+    scrollGestureRef.current = true
+    isPressedRef.current = false
+    pointerOriginRef.current = null
+    clearHoldTimer()
+    holdActivatedRef.current = false
+    setIsTapHeld(false)
+    setIsTapHeldReleasing(false)
+    finishSpring()
+  }, [clearHoldTimer, finishSpring])
+
   const releasePress = useCallback(() => {
     isPressedRef.current = false
+    pointerOriginRef.current = null
+    activeTargetRef.current = null
+    activePointerIdRef.current = null
     clearHoldTimer()
     if (holdActivatedRef.current) {
       holdActivatedRef.current = false
@@ -108,13 +146,24 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     }
   }, [clearHoldReleaseTimer, clearHoldTimer])
 
+  const consumeScrollGestureClick = useCallback(() => {
+    if (!scrollGestureRef.current) {
+      return false
+    }
+    scrollGestureRef.current = false
+    return true
+  }, [])
+
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (event.button !== 0) {
         return
       }
       preventIosBlurOnlyTapWhenChatInputFocused(event)
-      event.currentTarget.setPointerCapture(event.pointerId)
+      scrollGestureRef.current = false
+      pointerOriginRef.current = { x: event.clientX, y: event.clientY }
+      activeTargetRef.current = event.currentTarget
+      activePointerIdRef.current = event.pointerId
       isPressedRef.current = true
       holdActivatedRef.current = false
       clearHoldTimer()
@@ -124,25 +173,39 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     [activateHold, clearHoldTimer, playSpring],
   )
 
+  const onPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (!isPressedRef.current || scrollGestureRef.current || !pointerOriginRef.current) {
+        return
+      }
+      const dx = event.clientX - pointerOriginRef.current.x
+      const dy = event.clientY - pointerOriginRef.current.y
+      if (
+        Math.abs(dx) >= HORIZONTAL_SCROLL_SLOP_PX &&
+        Math.abs(dx) > Math.abs(dy) * 1.15
+      ) {
+        releasePointerCapture(event)
+        cancelPressForScroll()
+      }
+    },
+    [cancelPressForScroll, releasePointerCapture],
+  )
+
   const onPointerUp = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId)
-      }
+      releasePointerCapture(event)
       releasePress()
     },
-    [releasePress],
+    [releasePointerCapture, releasePress],
   )
 
   const onPointerCancel = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId)
-      }
+      releasePointerCapture(event)
       releasePress()
       finishSpring()
     },
-    [finishSpring, releasePress],
+    [finishSpring, releasePointerCapture, releasePress],
   )
 
   const onPointerLeave = useCallback(() => {
@@ -177,6 +240,7 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     isTapHeldReleasing,
     touchHandlers: {
       onPointerDown,
+      onPointerMove,
       onPointerUp,
       onPointerCancel,
       onPointerLeave,
@@ -184,6 +248,7 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
     },
     touchClassName: touchStateClass,
     touchStateClass,
+    consumeScrollGestureClick,
   }
 }
 

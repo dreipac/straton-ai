@@ -96,14 +96,14 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
               <span className="learn-entry-test-link-content">
                 <span className="learn-entry-test-link-title">
                   {worksheetGateProgress.total === 0
-                    ? 'Arbeitsblatt erstellen'
+                    ? 'Lernblatt erstellen'
                     : worksheetGateProgress.isComplete
-                      ? 'Arbeitsblatt ansehen'
-                      : 'Arbeitsblatt fortsetzen'}
+                      ? 'Lernblatt ansehen'
+                      : 'Lernblatt fortsetzen'}
                 </span>
                 <span className="learn-entry-test-link-meta">
                   {worksheetGateProgress.total === 0
-                    ? 'Jetzt Arbeitsblatt generieren'
+                    ? 'Jetzt Lernblatt generieren'
                     : worksheetGateProgress.isComplete
                       ? 'Alle Aufgaben wurden geprüft'
                       : `${worksheetGateProgress.evaluatedCount}/${worksheetGateProgress.total} Aufgaben geprüft`}

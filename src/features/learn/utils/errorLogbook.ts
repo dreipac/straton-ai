@@ -46,7 +46,7 @@ export type ErrorLogbookStats = {
 const SOURCE_LABEL: Record<ErrorLogbookSource, string> = {
   entry_quiz: 'Einstiegstest',
   chapter: 'Kapitel',
-  worksheet: 'Arbeitsblatt',
+  worksheet: 'Lernblatt',
 }
 
 function trimOrDash(value: string | undefined): string {
@@ -143,7 +143,7 @@ export function buildErrorLogbookEntries(input: ErrorLogbookInput): ErrorLogbook
     const contextLabel =
       chapterIndex !== undefined
         ? chapterTitleForIndex(input.chapterBlueprints, input.learningChapters, chapterIndex)
-        : 'Arbeitsblatt'
+        : 'Lernblatt'
     entries.push({
       id: `worksheet-${item.id}`,
       source: 'worksheet',

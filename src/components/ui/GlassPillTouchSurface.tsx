@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ElementType, ReactElement } from 'react'
+import type { ComponentPropsWithoutRef, ElementType, MouseEvent, ReactElement } from 'react'
 import { glassPillTouchClass, useGlassPillTouchFeedback } from '../../hooks/useGlassPillTouchFeedback'
 
 type GlassPillTouchVariant = 'default' | 'composer-shell'
@@ -13,6 +13,7 @@ export function GlassPillTouchSurface<T extends ElementType = 'button'>({
   as,
   className,
   glassVariant = 'default',
+  onClick,
   ...props
 }: GlassPillTouchSurfaceProps<T>): ReactElement {
   const Component = (as ?? 'button') as ElementType
@@ -25,6 +26,14 @@ export function GlassPillTouchSurface<T extends ElementType = 'button'>({
       {...(isButton ? { type: 'button' as const } : {})}
       {...props}
       {...touch.touchHandlers}
+      onClick={(event: MouseEvent<HTMLElement>) => {
+        if (touch.consumeScrollGestureClick()) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        onClick?.(event)
+      }}
       className={glassPillTouchClass(touch, variantClass, className)}
     />
   )

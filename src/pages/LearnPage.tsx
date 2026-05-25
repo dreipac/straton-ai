@@ -1564,7 +1564,7 @@ export function LearnPage() {
       personalization === 'personalized' && materials.length > 0
         ? mergeOutlineWithPersonalMaterialContext(
             outline,
-            `${effectiveTopic} ${selectedTopic} Arbeitsblatt Originalunterlagen`,
+            `${effectiveTopic} ${selectedTopic} Lernblatt Originalunterlagen`,
             materials,
           )
         : outline
@@ -1611,7 +1611,7 @@ export function LearnPage() {
 
       await incrementMySubscriptionUsage({ userId: user.id, usedImagesDelta: 1 })
     } catch (e) {
-      setWorksheetError(e instanceof Error ? e.message : 'Arbeitsblatt fehlgeschlagen.')
+      setWorksheetError(e instanceof Error ? e.message : 'Lernblatt fehlgeschlagen.')
     } finally {
       setIsGeneratingWorksheet(false)
     }
@@ -2408,7 +2408,7 @@ export function LearnPage() {
                       worksheetRequiredChapterIndex !== null ? ' has-attention' : ''
                     }`}
                     onClick={() => setActiveLearnTab('worksheets')}
-                    aria-label="Arbeitsblätter"
+                    aria-label="Lernblätter"
                   >
                     <img
                       className="ui-icon learn-top-tab-worksheets-icon"
@@ -2416,7 +2416,7 @@ export function LearnPage() {
                       alt=""
                       aria-hidden="true"
                     />
-                    <span className="learn-top-tab-label">Arbeitsblätter</span>
+                    <span className="learn-top-tab-label">Lernblätter</span>
                   </button>
                   <button
                     type="button"
@@ -2446,12 +2446,12 @@ export function LearnPage() {
                   <p className="learn-worksheet-required-hint">
                     {requiredWorksheetProgress.total === 0 ? (
                       <>
-                        Kapitel {worksheetRequiredChapterIndex + 1} abgeschlossen. Bitte erstelle jetzt das Arbeitsblatt im Tab{' '}
-                        <strong>Arbeitsblätter</strong>, um weiterzumachen.
+                        Kapitel {worksheetRequiredChapterIndex + 1} abgeschlossen. Bitte erstelle jetzt das Lernblatt im Tab{' '}
+                        <strong>Lernblätter</strong>, um weiterzumachen.
                       </>
                     ) : (
                       <>
-                        Pflicht-Arbeitsblatt Kapitel {worksheetRequiredChapterIndex + 1}:{' '}
+                        Pflicht-Lernblatt Kapitel {worksheetRequiredChapterIndex + 1}:{' '}
                         {requiredWorksheetProgress.evaluatedCount}/{requiredWorksheetProgress.total} Aufgaben geprüft. Bitte
                         alle Aufgaben mit dem Kreis prüfen.
                       </>
@@ -2716,10 +2716,10 @@ export function LearnPage() {
                     {worksheetRequiredChapterIndex !== null && requiredWorksheetProgress ? (
                       <p className="learn-next-step-hint">
                         {requiredWorksheetProgress.total === 0
-                          ? `Pflichtschritt: Erstelle das Arbeitsblatt zu Kapitel ${worksheetRequiredChapterIndex + 1}.`
+                          ? `Pflichtschritt: Erstelle das Lernblatt zu Kapitel ${worksheetRequiredChapterIndex + 1}.`
                           : requiredWorksheetProgress.isComplete
-                            ? `Pflicht-Arbeitsblatt zu Kapitel ${worksheetRequiredChapterIndex + 1} ist vollständig geprüft.`
-                            : `Pflicht-Arbeitsblatt Kapitel ${worksheetRequiredChapterIndex + 1}: ${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total} Aufgaben geprüft.`}
+                            ? `Pflicht-Lernblatt zu Kapitel ${worksheetRequiredChapterIndex + 1} ist vollständig geprüft.`
+                            : `Pflicht-Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1}: ${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total} Aufgaben geprüft.`}
                       </p>
                     ) : null}
                     <div className="learn-next-step-actions learn-next-step-actions--worksheets">
@@ -2729,19 +2729,19 @@ export function LearnPage() {
                         disabled={worksheetRequiredChapterIndex === null || isGeneratingWorksheet}
                       >
                         {isGeneratingWorksheet
-                          ? 'Arbeitsblatt wird erstellt...'
+                          ? 'Lernblatt wird erstellt...'
                           : worksheetRequiredChapterIndex !== null && requiredWorksheetProgress
                             ? requiredWorksheetProgress.total === 0
-                              ? `Arbeitsblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
+                              ? `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
                               : requiredWorksheetProgress.isComplete
-                                ? `Arbeitsblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
-                                : `Arbeitsblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
-                            : 'Arbeitsblatt'}
+                                ? `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
+                                : `Lernblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
+                            : 'Lernblatt'}
                       </PrimaryButton>
                     </div>
-                    <section className="learn-tests-list learn-worksheets-list-spaced" aria-label="Arbeitsblätter">
+                    <section className="learn-tests-list learn-worksheets-list-spaced" aria-label="Lernblätter">
                       {worksheetChaptersForList.length === 0 ? (
-                        <p className="learn-muted">Noch kein Arbeitsblatt vorhanden.</p>
+                        <p className="learn-muted">Noch kein Lernblatt vorhanden.</p>
                       ) : (
                         worksheetChaptersForList.map(({ chapterIndex, progress }) => {
                           const chapterTitle =
@@ -2789,14 +2789,14 @@ export function LearnPage() {
                     >
                       <img className="ui-icon learn-mobile-floating-create-pill-icon" src={addIcon} alt="" aria-hidden="true" />
                       {isGeneratingWorksheet
-                        ? 'Arbeitsblatt wird erstellt...'
+                        ? 'Lernblatt wird erstellt...'
                         : worksheetRequiredChapterIndex !== null && requiredWorksheetProgress
                           ? requiredWorksheetProgress.total === 0
-                            ? `Arbeitsblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
+                            ? `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
                             : requiredWorksheetProgress.isComplete
-                              ? `Arbeitsblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
-                              : `Arbeitsblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
-                          : 'Arbeitsblatt'}
+                              ? `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
+                              : `Lernblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
+                          : 'Lernblatt'}
                     </button>
                   </section>
                 ) : null}
@@ -2886,7 +2886,7 @@ export function LearnPage() {
           >
             <header className="learn-flashcards-modal-header">
               <h2 id="learn-material-choice-title">
-                {learnMaterialChoiceTarget === 'worksheet' ? 'Arbeitsblatt' : 'Lernkarten'}
+                {learnMaterialChoiceTarget === 'worksheet' ? 'Lernblatt' : 'Lernkarten'}
               </h2>
               <button
                 type="button"

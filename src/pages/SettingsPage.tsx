@@ -22,6 +22,10 @@ import {
   writeAssistantEmojisEnabled,
 } from '../features/chat/constants/chatAssistantStyle'
 import {
+  readMobileComposerCompact,
+  writeMobileComposerCompact,
+} from '../features/chat/constants/mobileComposerCompact'
+import {
   applySidebarPreferenceToDocument,
   persistSidebarPreferenceToStorage,
   themeModeToDatasetVariant,
@@ -154,6 +158,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     readPersistedLearnPathTitleColorMode(),
   )
   const [assistantEmojisEnabled, setAssistantEmojisEnabled] = useState(() => readAssistantEmojisEnabled())
+  const [mobileComposerCompact, setMobileComposerCompact] = useState(() => readMobileComposerCompact())
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
   const [chatCleanupInfo, setChatCleanupInfo] = useState<string | null>(null)
@@ -463,6 +468,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     setMessageBoxPaletteId(applyMessageBoxPalette(s.messageBoxPaletteId))
     setLearnPathTitleColorMode(s.learnPathTitleColorMode)
     setAssistantEmojisEnabled(s.assistantEmojis)
+    setMobileComposerCompact(s.mobileComposerCompact)
     setUiSettingsHydrated(true)
   }, [user, profile])
 
@@ -483,6 +489,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       messageBoxPaletteId,
       learnPathTitleColorMode,
       assistantEmojis: assistantEmojisEnabled,
+      mobileComposerCompact,
     }
     const timerId = window.setTimeout(() => {
       void updateUiSettings(snapshot)
@@ -501,12 +508,17 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     messageBoxPaletteId,
     learnPathTitleColorMode,
     assistantEmojisEnabled,
+    mobileComposerCompact,
     updateUiSettings,
   ])
 
   useEffect(() => {
     writeAssistantEmojisEnabled(assistantEmojisEnabled)
   }, [assistantEmojisEnabled])
+
+  useEffect(() => {
+    writeMobileComposerCompact(mobileComposerCompact)
+  }, [mobileComposerCompact])
 
   useEffect(() => {
     const baseTheme = themeMode === 'light' ? 'light' : 'dark'
@@ -727,6 +739,10 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
 
   function handleToggleAssistantEmojis() {
     setAssistantEmojisEnabled((v) => !v)
+  }
+
+  function handleToggleMobileComposerCompact() {
+    setMobileComposerCompact((v) => !v)
   }
 
   async function handleToggleAutoRemoveEmptyChats() {
@@ -952,6 +968,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             language={language}
             assistantEmojisEnabled={assistantEmojisEnabled}
             onToggleAssistantEmojis={handleToggleAssistantEmojis}
+            mobileComposerCompact={mobileComposerCompact}
+            onToggleMobileComposerCompact={handleToggleMobileComposerCompact}
             autoRemoveEmptyChats={autoRemoveEmptyChats}
             isUpdatingChatSetting={isUpdatingChatSetting}
             isCleaningEmptyChats={isCleaningEmptyChats}

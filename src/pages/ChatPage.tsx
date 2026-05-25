@@ -1722,7 +1722,7 @@ export function ChatPage() {
             ) : null}
             <button
               type="button"
-              className="chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar"
+              className="chat-sidebar-nav-button chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar"
               aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
               onClick={() => navigate('/login')}
             >
@@ -1760,7 +1760,7 @@ export function ChatPage() {
                   className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
                   aria-hidden="true"
                 />
-                <span className="mobile-new-chat-fab-label">Chat</span>
+                <span className="mobile-new-chat-fab-label">Neuer Chat</span>
               </button>
             </div>
           </div>
@@ -1876,7 +1876,7 @@ export function ChatPage() {
           <button
             ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
             type="button"
-            className={`chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar${
+            className={`chat-sidebar-nav-button chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar${
               chatTourEligible ? ' chat-onboarding-tour-block' : ''
             }`}
             onClick={() => {
@@ -1889,6 +1889,7 @@ export function ChatPage() {
           </button>
           <button
             type="button"
+            className="chat-sidebar-nav-button"
             onClick={() => openSettingsModal()}
             aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
           >
@@ -1898,7 +1899,7 @@ export function ChatPage() {
           <button
             ref={learnTourRef}
             type="button"
-            className={`chat-sidebar-learn-button${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
+            className={`chat-sidebar-nav-button chat-sidebar-learn-button${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
               isLearnPathsButtonDisabled ? ' is-disabled' : ''
             }`}
             aria-disabled={isLearnPathsButtonDisabled}
@@ -1923,6 +1924,7 @@ export function ChatPage() {
           {profile?.is_superadmin ? (
             <button
               type="button"
+              className="chat-sidebar-nav-button"
               onClick={openAdminModal}
               aria-label={isSidebarCollapsed ? 'Administrator' : undefined}
             >
@@ -2041,7 +2043,7 @@ export function ChatPage() {
                 className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
                 aria-hidden="true"
               />
-              <span className="mobile-new-chat-fab-label">Chat</span>
+              <span className="mobile-new-chat-fab-label">Neuer Chat</span>
             </button>
           </div>
         </div>

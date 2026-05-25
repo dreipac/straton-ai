@@ -3,6 +3,7 @@ import { applyHoverPalette, DEFAULT_HOVER_PALETTE_ID } from './constants/hoverPa
 import { applyLearnPathTitleColorMode, type LearnPathTitleColorMode } from './constants/learnPathTitleColor'
 import { applyMessageBoxPalette, DEFAULT_MESSAGE_BOX_PALETTE_ID } from './constants/messageBoxPalettes'
 import { writeAssistantEmojisEnabled } from '../chat/constants/chatAssistantStyle'
+import { writeMobileComposerCompact } from '../chat/constants/mobileComposerCompact'
 import { syncThemeColorMeta } from '../../utils/themeColorMeta'
 
 export type ThemeMode = 'light' | 'dark' | 'pink-glass' | 'black'
@@ -49,6 +50,8 @@ export type UiSettingsV1 = {
   messageBoxPaletteId: string
   learnPathTitleColorMode: LearnPathTitleColorMode
   assistantEmojis: boolean
+  /** Mobile: eine Zeile — Anhang | Pill-Eingabe | Senden (≤860px). */
+  mobileComposerCompact: boolean
 }
 
 export function defaultUiSettings(): UiSettingsV1 {
@@ -61,6 +64,7 @@ export function defaultUiSettings(): UiSettingsV1 {
     messageBoxPaletteId: DEFAULT_MESSAGE_BOX_PALETTE_ID,
     learnPathTitleColorMode: 'neutral',
     assistantEmojis: true,
+    mobileComposerCompact: false,
   }
 }
 
@@ -102,6 +106,8 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
       ? o.learnPathTitleColorMode
       : d.learnPathTitleColorMode
   const assistantEmojis = o.assistantEmojis === false ? false : o.assistantEmojis === true ? true : d.assistantEmojis
+  const mobileComposerCompact =
+    o.mobileComposerCompact === true ? true : o.mobileComposerCompact === false ? false : d.mobileComposerCompact
 
   return {
     theme,
@@ -112,6 +118,7 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
     messageBoxPaletteId,
     learnPathTitleColorMode,
     assistantEmojis,
+    mobileComposerCompact,
   }
 }
 
@@ -140,6 +147,8 @@ export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
   applyLearnPathTitleColorMode(settings.learnPathTitleColorMode)
 
   writeAssistantEmojisEnabled(settings.assistantEmojis)
+
+  writeMobileComposerCompact(settings.mobileComposerCompact)
 
   syncThemeColorMeta()
 }
