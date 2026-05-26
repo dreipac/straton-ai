@@ -339,6 +339,7 @@
 
 .chat-thread-swipe-host.is-dragging {
   touch-action: none;
+  contain: layout style;
 }
 
 .chat-thread-swipe-underlay {
@@ -346,10 +347,13 @@
   inset: 0;
   z-index: 0;
   background: #dc2626;
-  transform: scaleX(var(--thread-swipe-underlay-scale, 0));
+  transform: scale3d(var(--thread-swipe-underlay-scale, 0), 1, 1);
   transform-origin: right center;
   pointer-events: none;
   backface-visibility: hidden;
+}
+
+.chat-thread-swipe-host.is-dragging .chat-thread-swipe-underlay {
   will-change: transform;
 }
 
@@ -402,8 +406,6 @@
   width: 100%;
   min-width: 0;
   border-radius: 12px;
-  border-top-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
-  border-bottom-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
   background: var(--chat-thread-swipe-panel-bg, #ffffff);
   transform: translate3d(calc(-1 * var(--thread-swipe-offset, 0px)), 0, 0);
   transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
@@ -411,18 +413,22 @@
   backface-visibility: hidden;
   -webkit-user-select: none;
   user-select: none;
-  will-change: transform;
 }
 
 .chat-thread-swipe-host.is-dragging .chat-thread-swipe-panel {
   transition: none;
+  will-change: transform;
+}
+
+.chat-thread-swipe-host.has-swipe-offset .chat-thread-swipe-panel,
+.chat-thread-swipe-host.is-dragging .chat-thread-swipe-panel {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .chat-thread-swipe-panel .chat-thread-item {
   width: 100%;
   background: transparent;
-  border-top-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
-  border-bottom-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
 }
 
 .chat-thread-row.is-swipe-dismissing {
@@ -465,7 +471,7 @@
 
 @keyframes threadSwipeUnderlayHide {
   from {
-    transform: scaleX(var(--thread-swipe-underlay-scale, 0));
+    transform: scale3d(var(--thread-swipe-underlay-scale, 0), 1, 1);
     opacity: 1;
   }
 

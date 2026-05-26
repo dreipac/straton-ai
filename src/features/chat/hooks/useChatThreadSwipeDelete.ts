@@ -58,6 +58,7 @@ export function useChatThreadSwipeDelete({
   const isDraggingRef = useRef(false)
   const isDismissingRef = useRef(false)
   const visualFlagsRef = useRef({ deleteArmed: false, dragging: false, hasSwipeOffset: false })
+  const lastVisualRef = useRef({ offsetPx: -1, progressKey: -1, underlayKey: -1 })
   const rafRef = useRef(0)
   const pendingVisualRef = useRef<PendingVisual | null>(null)
   const underlayRef = useRef<HTMLElement | null>(null)
@@ -110,10 +111,23 @@ export function useChatThreadSwipeDelete({
 
     const hostWidth = hostWidthRef.current || 1
     const underlayScale = hostWidth > 0 ? Math.min(1, clamped / hostWidth) : 0
+    const offsetPx = Math.round(clamped)
+    const progressKey = Math.round(progress * 100)
+    const underlayKey = Math.round(underlayScale * 1000)
+    const last = lastVisualRef.current
 
-    host.style.setProperty('--thread-swipe-offset', `${clamped}px`)
-    host.style.setProperty('--thread-swipe-progress', progress.toFixed(3))
-    host.style.setProperty('--thread-swipe-underlay-scale', underlayScale.toFixed(4))
+    if (offsetPx !== last.offsetPx) {
+      last.offsetPx = offsetPx
+      host.style.setProperty('--thread-swipe-offset', `${offsetPx}px`)
+    }
+    if (progressKey !== last.progressKey) {
+      last.progressKey = progressKey
+      host.style.setProperty('--thread-swipe-progress', String(progressKey / 100))
+    }
+    if (underlayKey !== last.underlayKey) {
+      last.underlayKey = underlayKey
+      host.style.setProperty('--thread-swipe-underlay-scale', String(underlayKey / 1000))
+    }
 
     if (dragging) {
       panel.style.touchAction = horizontalRef.current ? 'none' : 'pan-y'
@@ -222,6 +236,7 @@ export function useChatThreadSwipeDelete({
       didNotifyOpenRef.current = false
       offsetRef.current = 0
       visualFlagsRef.current = { deleteArmed: false, dragging: false, hasSwipeOffset: false }
+      lastVisualRef.current = { offsetPx: -1, progressKey: -1, underlayKey: -1 }
 
       host.classList.remove('is-dragging', 'is-swipe-delete-armed', 'has-swipe-offset')
       panel.style.touchAction = ''
