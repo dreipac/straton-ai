@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { AssistantSectionReference } from '../utils/assistantSectionReply'
 
 const REPLY_QUOTE_DISMISS_MS = 300
+/** Muss zu `grid-template-rows` in chat.css passen (0.32s). */
+export const REPLY_QUOTE_OPEN_MS = 340
 
 export type ChatComposerReplyQuoteBarProps = {
   reference: AssistantSectionReference
@@ -11,17 +13,65 @@ export type ChatComposerReplyQuoteBarProps = {
 export type ChatComposerReplyQuoteSlotProps = {
   reference: AssistantSectionReference | null
   onDismiss: () => void
+  /** Nach abgeschlossener Einblend-Animation (Mobile: danach Fokus/Tastatur). */
+  onOpenSettled?: () => void
 }
 
 /** Animiert Ein-/Ausblenden der Referenz und Höhenwachstum der Message Box. */
-export function ChatComposerReplyQuoteSlot({ reference, onDismiss }: ChatComposerReplyQuoteSlotProps) {
+export function ChatComposerReplyQuoteSlot({
+  reference,
+  onDismiss,
+  onOpenSettled,
+}: ChatComposerReplyQuoteSlotProps) {
   const [closing, setClosing] = useState(false)
   const dismissTimerRef = useRef<number | null>(null)
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const openSettledRef = useRef(false)
   const open = Boolean(reference) && !closing
 
   useEffect(() => {
     setClosing(false)
+    openSettledRef.current = false
   }, [reference?.messageId, reference?.blockIndex])
+
+  useEffect(() => {
+    if (!reference || closing || !onOpenSettled) {
+      return
+    }
+
+    const anchor = anchorRef.current
+    let fallbackTimer = 0
+
+    const notifySettled = () => {
+      if (openSettledRef.current) {
+        return
+      }
+      openSettledRef.current = true
+      onOpenSettled()
+    }
+
+    function onTransitionEnd(event: TransitionEvent) {
+      if (event.target !== anchor || event.propertyName !== 'grid-template-rows') {
+        return
+      }
+      if (!anchor?.classList.contains('is-open')) {
+        return
+      }
+      notifySettled()
+    }
+
+    if (anchor) {
+      anchor.addEventListener('transitionend', onTransitionEnd)
+    }
+    fallbackTimer = window.setTimeout(notifySettled, REPLY_QUOTE_OPEN_MS + 40)
+
+    return () => {
+      if (anchor) {
+        anchor.removeEventListener('transitionend', onTransitionEnd)
+      }
+      window.clearTimeout(fallbackTimer)
+    }
+  }, [closing, onOpenSettled, reference])
 
   useEffect(
     () => () => {
@@ -43,6 +93,7 @@ export function ChatComposerReplyQuoteSlot({ reference, onDismiss }: ChatCompose
 
   return (
     <div
+      ref={anchorRef}
       className={['chat-composer-reply-quote-anchor', open ? 'is-open' : ''].filter(Boolean).join(' ')}
       aria-hidden={!reference}
     >
