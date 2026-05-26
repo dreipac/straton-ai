@@ -8,8 +8,8 @@ export function requestVisualKeyboardInsetSync(): void {
 }
 
 const MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX = 72
-const MOBILE_KEYBOARD_READY_MAX_WAIT_MS = 520
-const MOBILE_KEYBOARD_READY_SETTLE_MS = 64
+const MOBILE_KEYBOARD_READY_MAX_WAIT_MS = 560
+const MOBILE_KEYBOARD_READY_SETTLE_MS = 96
 
 /**
  * Wartet bis die Tastatur den Visual Viewport verkleinert hat (oder Timeout).
@@ -108,6 +108,18 @@ function isChatInputFocused(): boolean {
   return el instanceof HTMLTextAreaElement && el.classList.contains('chat-input')
 }
 
+function measureComposerStack(): { height: number; bottom: number } | null {
+  const stack = document.querySelector('.chat-composer-stack')
+  if (!(stack instanceof HTMLElement)) {
+    return null
+  }
+  const rect = stack.getBoundingClientRect()
+  if (rect.height <= 0) {
+    return null
+  }
+  return { height: rect.height, bottom: rect.bottom }
+}
+
 /** iPadOS / iPhone / iPod Touch Safari & WKWebView (installierte PWA). */
 function isLikelyIosWebKit(): boolean {
   const ua = navigator.userAgent
@@ -198,11 +210,21 @@ export function useVisualKeyboardInset(): void {
          * Native-Layer beschnitten. Scrollen im Thread hilft nicht: der Composer liegt nicht in `.chat-messages`.
          */
         const iosExtra =
-          (isLikelyIosWebKit() ? IOS_CHAT_FOCUS_LAYOUT_SLOP_PX + IOS_FOCUS_SUBPIXEL_BUFFER_PX : 14)
-        const blockHeight = Math.max(
+          isLikelyIosWebKit() ? IOS_CHAT_FOCUS_LAYOUT_SLOP_PX + IOS_FOCUS_SUBPIXEL_BUFFER_PX : 14
+        const targetComposeBottom = visibleBottom - iosExtra
+        let blockHeight = Math.max(
           120,
-          Math.min(layoutH, Math.max(0, Math.floor(visibleBottom - iosExtra))),
+          Math.min(layoutH, Math.max(0, Math.floor(targetComposeBottom))),
         )
+        /*
+         * Referenz-Einbettung vergrößert `.chat-composer-stack` nachträglich — ohne Nachzug
+         * bleibt die Message Box unter Tastatur/Accessory (nur bei Swipe-Referenz sichtbar).
+         */
+        const compose = measureComposerStack()
+        if (compose && compose.bottom > targetComposeBottom + 1) {
+          const overflow = Math.ceil(compose.bottom - targetComposeBottom)
+          blockHeight = Math.max(120, blockHeight - overflow)
+        }
         syncViewportVars()
         document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
         document.documentElement.style.setProperty(CSS_VAR, '0px')
@@ -236,17 +258,17 @@ export function useVisualKeyboardInset(): void {
 
     function connectComposeResizeObserver(fromTarget: EventTarget | null) {
       disconnectComposeResizeObserver()
-      const row =
+      const stack =
         fromTarget instanceof Element
-          ? fromTarget.closest('.chat-input-row')
-          : document.querySelector('.chat-input-row')
-      if (!row) {
+          ? fromTarget.closest('.chat-composer-stack')
+          : document.querySelector('.chat-composer-stack')
+      if (!stack) {
         return
       }
       composeResizeObserver = new ResizeObserver(() => {
         schedule()
       })
-      composeResizeObserver.observe(row)
+      composeResizeObserver.observe(stack)
     }
 
     visualKeyboardInsetSync = syncWithDelays

@@ -7486,6 +7486,14 @@ button.chat-onboarding-tour-block {
     );
   }
 
+  .chat-app-shell:has(textarea.chat-input:focus)
+    .chat-panel:not(.is-empty):has(.chat-input-compose--has-section-reply) {
+    padding-bottom: calc(
+      0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) + 0.35rem +
+        var(--chat-visual-keyboard-inset, 0px)
+    );
+  }
+
   /*
    * Fokus auf Message Box: Mobile-Topbar ausblenden (wie Bottom-Nav) — mehr Platz zum Tippen.
    */

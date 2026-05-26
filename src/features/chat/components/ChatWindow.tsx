@@ -758,17 +758,42 @@ export function ChatWindow({
     }
   }, [])
 
+  const scrollThreadTowardComposer = useCallback(() => {
+    const scrollEl = messagesScrollRef.current
+    if (!scrollEl) {
+      return
+    }
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
+  }, [])
+
   const applySectionReplyEmbed = useCallback((ref: AssistantSectionReference) => {
     setComposerSectionReply(ref)
-    requestVisualKeyboardInsetSync()
+    if (isMobileComposer) {
+      requestAnimationFrame(() => {
+        scrollThreadTowardComposer()
+        requestVisualKeyboardInsetSync()
+        requestAnimationFrame(() => requestVisualKeyboardInsetSync())
+      })
+    } else {
+      requestVisualKeyboardInsetSync()
+    }
     if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
       window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
     }
     sectionReplyPostEmbedSyncTimerRef.current = window.setTimeout(() => {
       sectionReplyPostEmbedSyncTimerRef.current = 0
+      scrollThreadTowardComposer()
       requestVisualKeyboardInsetSync()
     }, 340)
-  }, [])
+  }, [isMobileComposer, scrollThreadTowardComposer])
+
+  useLayoutEffect(() => {
+    if (!composerSectionReply || !isMobileComposer) {
+      return
+    }
+    scrollThreadTowardComposer()
+    requestVisualKeyboardInsetSync()
+  }, [composerSectionReply, isMobileComposer, scrollThreadTowardComposer])
 
   const beginSectionReplyFromSwipe = useCallback(
     (ref: AssistantSectionReference) => {
