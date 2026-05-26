@@ -74,6 +74,7 @@ import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
 import {
   requestVisualKeyboardInsetSync,
   useVisualKeyboardInset,
+  waitForVisualKeyboardReady,
 } from '../hooks/useVisualKeyboardInset'
 import { extractUserMessageCopyText } from '../utils/chatMessageCopy'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
@@ -373,6 +374,8 @@ export function ChatWindow({
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
   const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
   const imageLightboxClosePendingRef = useRef(false)
+  const sectionReplyEmbedCancelRef = useRef<(() => void) | null>(null)
+  const sectionReplyPostEmbedSyncTimerRef = useRef(0)
   const [quizFormatPending, setQuizFormatPending] = useState<{
     content: string
     useWebSearch: boolean
@@ -637,6 +640,13 @@ export function ChatWindow({
     setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setAttachComposerSheetOpen(false)
+    sectionReplyEmbedCancelRef.current?.()
+    sectionReplyEmbedCancelRef.current = null
+    if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
+      window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
+      sectionReplyPostEmbedSyncTimerRef.current = 0
+    }
+    setComposerSectionReply(null)
   }, [threadKey])
 
   useEffect(() => {
@@ -726,26 +736,74 @@ export function ChatWindow({
   const focusComposerForSectionReply = useCallback(() => {
     const input = inputRef.current
     if (!input) {
-      return
+      return false
     }
     /*
      * Fokus synchron im Touch-Handler — sonst öffnet iOS die Tastatur nicht
-     * (User-Gesture-Kette). Layout nach Referenz-Höhe: ResizeObserver + Sync.
+     * (User-Gesture-Kette).
      */
     input.focus({ preventScroll: true })
     if (isMobileComposer) {
       requestVisualKeyboardInsetSync()
     }
+    return true
   }, [isMobileComposer])
 
-  useLayoutEffect(() => {
-    if (!composerSectionReply || !isMobileComposer) {
-      return
+  const clearSectionReplyEmbedSchedule = useCallback(() => {
+    sectionReplyEmbedCancelRef.current?.()
+    sectionReplyEmbedCancelRef.current = null
+    if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
+      window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
+      sectionReplyPostEmbedSyncTimerRef.current = 0
     }
+  }, [])
+
+  const applySectionReplyEmbed = useCallback((ref: AssistantSectionReference) => {
+    setComposerSectionReply(ref)
     requestVisualKeyboardInsetSync()
-    const syncAfterQuoteMs = window.setTimeout(() => requestVisualKeyboardInsetSync(), 340)
-    return () => window.clearTimeout(syncAfterQuoteMs)
-  }, [composerSectionReply, isMobileComposer])
+    if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
+      window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
+    }
+    sectionReplyPostEmbedSyncTimerRef.current = window.setTimeout(() => {
+      sectionReplyPostEmbedSyncTimerRef.current = 0
+      requestVisualKeyboardInsetSync()
+    }, 340)
+  }, [])
+
+  const beginSectionReplyFromSwipe = useCallback(
+    (ref: AssistantSectionReference) => {
+      hapticLightImpact()
+      clearSectionReplyEmbedSchedule()
+
+      if (!isMobileComposer) {
+        focusComposerForSectionReply()
+        applySectionReplyEmbed(ref)
+        return
+      }
+
+      if (!focusComposerForSectionReply()) {
+        applySectionReplyEmbed(ref)
+        return
+      }
+
+      /*
+       * Mobile/iOS: erst Tastatur + Composer-Position, dann Referenz einblenden
+       * (vermeidet Message Box unter der Tastatur).
+       */
+      sectionReplyEmbedCancelRef.current = waitForVisualKeyboardReady(() => {
+        sectionReplyEmbedCancelRef.current = null
+        applySectionReplyEmbed(ref)
+      })
+    },
+    [
+      applySectionReplyEmbed,
+      clearSectionReplyEmbedSchedule,
+      focusComposerForSectionReply,
+      isMobileComposer,
+    ],
+  )
+
+  useEffect(() => () => clearSectionReplyEmbedSchedule(), [clearSectionReplyEmbedSchedule])
 
   const MAX_INPUT_HEIGHT_PX = 220
 
@@ -1066,11 +1124,7 @@ export function ChatWindow({
       onChatImagePreview: setImageLightboxSrc,
       sectionReply: {
         messageId,
-        onReference: (ref) => {
-          hapticLightImpact()
-          focusComposerForSectionReply()
-          setComposerSectionReply(ref)
-        },
+        onReference: beginSectionReplyFromSwipe,
       },
     }
   }

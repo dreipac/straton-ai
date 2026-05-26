@@ -7,6 +7,80 @@ export function requestVisualKeyboardInsetSync(): void {
   visualKeyboardInsetSync?.()
 }
 
+const MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX = 72
+const MOBILE_KEYBOARD_READY_MAX_WAIT_MS = 520
+const MOBILE_KEYBOARD_READY_SETTLE_MS = 64
+
+/**
+ * Wartet bis die Tastatur den Visual Viewport verkleinert hat (oder Timeout).
+ * Für Referenz-Einbettung: erst Composer über Tastatur, dann Quote anzeigen.
+ */
+export function waitForVisualKeyboardReady(onReady: () => void): () => void {
+  const vv = window.visualViewport
+  if (!vv) {
+    const fallbackId = window.setTimeout(onReady, 400)
+    return () => window.clearTimeout(fallbackId)
+  }
+
+  let cancelled = false
+  let settleTimer = 0
+  let maxTimer = 0
+
+  const layoutHeight = () => Math.max(window.innerHeight, document.documentElement.clientHeight)
+  const obscuredBottomPx = () =>
+    Math.max(0, Math.ceil(layoutHeight() - (vv.offsetTop + vv.height)))
+
+  const cleanup = () => {
+    if (settleTimer !== 0) {
+      window.clearTimeout(settleTimer)
+      settleTimer = 0
+    }
+    if (maxTimer !== 0) {
+      window.clearTimeout(maxTimer)
+      maxTimer = 0
+    }
+    vv.removeEventListener('resize', onViewportChange)
+  }
+
+  const finish = () => {
+    if (cancelled) {
+      return
+    }
+    cancelled = true
+    cleanup()
+    onReady()
+  }
+
+  const scheduleFinish = () => {
+    if (cancelled) {
+      return
+    }
+    if (settleTimer !== 0) {
+      window.clearTimeout(settleTimer)
+    }
+    settleTimer = window.setTimeout(finish, MOBILE_KEYBOARD_READY_SETTLE_MS)
+  }
+
+  function onViewportChange() {
+    if (obscuredBottomPx() >= MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX) {
+      scheduleFinish()
+    }
+  }
+
+  maxTimer = window.setTimeout(finish, MOBILE_KEYBOARD_READY_MAX_WAIT_MS)
+  vv.addEventListener('resize', onViewportChange)
+  requestVisualKeyboardInsetSync()
+
+  if (obscuredBottomPx() >= MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX) {
+    scheduleFinish()
+  }
+
+  return () => {
+    cancelled = true
+    cleanup()
+  }
+}
+
 const CSS_VAR = '--chat-visual-keyboard-inset'
 /** Kürzt `html`/`body` auf die untere Kante des Visual Viewports — siehe mobile.css. */
 const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
