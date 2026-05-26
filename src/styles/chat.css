@@ -7486,12 +7486,28 @@ button.chat-onboarding-tour-block {
     );
   }
 
+  /*
+   * Tastatur offen: Bottom-Nav ausgeblendet, Composer nicht mehr sticky — kein grosses
+   * scroll-padding für Nav+Composer; sonst muss man den Thread manuell ganz nach unten scrollen.
+   */
+  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) .chat-messages {
+    padding-bottom: calc(0.35rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
+    scroll-padding-bottom: calc(0.35rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
+  }
+
   .chat-app-shell:has(textarea.chat-input:focus)
     .chat-panel:not(.is-empty):has(.chat-input-compose--has-section-reply) {
     padding-bottom: calc(
       0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) + 0.35rem +
         var(--chat-visual-keyboard-inset, 0px)
     );
+  }
+
+  .chat-app-shell:has(textarea.chat-input:focus)
+    .chat-panel:not(.is-empty):has(.chat-input-compose--has-section-reply)
+    .chat-messages {
+    padding-bottom: calc(0.5rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
+    scroll-padding-bottom: calc(0.5rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
   }
 
   /*

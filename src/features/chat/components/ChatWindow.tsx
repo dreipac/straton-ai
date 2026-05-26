@@ -72,6 +72,7 @@ import { ChatComposerThinkingModePicker } from './ChatComposerThinkingModePicker
 import { ThinkingClarifyModal } from './ThinkingClarifyModal'
 import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
 import {
+  requestRevealComposerAboveKeyboard,
   requestVisualKeyboardInsetSync,
   useVisualKeyboardInset,
   waitForVisualKeyboardReady,
@@ -733,6 +734,22 @@ export function ChatWindow({
   /** Setzt `--chat-visual-keyboard-inset` für mobilen Chat (s. `useVisualKeyboardInset`). */
   useVisualKeyboardInset()
 
+  const clearSectionReplyEmbedSchedule = useCallback(() => {
+    sectionReplyEmbedCancelRef.current?.()
+    sectionReplyEmbedCancelRef.current = null
+    if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
+      window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
+      sectionReplyPostEmbedSyncTimerRef.current = 0
+    }
+  }, [])
+
+  const ensureMobileComposerVisible = useCallback(() => {
+    if (!isMobileComposer) {
+      return
+    }
+    requestRevealComposerAboveKeyboard()
+  }, [isMobileComposer])
+
   const focusComposerForSectionReply = useCallback(() => {
     const input = inputRef.current
     if (!input) {
@@ -745,34 +762,21 @@ export function ChatWindow({
     input.focus({ preventScroll: true })
     if (isMobileComposer) {
       requestVisualKeyboardInsetSync()
+      requestAnimationFrame(() => ensureMobileComposerVisible())
     }
     return true
-  }, [isMobileComposer])
-
-  const clearSectionReplyEmbedSchedule = useCallback(() => {
-    sectionReplyEmbedCancelRef.current?.()
-    sectionReplyEmbedCancelRef.current = null
-    if (sectionReplyPostEmbedSyncTimerRef.current !== 0) {
-      window.clearTimeout(sectionReplyPostEmbedSyncTimerRef.current)
-      sectionReplyPostEmbedSyncTimerRef.current = 0
-    }
-  }, [])
-
-  const scrollThreadTowardComposer = useCallback(() => {
-    const scrollEl = messagesScrollRef.current
-    if (!scrollEl) {
-      return
-    }
-    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
-  }, [])
+  }, [ensureMobileComposerVisible, isMobileComposer])
 
   const applySectionReplyEmbed = useCallback((ref: AssistantSectionReference) => {
     setComposerSectionReply(ref)
     if (isMobileComposer) {
       requestAnimationFrame(() => {
-        scrollThreadTowardComposer()
+        ensureMobileComposerVisible()
         requestVisualKeyboardInsetSync()
-        requestAnimationFrame(() => requestVisualKeyboardInsetSync())
+        requestAnimationFrame(() => {
+          ensureMobileComposerVisible()
+          requestVisualKeyboardInsetSync()
+        })
       })
     } else {
       requestVisualKeyboardInsetSync()
@@ -782,18 +786,18 @@ export function ChatWindow({
     }
     sectionReplyPostEmbedSyncTimerRef.current = window.setTimeout(() => {
       sectionReplyPostEmbedSyncTimerRef.current = 0
-      scrollThreadTowardComposer()
+      ensureMobileComposerVisible()
       requestVisualKeyboardInsetSync()
     }, 340)
-  }, [isMobileComposer, scrollThreadTowardComposer])
+  }, [ensureMobileComposerVisible, isMobileComposer])
 
   useLayoutEffect(() => {
     if (!composerSectionReply || !isMobileComposer) {
       return
     }
-    scrollThreadTowardComposer()
+    ensureMobileComposerVisible()
     requestVisualKeyboardInsetSync()
-  }, [composerSectionReply, isMobileComposer, scrollThreadTowardComposer])
+  }, [composerSectionReply, ensureMobileComposerVisible, isMobileComposer])
 
   const beginSectionReplyFromSwipe = useCallback(
     (ref: AssistantSectionReference) => {
@@ -817,12 +821,17 @@ export function ChatWindow({
        */
       sectionReplyEmbedCancelRef.current = waitForVisualKeyboardReady(() => {
         sectionReplyEmbedCancelRef.current = null
-        applySectionReplyEmbed(ref)
+        ensureMobileComposerVisible()
+        requestAnimationFrame(() => {
+          ensureMobileComposerVisible()
+          applySectionReplyEmbed(ref)
+        })
       })
     },
     [
       applySectionReplyEmbed,
       clearSectionReplyEmbedSchedule,
+      ensureMobileComposerVisible,
       focusComposerForSectionReply,
       isMobileComposer,
     ],

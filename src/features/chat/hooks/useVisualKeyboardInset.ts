@@ -7,6 +7,13 @@ export function requestVisualKeyboardInsetSync(): void {
   visualKeyboardInsetSync?.()
 }
 
+let revealComposerAboveKeyboard: (() => void) | null = null
+
+/** Thread + Composer nach Tastatur-Layout in den sichtbaren Bereich scrollen. */
+export function requestRevealComposerAboveKeyboard(): void {
+  revealComposerAboveKeyboard?.()
+}
+
 const MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX = 72
 const MOBILE_KEYBOARD_READY_MAX_WAIT_MS = 560
 const MOBILE_KEYBOARD_READY_SETTLE_MS = 96
@@ -228,6 +235,11 @@ export function useVisualKeyboardInset(): void {
         syncViewportVars()
         document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
         document.documentElement.style.setProperty(CSS_VAR, '0px')
+        if (compose && compose.bottom > targetComposeBottom + 1) {
+          requestAnimationFrame(() => {
+            revealComposerAboveKeyboard?.()
+          })
+        }
         return
       }
 
@@ -273,11 +285,31 @@ export function useVisualKeyboardInset(): void {
 
     visualKeyboardInsetSync = syncWithDelays
 
+    revealComposerAboveKeyboard = () => {
+      const messages = document.querySelector('.chat-messages')
+      if (messages instanceof HTMLElement) {
+        messages.scrollTop = messages.scrollHeight
+      }
+      const stack = document.querySelector('.chat-composer-stack')
+      const input = document.querySelector('textarea.chat-input')
+      const scrollTarget =
+        stack instanceof HTMLElement ? stack : input instanceof HTMLElement ? input : null
+      if (scrollTarget) {
+        scrollTarget.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
+      }
+      schedule()
+    }
+
     function onFocusIn(ev: FocusEvent) {
       const t = ev.target
       if (t instanceof HTMLTextAreaElement && t.classList.contains('chat-input')) {
         connectComposeResizeObserver(t)
         syncWithDelays()
+        if (isLikelyIosWebKit()) {
+          requestAnimationFrame(() => revealComposerAboveKeyboard?.())
+          timers.push(window.setTimeout(() => revealComposerAboveKeyboard?.(), 180))
+          timers.push(window.setTimeout(() => revealComposerAboveKeyboard?.(), 400))
+        }
       }
     }
 
@@ -296,6 +328,9 @@ export function useVisualKeyboardInset(): void {
     return () => {
       if (visualKeyboardInsetSync === syncWithDelays) {
         visualKeyboardInsetSync = null
+      }
+      if (revealComposerAboveKeyboard) {
+        revealComposerAboveKeyboard = null
       }
       disconnectComposeResizeObserver()
       cancelAnimationFrame(raf)
