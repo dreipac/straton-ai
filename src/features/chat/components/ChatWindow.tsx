@@ -728,20 +728,14 @@ export function ChatWindow({
     if (!input) {
       return
     }
-    if (!isMobileComposer) {
-      input.focus({ preventScroll: true })
-      return
-    }
     /*
-     * iOS: Fokus erst nach Quote-Slot-Layout — sonst `--straton-visual-layout-height`
-     * ohne Referenz-Höhe und Composer liegt unter der Tastatur.
+     * Fokus synchron im Touch-Handler — sonst öffnet iOS die Tastatur nicht
+     * (User-Gesture-Kette). Layout nach Referenz-Höhe: ResizeObserver + Sync.
      */
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        input.focus({ preventScroll: true })
-        requestVisualKeyboardInsetSync()
-      })
-    })
+    input.focus({ preventScroll: true })
+    if (isMobileComposer) {
+      requestVisualKeyboardInsetSync()
+    }
   }, [isMobileComposer])
 
   useLayoutEffect(() => {
@@ -1074,8 +1068,8 @@ export function ChatWindow({
         messageId,
         onReference: (ref) => {
           hapticLightImpact()
-          setComposerSectionReply(ref)
           focusComposerForSectionReply()
+          setComposerSectionReply(ref)
         },
       },
     }
