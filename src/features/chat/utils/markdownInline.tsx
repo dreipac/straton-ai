@@ -5,37 +5,69 @@ export type AssistantInlineImageOptions = {
   onChatImagePreview?: (src: string) => void
 }
 
-/** Nur **fett** — für Nutzer-Nachrichten und einfache Fälle. */
+/** **fett** und `inline code` — für Nutzer-Nachrichten und einfache Fälle. */
 export function renderInlineMarkdown(content: string): ReactNode[] {
   const fragments: ReactNode[] = []
   let cursor = 0
   let keyIndex = 0
 
   while (cursor < content.length) {
-    const start = content.indexOf('**', cursor)
-    if (start === -1) {
+    const boldStart = content.indexOf('**', cursor)
+    const codeStart = content.indexOf('`', cursor)
+    const hasBold = boldStart !== -1
+    const hasCode = codeStart !== -1
+
+    if (!hasBold && !hasCode) {
       fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
       break
     }
 
-    const end = content.indexOf('**', start + 2)
+    let next = -1
+    let kind: 'bold' | 'code' = 'bold'
+    if (hasBold && (!hasCode || boldStart <= codeStart)) {
+      next = boldStart
+      kind = 'bold'
+    } else if (hasCode) {
+      next = codeStart
+      kind = 'code'
+    }
+
+    if (next > cursor) {
+      fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor, next)}</span>)
+    }
+
+    if (kind === 'bold') {
+      const end = content.indexOf('**', next + 2)
+      if (end === -1) {
+        fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(next)}</span>)
+        break
+      }
+      const boldText = content.slice(next + 2, end)
+      if (boldText) {
+        fragments.push(<strong key={`bold-${keyIndex++}`}>{boldText}</strong>)
+      } else {
+        fragments.push(<span key={`plain-${keyIndex++}`}>****</span>)
+      }
+      cursor = end + 2
+      continue
+    }
+
+    const end = content.indexOf('`', next + 1)
     if (end === -1) {
-      fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor)}</span>)
+      fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(next)}</span>)
       break
     }
-
-    if (start > cursor) {
-      fragments.push(<span key={`plain-${keyIndex++}`}>{content.slice(cursor, start)}</span>)
-    }
-
-    const boldText = content.slice(start + 2, end)
-    if (boldText) {
-      fragments.push(<strong key={`bold-${keyIndex++}`}>{boldText}</strong>)
+    const codeText = content.slice(next + 1, end)
+    if (codeText) {
+      fragments.push(
+        <code key={`code-${keyIndex++}`} className="chat-md-inline-code">
+          {codeText}
+        </code>,
+      )
     } else {
-      fragments.push(<span key={`plain-${keyIndex++}`}>****</span>)
+      fragments.push(<span key={`plain-${keyIndex++}`}>``</span>)
     }
-
-    cursor = end + 2
+    cursor = end + 1
   }
 
   return fragments

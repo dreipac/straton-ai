@@ -52,6 +52,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userWebSearchCommand = true
   }
 
+  if (o.userQuizFormat === 'markdown_mcq' || o.userQuizFormat === 'interactive') {
+    out.userQuizFormat = o.userQuizFormat
+  }
+
   if (o.liveStream === true) {
     out.liveStream = true
   }

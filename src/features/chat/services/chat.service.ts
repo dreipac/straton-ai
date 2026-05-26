@@ -3,6 +3,7 @@ import {
   getAssistantEmojiStyleInstruction,
   getAssistantMainChatBrevityFinalReminder,
   getAssistantMainChatBrevityInstruction,
+  getAssistantMainChatGuidedDiagnosisInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import { env } from '../../../config/env'
@@ -22,6 +23,7 @@ import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier
 import { buildMainChatOpenAiModelChain } from '../constants/chatDailyOpenAiTier'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
+import { getQuizFormatGenerationInstruction } from '../utils/quizFormatChoice'
 import {
   buildThinkingDocumentUserContextBlock,
   getAssistantThinkingMarkdownInstruction,
@@ -293,8 +295,12 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : ragSelectedMessages
   const thinking = isMainChat && options?.chatThinkingMode === 'thinking'
   const thinkingWord = thinking && Boolean(options?.userRequestedWord)
-  const mainChatBrevity =
-    isMainChat && !options?.userRequestedWord && !thinking ? getAssistantMainChatBrevityInstruction() : ''
+  const mainChatInstantPrompts =
+    isMainChat && !options?.userRequestedWord && !thinking
+  const mainChatBrevity = mainChatInstantPrompts ? getAssistantMainChatBrevityInstruction() : ''
+  const mainChatGuidedDiagnosis = mainChatInstantPrompts
+    ? getAssistantMainChatGuidedDiagnosisInstruction()
+    : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -334,13 +340,23 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat && options?.webSearchContext?.trim()
       ? `${getChatWebSearchGroundingInstruction()}\n\n--- Websuche ---\n${options.webSearchContext.trim()}`
       : ''
+  const quizFormatUserMessage =
+    isMainChat && !thinking
+      ? [...threadMessages].reverse().find((m) => m.role === 'user' && m.metadata?.userQuizFormat)
+      : undefined
+  const quizFormatBlock =
+    quizFormatUserMessage?.metadata?.userQuizFormat
+      ? getQuizFormatGenerationInstruction(quizFormatUserMessage.metadata.userQuizFormat)
+      : ''
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
     webSearchBlock,
+    quizFormatBlock,
     mainChatBrevity,
+    mainChatGuidedDiagnosis,
     truthBlock,
     toneBlock,
     thinkingBlock,

@@ -730,6 +730,7 @@ export function useChat(
     content: string,
     sendOpts?: {
       useWebSearch?: boolean
+      quizFormat?: 'markdown_mcq' | 'interactive'
     },
   ) {
     const wantsWord = userWantsWordExport(content)
@@ -882,17 +883,22 @@ export function useChat(
       }
 
       const userContent = trimmed || (wantsWord ? 'Word-Dokument vorbereiten' : trimmed)
+      const userMetadata =
+        wantsExcel
+          ? { userExcelCommand: true as const }
+          : wantsWord
+            ? { userWordCommand: true as const }
+            : webSearchContext
+              ? { userWebSearchCommand: true as const }
+              : sendOpts?.quizFormat
+                ? { userQuizFormat: sendOpts.quizFormat }
+                : undefined
+
       const storedUserMessage = await createChatMessage(
         targetThreadId,
         'user',
         userContent,
-        wantsExcel
-          ? { userExcelCommand: true }
-          : wantsWord
-            ? { userWordCommand: true }
-            : webSearchContext
-              ? { userWebSearchCommand: true }
-              : undefined,
+        userMetadata,
       )
 
       let nextMessages: ChatMessage[] = []

@@ -222,7 +222,7 @@ function parseBlocks(raw: string): Block[] {
       if (lang === 'email' || lang === 'mail' || lang === 'e-mail') {
         blocks.push({ type: 'emailDraft', body: raw })
       } else {
-        blocks.push({ type: 'code', language: codeLanguage, code: raw })
+        blocks.push({ type: 'code', language: normalizeCodeLanguage(codeLanguage), code: raw })
       }
       codeLines = null
       codeLanguage = ''
@@ -348,7 +348,20 @@ function parseBlocks(raw: string): Block[] {
       continue
     }
 
-    const ol = trimmed.match(/^\d+\.\s+(.*)$/)
+    /** MCQ-Optionen ohne Listen-Bindestrich: `A) …` (häufige KI-Ausgabe) */
+    const mcqOptionLine = trimmed.match(/^([A-Da-d])\)\s+(.+)$/)
+    if (mcqOptionLine) {
+      flushQuote()
+      flushPara()
+      if (!listItems) {
+        listItems = []
+      }
+      listItems.push(`${mcqOptionLine[1].toUpperCase()}) ${mcqOptionLine[2].trim()}`)
+      continue
+    }
+
+    const olPlain = stripBoldMarkers(trimmed)
+    const ol = olPlain.match(/^(\d{1,2})[.)]\s+(.*)$/)
     if (ol) {
       flushQuote()
       flushPara()
@@ -358,7 +371,7 @@ function parseBlocks(raw: string): Block[] {
       if (!orderedItems) {
         orderedItems = []
       }
-      orderedItems.push(ol[1])
+      orderedItems.push(ol[2].trim())
       continue
     }
 
@@ -371,7 +384,111 @@ function parseBlocks(raw: string): Block[] {
   flushCode()
   flushList()
   flushPara()
-  return transformBlocksWithMcq(promotePlainParagraphEmailDrafts(blocks))
+  return promoteShellCommandsToCodeBlocks(
+    transformBlocksWithMcq(promotePlainParagraphEmailDrafts(blocks)),
+  )
+}
+
+const SHELL_COMMAND_VERB_RE =
+  /^(?:sudo\s+)?(?:ping|ip|ifconfig|nmcli|systemctl|journalctl|cat|nano|vim|vi|curl|wget|ssh|scp|traceroute|tracepath|arp|netstat|ss|dig|nslookup|host|grep|egrep|awk|sed|tail|head|less|dmesg|ls|cd|pwd|mkdir|rm|cp|mv|chmod|chown|touch|find|df|du|mount|umount|lsblk|fdisk|bridge|brctl|iptables|nft|ufw|firewall-cmd|apt|apt-get|dnf|yum|pacman|docker|podman|kubectl|qm|pct|pvesh|pvecm|pvesm|lxc|virsh|hostnamectl|timedatectl|crontab|echo|export|source)\b/i
+
+function looksLikeShellCommand(command: string): boolean {
+  const c = command.trim()
+  if (!c || c.length > 800 || /\n/.test(c)) {
+    return false
+  }
+  if (/^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(c)) {
+    return false
+  }
+  if (SHELL_COMMAND_VERB_RE.test(c)) {
+    return true
+  }
+  if (/^[\w./-]+(?:\s+[-\w./:=@*?[\]"']+)+/.test(c)) {
+    return true
+  }
+  return false
+}
+
+function splitShellCommandFromText(text: string): { labelText: string; command: string } | null {
+  const match = text.match(/`([^`\n]+)`/)
+  if (!match) {
+    return null
+  }
+  const command = match[1]?.trim() ?? ''
+  if (!looksLikeShellCommand(command)) {
+    return null
+  }
+  const labelText = text.replace(/`[^`\n]+`/, '').replace(/\s{2,}/g, ' ').trim()
+  return { labelText, command }
+}
+
+function normalizeCodeLanguage(language: string): string {
+  const lang = language.trim().toLowerCase()
+  if (lang === 'sh' || lang === 'shell' || lang === 'zsh' || lang === 'console') {
+    return 'bash'
+  }
+  return language.trim() || 'text'
+}
+
+function promoteShellCommandsInListBlock(block: Extract<Block, { type: 'ul' | 'ol' }>): Block[] {
+  const out: Block[] = []
+  let pendingItems: string[] = []
+
+  function flushList() {
+    if (pendingItems.length === 0) {
+      return
+    }
+    out.push({ type: block.type, items: [...pendingItems] })
+    pendingItems = []
+  }
+
+  for (const item of block.items) {
+    const split = splitShellCommandFromText(item)
+    if (split) {
+      flushList()
+      if (split.labelText) {
+        pendingItems.push(split.labelText)
+        flushList()
+      }
+      out.push({ type: 'code', language: 'bash', code: split.command })
+      continue
+    }
+    pendingItems.push(item)
+  }
+
+  flushList()
+  return out
+}
+
+function promoteShellCommandsToCodeBlocks(blocks: Block[]): Block[] {
+  const out: Block[] = []
+
+  for (const block of blocks) {
+    if (block.type === 'ul' || block.type === 'ol') {
+      out.push(...promoteShellCommandsInListBlock(block))
+      continue
+    }
+    if (block.type === 'p') {
+      const split = splitShellCommandFromText(block.text)
+      if (split) {
+        if (split.labelText) {
+          out.push({ type: 'p', text: split.labelText })
+        }
+        out.push({ type: 'code', language: 'bash', code: split.command })
+        continue
+      }
+    }
+    if (block.type === 'code') {
+      out.push({
+        ...block,
+        language: normalizeCodeLanguage(block.language),
+      })
+      continue
+    }
+    out.push(block)
+  }
+
+  return out
 }
 
 function isFragenHeading(text: string): boolean {

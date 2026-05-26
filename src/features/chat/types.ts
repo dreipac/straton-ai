@@ -41,6 +41,8 @@ export type ChatMessage = {
     userWordCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */
     userWebSearchCommand?: boolean
+    /** User-Nachricht: gewähltes Quiz-Format vor Generierung (MC-Chat vs. interaktiv). */
+    userQuizFormat?: 'markdown_mcq' | 'interactive'
   }
 }
 

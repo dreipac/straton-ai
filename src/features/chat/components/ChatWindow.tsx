@@ -66,6 +66,12 @@ import {
 } from '../utils/thinkingClarify'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
+import { QuizFormatChoiceModal } from './QuizFormatChoiceModal'
+import {
+  detectExplicitQuizFormatInText,
+  shouldPromptQuizFormatChoice,
+  type QuizFormatChoice,
+} from '../utils/quizFormatChoice'
 import { ChatUserMessageMenuSelect } from './ChatUserMessageMenuSelect'
 import { MAX_WEB_SEARCH_CREDIT_BALANCE } from '../constants/webSearchCredits'
 import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
@@ -149,7 +155,10 @@ type ChatWindowProps = {
   thinkingClarifyDialog?: ThinkingClarifyDialogState | null
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
-  onSendMessage: (content: string, opts?: { useWebSearch?: boolean }) => Promise<void>
+  onSendMessage: (
+    content: string,
+    opts?: { useWebSearch?: boolean; quizFormat?: QuizFormatChoice },
+  ) => Promise<void>
   /** Nach «Neuer Chat · Websuche»: einmalig Web-Modus aktivieren. */
   pendingWebSearchComposer?: boolean
   onPendingWebSearchComposerConsumed?: () => void
@@ -347,6 +356,10 @@ export function ChatWindow({
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
   const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
   const imageLightboxClosePendingRef = useRef(false)
+  const [quizFormatPending, setQuizFormatPending] = useState<{
+    content: string
+    useWebSearch: boolean
+  } | null>(null)
   const exitWebSearchSignalHandledRef = useRef(0)
   const isEmptyState = messageList.length === 0
   const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
@@ -995,6 +1008,39 @@ export function ChatWindow({
       .join('\n\n')
   }
 
+  async function deliverComposerMessage(
+    content: string,
+    sendOpts?: { useWebSearch?: boolean; quizFormat?: QuizFormatChoice },
+  ) {
+    const pastedImageEntries = pendingAttachments.filter(
+      (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
+        entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
+    )
+    if (pastedImageEntries.length > 0) {
+      setSentPastedImagePreviews((prev) => {
+        const next = { ...prev }
+        for (const item of pastedImageEntries) {
+          next[item.id] = item.previewDataUrl
+        }
+        return next
+      })
+    }
+    setDraft('')
+    setShowSlashMenu(false)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setWebSearchCommandSelected(false)
+    setPendingAttachments([])
+    setQuizFormatPending(null)
+    await onSendMessage(
+      content,
+      sendOpts?.useWebSearch || sendOpts?.quizFormat
+        ? { useWebSearch: sendOpts.useWebSearch, quizFormat: sendOpts.quizFormat }
+        : undefined,
+    )
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -1020,27 +1066,34 @@ export function ChatWindow({
         ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
         : baseContent
     const useWebSearch = webSearchCommandSelected && !wordCommandSelected && !excelCommandSelected
-    const pastedImageEntries = pendingAttachments.filter(
-      (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
-        entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
-    )
-    if (pastedImageEntries.length > 0) {
-      setSentPastedImagePreviews((prev) => {
-        const next = { ...prev }
-        for (const item of pastedImageEntries) {
-          next[item.id] = item.previewDataUrl
-        }
-        return next
+
+    if (
+      shouldPromptQuizFormatChoice(textPart, {
+        wantsWord: wordCommandSelected,
+        wantsExcel: excelCommandSelected,
+        wantsImageGen: imageGenCommandSelected,
+        thinkingMode: chatThinkingMode === 'thinking',
       })
+    ) {
+      setQuizFormatPending({ content, useWebSearch })
+      return
     }
-    setDraft('')
-    setShowSlashMenu(false)
-    setExcelCommandSelected(false)
-    setWordCommandSelected(false)
-    setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
-    setPendingAttachments([])
-    await onSendMessage(content, useWebSearch ? { useWebSearch: true } : undefined)
+
+    const explicitQuizFormat = detectExplicitQuizFormatInText(textPart)
+    await deliverComposerMessage(
+      content,
+      useWebSearch || explicitQuizFormat
+        ? { useWebSearch, quizFormat: explicitQuizFormat ?? undefined }
+        : undefined,
+    )
+  }
+
+  function handleQuizFormatChosen(format: QuizFormatChoice) {
+    if (!quizFormatPending) {
+      return
+    }
+    const { content, useWebSearch } = quizFormatPending
+    void deliverComposerMessage(content, { useWebSearch, quizFormat: format })
   }
 
   function handleDraftChange(nextValue: string) {
@@ -1307,6 +1360,14 @@ export function ChatWindow({
     }
   }
 
+  const quizFormatOverlay = quizFormatPending ? (
+    <QuizFormatChoiceModal
+      previewText={quizFormatPending.content.split('\n\n')[0]?.slice(0, 280)}
+      onDismiss={() => setQuizFormatPending(null)}
+      onChoose={handleQuizFormatChosen}
+    />
+  ) : null
+
   const thinkingClarifyOverlay =
     thinkingClarifyDialog?.kind === 'structured' ? (
       <ThinkingClarifyModal
@@ -1556,10 +1617,15 @@ export function ChatWindow({
         aria-modal="true"
         aria-hidden={!imageLightboxOpen}
         aria-label="Bildvorschau"
-        onClick={closeImageLightbox}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('.chat-image-lightbox-img')) {
+            return
+          }
+          closeImageLightbox()
+        }}
         onTransitionEnd={handleImageLightboxTransitionEnd}
       >
-        <div className="chat-image-lightbox-frame" onClick={(event) => event.stopPropagation()}>
+        <div className="chat-image-lightbox-frame">
           <img src={imageLightboxSrc} alt="" className="chat-image-lightbox-img" decoding="async" />
         </div>
       </div>
@@ -1584,6 +1650,7 @@ export function ChatWindow({
             animationKey={threadKey ?? 'new'}
           />
           {error ? <p className="error-text">{error}</p> : null}
+          {quizFormatOverlay}
           {thinkingClarifyOverlay}
           {quickTilesEl}
           {webSearchCreditsHintEl}
@@ -2288,6 +2355,7 @@ export function ChatWindow({
       <div
         className="chat-composer-stack"
       >
+        {quizFormatOverlay}
         {thinkingClarifyOverlay}
         {isMobileComposer ? quickTilesEl : null}
         {isMobileComposer ? webSearchCreditsHintEl : null}

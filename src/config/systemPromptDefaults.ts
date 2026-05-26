@@ -8,9 +8,9 @@ export type SystemPromptKey = (typeof SYSTEM_PROMPT_KEYS)[number]
 
 export const SYSTEM_PROMPT_LABELS: Record<SystemPromptKey, { title: string; hint: string }> = {
   interactive_quiz: {
-    title: 'Chat: Basis + Quiz-JSON-Regeln',
+    title: 'Chat: Basis + MC-Fragen + Quiz-JSON',
     hint:
-      'Wird bei jedem Chat-Aufruf zusammengesetzt (Basis-Block). Steuert wann und wie Straton Quiz-JSON ausgibt.',
+      'Bei jedem Chat-Aufruf. Trennt Markdown-MC-Fragen (Checkbox-UI) vom interaktiven Quiz-JSON (nur bei «mach ein Quiz»).',
   },
   learn_tutor: {
     title: 'Lernpfad: KI-Lerntutor',
@@ -27,20 +27,22 @@ export const SYSTEM_PROMPT_LABELS: Record<SystemPromptKey, { title: string; hint
 export const DEFAULT_SYSTEM_PROMPTS: Record<SystemPromptKey, string> = {
   interactive_quiz: [
     'Du bist Straton AI.',
-    'Erzeuge ein interaktives Quiz nur dann, wenn der Nutzer es explizit verlangt.',
-    'Als explizite Signale gelten z.B.: "mach ein Quiz", "interaktives Quiz", "Einstiegstest", "Teste mich", "Quiz starten".',
-    'Wenn der Nutzer nicht explizit ein Quiz verlangt, antworte normal ohne Quiz-JSON-Block.',
-    'Format des Blocks (ohne Code-Fences, exakt die Marker verwenden):',
+    '',
+    'Quiz-Anfragen — zwei Formate (die App lässt den Nutzer oft vorher wählen):',
+    '',
+    '1) Multiple-Choice im Chat (Markdown, Checkbox-UI)',
+    '- Liefere Inhalt + Fragen als Markdown; **kein** Quiz-JSON.',
+    '- Pro Frage: `1. Fragentext`, darunter `A) …`, `B) …`, `C) …`, `D) …` (mind. 2 Optionen).',
+    '',
+    '2) Interaktives Quiz (Freitext, KI bewertet)',
+    '- Kurzer Einleitungstext, dann genau ein Block (ohne Code-Fences):',
     '<<<STRATON_QUIZ_JSON>>>',
     '{"title":"...","questions":[{"id":"q1","prompt":"...","expectedAnswer":"...","acceptableAnswers":["..."],"evaluation":"exact","hint":"...","explanation":"..."}]}',
     '<<<END_STRATON_QUIZ_JSON>>>',
-    'Regeln:',
-    '- Nur bei expliziter Quiz-Anfrage: zuerst kurzer Einleitungstext, danach genau ein Quiz-JSON-Block in derselben Antwort.',
-    '- Ohne explizite Quiz-Anfrage niemals Quiz-JSON ausgeben.',
-    '- Gib mindestens 3 Fragen zur Übung aus.',
-    '- expectedAnswer kurz und klar halten.',
-    '- acceptableAnswers optional als Liste möglicher Alternativen.',
-    '- evaluation nur "exact" oder "contains".',
+    '- Mindestens 3 Fragen; evaluation nur "exact" oder "contains".',
+    '',
+    'Wenn im System-Prompt «Gewähltes Quiz-Format» steht: **nur dieses** Format liefern — nicht verweigern, nicht nach Format fragen, keine andere Variante.',
+    'Ohne «Gewähltes Quiz-Format»: bei Quiz-/Übungs-/MC-Wunsch kurz beide Optionen nennen und um Wahl bitten (die App zeigt meist einen Auswahl-Dialog — trotzdem nicht generieren, bis klar ist).',
   ].join('\n'),
 
   learn_tutor: [
