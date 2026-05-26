@@ -93,38 +93,16 @@ const CSS_VAR = '--chat-visual-keyboard-inset'
 const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
 const VIEWPORT_OFFSET_TOP_VAR = '--chat-visual-viewport-offset-top'
 const VIEWPORT_HEIGHT_VAR = '--chat-visual-viewport-height'
+const COMPOSER_ANCHOR_HEIGHT_VAR = '--chat-composer-anchor-height'
+const COMPOSER_KEYBOARD_LIFT_VAR = '--chat-mobile-keyboard-composer-lift'
+const KEYBOARD_ANCHOR_CLASS = 'is-chat-composer-keyboard-anchored'
 
-/**
- * Zusätzlicher Abstand unterhalb der von WebKit gemeldeten Visual-Viewport-Unterkante, solange das
- * Chat-Textfeld fokussiert ist. Die Input-Accessory (Prev/Next/Fertig) liegt oft **über** dem Bereich,
- * den `visualViewport.height` noch als „Web-Inhalt“ zählt — zu kleiner Slop → Composer wird beschnitten.
- * Größenordnung wie `obscuredBottomPx()` (dort Mindestpuffer 56px bei kleinem obscured); etwas höher, weil
- * wir hier zusätzlich `IOS_FOCUS_SUBPIXEL_BUFFER_PX` abziehen (s. unten).
- */
-const IOS_CHAT_FOCUS_LAYOUT_SLOP_PX = 60
-
-/**
- * Noch ein paar Pixel unter `visibleBottom − IOS_CHAT_FOCUS_LAYOUT_SLOP_PX`: `Math.floor` auf
- * `offsetTop + height`, Retina-Subpixel und leicht verschobene resize-Ticks lassen sonst oft **2–6px**
- * des Composers unter der Accessory-Leiste stehen (nicht messbar „falsch“, aber sichtbar am unteren Rand).
- */
-const IOS_FOCUS_SUBPIXEL_BUFFER_PX = 4
+/** Input-Accessory (Pfeile/Fertig) oberhalb der Tastatur — `fixed`-Composer braucht extra Abstand. */
+const IOS_KEYBOARD_COMPOSER_LIFT_PX = 54
 
 function isChatInputFocused(): boolean {
   const el = document.activeElement
   return el instanceof HTMLTextAreaElement && el.classList.contains('chat-input')
-}
-
-function measureComposerStack(): { height: number; bottom: number } | null {
-  const stack = document.querySelector('.chat-composer-stack')
-  if (!(stack instanceof HTMLElement)) {
-    return null
-  }
-  const rect = stack.getBoundingClientRect()
-  if (rect.height <= 0) {
-    return null
-  }
-  return { height: rect.height, bottom: rect.bottom }
 }
 
 /** iPadOS / iPhone / iPod Touch Safari & WKWebView (installierte PWA). */
@@ -195,6 +173,28 @@ export function useVisualKeyboardInset(): void {
       document.documentElement.style.setProperty(VIEWPORT_HEIGHT_VAR, `${height}px`)
     }
 
+    function clearComposerKeyboardAnchor() {
+      document.documentElement.classList.remove(KEYBOARD_ANCHOR_CLASS)
+      document.documentElement.style.removeProperty(COMPOSER_KEYBOARD_LIFT_VAR)
+      document.querySelectorAll('.chat-panel').forEach((panel) => {
+        if (panel instanceof HTMLElement) {
+          panel.style.removeProperty(COMPOSER_ANCHOR_HEIGHT_VAR)
+        }
+      })
+    }
+
+    function updateComposerKeyboardAnchor() {
+      const panel = document.querySelector('.chat-panel:not(.is-empty)')
+      const stack = panel?.querySelector('.chat-composer-stack')
+      if (!(panel instanceof HTMLElement) || !(stack instanceof HTMLElement)) {
+        return
+      }
+      const height = Math.ceil(stack.getBoundingClientRect().height)
+      if (height > 0) {
+        panel.style.setProperty(COMPOSER_ANCHOR_HEIGHT_VAR, `${height}px`)
+      }
+    }
+
     function apply() {
       if (!vv) {
         return
@@ -209,40 +209,27 @@ export function useVisualKeyboardInset(): void {
        * Tastatur + Accessory (nicht nur «Padding nachrechnen»). `--chat-visual-keyboard-inset` = 0.
        */
       if (isChatInputFocused()) {
-        const layoutH = Math.max(window.innerHeight, document.documentElement.clientHeight)
-        const visibleBottom = vv.offsetTop + vv.height
-        /*
-         * WKWebView meldet die untere vv-Kante oft noch *über* der Accessory-Leiste (Prev/Next/Fertig).
-         * Dann ist `offsetTop + height` zu groß → `--straton-visual-layout-height` zu groß → Composer wird vom
-         * Native-Layer beschnitten. Scrollen im Thread hilft nicht: der Composer liegt nicht in `.chat-messages`.
-         */
-        const iosExtra =
-          isLikelyIosWebKit() ? IOS_CHAT_FOCUS_LAYOUT_SLOP_PX + IOS_FOCUS_SUBPIXEL_BUFFER_PX : 14
-        const targetComposeBottom = visibleBottom - iosExtra
-        let blockHeight = Math.max(
-          120,
-          Math.min(layoutH, Math.max(0, Math.floor(targetComposeBottom))),
+        syncViewportVars()
+        document.documentElement.classList.add(KEYBOARD_ANCHOR_CLASS)
+        document.documentElement.style.setProperty(
+          COMPOSER_KEYBOARD_LIFT_VAR,
+          isLikelyIosWebKit() ? `${IOS_KEYBOARD_COMPOSER_LIFT_PX}px` : '10px',
         )
         /*
-         * Referenz-Einbettung vergrößert `.chat-composer-stack` nachträglich — ohne Nachzug
-         * bleibt die Message Box unter Tastatur/Accessory (nur bei Swipe-Referenz sichtbar).
+         * Composer am Visual-Viewport verankern (`position:fixed` + bottom aus vv-Vars).
+         * Body-Höhe kürzen allein reicht auf iOS nicht — `fixed` bezieht sich auf den Layout-Viewport.
          */
-        const compose = measureComposerStack()
-        if (compose && compose.bottom > targetComposeBottom + 1) {
-          const overflow = Math.ceil(compose.bottom - targetComposeBottom)
-          blockHeight = Math.max(120, blockHeight - overflow)
-        }
-        syncViewportVars()
-        document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
+        document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
         document.documentElement.style.setProperty(CSS_VAR, '0px')
-        if (compose && compose.bottom > targetComposeBottom + 1) {
-          requestAnimationFrame(() => {
-            revealComposerAboveKeyboard?.()
-          })
+        updateComposerKeyboardAnchor()
+        const messages = document.querySelector('.chat-messages')
+        if (messages instanceof HTMLElement) {
+          messages.scrollTop = messages.scrollHeight
         }
         return
       }
 
+      clearComposerKeyboardAnchor()
       clearViewportVars()
       document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
       const px = obscuredBottomPx()
@@ -290,13 +277,7 @@ export function useVisualKeyboardInset(): void {
       if (messages instanceof HTMLElement) {
         messages.scrollTop = messages.scrollHeight
       }
-      const stack = document.querySelector('.chat-composer-stack')
-      const input = document.querySelector('textarea.chat-input')
-      const scrollTarget =
-        stack instanceof HTMLElement ? stack : input instanceof HTMLElement ? input : null
-      if (scrollTarget) {
-        scrollTarget.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
-      }
+      updateComposerKeyboardAnchor()
       schedule()
     }
 
@@ -340,6 +321,7 @@ export function useVisualKeyboardInset(): void {
       window.removeEventListener('resize', schedule)
       document.removeEventListener('focusin', onFocusIn)
       document.removeEventListener('focusout', onFocusOut)
+      clearComposerKeyboardAnchor()
       document.documentElement.style.removeProperty(CSS_VAR)
       document.documentElement.style.removeProperty(LAYOUT_HEIGHT_VAR)
       clearViewportVars()

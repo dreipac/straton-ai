@@ -7465,45 +7465,37 @@ button.chat-onboarding-tour-block {
   }
 
   /*
-   * Beim Tippen: kein `position:sticky` + kleines `bottom` — das verankert WebKit/PWA oft am
-   * Layout-Viewport-Boden (hinter Tastatur) und ignoriert faktisch das Panel-Padding mit
-   * `--chat-visual-keyboard-inset`. Composer bleibt normales Grid-Ende; nur Padding schiebt hoch.
+   * Tastatur offen: Composer am Visual-Viewport fest verankern (nicht am Layout-Viewport-Boden).
+   * `bottom` = Abstand vom unteren Layout-Rand bis zur sichtbaren vv-Kante + Accessory-Lift.
    */
-  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) .chat-composer-stack {
-    position: relative;
-    bottom: auto;
-    z-index: 7;
-  }
-
-  /*
-   * Sichtbarer Mini-Abstand zum Dokumentboden bei Tastatur — nicht mit Keyboard-Inset verwechseln:
-   * verhindert, dass die Message-Box optisch am unteren Rand «klebt» bzw. beschnitten wirkt.
-   */
-  .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) {
-    padding-bottom: calc(
-      0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) +
-        var(--chat-visual-keyboard-inset, 0px)
+  :root.is-chat-composer-keyboard-anchored .chat-panel:not(.is-empty) .chat-composer-stack {
+    position: fixed;
+    left: max(0.65rem, env(safe-area-inset-left, 0px));
+    right: max(0.65rem, env(safe-area-inset-right, 0px));
+    width: auto;
+    max-width: none;
+    justify-self: center;
+    bottom: calc(
+      100dvh - var(--chat-visual-viewport-offset-top, 0px) - var(--chat-visual-viewport-height, 100dvh) +
+        var(--chat-mobile-keyboard-composer-lift, 10px)
     );
+    z-index: 40;
+    margin: 0;
+  }
+
+  :root.is-chat-composer-keyboard-anchored .chat-panel:not(.is-empty) {
+    padding-bottom: calc(var(--chat-composer-anchor-height, 0px) + 0.4rem);
   }
 
   /*
-   * Tastatur offen: Bottom-Nav ausgeblendet, Composer nicht mehr sticky — kein grosses
-   * scroll-padding für Nav+Composer; sonst muss man den Thread manuell ganz nach unten scrollen.
+   * Tastatur offen: Thread-Scroll ohne Nav-Reserve (Composer ist fixed verankert).
    */
   .chat-app-shell:has(textarea.chat-input:focus) .chat-panel:not(.is-empty) .chat-messages {
     padding-bottom: calc(0.35rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
     scroll-padding-bottom: calc(0.35rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
   }
 
-  .chat-app-shell:has(textarea.chat-input:focus)
-    .chat-panel:not(.is-empty):has(.chat-input-compose--has-section-reply) {
-    padding-bottom: calc(
-      0.75rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread) + 0.35rem +
-        var(--chat-visual-keyboard-inset, 0px)
-    );
-  }
-
-  .chat-app-shell:has(textarea.chat-input:focus)
+  :root.is-chat-composer-keyboard-anchored
     .chat-panel:not(.is-empty):has(.chat-input-compose--has-section-reply)
     .chat-messages {
     padding-bottom: calc(0.5rem + var(--chat-mobile-composer-focus-bottom-gap-with-thread));
