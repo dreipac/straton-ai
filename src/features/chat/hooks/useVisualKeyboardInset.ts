@@ -14,6 +14,9 @@ export function requestRevealComposerAboveKeyboard(): void {
   revealComposerAboveKeyboard?.()
 }
 
+/** Gleicher Breakpoint wie Chat-Composer-Mobile (`ChatWindow`, `mobile.css`). */
+const MOBILE_CHAT_LAYOUT_MQ = '(max-width: 860px)'
+
 const MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX = 72
 const MOBILE_KEYBOARD_READY_MAX_WAIT_MS = 560
 const MOBILE_KEYBOARD_READY_SETTLE_MS = 96
@@ -115,6 +118,26 @@ function isChatInputFocused(): boolean {
   return el instanceof HTMLTextAreaElement && el.classList.contains('chat-input')
 }
 
+function isMobileChatLayout(): boolean {
+  return window.matchMedia(MOBILE_CHAT_LAYOUT_MQ).matches
+}
+
+/** Layout-Höhe / Composer-Pin nur auf Mobile-PWA — nicht auf Desktop mit Maus-Scroll. */
+function shouldUseFocusedViewportLayout(): boolean {
+  return isChatInputFocused() && (isMobileChatLayout() || isLikelyIosWebKit())
+}
+
+/** Thread ans Ende nur wenn Tastatur/Accessory den Viewport wirklich verkleinert. */
+function shouldPinMessagesForKeyboard(): boolean {
+  if (!isChatInputFocused()) {
+    return false
+  }
+  if (isLikelyIosWebKit()) {
+    return obscuredBottomPx() > 0
+  }
+  return obscuredBottomPx() >= MOBILE_KEYBOARD_READY_MIN_OBSCURED_PX
+}
+
 function measureComposerStack(): { height: number; bottom: number } | null {
   const stack = document.querySelector('.chat-composer-stack')
   if (!(stack instanceof HTMLElement)) {
@@ -208,7 +231,7 @@ export function useVisualKeyboardInset(): void {
        * Visual Viewports (`offsetTop + height`). Dann endet der Dokumentbaum exakt oberhalb von
        * Tastatur + Accessory (nicht nur «Padding nachrechnen»). `--chat-visual-keyboard-inset` = 0.
        */
-      if (isChatInputFocused()) {
+      if (shouldUseFocusedViewportLayout()) {
         const layoutH = Math.max(window.innerHeight, document.documentElement.clientHeight)
         const visibleBottom = vv.offsetTop + vv.height
         /*
@@ -235,7 +258,7 @@ export function useVisualKeyboardInset(): void {
         syncViewportVars()
         document.documentElement.style.setProperty(LAYOUT_HEIGHT_VAR, `${blockHeight}px`)
         document.documentElement.style.setProperty(CSS_VAR, '0px')
-        if (compose && compose.bottom > targetComposeBottom + 1) {
+        if (compose && compose.bottom > targetComposeBottom + 1 && shouldPinMessagesForKeyboard()) {
           requestAnimationFrame(() => {
             revealComposerAboveKeyboard?.()
           })
@@ -286,6 +309,9 @@ export function useVisualKeyboardInset(): void {
     visualKeyboardInsetSync = syncWithDelays
 
     revealComposerAboveKeyboard = () => {
+      if (!shouldPinMessagesForKeyboard()) {
+        return
+      }
       const messages = document.querySelector('.chat-messages')
       if (messages instanceof HTMLElement) {
         messages.scrollTop = messages.scrollHeight
@@ -303,7 +329,9 @@ export function useVisualKeyboardInset(): void {
     function onFocusIn(ev: FocusEvent) {
       const t = ev.target
       if (t instanceof HTMLTextAreaElement && t.classList.contains('chat-input')) {
-        connectComposeResizeObserver(t)
+        if (isMobileChatLayout() || isLikelyIosWebKit()) {
+          connectComposeResizeObserver(t)
+        }
         syncWithDelays()
         if (isLikelyIosWebKit()) {
           requestAnimationFrame(() => revealComposerAboveKeyboard?.())

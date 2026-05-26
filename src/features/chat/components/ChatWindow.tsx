@@ -772,6 +772,10 @@ export function ChatWindow({
   )
 
   const focusComposerAfterSectionReplyEmbed = useCallback(() => {
+    if (!isMobileComposer) {
+      focusComposerForSectionReply({ allowScroll: false })
+      return
+    }
     prepareComposerViewportBeforeKeyboard()
     if (!focusComposerForSectionReply({ allowScroll: true })) {
       return
@@ -787,6 +791,7 @@ export function ChatWindow({
   }, [
     ensureMobileComposerVisible,
     focusComposerForSectionReply,
+    isMobileComposer,
     prepareComposerViewportBeforeKeyboard,
   ])
 
@@ -811,7 +816,7 @@ export function ChatWindow({
 
       if (!isMobileComposer) {
         setComposerSectionReply(ref)
-        focusComposerAfterSectionReplyEmbed()
+        focusComposerForSectionReply({ allowScroll: false })
         return
       }
 
