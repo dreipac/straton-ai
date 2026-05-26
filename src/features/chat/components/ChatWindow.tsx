@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -70,7 +71,10 @@ import { ChatComposerReplyModePicker } from './ChatComposerReplyModePicker'
 import { ChatComposerThinkingModePicker } from './ChatComposerThinkingModePicker'
 import { ThinkingClarifyModal } from './ThinkingClarifyModal'
 import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
-import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
+import {
+  requestVisualKeyboardInsetSync,
+  useVisualKeyboardInset,
+} from '../hooks/useVisualKeyboardInset'
 import { extractUserMessageCopyText } from '../utils/chatMessageCopy'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
@@ -719,6 +723,36 @@ export function ChatWindow({
   /** Setzt `--chat-visual-keyboard-inset` für mobilen Chat (s. `useVisualKeyboardInset`). */
   useVisualKeyboardInset()
 
+  const focusComposerForSectionReply = useCallback(() => {
+    const input = inputRef.current
+    if (!input) {
+      return
+    }
+    if (!isMobileComposer) {
+      input.focus({ preventScroll: true })
+      return
+    }
+    /*
+     * iOS: Fokus erst nach Quote-Slot-Layout — sonst `--straton-visual-layout-height`
+     * ohne Referenz-Höhe und Composer liegt unter der Tastatur.
+     */
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        input.focus({ preventScroll: true })
+        requestVisualKeyboardInsetSync()
+      })
+    })
+  }, [isMobileComposer])
+
+  useLayoutEffect(() => {
+    if (!composerSectionReply || !isMobileComposer) {
+      return
+    }
+    requestVisualKeyboardInsetSync()
+    const syncAfterQuoteMs = window.setTimeout(() => requestVisualKeyboardInsetSync(), 340)
+    return () => window.clearTimeout(syncAfterQuoteMs)
+  }, [composerSectionReply, isMobileComposer])
+
   const MAX_INPUT_HEIGHT_PX = 220
 
   function adjustComposeHeight() {
@@ -1041,7 +1075,7 @@ export function ChatWindow({
         onReference: (ref) => {
           hapticLightImpact()
           setComposerSectionReply(ref)
-          inputRef.current?.focus({ preventScroll: true })
+          focusComposerForSectionReply()
         },
       },
     }

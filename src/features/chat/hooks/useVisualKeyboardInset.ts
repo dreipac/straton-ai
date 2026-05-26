@@ -1,5 +1,12 @@
 import { useEffect } from 'react'
 
+let visualKeyboardInsetSync: (() => void) | null = null
+
+/** Nach Composer-Höhenänderung (z. B. Referenz-Einbettung) erneut layouten — v. a. iOS. */
+export function requestVisualKeyboardInsetSync(): void {
+  visualKeyboardInsetSync?.()
+}
+
 const CSS_VAR = '--chat-visual-keyboard-inset'
 /** Kürzt `html`/`body` auf die untere Kante des Visual Viewports — siehe mobile.css. */
 const LAYOUT_HEIGHT_VAR = '--straton-visual-layout-height'
@@ -81,6 +88,7 @@ export function useVisualKeyboardInset(): void {
 
     let raf = 0
     const timers: number[] = []
+    let composeResizeObserver: ResizeObserver | null = null
 
     function clearViewportVars() {
       document.documentElement.style.removeProperty(VIEWPORT_OFFSET_TOP_VAR)
@@ -147,14 +155,38 @@ export function useVisualKeyboardInset(): void {
       })
     }
 
+    function disconnectComposeResizeObserver() {
+      composeResizeObserver?.disconnect()
+      composeResizeObserver = null
+    }
+
+    function connectComposeResizeObserver(fromTarget: EventTarget | null) {
+      disconnectComposeResizeObserver()
+      const row =
+        fromTarget instanceof Element
+          ? fromTarget.closest('.chat-input-row')
+          : document.querySelector('.chat-input-row')
+      if (!row) {
+        return
+      }
+      composeResizeObserver = new ResizeObserver(() => {
+        schedule()
+      })
+      composeResizeObserver.observe(row)
+    }
+
+    visualKeyboardInsetSync = syncWithDelays
+
     function onFocusIn(ev: FocusEvent) {
       const t = ev.target
       if (t instanceof HTMLTextAreaElement && t.classList.contains('chat-input')) {
+        connectComposeResizeObserver(t)
         syncWithDelays()
       }
     }
 
     function onFocusOut() {
+      disconnectComposeResizeObserver()
       window.setTimeout(schedule, 80)
     }
 
@@ -166,6 +198,10 @@ export function useVisualKeyboardInset(): void {
     document.addEventListener('focusout', onFocusOut)
 
     return () => {
+      if (visualKeyboardInsetSync === syncWithDelays) {
+        visualKeyboardInsetSync = null
+      }
+      disconnectComposeResizeObserver()
       cancelAnimationFrame(raf)
       timers.forEach((id) => window.clearTimeout(id))
       vv.removeEventListener('resize', schedule)
