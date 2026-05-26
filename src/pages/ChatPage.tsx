@@ -69,6 +69,7 @@ import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTo
 import { ChatToolbarMobileMenuSelect } from '../features/chat/components/ChatToolbarMobileMenuSelect'
 import { ChatToolbarTitleMenuSelect } from '../features/chat/components/ChatToolbarTitleMenuSelect'
 import { ChatToolbarReplyModeSelect } from '../features/chat/components/ChatToolbarReplyModeSelect'
+import { ChatThreadSwipeRow } from '../features/chat/components/ChatThreadSwipeRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import {
@@ -788,6 +789,7 @@ export function ChatPage() {
   const [isAdminMounted, setIsAdminMounted] = useState(false)
   const [isAdminVisible, setIsAdminVisible] = useState(false)
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
+  const [swipeOpenThreadId, setSwipeOpenThreadId] = useState<string | null>(null)
   const threadForMenu = useMemo(
     () => (openMenuThreadId ? threads.find((t) => t.id === openMenuThreadId) : undefined),
     [openMenuThreadId, threads],
@@ -870,6 +872,41 @@ export function ChatPage() {
   const longPressTimerRef = useRef<number | null>(null)
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressThreadClickRef = useRef(false)
+
+  const cancelThreadLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    longPressStartRef.current = null
+  }, [])
+
+  useEffect(() => {
+    if (!isMobileSidebarOpen) {
+      setSwipeOpenThreadId(null)
+    }
+  }, [isMobileSidebarOpen])
+
+  useEffect(() => {
+    if (!isCompactMobileSidebarLayout) {
+      return
+    }
+    const list = document.querySelector('.chat-sidebar-list-wrap .chat-thread-list')
+    if (!list) {
+      return
+    }
+    const onScroll = () => setSwipeOpenThreadId(null)
+    list.addEventListener('scroll', onScroll, { passive: true })
+    return () => list.removeEventListener('scroll', onScroll)
+  }, [isCompactMobileSidebarLayout])
+
+  async function deleteThreadFromSwipe(threadId: string) {
+    try {
+      await deleteChat(threadId, { animateRemoval: false, optimisticListRemoval: true })
+    } catch {
+      /* Fehleranzeige in useChat */
+    }
+  }
   const LONG_PRESS_MS = 520
   const LONG_PRESS_MOVE_CANCEL_PX = 14
 
@@ -1942,35 +1979,66 @@ export function ChatPage() {
             <div className="chat-thread-list">
               <p className="thread-list-info">Chats</p>
               {isBootstrapping ? <p className="thread-list-info">Lade Chats...</p> : null}
-              {threads.map((thread) => (
-              <div
-                key={thread.id}
-                className={`chat-thread-row ${thread.id === activeThreadId ? 'is-active' : ''} ${
-                  openMenuThreadId === thread.id ? 'has-open-menu' : ''
-                } ${thread.isTemporary ? 'is-temporary' : ''} ${thread.isRemoving ? 'is-removing' : ''}`}
-                onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
-                onTouchStart={(event) => handleThreadLongPressTouchStart(thread.id, event)}
-                onTouchMove={handleThreadLongPressTouchMove}
-                onTouchEnd={handleThreadLongPressTouchEnd}
-                onTouchCancel={handleThreadLongPressTouchEnd}
-              >
-                <div
-                  className={`chat-thread-item ${thread.id === activeThreadId ? 'is-active' : ''}`}
-                  onClick={() => {
-                    if (suppressThreadClickRef.current) {
-                      suppressThreadClickRef.current = false
-                      return
-                    }
-                    selectChat(thread.id)
-                    closeThreadActionMenu()
-                    setIsMobileSidebarOpen(false)
-                  }}
-                  onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
-                >
-                  <span className="chat-thread-title">{thread.title}</span>
-                </div>
-              </div>
-            ))}
+              {threads.map((thread) => {
+                const canSwipeDeleteThread = Boolean(
+                  isCompactMobileSidebarLayout && user && isThreadOwner(thread, user.id),
+                )
+                const longPressHandlers = {
+                  onTouchStart: (event: ReactTouchEvent<HTMLElement>) =>
+                    handleThreadLongPressTouchStart(thread.id, event),
+                  onTouchMove: handleThreadLongPressTouchMove,
+                  onTouchEnd: handleThreadLongPressTouchEnd,
+                  onTouchCancel: handleThreadLongPressTouchEnd,
+                }
+
+                return (
+                  <div
+                    key={thread.id}
+                    className={`chat-thread-row ${thread.id === activeThreadId ? 'is-active' : ''} ${
+                      openMenuThreadId === thread.id ? 'has-open-menu' : ''
+                    } ${swipeOpenThreadId === thread.id ? 'has-swipe-open' : ''} ${
+                      thread.isTemporary ? 'is-temporary' : ''
+                    } ${thread.isRemoving ? 'is-removing' : ''}`}
+                    onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
+                    {...(canSwipeDeleteThread ? {} : longPressHandlers)}
+                  >
+                    <ChatThreadSwipeRow
+                      enabled={canSwipeDeleteThread}
+                      isSwipeOpen={swipeOpenThreadId === thread.id}
+                      isActive={thread.id === activeThreadId}
+                      isRemoving={thread.isRemoving}
+                      onSwipeOpen={() => {
+                        setSwipeOpenThreadId(thread.id)
+                      }}
+                      onSwipeClose={() => {
+                        setSwipeOpenThreadId((current) => (current === thread.id ? null : current))
+                      }}
+                      onSelect={() => {
+                        if (suppressThreadClickRef.current) {
+                          suppressThreadClickRef.current = false
+                          return
+                        }
+                        if (swipeOpenThreadId && swipeOpenThreadId !== thread.id) {
+                          setSwipeOpenThreadId(null)
+                        }
+                        selectChat(thread.id)
+                        closeThreadActionMenu()
+                        setIsMobileSidebarOpen(false)
+                      }}
+                      onSwipeDeleteStart={() => {
+                        setSwipeOpenThreadId(null)
+                        closeThreadActionMenu()
+                      }}
+                      onDelete={() => void deleteThreadFromSwipe(thread.id)}
+                      onSwipeGestureStart={cancelThreadLongPress}
+                      onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
+                      longPressTouchHandlers={canSwipeDeleteThread ? longPressHandlers : undefined}
+                    >
+                      <span className="chat-thread-title">{thread.title}</span>
+                    </ChatThreadSwipeRow>
+                  </div>
+                )
+              })}
               {!isBootstrapping && threads.length === 0 ? (
                 <p className="thread-list-info">Noch keine Chats vorhanden.</p>
               ) : null}

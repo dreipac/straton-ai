@@ -24,6 +24,7 @@ import { buildMainChatOpenAiModelChain } from '../constants/chatDailyOpenAiTier'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import { getQuizFormatGenerationInstruction } from '../utils/quizFormatChoice'
+import { formatUserContentForGateway } from '../utils/assistantSectionReply'
 import {
   buildThinkingDocumentUserContextBlock,
   getAssistantThinkingMarkdownInstruction,
@@ -390,6 +391,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     },
     ...threadMessages.map((message) => {
       let content = scrubDataImages(message.content)
+      if (message.role === 'user' && isMainChat) {
+        content = formatUserContentForGateway(content)
+      }
       if (message.role === 'user' && message.metadata?.userWordCommand) {
         const t = content.trim()
         content = t ? `${t}\n\n${WORD_EXPORT_COMMAND_MARKER}` : WORD_EXPORT_COMMAND_MARKER

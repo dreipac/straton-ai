@@ -1,9 +1,26 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import { useMediaQuery } from '../../../hooks/useMediaQuery'
+import {
+  ASSISTANT_SECTION_REPLY_MOBILE_MQ,
+  useAssistantSectionReplySwipe,
+} from '../hooks/useAssistantSectionReplySwipe'
+import {
+  blockToReferenceExcerpt,
+  type AssistantSectionReference,
+} from './assistantSectionReply'
 import {
   renderAssistantInline,
   stripGeneratedImageModelFooter,
   type AssistantInlineImageOptions,
 } from './markdownInline'
+
+export type AssistantRichContentOptions = AssistantInlineImageOptions & {
+  /** Abschnitts-Referenz (Antwort auf Teil der KI-Nachricht). */
+  sectionReply?: {
+    messageId: string
+    onReference: (ref: AssistantSectionReference) => void
+  }
+}
 
 type Block =
   | { type: 'hr' }
@@ -780,13 +797,13 @@ function McqBlock({
   questionNumber,
   prompt,
   options,
-  imageOptions,
+  richOptions,
 }: {
   title?: string
   questionNumber: number
   prompt: string
   options: McqOption[]
-  imageOptions?: AssistantInlineImageOptions
+  richOptions?: AssistantRichContentOptions
 }) {
   const [checked, setChecked] = useState<Record<string, boolean>>({})
 
@@ -801,7 +818,7 @@ function McqBlock({
         <span className="chat-mcq-number" aria-hidden="true">
           {questionNumber}
         </span>
-        <p className="chat-mcq-prompt">{renderAssistantInline(prompt, imageOptions)}</p>
+        <p className="chat-mcq-prompt">{renderAssistantInline(prompt, richOptions)}</p>
       </div>
       <ul className="chat-mcq-options" role="group" aria-label="Antwortmöglichkeiten">
         {options.map((option) => {
@@ -816,7 +833,7 @@ function McqBlock({
               >
                 <span className="chat-mcq-checkbox" aria-hidden="true" />
                 <span className="chat-mcq-option-letter">{option.letter}</span>
-                <span className="chat-mcq-option-text">{renderAssistantInline(option.text, imageOptions)}</span>
+                <span className="chat-mcq-option-text">{renderAssistantInline(option.text, richOptions)}</span>
               </button>
             </li>
           )
@@ -863,7 +880,82 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   )
 }
 
-function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImageOptions): ReactNode {
+function AssistantSectionShell({
+  block,
+  blockIndex,
+  options,
+  children,
+}: {
+  block: Block
+  blockIndex: number
+  options?: AssistantRichContentOptions
+  children: ReactNode
+}) {
+  const sectionReply = options?.sectionReply
+  const isMobileSectionReply = useMediaQuery(ASSISTANT_SECTION_REPLY_MOBILE_MQ)
+
+  const fireReference = useCallback(() => {
+    if (!sectionReply) {
+      return
+    }
+    const { excerpt, previewTitle } = blockToReferenceExcerpt(block)
+    sectionReply.onReference({
+      messageId: sectionReply.messageId,
+      blockIndex,
+      blockKind: block.type,
+      excerpt,
+      previewTitle,
+    })
+  }, [block, blockIndex, sectionReply])
+
+  const { sectionRef } = useAssistantSectionReplySwipe(
+    Boolean(sectionReply && block.type !== 'hr' && isMobileSectionReply),
+    fireReference,
+  )
+
+  if (!sectionReply || block.type === 'hr') {
+    return <>{children}</>
+  }
+
+  if (!isMobileSectionReply) {
+    return (
+      <div className="chat-md-section">
+        <button
+          type="button"
+          className="chat-md-section-ref-btn"
+          aria-label="Auf diesen Abschnitt antworten"
+          title="Referenz"
+          onClick={fireReference}
+        >
+          <span className="chat-md-section-ref-icon" aria-hidden="true">
+            ↩
+          </span>
+          <span className="chat-md-section-ref-label">Referenz</span>
+        </button>
+        {children}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={sectionRef}
+      className="chat-md-section chat-md-section--mobile-reply chat-md-section--swipe-host"
+    >
+      <div className="chat-md-section-swipe-slot" aria-hidden="true">
+        <span className="chat-md-section-swipe-slot-bar" />
+        <span className="chat-md-section-swipe-slot-icon">↩</span>
+      </div>
+      <div className="chat-md-section-swipe-body">{children}</div>
+    </div>
+  )
+}
+
+function renderBlock(
+  block: Block,
+  i: number,
+  options?: AssistantRichContentOptions,
+): ReactNode {
   const key = `blk-${i}`
   switch (block.type) {
     case 'hr':
@@ -871,25 +963,25 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
     case 'h1':
       return (
         <h2 key={key} className="chat-md-h chat-md-h1">
-          {renderAssistantInline(block.text, imageOptions)}
+          {renderAssistantInline(block.text, options)}
         </h2>
       )
     case 'h2':
       return (
         <h3 key={key} className="chat-md-h chat-md-h2">
-          {renderAssistantInline(block.text, imageOptions)}
+          {renderAssistantInline(block.text, options)}
         </h3>
       )
     case 'h3':
       return (
         <h4 key={key} className="chat-md-h chat-md-h3">
-          {renderAssistantInline(block.text, imageOptions)}
+          {renderAssistantInline(block.text, options)}
         </h4>
       )
     case 'p':
       return (
         <p key={key} className="chat-md-p">
-          {renderAssistantInline(block.text, imageOptions)}
+          {renderAssistantInline(block.text, options)}
         </p>
       )
     case 'ul':
@@ -897,7 +989,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
         <ul key={key} className="chat-md-ul">
           {block.items.map((item, j) => (
             <li key={`${key}-li-${j}`} className="chat-md-li">
-              {renderAssistantInline(item, imageOptions)}
+              {renderAssistantInline(item, options)}
             </li>
           ))}
         </ul>
@@ -907,7 +999,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
         <ol key={key} className="chat-md-ol">
           {block.items.map((item, j) => (
             <li key={`${key}-li-${j}`} className="chat-md-li">
-              {renderAssistantInline(item, imageOptions)}
+              {renderAssistantInline(item, options)}
             </li>
           ))}
         </ol>
@@ -919,7 +1011,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
             <div className="chat-md-blockquote-body">
               {block.lines.map((line, j) => (
                 <p key={`${key}-ln-${j}`} className="chat-md-blockquote-line">
-                  {renderAssistantInline(line, imageOptions)}
+                  {renderAssistantInline(line, options)}
                 </p>
               ))}
             </div>
@@ -935,7 +1027,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
           <div className="chat-bible-verse-body">
             {block.lines.map((line, j) => (
               <p key={`${key}-ln-${j}`} className="chat-bible-verse-line">
-                {renderAssistantInline(line, imageOptions)}
+                {renderAssistantInline(line, options)}
               </p>
             ))}
           </div>
@@ -953,7 +1045,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
           questionNumber={block.questionNumber}
           prompt={block.prompt}
           options={block.options}
-          imageOptions={imageOptions}
+          richOptions={options}
         />
       )
     case 'table': {
@@ -968,7 +1060,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
               <tr>
                 {headerRow.map((cell, j) => (
                   <th key={`${key}-th-${j}`} className="chat-md-th">
-                    {renderAssistantInline(cell, imageOptions)}
+                    {renderAssistantInline(cell, options)}
                   </th>
                 ))}
               </tr>
@@ -979,7 +1071,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
                   <tr key={`${key}-tr-${ri}`}>
                     {row.map((cell, ci) => (
                       <td key={`${key}-td-${ri}-${ci}`} className="chat-md-td">
-                        {renderAssistantInline(cell, imageOptions)}
+                        {renderAssistantInline(cell, options)}
                       </td>
                     ))}
                   </tr>
@@ -998,7 +1090,7 @@ function renderBlock(block: Block, i: number, imageOptions?: AssistantInlineImag
 /** Strukturierter Assistententext: Markdown-ähnliche Blöcke (Überschriften, Listen, ---, Links). */
 export function renderAssistantRichContent(
   content: string,
-  imageOptions?: AssistantInlineImageOptions,
+  options?: AssistantRichContentOptions,
 ): ReactNode {
   const trimmed = stripGeneratedImageModelFooter(content).trim()
   if (!trimmed) {
@@ -1007,17 +1099,25 @@ export function renderAssistantRichContent(
 
   const blocks = parseBlocks(trimmed)
   if (blocks.length === 0) {
-    return <p className="chat-md-p">{renderAssistantInline(trimmed, imageOptions)}</p>
+    return <p className="chat-md-p">{renderAssistantInline(trimmed, options)}</p>
   }
 
   /** Ein einzelner Absatz ohne Struktur-Marker → weiterhin ein p */
   if (blocks.length === 1 && blocks[0].type === 'p') {
-    return <p className="chat-md-p">{renderAssistantInline(blocks[0].text, imageOptions)}</p>
+    return (
+      <AssistantSectionShell block={blocks[0]} blockIndex={0} options={options}>
+        <p className="chat-md-p">{renderAssistantInline(blocks[0].text, options)}</p>
+      </AssistantSectionShell>
+    )
   }
 
   return (
     <div className="chat-md-root">
-      {blocks.map((b, i) => renderBlock(b, i, imageOptions))}
+      {blocks.map((b, i) => (
+        <AssistantSectionShell key={`sec-${i}`} block={b} blockIndex={i} options={options}>
+          {renderBlock(b, i, options)}
+        </AssistantSectionShell>
+      ))}
     </div>
   )
 }

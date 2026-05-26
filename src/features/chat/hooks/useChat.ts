@@ -585,22 +585,77 @@ export function useChat(
     }
   }
 
-  async function deleteChat(threadId: string) {
+  async function deleteChat(
+    threadId: string,
+    options?: { animateRemoval?: boolean; optimisticListRemoval?: boolean },
+  ) {
     const targetThread = threads.find((thread) => thread.id === threadId)
     if (targetThread?.isTemporary) {
       removeTemporaryThread(threadId)
       return
     }
 
+    const animateRemoval = options?.animateRemoval !== false
+    const optimisticListRemoval = options?.optimisticListRemoval === true
+
     setError(null)
+    clearRemoveTimer(threadId)
+
+    if (!animateRemoval) {
+      setActiveThreadId((currentId) => (currentId === threadId ? null : currentId))
+
+      const removeFromListState = () => {
+        setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+        setMessagesByThreadId((prev) => {
+          const nextState = { ...prev }
+          delete nextState[threadId]
+          return nextState
+        })
+      }
+
+      if (optimisticListRemoval) {
+        removeFromListState()
+        try {
+          await deleteChatThread(threadId)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Chat konnte nicht gelöscht werden.')
+        }
+        return
+      }
+
+      try {
+        await deleteChatThread(threadId)
+        removeFromListState()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Chat konnte nicht gelöscht werden.')
+      }
+      return
+    }
+
+    setThreads((prev) =>
+      prev.map((thread) =>
+        thread.id === threadId
+          ? {
+              ...thread,
+              isRemoving: true,
+            }
+          : thread,
+      ),
+    )
+
+    setActiveThreadId((currentId) => (currentId === threadId ? null : currentId))
 
     try {
-      await deleteChatThread(threadId)
+      await Promise.all([
+        deleteChatThread(threadId),
+        new Promise<void>((resolve) => {
+          removeTimersRef.current[threadId] = window.setTimeout(() => {
+            resolve()
+          }, THREAD_REMOVE_ANIMATION_MS)
+        }),
+      ])
 
-      setThreads((prev) => {
-        const remainingThreads = prev.filter((thread) => thread.id !== threadId)
-        return remainingThreads
-      })
+      setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
 
       setMessagesByThreadId((prev) => {
         const nextState = { ...prev }
@@ -608,15 +663,19 @@ export function useChat(
         return nextState
       })
 
-      setActiveThreadId((currentId) => {
-        if (currentId !== threadId) {
-          return currentId
-        }
-
-        return null
-      })
-
+      delete removeTimersRef.current[threadId]
     } catch (err) {
+      clearRemoveTimer(threadId)
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                isRemoving: false,
+              }
+            : thread,
+        ),
+      )
       setError(err instanceof Error ? err.message : 'Chat konnte nicht gelöscht werden.')
     }
   }

@@ -321,6 +321,160 @@
   z-index: 20;
 }
 
+.chat-thread-row.has-swipe-open {
+  z-index: 12;
+}
+
+.chat-thread-swipe-host {
+  --chat-thread-swipe-action-width: 76px;
+  --thread-swipe-progress: 0;
+  --thread-swipe-underlay-scale: 0;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  min-width: 0;
+  background: transparent;
+  touch-action: pan-y;
+}
+
+.chat-thread-swipe-host.is-dragging {
+  touch-action: none;
+}
+
+.chat-thread-swipe-underlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #dc2626;
+  transform: scaleX(var(--thread-swipe-underlay-scale, 0));
+  transform-origin: right center;
+  pointer-events: none;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.chat-thread-swipe-delete-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chat-thread-swipe-action-width);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-thread-swipe-host.is-swipe-delete-armed .chat-thread-swipe-delete-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.chat-thread-swipe-host.is-dragging .chat-thread-swipe-delete-btn {
+  transition: none;
+  opacity: clamp(0, calc(var(--thread-swipe-progress, 0) * 1.4 - 0.08), 1);
+}
+
+.chat-thread-swipe-host:not(.is-dragging) .chat-thread-swipe-delete-btn {
+  transition:
+    opacity 0.14s ease,
+    visibility 0.14s ease;
+}
+
+.chat-thread-swipe-delete-icon {
+  --ui-icon-size: 1.35rem;
+  filter: brightness(0) invert(1);
+}
+
+.chat-thread-swipe-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  border-radius: 12px;
+  border-top-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
+  border-bottom-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
+  background: var(--chat-thread-swipe-panel-bg, #ffffff);
+  transform: translate3d(calc(-1 * var(--thread-swipe-offset, 0px)), 0, 0);
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: pan-y;
+  backface-visibility: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  will-change: transform;
+}
+
+.chat-thread-swipe-host.is-dragging .chat-thread-swipe-panel {
+  transition: none;
+}
+
+.chat-thread-swipe-panel .chat-thread-item {
+  width: 100%;
+  background: transparent;
+  border-top-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
+  border-bottom-right-radius: max(0px, calc(12px * (1 - var(--thread-swipe-progress, 0))));
+}
+
+.chat-thread-row.is-swipe-dismissing {
+  pointer-events: none;
+  contain: layout style paint;
+}
+
+.chat-thread-swipe-host.is-swipe-dismissing-host {
+  contain: layout style paint;
+}
+
+.chat-thread-swipe-host.is-swipe-dismissing-host .chat-thread-swipe-panel {
+  transition: none !important;
+  animation: threadSwipePanelDismiss 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes threadSwipePanelDismiss {
+  0% {
+    transform: translate3d(calc(-1 * var(--thread-swipe-dismiss-from, 0px)), 0, 0);
+    opacity: 1;
+  }
+
+  30% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+}
+
+.chat-thread-swipe-host.is-swipe-dismissing-host .chat-thread-swipe-underlay {
+  transition: none !important;
+  animation: threadSwipeUnderlayHide 0.14s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes threadSwipeUnderlayHide {
+  from {
+    transform: scaleX(var(--thread-swipe-underlay-scale, 0));
+    opacity: 1;
+  }
+
+  to {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+}
+
 .chat-thread-item {
   position: relative;
   display: flex;
@@ -1221,12 +1375,27 @@
 :root[data-theme='dark'] .chat-sidebar {
   border-right-color: #2a303a;
   background: #171b22;
+  --chat-thread-swipe-panel-bg: #171b22;
+}
+
+:root[data-theme='dark'] .chat-thread-swipe-underlay {
+  background: #b91c1c;
+}
+
+:root[data-theme='dark'] .chat-thread-swipe-panel .chat-thread-item.is-active {
+  background: var(--interactive-hover-bg-dark);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-thread-swipe-panel .chat-thread-item.is-active {
+  background: rgba(236, 72, 153, 0.42);
 }
 
 /* Black: Sidebar folgt theme.css — sonst bleibt #171b22, nur die Karte nutzt Variablen → optischer Sprung */
 :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar {
   border-right-color: var(--color-border);
   background: var(--color-surface);
+  --chat-thread-swipe-panel-bg: transparent;
+  --chat-thread-swipe-panel-bg-active: var(--color-surface);
 }
 
 :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-top {
@@ -1248,6 +1417,16 @@
   border-right-color: rgba(253, 164, 175, 0.36);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  /* Swipe-Panel: nur bei Swipe-Geste deckend, sonst transparent (Glass sichtbar) */
+  --chat-thread-swipe-panel-bg: transparent;
+  --chat-thread-swipe-panel-bg-active: rgba(54, 16, 38, 0.94);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-thread-swipe-host.is-dragging .chat-thread-swipe-panel,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-thread-swipe-host.has-swipe-offset .chat-thread-swipe-panel,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-thread-swipe-host.is-dragging .chat-thread-swipe-panel,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-thread-swipe-host.has-swipe-offset .chat-thread-swipe-panel {
+  background: var(--chat-thread-swipe-panel-bg-active);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-sidebar-top {

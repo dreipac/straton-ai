@@ -33,7 +33,20 @@ import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import type { ChatMessage } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
-import { renderAssistantRichContent } from '../utils/renderAssistantRichContent'
+import {
+  renderAssistantRichContent,
+  type AssistantRichContentOptions,
+} from '../utils/renderAssistantRichContent'
+import {
+  buildUserMessageWithSectionRef,
+  parseSectionRefFromUserContent,
+  type AssistantSectionReference,
+} from '../utils/assistantSectionReply'
+import {
+  ChatComposerReplyQuoteSlot,
+  ChatMessageReplyQuotePreview,
+} from './ChatComposerReplyQuoteBar'
+import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import {
   canFinalizeWordExportFromThread,
   extractLeadingBannerTitleFromOutlineText,
@@ -360,6 +373,9 @@ export function ChatWindow({
     content: string
     useWebSearch: boolean
   } | null>(null)
+  const [composerSectionReply, setComposerSectionReply] = useState<AssistantSectionReference | null>(
+    null,
+  )
   const exitWebSearchSignalHandledRef = useRef(0)
   const isEmptyState = messageList.length === 0
   const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
@@ -455,8 +471,13 @@ export function ChatWindow({
     lastWordUserIndex >= 0 &&
     !assistantHasWordExportAfterLastWordUser
 
+  const showPendingTextOrbitRow =
+    showAssistantPendingLoader &&
+    !pendingImageGeneration &&
+    !pendingExcelGeneration &&
+    !pendingWordGeneration
   const showPendingAssistantRow =
-    showAssistantPendingLoader || pendingExcelGeneration || pendingWordGeneration
+    showPendingTextOrbitRow || pendingImageGeneration || pendingExcelGeneration || pendingWordGeneration
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
@@ -476,15 +497,19 @@ export function ChatWindow({
   const lastMessage = messageList.length > 0 ? messageList[messageList.length - 1] : undefined
   const isAssistantReplyStillAnimating = (() => {
     if (!lastMessage || lastMessage.role !== 'assistant') return false
-    if (lastMessage.metadata?.liveStream) return false
-    const parsed = parseInteractiveContentWithFallback(lastMessage.content)
-    if (parsed?.quiz) return false
     if (lastMessage.metadata?.excelExport) return false
     if (lastMessage.metadata?.wordExport) return false
-    const full = safeMessageContent(lastMessage.content)
+    if (lastMessage.metadata?.liveStream) return true
+    const parsed = parseInteractiveContentWithFallback(lastMessage.content)
+    if (parsed?.quiz) return false
+    const full = stripExcelSpecBlock(safeMessageContent(lastMessage.content))
+    if (shouldSkipAssistantTypingReveal(full)) return false
+    if (isSending && full.trim().length === 0) return true
     const animated = safeMessageContent(animatedAssistantContent[lastMessage.id] ?? full)
     return animated.length < full.length
   })()
+  const showLatestAssistantOrbitLoader =
+    !showPendingTextOrbitRow && lastMessage?.role === 'assistant' && isAssistantReplyStillAnimating
   const showDuringSendIcon =
     isAssistantReplyStillAnimating ||
     (isSending && (!isMobileComposer || mobileDuringIconReady))
@@ -1008,6 +1033,20 @@ export function ChatWindow({
       .join('\n\n')
   }
 
+  function buildAssistantRichOptions(messageId: string): AssistantRichContentOptions {
+    return {
+      onChatImagePreview: setImageLightboxSrc,
+      sectionReply: {
+        messageId,
+        onReference: (ref) => {
+          hapticLightImpact()
+          setComposerSectionReply(ref)
+          inputRef.current?.focus({ preventScroll: true })
+        },
+      },
+    }
+  }
+
   async function deliverComposerMessage(
     content: string,
     sendOpts?: { useWebSearch?: boolean; quizFormat?: QuizFormatChoice },
@@ -1033,8 +1072,10 @@ export function ChatWindow({
     setWebSearchCommandSelected(false)
     setPendingAttachments([])
     setQuizFormatPending(null)
+    const payload = buildUserMessageWithSectionRef(content, composerSectionReply)
+    setComposerSectionReply(null)
     await onSendMessage(
-      content,
+      payload,
       sendOpts?.useWebSearch || sendOpts?.quizFormat
         ? { useWebSearch: sendOpts.useWebSearch, quizFormat: sendOpts.quizFormat }
         : undefined,
@@ -1359,6 +1400,13 @@ export function ChatWindow({
       pushToast('Kopieren fehlgeschlagen')
     }
   }
+
+  const composerReplyQuoteSlot = (
+    <ChatComposerReplyQuoteSlot
+      reference={composerSectionReply}
+      onDismiss={() => setComposerSectionReply(null)}
+    />
+  )
 
   const quizFormatOverlay = quizFormatPending ? (
     <QuizFormatChoiceModal
@@ -1703,10 +1751,15 @@ export function ChatWindow({
               ) : null}
             </div>
             <div
-              className={['chat-input-compose', isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '']
+              className={[
+                'chat-input-compose',
+                isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '',
+                composerSectionReply ? 'chat-input-compose--has-section-reply' : '',
+              ]
                 .filter(Boolean)
                 .join(' ')}
             >
+              {composerReplyQuoteSlot}
               {pendingAttachments.length > 0 ||
               (!isMobileComposer &&
                 (imageGenCommandSelected ||
@@ -1968,11 +2021,15 @@ export function ChatWindow({
             Boolean(message.metadata?.liveStream) &&
             !messageContainsCompleteThinkingClarifyBlock(rawContent)
           /** Immer Clarify-JSON ausblenden, wenn der Block gültig ist — nicht an den aktuellen Composer-Modus koppeln (nach Reload oft «normal»). */
+          const userSectionReplyParsed =
+            message.role === 'user' ? parseSectionRefFromUserContent(rawContent) : null
           const displayContent = isAssistant
             ? isWordAssistantTurn
               ? assistantAfterExcel
               : stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
-            : stripAttachmentBlocksForDisplay(rawContent)
+            : userSectionReplyParsed
+              ? stripAttachmentBlocksForDisplay(userSectionReplyParsed.userText)
+              : stripAttachmentBlocksForDisplay(rawContent)
           const showWordPaperLayout =
             isAssistant &&
             (useWordOutlinePaperChrome || usesStratonWordMarkdownConvention(displayContent ?? ''))
@@ -2002,6 +2059,8 @@ export function ChatWindow({
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
           const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
+          const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
+          const showAssistantAuthor = isAssistant && !showOrbitLoader
 
           const userMessageCopyText =
             message.role === 'user' ? stripAttachmentBlocksForDisplay(rawContent) : ''
@@ -2018,7 +2077,12 @@ export function ChatWindow({
               className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}${userMessagePressActive ? ' is-message-press-active' : ''}`}
               {...userMessageLongPressHandlers}
             >
-              {isAssistant ? <strong className="chat-message-author">Straton AI</strong> : null}
+              {showOrbitLoader ? (
+                <div className="chat-message-orbit-loader-wrap">
+                  <ChatPendingReplyLoader />
+                </div>
+              ) : null}
+              {showAssistantAuthor ? <strong className="chat-message-author">Straton AI</strong> : null}
               {hasReloadedImageSrc ? (
                   <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
                   {pastedImageIds.map((imageId) => {
@@ -2057,6 +2121,9 @@ export function ChatWindow({
                   ))}
                 </div>
               ) : null}
+              {userSectionReplyParsed?.sectionRef ? (
+                <ChatMessageReplyQuotePreview reference={userSectionReplyParsed.sectionRef} />
+              ) : null}
               {thinkingClarifyStreaming ? (
                 <p className="chat-thinking-stream-hint" role="status">
                   KI formuliert eine Rückfrage…
@@ -2068,9 +2135,10 @@ export function ChatWindow({
                       if (message.metadata?.wordExport || message.metadata?.excelExport) {
                         return (
                           <div className="chat-message-body chat-message-body--rich">
-                            {renderAssistantRichContent(displayContent, {
-                              onChatImagePreview: setImageLightboxSrc,
-                            })}
+                            {renderAssistantRichContent(
+                              displayContent,
+                              buildAssistantRichOptions(message.id),
+                            )}
                           </div>
                         )
                       }
@@ -2092,17 +2160,19 @@ export function ChatWindow({
                           <>
                             {beforeMarkdown ? (
                               <div className="chat-message-body chat-message-body--rich">
-                                {renderAssistantRichContent(beforeMarkdown, {
-                                  onChatImagePreview: setImageLightboxSrc,
-                                })}
+                                {renderAssistantRichContent(
+                                  beforeMarkdown,
+                                  buildAssistantRichOptions(message.id),
+                                )}
                               </div>
                             ) : null}
                             <WordOutlinePaper outline={outlineForPaper} bannerTitle={bannerTitle} />
                             {fence.after.trim() ? (
                               <div className="chat-message-body chat-message-body--rich">
-                                {renderAssistantRichContent(fence.after, {
-                                  onChatImagePreview: setImageLightboxSrc,
-                                })}
+                                {renderAssistantRichContent(
+                                  fence.after,
+                                  buildAssistantRichOptions(message.id),
+                                )}
                               </div>
                             ) : null}
                           </>
@@ -2132,17 +2202,19 @@ export function ChatWindow({
                       }
                       return (
                         <div className="chat-message-body chat-message-body--rich">
-                          {renderAssistantRichContent(displayContent, {
-                            onChatImagePreview: setImageLightboxSrc,
-                          })}
+                          {renderAssistantRichContent(
+                            displayContent,
+                            buildAssistantRichOptions(message.id),
+                          )}
                         </div>
                       )
                     })()
                   ) : (
                     <div className="chat-message-body chat-message-body--rich">
-                      {renderAssistantRichContent(displayContent, {
-                        onChatImagePreview: setImageLightboxSrc,
-                      })}
+                      {renderAssistantRichContent(
+                        displayContent,
+                        buildAssistantRichOptions(message.id),
+                      )}
                     </div>
                   )
                 ) : (
@@ -2273,7 +2345,9 @@ export function ChatWindow({
               aria-live="polite"
               aria-busy="true"
             >
-              <strong className="chat-message-author">Straton AI</strong>
+              {pendingImageGeneration ? (
+                <strong className="chat-message-author">Straton AI</strong>
+              ) : null}
               {pendingImageGeneration ? (
                 <div
                   className="chat-image-gen-loader-panel"
@@ -2298,6 +2372,8 @@ export function ChatWindow({
                   </div>
                 </div>
               ) : pendingExcelGeneration || pendingWordGeneration ? (
+                <>
+                <strong className="chat-message-author">Straton AI</strong>
                 <div
                   className="chat-excel-gen-loader-panel"
                   role="status"
@@ -2320,12 +2396,9 @@ export function ChatWindow({
                     ))}
                   </div>
                 </div>
+                </>
               ) : (
-                <div className="chat-pending-loader" role="status">
-                  <span className="chat-pending-loader-dot" />
-                  <span className="chat-pending-loader-dot" />
-                  <span className="chat-pending-loader-dot" />
-                </div>
+                <ChatPendingReplyLoader />
               )}
             </div>
           ) : null}
@@ -2409,10 +2482,15 @@ export function ChatWindow({
           ) : null}
         </div>
         <div
-          className={['chat-input-compose', isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '']
+          className={[
+            'chat-input-compose',
+            isMobileCompactComposer ? 'chat-input-compose--mobile-compact' : '',
+            composerSectionReply ? 'chat-input-compose--has-section-reply' : '',
+          ]
             .filter(Boolean)
             .join(' ')}
         >
+          {composerReplyQuoteSlot}
           {pendingAttachments.length > 0 ||
           (!isMobileComposer &&
             (imageGenCommandSelected ||
