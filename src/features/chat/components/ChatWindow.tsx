@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type TransitionEvent as ReactTransitionEvent,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { useToast } from '../../../components/toast/ToastProvider'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
@@ -376,7 +377,6 @@ export function ChatWindow({
   const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
   const imageLightboxClosePendingRef = useRef(false)
   const sectionReplyEmbedCancelRef = useRef<(() => void) | null>(null)
-  const sectionReplyFocusPendingRef = useRef(false)
   const [quizFormatPending, setQuizFormatPending] = useState<{
     content: string
     useWebSearch: boolean
@@ -643,7 +643,6 @@ export function ChatWindow({
     setAttachComposerSheetOpen(false)
     sectionReplyEmbedCancelRef.current?.()
     sectionReplyEmbedCancelRef.current = null
-    sectionReplyFocusPendingRef.current = false
     setComposerSectionReply(null)
   }, [threadKey])
 
@@ -734,7 +733,6 @@ export function ChatWindow({
   const clearSectionReplyEmbedSchedule = useCallback(() => {
     sectionReplyEmbedCancelRef.current?.()
     sectionReplyEmbedCancelRef.current = null
-    sectionReplyFocusPendingRef.current = false
   }, [])
 
   const ensureMobileComposerVisible = useCallback(() => {
@@ -792,17 +790,19 @@ export function ChatWindow({
     prepareComposerViewportBeforeKeyboard,
   ])
 
-  const handleSectionReplyEmbedSettled = useCallback(() => {
-    if (!sectionReplyFocusPendingRef.current) {
-      return
-    }
-    sectionReplyFocusPendingRef.current = false
+  const syncComposerLayoutAfterSectionReplyEmbed = useCallback(() => {
     prepareComposerViewportBeforeKeyboard()
+    requestVisualKeyboardInsetSync()
+    ensureMobileComposerVisible()
     requestAnimationFrame(() => {
-      prepareComposerViewportBeforeKeyboard()
-      focusComposerAfterSectionReplyEmbed()
+      ensureMobileComposerVisible()
+      requestVisualKeyboardInsetSync()
     })
-  }, [focusComposerAfterSectionReplyEmbed, prepareComposerViewportBeforeKeyboard])
+  }, [ensureMobileComposerVisible, prepareComposerViewportBeforeKeyboard])
+
+  const handleSectionReplyEmbedSettled = useCallback(() => {
+    syncComposerLayoutAfterSectionReplyEmbed()
+  }, [syncComposerLayoutAfterSectionReplyEmbed])
 
   const beginSectionReplyFromSwipe = useCallback(
     (ref: AssistantSectionReference) => {
@@ -816,13 +816,27 @@ export function ChatWindow({
       }
 
       /*
-       * Mobile: zuerst Referenz einbetten (ohne Fokus/Tastatur), nach Animation
-       * Fokus → Tastatur → Layout mit voller Message-Box-Höhe.
+       * Referenz sofort ins DOM (flushSync), Fokus noch in derselben Swipe-Geste —
+       * sonst blockiert iOS die Tastatur (~340ms später). Layout nach Quote-Animation nachziehen.
        */
-      sectionReplyFocusPendingRef.current = true
-      setComposerSectionReply(ref)
+      flushSync(() => {
+        setComposerSectionReply(ref)
+      })
+
+      focusComposerForSectionReply({ allowScroll: true })
+
+      sectionReplyEmbedCancelRef.current = waitForVisualKeyboardReady(() => {
+        sectionReplyEmbedCancelRef.current = null
+        syncComposerLayoutAfterSectionReplyEmbed()
+      })
     },
-    [clearSectionReplyEmbedSchedule, focusComposerAfterSectionReplyEmbed, isMobileComposer],
+    [
+      clearSectionReplyEmbedSchedule,
+      focusComposerAfterSectionReplyEmbed,
+      focusComposerForSectionReply,
+      isMobileComposer,
+      syncComposerLayoutAfterSectionReplyEmbed,
+    ],
   )
 
   useEffect(() => () => clearSectionReplyEmbedSchedule(), [clearSectionReplyEmbedSchedule])
@@ -1509,7 +1523,6 @@ export function ChatWindow({
     <ChatComposerReplyQuoteSlot
       reference={composerSectionReply}
       onDismiss={() => {
-        sectionReplyFocusPendingRef.current = false
         clearSectionReplyEmbedSchedule()
         setComposerSectionReply(null)
       }}
