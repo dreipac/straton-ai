@@ -11,6 +11,7 @@ type UseChapterSessionFlowArgs = {
   setChapterSession: Dispatch<SetStateAction<ChapterSession>>
   setIsEvaluatingChapterStep: Dispatch<SetStateAction<boolean>>
   setError: Dispatch<SetStateAction<string | null>>
+  onQuestionEvaluated?: (payload: { stepId: string; prompt: string; correct: boolean; answer: string }) => void
 }
 
 export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
@@ -21,6 +22,7 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
     setChapterSession,
     setIsEvaluatingChapterStep,
     setError,
+    onQuestionEvaluated,
   } = args
 
   const handleEvaluateCurrentChapterQuestion = useCallback(async () => {
@@ -73,6 +75,12 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
           [activeStep.id]: answer,
         },
       }))
+      onQuestionEvaluated?.({
+        stepId: activeStep.id,
+        prompt: activeStep.prompt,
+        correct: result.isCorrect,
+        answer,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Frage konnte nicht ausgewertet werden.')
     } finally {
@@ -90,6 +98,7 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
     setChapterSession,
     setError,
     setIsEvaluatingChapterStep,
+    onQuestionEvaluated,
   ])
 
   const handleNextChapterStep = useCallback(() => {

@@ -18,6 +18,50 @@ export function getDisplayPathTitle(title: string) {
   return trimmed ? trimmed : 'Neuer Lernpfad'
 }
 
+/** Max. Aufgaben pro KI-Lernblatt (Anzahl wählt die KI bis zu diesem Limit). */
+export const LEARN_WORKSHEET_MAX_QUESTIONS = 12
+
+/** Kapitel-Index für gemischte Lernblätter nach Lernstand (nicht ein einzelnes Pfad-Kapitel). */
+export const MIXED_LEARN_MATERIAL_CHAPTER_INDEX = -1
+
+/** Ab dieser Anzahl abgeschlossener Basis-Kapitel: Lernblätter/Lernkarten nur noch nach Lernstand. */
+export const MIXED_LEARN_MATERIAL_MIN_COMPLETED_CHAPTERS = 2
+
+export function countCompletedBaseChapters(
+  chapterBlueprints: ChapterBlueprint[],
+  chapterSession: ChapterSession,
+): number {
+  return new Set(
+    chapterSession.completedChapterIndexes.filter((index) => index >= 0 && index < chapterBlueprints.length),
+  ).size
+}
+
+export function shouldUseMixedLearnMaterial(
+  chapterBlueprints: ChapterBlueprint[],
+  chapterSession: ChapterSession,
+): boolean {
+  return (
+    countCompletedBaseChapters(chapterBlueprints, chapterSession) >= MIXED_LEARN_MATERIAL_MIN_COMPLETED_CHAPTERS
+  )
+}
+
+export function resolveWorksheetProgressChapterKey(
+  chapterBlueprints: ChapterBlueprint[],
+  chapterSession: ChapterSession,
+  chapterIndex: number,
+): number {
+  return shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
+    ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX
+    : chapterIndex
+}
+
+export function worksheetChapterDisplayLabel(chapterIndex: number, learningChapters: string[]): string {
+  if (chapterIndex === MIXED_LEARN_MATERIAL_CHAPTER_INDEX) {
+    return 'Lernstand · gemischt'
+  }
+  return learningChapters[chapterIndex]?.trim() || `Kapitel ${chapterIndex + 1}`
+}
+
 /** Fortschritt des Arbeitsblatts zu einem Kapitel (Kreis-Prüfungen). */
 export function getWorksheetChapterProgress(items: LearnWorksheetItem[], chapterIndex: number) {
   const chapterItems = items.filter((w) => w.chapterIndex === chapterIndex)
@@ -363,6 +407,7 @@ export const DEFAULT_CHAPTER_SESSION: ChapterSession = {
   correctnessByStepId: {},
   evaluatedAnswersByStepId: {},
   completedChapterIndexes: [],
+  skillMasteryBySkillId: {},
 }
 
 /**

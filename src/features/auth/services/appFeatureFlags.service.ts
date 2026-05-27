@@ -9,6 +9,8 @@ export type AppFeatureFlags = {
   learn_ai_provider_draft: 'openai' | 'anthropic'
   learn_ai_model_active: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
   learn_ai_model_draft: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+  learn_area_banner_enabled: boolean
+  learn_area_banner_text: string
 }
 
 function parseLearnAiModel(raw: unknown): AppFeatureFlags['learn_ai_model_active'] {
@@ -43,6 +45,9 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
     learn_ai_provider_draft: row?.learn_ai_provider_draft === 'anthropic' ? 'anthropic' : 'openai',
     learn_ai_model_active: parseLearnAiModel(row?.learn_ai_model_active),
     learn_ai_model_draft: parseLearnAiModel(row?.learn_ai_model_draft),
+    learn_area_banner_enabled: row?.learn_area_banner_enabled === true,
+    learn_area_banner_text:
+      typeof row?.learn_area_banner_text === 'string' ? row.learn_area_banner_text.trim().slice(0, 500) : '',
   }
 }
 
@@ -123,6 +128,17 @@ export async function adminSetLearnAiModelDraft(
 export async function adminDeployLearnAiModelDraft(): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.rpc('admin_deploy_learn_ai_model_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetLearnAreaBanner(enabled: boolean, text: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_learn_area_banner', {
+    p_enabled: enabled,
+    p_text: text.trim().slice(0, 500),
+  })
   if (error) {
     throw error
   }

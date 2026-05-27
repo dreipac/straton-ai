@@ -8,7 +8,8 @@ import type { InteractiveQuizQuestion } from '../../chat/utils/interactiveQuiz'
 export type LearnWorksheetModalProps = {
   isMounted: boolean
   isVisible: boolean
-  title: string
+  chapterTitle: string
+  chapterLabel: string
   items: LearnWorksheetItem[]
   isLoading: boolean
   error: string | null
@@ -17,6 +18,8 @@ export type LearnWorksheetModalProps = {
   onItemEvaluated?: (itemId: string, payload: { correct: boolean; answer: string }) => void
   /** Speichert Antworttext (debounced), bleibt nach Schließen erhalten. */
   onSavedAnswerChange?: (itemId: string, answer: string) => void
+  onSubmitWorksheet?: () => void
+  submittedCount?: number
 }
 
 function seedAnswersFromItems(workItems: LearnWorksheetItem[]): Record<string, string> {
@@ -55,12 +58,28 @@ function worksheetItemToEvalQuestion(item: LearnWorksheetItem): InteractiveQuizQ
 }
 
 export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
-  const { isMounted, isVisible, title, items, isLoading, error, onClose, onItemEvaluated, onSavedAnswerChange } =
+  const {
+    isMounted,
+    isVisible,
+    chapterTitle,
+    chapterLabel,
+    items,
+    isLoading,
+    error,
+    onClose,
+    onItemEvaluated,
+    onSavedAnswerChange,
+    onSubmitWorksheet,
+    submittedCount = 0,
+  } =
     props
+  const ITEMS_PER_PAGE = 6
+  const ITEMS_PER_COLUMN = 3
   const [answersById, setAnswersById] = useState<Record<string, string>>({})
   const [checkingId, setCheckingId] = useState<string | null>(null)
   const [feedbackById, setFeedbackById] = useState<Record<string, string>>({})
   const [correctById, setCorrectById] = useState<Record<string, boolean>>({})
+  const [pageIndex, setPageIndex] = useState(0)
   const prevVisibleRef = useRef(false)
   const persistTimersRef = useRef<Record<string, number>>({})
 
@@ -92,6 +111,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
       setAnswersById(seedAnswersFromItems(items))
       setFeedbackById({})
       setCheckingId(null)
+      setPageIndex(0)
       return
     }
     setAnswersById((prev) => {
@@ -121,6 +141,23 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
       return next
     })
   }, [isVisible, items])
+
+  const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE))
+  const safePageIndex = Math.min(pageIndex, totalPages - 1)
+  const pageStart = safePageIndex * ITEMS_PER_PAGE
+  const pageItems = items.slice(pageStart, pageStart + ITEMS_PER_PAGE)
+  const leftItems = pageItems.slice(0, ITEMS_PER_COLUMN)
+  const rightItems = pageItems.slice(ITEMS_PER_COLUMN)
+  const canSubmitWorksheet = items.length > 0 && items.some((item) => {
+    const text = answersById[item.id] ?? item.savedAnswer ?? ''
+    return text.trim().length > 0
+  })
+
+  useEffect(() => {
+    if (safePageIndex !== pageIndex) {
+      setPageIndex(safePageIndex)
+    }
+  }, [pageIndex, safePageIndex])
 
   async function handleCheckItem(item: LearnWorksheetItem) {
     const answer = (answersById[item.id] ?? '').trim()
@@ -152,9 +189,88 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     return null
   }
 
+  function renderWorksheetItem(item: LearnWorksheetItem, absoluteIndex: number) {
+    const n = absoluteIndex + 1
+    const label = `Antwort zu Aufgabe ${n}`
+    const feedback = feedbackById[item.id]
+    const isChecking = checkingId === item.id
+    const hasLiveFeedback = feedback !== undefined
+    const hasPersistedEval = item.evaluated === true
+    const showEvalState = hasLiveFeedback || hasPersistedEval
+    const isCorrect = hasLiveFeedback
+      ? correctById[item.id] === true
+      : item.lastCorrect === true || correctById[item.id] === true
+    const doneCorrect =
+      (item.evaluated === true && (item.lastCorrect === true || correctById[item.id] === true)) ||
+      (hasLiveFeedback && correctById[item.id] === true)
+    const checkDisabled = isChecking || doneCorrect || (!(answersById[item.id] ?? '').trim() && !doneCorrect)
+
+    return (
+      <div key={item.id} className="learn-worksheet-item" role="listitem">
+        <div className="learn-worksheet-prompt-row">
+          <span className="learn-worksheet-num">{n}</span>
+          <p className="learn-worksheet-prompt">{displayPrompt(item.prompt)}</p>
+          <button
+            type="button"
+            className={`learn-worksheet-check-circle ${
+              showEvalState ? (isCorrect ? 'is-correct' : 'is-incorrect') : ''
+            } ${isChecking ? 'is-busy' : ''}`}
+            aria-label={
+              showEvalState && isCorrect ? `Aufgabe ${n} als korrekt geprüft` : `Antwort zu Aufgabe ${n} prüfen`
+            }
+            title={showEvalState && isCorrect ? 'Aufgabe wurde korrekt geprüft' : 'Antwort prüfen'}
+            disabled={checkDisabled}
+            onClick={() => void handleCheckItem(item)}
+          >
+            {showEvalState && isCorrect ? (
+              <span className="learn-worksheet-check-glyph" aria-hidden>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="learn-worksheet-check-svg"
+                >
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            ) : null}
+          </button>
+        </div>
+        <TextArea
+          className="learn-worksheet-answer-field"
+          rows={4}
+          placeholder="Antwort eingeben…"
+          autoComplete="off"
+          value={answersById[item.id] ?? ''}
+          onChange={(e) => {
+            const v = e.target.value
+            setAnswersById((prev) => ({ ...prev, [item.id]: v }))
+            schedulePersistSavedAnswer(item.id, v)
+          }}
+          aria-label={label}
+        />
+        {feedback ? (
+          <p
+            className={`learn-worksheet-eval-feedback ${
+              isCorrect ? 'learn-worksheet-eval-feedback--ok' : 'learn-worksheet-eval-feedback--bad'
+            }`}
+          >
+            {feedback}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
-      <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Lernblatt">
+      <section className="learn-flashcards-modal learn-worksheet-modal" role="dialog" aria-modal="true" aria-label="Lernblatt">
         <header className="learn-flashcards-modal-header">
           <h2>Lernblatt</h2>
           <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">
@@ -171,95 +287,50 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
           ) : (
             <article className="learn-worksheet-content">
               <header className="learn-worksheet-content-header">
-                <h3 className="learn-worksheet-content-title">Lernblatt</h3>
-                <p className="learn-worksheet-content-subtitle">{title}</p>
+                <h3 className="learn-worksheet-content-title">{chapterTitle}</h3>
+                <p className="learn-worksheet-content-subtitle">{chapterLabel}</p>
               </header>
               <div className="learn-worksheet-list" role="list">
-                {items.map((item, index) => {
-                  const n = index + 1
-                  const label = `Antwort zu Aufgabe ${n}`
-                  const feedback = feedbackById[item.id]
-                  const isChecking = checkingId === item.id
-                  const hasLiveFeedback = feedback !== undefined
-                  const hasPersistedEval = item.evaluated === true
-                  const showEvalState = hasLiveFeedback || hasPersistedEval
-                  const isCorrect = hasLiveFeedback
-                    ? correctById[item.id] === true
-                    : item.lastCorrect === true || correctById[item.id] === true
-                  const doneCorrect =
-                    (item.evaluated === true &&
-                      (item.lastCorrect === true || correctById[item.id] === true)) ||
-                    (hasLiveFeedback && correctById[item.id] === true)
-                  const checkDisabled =
-                    isChecking ||
-                    doneCorrect ||
-                    (!(answersById[item.id] ?? '').trim() && !doneCorrect)
-                  return (
-                    <div key={item.id} className="learn-worksheet-item" role="listitem">
-                      <div className="learn-worksheet-prompt-row">
-                        <span className="learn-worksheet-num">{n}</span>
-                        <p className="learn-worksheet-prompt">{displayPrompt(item.prompt)}</p>
-                        <button
-                          type="button"
-                          className={`learn-worksheet-check-circle ${
-                            showEvalState ? (isCorrect ? 'is-correct' : 'is-incorrect') : ''
-                          } ${isChecking ? 'is-busy' : ''}`}
-                          aria-label={
-                            showEvalState && isCorrect
-                              ? `Aufgabe ${n} als korrekt geprüft`
-                              : `Antwort zu Aufgabe ${n} prüfen`
-                          }
-                          title={
-                            showEvalState && isCorrect ? 'Aufgabe wurde korrekt geprüft' : 'Antwort prüfen'
-                          }
-                          disabled={checkDisabled}
-                          onClick={() => void handleCheckItem(item)}
-                        >
-                          {showEvalState && isCorrect ? (
-                            <span className="learn-worksheet-check-glyph" aria-hidden>
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                                className="learn-worksheet-check-svg"
-                              >
-                                <path
-                                  d="M20 6L9 17l-5-5"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                            </span>
-                          ) : null}
-                        </button>
-                      </div>
-                      <TextArea
-                        className="learn-worksheet-answer-field"
-                        rows={4}
-                        placeholder="Antwort eingeben…"
-                        autoComplete="off"
-                        value={answersById[item.id] ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setAnswersById((prev) => ({ ...prev, [item.id]: v }))
-                          schedulePersistSavedAnswer(item.id, v)
-                        }}
-                        aria-label={label}
-                      />
-                      {feedback ? (
-                        <p
-                          className={`learn-worksheet-eval-feedback ${
-                            isCorrect ? 'learn-worksheet-eval-feedback--ok' : 'learn-worksheet-eval-feedback--bad'
-                          }`}
-                        >
-                          {feedback}
-                        </p>
-                      ) : null}
-                    </div>
-                  )
-                })}
+                <div className="learn-worksheet-column">{leftItems.map((item, idx) => renderWorksheetItem(item, pageStart + idx))}</div>
+                <div className="learn-worksheet-column">{rightItems.map((item, idx) => renderWorksheetItem(item, pageStart + ITEMS_PER_COLUMN + idx))}</div>
+              </div>
+              {totalPages > 1 ? (
+                <div className="learn-worksheet-pagination">
+                  <button
+                    type="button"
+                    className="thread-menu-item"
+                    onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                    disabled={safePageIndex === 0}
+                  >
+                    Zurück
+                  </button>
+                  <span className="learn-worksheet-page-indicator">
+                    Seite {safePageIndex + 1} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="thread-menu-item"
+                    onClick={() => setPageIndex((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={safePageIndex >= totalPages - 1}
+                  >
+                    Weiter
+                  </button>
+                </div>
+              ) : null}
+              <div className="learn-worksheet-submit-row">
+                <p className="learn-worksheet-submit-hint">
+                  {submittedCount > 0
+                    ? `${submittedCount} Aufgaben abgegeben — wird für personalisierte Kapitel/Lernkarten genutzt.`
+                    : 'Abgabe speichert deinen Lernstand für personalisierte Kapitel und Lernkarten.'}
+                </p>
+                <button
+                  type="button"
+                  className="thread-menu-item"
+                  onClick={onSubmitWorksheet}
+                  disabled={!canSubmitWorksheet}
+                >
+                  Arbeitsblatt abgeben
+                </button>
               </div>
             </article>
           )}

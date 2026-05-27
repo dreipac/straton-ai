@@ -67,6 +67,7 @@ import {
   adminSetLearnPathsEnabled,
   adminSetBetaNoticeEnabled,
   adminSetDeployedAppVersion,
+  adminSetLearnAreaBanner,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
@@ -280,6 +281,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const [isLoadingLearnPathsToggle, setIsLoadingLearnPathsToggle] = useState(false)
   const [isLoadingLearnPathCreateToggle, setIsLoadingLearnPathCreateToggle] = useState(false)
+  const [learnAreaBannerEnabled, setLearnAreaBannerEnabled] = useState(false)
+  const [learnAreaBannerTextDraft, setLearnAreaBannerTextDraft] = useState('')
+  const [isLoadingLearnAreaBannerToggle, setIsLoadingLearnAreaBannerToggle] = useState(false)
+  const [isSavingLearnAreaBannerText, setIsSavingLearnAreaBannerText] = useState(false)
+  const [learnAreaBannerInfo, setLearnAreaBannerInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiModelActive, setLearnAiModelActive] = useState<
@@ -504,6 +510,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAiProviderDraft(flags.learn_ai_provider_draft)
         setLearnAiModelActive(flags.learn_ai_model_active)
         setLearnAiModelDraft(flags.learn_ai_model_draft)
+        setLearnAreaBannerEnabled(flags.learn_area_banner_enabled)
+        setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -1418,6 +1426,41 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleToggleLearnAreaBannerEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setLearnAreaBannerInfo(null)
+    setIsLoadingLearnAreaBannerToggle(true)
+    try {
+      await adminSetLearnAreaBanner(nextEnabled, learnAreaBannerTextDraft)
+      setLearnAreaBannerEnabled(nextEnabled)
+      setLearnAreaBannerInfo(nextEnabled ? 'Hinweisbalken im Lernbereich eingeblendet.' : 'Hinweisbalken ausgeblendet.')
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernbereich-Hinweis konnte nicht umgeschaltet werden.'))
+    } finally {
+      setIsLoadingLearnAreaBannerToggle(false)
+    }
+  }
+
+  async function handleSaveLearnAreaBannerText() {
+    const nextText = learnAreaBannerTextDraft.trim()
+    if (!nextText) {
+      setSubscriptionPlansError('Bitte einen Hinweistext eintragen oder den Balken deaktivieren.')
+      return
+    }
+    setSubscriptionPlansError(null)
+    setLearnAreaBannerInfo(null)
+    setIsSavingLearnAreaBannerText(true)
+    try {
+      await adminSetLearnAreaBanner(learnAreaBannerEnabled, nextText)
+      setLearnAreaBannerTextDraft(nextText)
+      setLearnAreaBannerInfo('Hinweistext gespeichert.')
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Hinweistext konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAreaBannerText(false)
+    }
+  }
+
   async function handlePushDeployedAppVersion() {
     const nextVersion = deployedAppVersionDraft.trim()
     if (!nextVersion) {
@@ -1713,6 +1756,55 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <span className="ios-switch-thumb" />
                   </span>
                 </button>
+              </div>
+              <div className="chat-setting-row chat-setting-row--stacked">
+                <div className="chat-setting-copy">
+                  <h3>Hinweisbalken im Lernbereich</h3>
+                  <p>
+                    Gelber Balken oberhalb der Tabs (Lernpfad, Tests, …). Text und Sichtbarkeit gelten für alle Nutzer
+                    im Lernbereich.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnAreaBannerEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnAreaBannerEnabled}
+                  aria-label="Hinweisbalken im Lernbereich anzeigen"
+                  disabled={isLoadingLearnAreaBannerToggle}
+                  onClick={() => {
+                    void handleToggleLearnAreaBannerEnabled(!learnAreaBannerEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="admin-subscriptions-create">
+                <p className="admin-subscriptions-field-label">Hinweistext</p>
+                <textarea
+                  className="admin-user-profile-input admin-learn-banner-textarea"
+                  value={learnAreaBannerTextDraft}
+                  onChange={(event) => setLearnAreaBannerTextDraft(event.target.value)}
+                  placeholder="z. B. Pflicht-Lernblatt: Bitte alle Aufgaben mit dem Kreis prüfen."
+                  rows={3}
+                  maxLength={500}
+                  disabled={isSavingLearnAreaBannerText}
+                />
+                <div className="admin-subscriptions-create-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={isSavingLearnAreaBannerText || !learnAreaBannerTextDraft.trim()}
+                    onClick={() => {
+                      void handleSaveLearnAreaBannerText()
+                    }}
+                  >
+                    {isSavingLearnAreaBannerText ? 'Speichern…' : 'Hinweistext speichern'}
+                  </button>
+                </div>
+                {learnAreaBannerInfo ? <p className="learn-muted">{learnAreaBannerInfo}</p> : null}
               </div>
             </article>
           ) : null}

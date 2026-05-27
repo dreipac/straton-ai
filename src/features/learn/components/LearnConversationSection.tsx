@@ -25,6 +25,7 @@ export type LearnConversationSectionProps = {
   onCreateWorksheet: () => void
   learnWorksheets: LearnWorksheetItem[]
   tutorWorksheetChapterIndex: number
+  footer?: ReactNode
 }
 
 export function LearnConversationSection(props: LearnConversationSectionProps) {
@@ -48,6 +49,7 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     onCreateWorksheet,
     learnWorksheets,
     tutorWorksheetChapterIndex,
+    footer,
   } = props
 
   const showChapterPreviewBlock = showChapterPreview && learningChaptersCount > 0
@@ -91,5 +93,10 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     )
   }
 
-  return <section className="learn-conversation">{body}</section>
+  return (
+    <section className="learn-conversation">
+      {body}
+      {footer}
+    </section>
+  )
 }

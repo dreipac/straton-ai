@@ -577,6 +577,36 @@ function tryParseSingleMcqBlock(
     }
   }
 
+  /**
+   * Häufiger Modell-Fail: eine Zeile nur `1.` / `1)` (oder `2.` …), dann erst der Prompt als eigener Absatz,
+   * danach Optionen als Liste.
+   */
+  const pNum = blocks[index]
+  const pPrompt = blocks[index + 1]
+  const ulAfter = blocks[index + 2]
+  if (pNum?.type === 'p' && pPrompt?.type === 'p' && ulAfter?.type === 'ul' && isMcqOptionsList(ulAfter.items)) {
+    const numOnly = stripBoldMarkers(pNum.text.trim()).match(/^(\d{1,2})[.)]$/)
+    if (numOnly) {
+      const prompt = stripBoldMarkers(pPrompt.text.trim())
+      if (!prompt) {
+        return null
+      }
+      const options = parseMcqOptions(ulAfter.items)
+      if (options.length < 2) {
+        return null
+      }
+      return {
+        block: {
+          type: 'mcq',
+          questionNumber: Math.max(1, Number.parseInt(numOnly[1], 10) || 1),
+          prompt,
+          options,
+        },
+        end: index + 3,
+      }
+    }
+  }
+
   return null
 }
 
@@ -595,6 +625,15 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
       isFragenHeading(head.type === 'p' ? head.text : head.text)
     ) {
       title = 'Fragen'
+      scan++
+    }
+
+    /**
+     * Manche Antworten listen nach `Fragen:` fälschlich erst `A) … B) …` ohne Prompt.
+     * Das ist für die UI wertlos und verwirrt (doppelte Frage-Listen). Wenn direkt nach dem
+     * Fragen-Heading eine reine Optionsliste kommt, überspringen wir sie.
+     */
+    if (title && blocks[scan]?.type === 'ul' && isMcqOptionsList((blocks[scan] as Extract<Block, { type: 'ul' }>).items)) {
       scan++
     }
 
@@ -620,7 +659,19 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
           title: idx === 0 ? title : undefined,
         })
       })
-      i = cursor
+      /**
+       * Häufiges Tail-Artifact nach MCQ: eine einzelne nummerierte Frage ohne Optionen (z. B. „1. …?“).
+       * Das kommt aus der Modell-Antwort, ist aber für MCQ-UI wertlos → nicht als nackte Liste rendern.
+       */
+      const tail = blocks[cursor]
+      const tailNext = blocks[cursor + 1]
+      const isOrphanedNumberedQuestion =
+        tail?.type === 'ol' &&
+        tail.items.length === 1 &&
+        /[?？]\s*$/.test(stripBoldMarkers(tail.items[0]?.trim() ?? '')) &&
+        !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
+
+      i = cursor + (isOrphanedNumberedQuestion ? 1 : 0)
       continue
     }
 

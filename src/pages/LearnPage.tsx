@@ -63,8 +63,12 @@ import {
   ensureMinimumChapterDepth,
   getDisplayPathTitle,
   getWorksheetChapterProgress,
+  MIXED_LEARN_MATERIAL_CHAPTER_INDEX,
   parseChapterBlueprintsFromText,
+  resolveWorksheetProgressChapterKey,
+  shouldUseMixedLearnMaterial,
   validateGeneratedEntryQuiz,
+  worksheetChapterDisplayLabel,
 } from '../features/learn/utils/learnPageHelpers'
 import {
   formatRelevantMaterialContext,
@@ -73,8 +77,10 @@ import {
 import { namespaceChapterStepIds } from '../features/learn/utils/chapterStepIds'
 import {
   buildLearnMaterialOutlineFromBlueprints,
+  buildMixedLearnProgressOutline,
   type LearnMaterialPersonalizationMode,
 } from '../features/learn/utils/flashcardSourceFromBlueprints'
+import { LearnAreaAdminBanner } from '../features/learn/components/LearnAreaAdminBanner'
 import { LearnErrorLogbookHintCard } from '../features/learn/components/LearnErrorLogbookHintCard'
 import { LearnErrorLogbookPanel } from '../features/learn/components/LearnErrorLogbookPanel'
 import {
@@ -136,6 +142,20 @@ function isTransientAiFailure(error: unknown): boolean {
   )
 }
 
+function toSkillIdFromText(prefix: 'chapter' | 'flashcard' | 'worksheet', raw: string): string {
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+  return `${prefix}:${normalized || 'unknown'}`
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
 export function LearnPage() {
   const MODAL_ANIMATION_MS = 220
   const CHAPTER_ON_DEMAND_TIMEOUT_MS = 120_000
@@ -147,6 +167,8 @@ export function LearnPage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
+  const [learnAreaBannerEnabled, setLearnAreaBannerEnabled] = useState(false)
+  const [learnAreaBannerText, setLearnAreaBannerText] = useState('')
   const [learnFeatureInfoVisible, setLearnFeatureInfoVisible] = useState(false)
   const [topic, setTopic] = useState('')
   const [isUploading, setIsUploading] = useState(false)
@@ -199,7 +221,6 @@ export function LearnPage() {
   const [chapterGenerationPercent, setChapterGenerationPercent] = useState(0)
   const [chapterGenerationDebugRaw, setChapterGenerationDebugRaw] = useState('')
   const [worksheetRequiredChapterIndex, setWorksheetRequiredChapterIndex] = useState<number | null>(null)
-  const [worksheetTabHintVisible, setWorksheetTabHintVisible] = useState(false)
   const [worksheetModalChapterFilter, setWorksheetModalChapterFilter] = useState<number | null>(null)
   const [learnMaterialChoiceTarget, setLearnMaterialChoiceTarget] = useState<null | 'flashcards' | 'worksheet'>(null)
   const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
@@ -207,6 +228,8 @@ export function LearnPage() {
     'path' | 'tests' | 'flashcards' | 'worksheets' | 'statistics'
   >('path')
   const [isMobileTabsTouchActive, setIsMobileTabsTouchActive] = useState(false)
+  const [isCompletedChaptersOpen, setIsCompletedChaptersOpen] = useState(false)
+  const [isCompletedWorksheetsOpen, setIsCompletedWorksheetsOpen] = useState(false)
   const [isMobileSidebarButtonTouchActive, setIsMobileSidebarButtonTouchActive] = useState(false)
   const [flashcardsModalFocusCardId, setFlashcardsModalFocusCardId] = useState<string | null>(null)
   const [flashcardsModalSetId, setFlashcardsModalSetId] = useState<string | null>(null)
@@ -342,6 +365,26 @@ export function LearnPage() {
     materials,
   })
 
+  const completedChaptersForShowcase = useMemo(() => {
+    const uniqueSortedIndexes = Array.from(
+      new Set(chapterSession.completedChapterIndexes.filter((idx) => Number.isFinite(idx) && idx >= 0)),
+    ).sort((a, b) => a - b)
+
+    return uniqueSortedIndexes.map((chapterIndex) => {
+      const blueprint = effectiveChapterBlueprints[chapterIndex] ?? null
+      const fallbackTitle = learningChapters[chapterIndex]?.trim() || `Kapitel ${chapterIndex + 1}`
+      const title = blueprint?.title?.trim() || fallbackTitle
+      const questionCount =
+        blueprint?.steps?.filter((step) => step.type === 'question').length ?? 0
+
+      return {
+        chapterIndex,
+        title,
+        questionCount,
+      }
+    })
+  }, [chapterSession.completedChapterIndexes, effectiveChapterBlueprints, learningChapters])
+
   const captureEditableState = useCallback(
     () => ({
       topic,
@@ -441,7 +484,6 @@ export function LearnPage() {
       setIsChapterGenerationLoading(false)
       setChapterGenerationPercent(0)
       setWorksheetRequiredChapterIndex(null)
-      setWorksheetTabHintVisible(false)
       setWorksheetError(null)
       setIsGeneratingWorksheet(false)
       if (worksheetModalCloseTimerRef.current) {
@@ -499,7 +541,6 @@ export function LearnPage() {
     setIsChapterGenerationLoading(false)
     setChapterGenerationPercent(0)
     setWorksheetRequiredChapterIndex(null)
-    setWorksheetTabHintVisible(false)
     setWorksheetModalChapterFilter(null)
     setFlashcardsModalFocusCardId(null)
     setFlashcardsModalSetId(null)
@@ -608,12 +649,16 @@ export function LearnPage() {
     const maxPlannedCount = Math.max(1, Math.min(targetChapterCount, chapterBlueprints.length || targetChapterCount))
     const lastUnlockedIndex = Math.max(0, unlockedChapterCount - 1)
     const hasCompletedLastUnlocked = chapterSession.completedChapterIndexes.includes(lastUnlockedIndex)
-    const worksheetProgress = getWorksheetChapterProgress(learnWorksheets, lastUnlockedIndex)
+    const worksheetProgressKey = resolveWorksheetProgressChapterKey(
+      chapterBlueprints,
+      chapterSession,
+      lastUnlockedIndex,
+    )
+    const worksheetProgress = getWorksheetChapterProgress(learnWorksheets, worksheetProgressKey)
     const worksheetDoneForChapter = worksheetProgress.isComplete
 
     if (hasCompletedLastUnlocked && !worksheetDoneForChapter) {
       setWorksheetRequiredChapterIndex(lastUnlockedIndex)
-      setWorksheetTabHintVisible(true)
       return
     }
 
@@ -661,16 +706,6 @@ export function LearnPage() {
   }, [CHAPTER_ON_DEMAND_TIMEOUT_MS, isChapterGenerationLoading])
 
   useEffect(() => {
-    if (worksheetRequiredChapterIndex === null) {
-      setWorksheetTabHintVisible(false)
-      return
-    }
-    if (activeLearnTab === 'worksheets') {
-      setWorksheetTabHintVisible(false)
-    }
-  }, [activeLearnTab, worksheetRequiredChapterIndex])
-
-  useEffect(() => {
     if (!user) {
       setLearnPathCreateEnabled(true)
       return
@@ -683,11 +718,15 @@ export function LearnPage() {
           return
         }
         setLearnPathCreateEnabled(flags.learn_path_create_enabled)
+        setLearnAreaBannerEnabled(flags.learn_area_banner_enabled)
+        setLearnAreaBannerText(flags.learn_area_banner_text)
       } catch {
         if (!isMounted) {
           return
         }
         setLearnPathCreateEnabled(true)
+        setLearnAreaBannerEnabled(false)
+        setLearnAreaBannerText('')
       }
     })()
     return () => {
@@ -725,7 +764,6 @@ export function LearnPage() {
       setIsChapterGenerationLoading(false)
       setChapterGenerationPercent(0)
       setWorksheetRequiredChapterIndex(null)
-      setWorksheetTabHintVisible(false)
       setWorksheetModalChapterFilter(null)
       setFlashcardsModalFocusCardId(null)
       setEntryQuizQuestionIndex(0)
@@ -1282,6 +1320,65 @@ export function LearnPage() {
     setChapterSession,
   })
 
+  const applySkillMasterySignal = useCallback(
+    (payload: {
+      source: 'chapter' | 'flashcard' | 'worksheet'
+      skillId: string
+      label: string
+      correct: boolean
+      delta: number
+    }) => {
+      setChapterSession((prev) => {
+        const map = { ...prev.skillMasteryBySkillId }
+        const current = map[payload.skillId]
+        const baseScore = current?.score ?? 0.5
+        const nextScore = clamp01(baseScore + payload.delta)
+        const normalizedPrompt = payload.label.trim().replace(/\s+/g, ' ').slice(0, 220)
+        const lastWrongPrompts = [...(current?.lastWrongPrompts ?? [])]
+        const lastCorrectPrompts = [...(current?.lastCorrectPrompts ?? [])]
+        if (payload.correct) {
+          if (normalizedPrompt.length > 0) {
+            lastCorrectPrompts.unshift(normalizedPrompt)
+          }
+        } else if (normalizedPrompt.length > 0) {
+          lastWrongPrompts.unshift(normalizedPrompt)
+        }
+        map[payload.skillId] = {
+          score: nextScore,
+          attempts: Math.max(0, (current?.attempts ?? 0) + 1),
+          correct: Math.max(0, (current?.correct ?? 0) + (payload.correct ? 1 : 0)),
+          label: payload.label,
+          source: payload.source,
+          lastWrongPrompts: lastWrongPrompts.slice(0, 6),
+          lastCorrectPrompts: lastCorrectPrompts.slice(0, 6),
+          wrongStreak: payload.correct ? 0 : Math.max(0, (current?.wrongStreak ?? 0) + 1),
+          correctStreak: payload.correct ? Math.max(0, (current?.correctStreak ?? 0) + 1) : 0,
+          lastWrongAt: payload.correct ? current?.lastWrongAt : new Date().toISOString(),
+          lastCorrectAt: payload.correct ? new Date().toISOString() : current?.lastCorrectAt,
+          lastUpdatedAt: new Date().toISOString(),
+        }
+        return {
+          ...prev,
+          skillMasteryBySkillId: map,
+        }
+      })
+    },
+    [],
+  )
+
+  const handleChapterQuestionEvaluatedForMastery = useCallback(
+    (payload: { stepId: string; prompt: string; correct: boolean; answer: string }) => {
+      applySkillMasterySignal({
+        source: 'chapter',
+        skillId: payload.stepId,
+        label: payload.prompt,
+        correct: payload.correct,
+        delta: payload.correct ? 0.1 : -0.12,
+      })
+    },
+    [applySkillMasterySignal],
+  )
+
   const { handleEvaluateCurrentChapterQuestion, handleNextChapterStep, handlePreviousChapterStep } = useChapterSessionFlow({
     effectiveChapterBlueprints,
     chapterSession,
@@ -1289,6 +1386,7 @@ export function LearnPage() {
     setChapterSession,
     setIsEvaluatingChapterStep,
     setError,
+    onQuestionEvaluated: handleChapterQuestionEvaluatedForMastery,
   })
 
   const {
@@ -1346,18 +1444,32 @@ export function LearnPage() {
     return learnWorksheets.filter((w) => w.chapterIndex === worksheetModalChapterFilter)
   }, [learnWorksheets, worksheetModalChapterFilter])
 
-  const worksheetModalSubtitle = useMemo(() => {
+  const worksheetModalChapterTitle = useMemo(() => {
     if (worksheetModalChapterFilter === null) {
-      return effectiveTopic || 'Lernpfad'
+      return 'Lernblatt'
+    }
+    const blueprintTitle = effectiveChapterBlueprints[worksheetModalChapterFilter]?.title?.trim()
+    if (blueprintTitle) {
+      return blueprintTitle
     }
     const label = learningChapters[worksheetModalChapterFilter]?.trim()
     return label || `Kapitel ${worksheetModalChapterFilter + 1}`
-  }, [worksheetModalChapterFilter, effectiveTopic, learningChapters])
+  }, [worksheetModalChapterFilter, effectiveChapterBlueprints, learningChapters])
+
+  const worksheetModalChapterLabel = useMemo(() => {
+    if (worksheetModalChapterFilter === null) {
+      return 'Kapitel 1'
+    }
+    return worksheetChapterDisplayLabel(worksheetModalChapterFilter, learningChapters)
+  }, [learningChapters, worksheetModalChapterFilter])
 
   const worksheetChaptersForList = useMemo(() => {
     const map = new Map<number, LearnWorksheetItem[]>()
     for (const item of learnWorksheets) {
-      if (typeof item.chapterIndex !== 'number' || item.chapterIndex < 0) {
+      if (
+        typeof item.chapterIndex !== 'number' ||
+        item.chapterIndex < MIXED_LEARN_MATERIAL_CHAPTER_INDEX
+      ) {
         continue
       }
       const list = map.get(item.chapterIndex) ?? []
@@ -1372,14 +1484,129 @@ export function LearnPage() {
       }))
   }, [learnWorksheets])
 
-  const tutorWorksheetChapterIndex = Math.max(0, unlockedChapterCount - 1)
+  const worksheetCompletedChapters = useMemo(
+    () => worksheetChaptersForList.filter(({ progress }) => progress.total > 0 && progress.isComplete),
+    [worksheetChaptersForList],
+  )
+
+  const worksheetOpenChapters = useMemo(
+    () => worksheetChaptersForList.filter(({ progress }) => !(progress.total > 0 && progress.isComplete)),
+    [worksheetChaptersForList],
+  )
+
+  const learningReadiness = useMemo(() => {
+    const totalEvaluatedQuestions = Object.keys(chapterSession.correctnessByStepId).length
+    const totalCorrectQuestions = Object.values(chapterSession.correctnessByStepId).filter(Boolean).length
+    const correctnessRatio =
+      totalEvaluatedQuestions > 0 ? totalCorrectQuestions / Math.max(1, totalEvaluatedQuestions) : 0
+    const unknownFlashcards = learnFlashcardSets
+      .flatMap((set) => set.cards)
+      .filter((card) => card.selfRating === 'unknown').length
+    const submittedWorksheetCount = learnWorksheets.filter(
+      (item) => typeof item.submittedAt === 'string' && item.submittedAt.trim().length > 0,
+    ).length
+    const requiredChapterCompletions = Math.max(1, chapterBlueprints.length)
+    const completedChapterCount = chapterSession.completedChapterIndexes.length
+    const masteryEntries = Object.values(chapterSession.skillMasteryBySkillId ?? {})
+    const masteryAverage =
+      masteryEntries.length > 0
+        ? masteryEntries.reduce((sum, entry) => sum + (entry.score ?? 0), 0) / masteryEntries.length
+        : 0
+    const weakSkillCount = masteryEntries.filter((entry) => (entry.score ?? 0) < 0.6).length
+    const isReady =
+      completedChapterCount >= requiredChapterCompletions &&
+      correctnessRatio >= 0.8 &&
+      unknownFlashcards === 0 &&
+      submittedWorksheetCount > 0 &&
+      masteryAverage >= 0.72 &&
+      weakSkillCount === 0
+    return {
+      isReady,
+      completedChapterCount,
+      requiredChapterCompletions,
+      correctnessRatio,
+      unknownFlashcards,
+      submittedWorksheetCount,
+      masteryAverage,
+      weakSkillCount,
+    }
+  }, [
+    chapterBlueprints.length,
+    chapterSession.completedChapterIndexes.length,
+    chapterSession.correctnessByStepId,
+    chapterSession.skillMasteryBySkillId,
+    learnFlashcardSets,
+    learnWorksheets,
+  ])
+
+  const tutorWorksheetChapterIndex = useMemo(
+    () =>
+      resolveWorksheetProgressChapterKey(
+        chapterBlueprints,
+        chapterSession,
+        Math.max(0, unlockedChapterCount - 1),
+      ),
+    [chapterBlueprints, chapterSession, unlockedChapterCount],
+  )
 
   const requiredWorksheetProgress = useMemo(() => {
     if (worksheetRequiredChapterIndex === null) {
       return null
     }
-    return getWorksheetChapterProgress(learnWorksheets, worksheetRequiredChapterIndex)
-  }, [worksheetRequiredChapterIndex, learnWorksheets])
+    const progressKey = resolveWorksheetProgressChapterKey(
+      chapterBlueprints,
+      chapterSession,
+      worksheetRequiredChapterIndex,
+    )
+    return getWorksheetChapterProgress(learnWorksheets, progressKey)
+  }, [chapterBlueprints, chapterSession, worksheetRequiredChapterIndex, learnWorksheets])
+
+  const useMixedLearnMaterials = useMemo(
+    () => shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession),
+    [chapterBlueprints, chapterSession],
+  )
+
+  const showRequiredWorksheetHint = Boolean(
+    worksheetRequiredChapterIndex !== null &&
+      requiredWorksheetProgress &&
+      !requiredWorksheetProgress.isComplete,
+  )
+
+  const requiredWorksheetHintContent = useMemo(() => {
+    if (
+      worksheetRequiredChapterIndex === null ||
+      !requiredWorksheetProgress ||
+      requiredWorksheetProgress.isComplete
+    ) {
+      return null
+    }
+    if (requiredWorksheetProgress.total === 0) {
+      return useMixedLearnMaterials ? (
+        <>
+          Kapitel abgeschlossen. Bitte erstelle jetzt ein Lernblatt zu deinen Schwachstellen im Tab{' '}
+          <strong>Lernblätter</strong>, um weiterzumachen.
+        </>
+      ) : (
+        <>
+          Kapitel {worksheetRequiredChapterIndex + 1} abgeschlossen. Bitte erstelle jetzt das Lernblatt im Tab{' '}
+          <strong>Lernblätter</strong>, um weiterzumachen.
+        </>
+      )
+    }
+    return (
+      <>
+        {useMixedLearnMaterials
+          ? 'Pflicht-Lernblatt (Lernstand)'
+          : `Pflicht-Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1}`}
+        : {requiredWorksheetProgress.evaluatedCount}/{requiredWorksheetProgress.total} Aufgaben geprüft. Bitte alle
+        Aufgaben mit dem Kreis prüfen.
+      </>
+    )
+  }, [
+    requiredWorksheetProgress,
+    useMixedLearnMaterials,
+    worksheetRequiredChapterIndex,
+  ])
 
   const flashcardSrStats = useMemo(() => getFlashcardSrStats(learnFlashcardSets), [learnFlashcardSets])
 
@@ -1458,12 +1685,23 @@ export function LearnPage() {
     }
     setFlashcardsModalFocusCardId(null)
     setFlashcardsModalSetId(null)
-    const outline = buildLearnMaterialOutlineFromBlueprints(
-      personalization,
-      chapterBlueprints,
-      effectiveChapterBlueprints,
-      chapterSession,
-    )
+    const useMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
+    const outline = useMixed
+      ? buildMixedLearnProgressOutline(
+          chapterBlueprints,
+          effectiveChapterBlueprints,
+          chapterSession,
+          learnFlashcardSets,
+          learnWorksheets,
+        )
+      : buildLearnMaterialOutlineFromBlueprints(
+          personalization,
+          chapterBlueprints,
+          effectiveChapterBlueprints,
+          chapterSession,
+          learnFlashcardSets,
+          learnWorksheets,
+        )
     const outlineForApi =
       personalization === 'personalized' && materials.length > 0
         ? mergeOutlineWithPersonalMaterialContext(
@@ -1548,18 +1786,29 @@ export function LearnPage() {
       window.clearTimeout(worksheetModalCloseTimerRef.current)
       worksheetModalCloseTimerRef.current = null
     }
+    const useMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
     const requestedSingleChapter =
-      typeof targetChapterIndex === 'number' && targetChapterIndex >= 0
+      !useMixed && typeof targetChapterIndex === 'number' && targetChapterIndex >= 0
         ? effectiveChapterBlueprints[targetChapterIndex] ?? null
         : null
     const sourceChapterBlueprints = requestedSingleChapter ? [requestedSingleChapter] : chapterBlueprints
     const sourceEffectiveBlueprints = requestedSingleChapter ? [requestedSingleChapter] : effectiveChapterBlueprints
-    const outline = buildLearnMaterialOutlineFromBlueprints(
-      personalization,
-      sourceChapterBlueprints,
-      sourceEffectiveBlueprints,
-      chapterSession,
-    )
+    const outline = useMixed
+      ? buildMixedLearnProgressOutline(
+          chapterBlueprints,
+          effectiveChapterBlueprints,
+          chapterSession,
+          learnFlashcardSets,
+          learnWorksheets,
+        )
+      : buildLearnMaterialOutlineFromBlueprints(
+          personalization,
+          sourceChapterBlueprints,
+          sourceEffectiveBlueprints,
+          chapterSession,
+          learnFlashcardSets,
+          learnWorksheets,
+        )
     const outlineForApi =
       personalization === 'personalized' && materials.length > 0
         ? mergeOutlineWithPersonalMaterialContext(
@@ -1589,8 +1838,11 @@ export function LearnPage() {
     try {
       const items = await generateLearnWorksheet(outlineForApi)
       const fallbackChapterIndex = Math.max(0, chapterSession.chapterIndex)
-      const chapterTag =
-        typeof targetChapterIndex === 'number' ? targetChapterIndex : fallbackChapterIndex
+      const chapterTag = useMixed
+        ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX
+        : typeof targetChapterIndex === 'number'
+          ? targetChapterIndex
+          : fallbackChapterIndex
       const taggedItems = items.map((item) => ({ ...item, chapterIndex: chapterTag }))
       const mergedWorksheets = [
         ...learnWorksheets.filter((item) => item.chapterIndex !== chapterTag),
@@ -1707,8 +1959,69 @@ export function LearnPage() {
         }
         return merged
       })
+      const item = learnWorksheets.find((entry) => entry.id === itemId)
+      applySkillMasterySignal({
+        source: 'worksheet',
+        skillId: toSkillIdFromText('worksheet', item?.prompt ?? itemId),
+        label: item?.prompt ?? 'Arbeitsblatt-Aufgabe',
+        correct: payload.correct,
+        delta: payload.correct ? 0.08 : -0.1,
+      })
     },
-    [learningPaths],
+    [applySkillMasterySignal, learnWorksheets, learningPaths],
+  )
+
+  const handleSubmitWorksheet = useCallback(() => {
+    const nowIso = new Date().toISOString()
+    const pathId = activePathIdRef.current
+    const currentSummary = pathId ? learningPaths.find((e) => e.id === pathId) : undefined
+    const title = getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad')
+
+    setLearnWorksheets((prev) => {
+      const targetIds = new Set(worksheetModalItems.map((item) => item.id))
+      if (targetIds.size === 0) {
+        return prev
+      }
+      const merged = prev.map((item) => {
+        if (!targetIds.has(item.id)) {
+          return item
+        }
+        const fallbackAnswer = typeof item.savedAnswer === 'string' ? item.savedAnswer.trim() : ''
+        const persistedAnswer = fallbackAnswer.length > 0 ? fallbackAnswer : 'Abgegeben ohne Antworttext'
+        return {
+          ...item,
+          savedAnswer: persistedAnswer,
+          submittedAt: nowIso,
+        }
+      })
+      if (pathId) {
+        void updateLearningPathById(pathId, {
+          title,
+          learnWorksheets: merged,
+        }).then((updated) => {
+          pathCacheRef.current[pathId] = updated
+        })
+      }
+      return merged
+    })
+    worksheetModalItems.forEach((item) => {
+      const correct = item.lastCorrect === true
+      applySkillMasterySignal({
+        source: 'worksheet',
+        skillId: toSkillIdFromText('worksheet', item.prompt),
+        label: item.prompt,
+        correct,
+        delta: correct ? 0.04 : -0.02,
+      })
+    })
+  }, [applySkillMasterySignal, learningPaths, worksheetModalItems])
+
+  const worksheetSubmittedCount = useMemo(
+    () =>
+      worksheetModalItems.filter(
+        (item) => typeof item.submittedAt === 'string' && item.submittedAt.trim().length > 0,
+      ).length,
+    [worksheetModalItems],
   )
 
   const handleFlashcardSelfRating = useCallback(
@@ -1718,6 +2031,7 @@ export function LearnPage() {
       const title = getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad')
 
       setLearnFlashcardSets((prev) => {
+        const currentCard = prev.flatMap((set) => set.cards).find((c) => c.id === cardId)
         const merged = prev.map((set) => ({
           ...set,
           cards: set.cards.map((c) => (c.id === cardId ? applyFlashcardReview(c, rating) : c)),
@@ -1730,10 +2044,19 @@ export function LearnPage() {
             pathCacheRef.current[pathId] = updated
           })
         }
+        if (currentCard) {
+          applySkillMasterySignal({
+            source: 'flashcard',
+            skillId: toSkillIdFromText('flashcard', currentCard.question),
+            label: currentCard.question,
+            correct: rating === 'known',
+            delta: rating === 'known' ? 0.06 : -0.08,
+          })
+        }
         return merged
       })
     },
-    [learningPaths],
+    [applySkillMasterySignal, learningPaths],
   )
 
   useEffect(() => {
@@ -1743,9 +2066,15 @@ export function LearnPage() {
     const maxPlannedCount = Math.max(1, Math.min(targetChapterCount, chapterBlueprints.length || targetChapterCount))
     const lastUnlockedIndex = Math.max(0, unlockedChapterCount - 1)
     const hasCompletedUnlockedChapter = chapterSession.completedChapterIndexes.includes(lastUnlockedIndex)
-    const wsStats = getWorksheetChapterProgress(learnWorksheets, lastUnlockedIndex)
+    const wsProgressKey = resolveWorksheetProgressChapterKey(
+      chapterBlueprints,
+      chapterSession,
+      lastUnlockedIndex,
+    )
+    const wsStats = getWorksheetChapterProgress(learnWorksheets, wsProgressKey)
     const hasWorksheetItems = wsStats.total > 0
     const worksheetChapterComplete = wsStats.isComplete
+    const worksheetMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
     const nextChapterNumber = Math.min(maxPlannedCount, unlockedChapterCount + 1)
     let action: TutorChatEntry['action']
     let content = ''
@@ -1763,6 +2092,7 @@ export function LearnPage() {
       content = buildTutorCoachMessage({
         kind: 'need-worksheet',
         chapterNumber: lastUnlockedIndex + 1,
+        mixed: worksheetMixed,
       })
     } else if (!worksheetChapterComplete) {
       action = 'create-worksheet'
@@ -1771,6 +2101,7 @@ export function LearnPage() {
         chapterNumber: lastUnlockedIndex + 1,
         evaluatedCount: wsStats.evaluatedCount,
         total: wsStats.total,
+        mixed: worksheetMixed,
       })
     } else if (unlockedChapterCount < maxPlannedCount) {
       action = 'start-next-chapter'
@@ -1808,7 +2139,9 @@ export function LearnPage() {
     isSetupComplete,
     entryQuizResult,
     targetChapterCount,
+    chapterBlueprints,
     chapterBlueprints.length,
+    chapterSession,
     unlockedChapterCount,
     chapterSession.completedChapterIndexes,
     learnWorksheets,
@@ -2308,6 +2641,9 @@ export function LearnPage() {
               activeLearnTab === 'path' && showErrorLogbookHint ? ' has-error-logbook-hint' : ''
             }`}
           >
+            {learnAreaBannerEnabled && learnAreaBannerText.trim() ? (
+              <LearnAreaAdminBanner text={learnAreaBannerText} />
+            ) : null}
             <header className="learn-workspace-header">
               <span className="learn-workspace-title-icon" aria-hidden="true" />
               <h1 className="learn-page-title-text">{getDisplayPathTitle(activePath?.title ?? '')}</h1>
@@ -2439,24 +2775,8 @@ export function LearnPage() {
                     <span className="learn-top-tab-label">Statistiken</span>
                   </button>
                 </nav>
-                {worksheetTabHintVisible &&
-                worksheetRequiredChapterIndex !== null &&
-                requiredWorksheetProgress &&
-                !requiredWorksheetProgress.isComplete ? (
-                  <p className="learn-worksheet-required-hint">
-                    {requiredWorksheetProgress.total === 0 ? (
-                      <>
-                        Kapitel {worksheetRequiredChapterIndex + 1} abgeschlossen. Bitte erstelle jetzt das Lernblatt im Tab{' '}
-                        <strong>Lernblätter</strong>, um weiterzumachen.
-                      </>
-                    ) : (
-                      <>
-                        Pflicht-Lernblatt Kapitel {worksheetRequiredChapterIndex + 1}:{' '}
-                        {requiredWorksheetProgress.evaluatedCount}/{requiredWorksheetProgress.total} Aufgaben geprüft. Bitte
-                        alle Aufgaben mit dem Kreis prüfen.
-                      </>
-                    )}
-                  </p>
+                {showRequiredWorksheetHint && activeLearnTab !== 'worksheets' && requiredWorksheetHintContent ? (
+                  <p className="learn-worksheet-required-hint">{requiredWorksheetHintContent}</p>
                 ) : null}
                 {profile?.is_superadmin === true && chapterGenerationDebugRaw.trim() ? (
                   <details className="learn-admin-debug-panel">
@@ -2485,84 +2805,156 @@ export function LearnPage() {
                       loaderText="Kapitel wird generiert..."
                     />
                   ) : (
-                  <LearnConversationSection
-                    showChapterPreview={false}
-                    learningChaptersCount={0}
-                    chapterPreview={{
-                      greetingText: previewGreetingText,
-                      chapterOrdinal: safeChapterIndex + 1,
-                      chapterTitle: previewChapterTitle,
-                      statusLabel: previewStatusLabel,
-                      stepOrdinal: safeChapterStepIndex + 1,
-                      stepCount: previewStepCount,
-                      stepProgressPercent: currentChapterStepProgressPercent,
-                      statusText: previewStatusText,
-                      totalCorrect: totalCorrectChapterQuestions,
-                      totalWrong: totalWrongChapterQuestions,
-                      accuracyPercent: chapterAccuracyPercent,
-                      hasStartedFirstChapter,
-                      bullets: previewChapterBullets,
-                      estimatedMinutes: previewEstimatedMinutes,
-                      learningBlocksCount: Math.max(1, previewStepCount - previewQuestionCount),
-                      questionCount: previewQuestionCount,
-                      recommendation: previewRecommendation,
-                      canStartChapter: false,
-                      onStartChapter: () => {},
-                      canCreateFlashcards: false,
-                      isGeneratingFlashcards,
-                      onCreateFlashcards: () => setLearnMaterialChoiceTarget('flashcards'),
-                      hasSavedFlashcards: learnFlashcardSets.some((s) => s.cards.length > 0),
-                      onOpenSavedFlashcards: openSavedFlashcardsModal,
-                      canCreateWorksheet: false,
-                      isGeneratingWorksheet,
-                      onCreateWorksheet: () => setLearnMaterialChoiceTarget('worksheet'),
-                      hasSavedWorksheets: learnWorksheets.length > 0,
-                      onOpenSavedWorksheets: () =>
-                        openSavedWorksheetsModal(
-                          worksheetRequiredChapterIndex !== null ? worksheetRequiredChapterIndex : undefined,
-                        ),
-                    }}
-                    isPostEntryPrepLoading={isPostEntryPrepLoading}
-                    postEntryPrepPanel={{
-                      ariaLabel: 'Ladevorgang',
-                      setupAnalysisArcRadius,
-                      setupAnalysisArcLength,
-                      setupAnalysisCircumference,
-                      arcOffset: postEntryPrepArcOffset,
-                      overallPercent: postEntryPrepOverallPercent,
-                      stepLabels: POST_ENTRY_PREP_STEPS,
-                      activeStepIndex: postEntryPrepStepIndex,
-                      stepPercents: postEntryPrepPercents,
-                    }}
-                    tutorMessages={tutorMessages}
-                    isEntryQuizLoading={isEntryQuizLoading}
-                    isEntryPrepClosing={isEntryPrepClosing}
-                    entryPrepPanel={{
-                      ariaLabel: 'Ladevorgang Einstiegstest',
-                      setupAnalysisArcRadius,
-                      setupAnalysisArcLength,
-                      setupAnalysisCircumference,
-                      arcOffset: entryPrepArcOffset,
-                      overallPercent: entryPrepOverallPercent,
-                      stepLabels: ENTRY_TEST_PREP_STEPS,
-                      activeStepIndex: entryPrepStepIndex,
-                      stepPercents: entryPrepPercents,
-                      isExiting: isEntryPrepClosing,
-                    }}
-                    entryQuizFallbackError={error}
-                    onRetryEntryQuizGeneration={() => {
-                      setError(null)
-                      setHasTriedEntryQuizGeneration(false)
-                    }}
-                    entryQuizResult={entryQuizResult}
-                    entryTestDurationLabel={entryTestDurationLabel}
-                    onOpenEntryQuizModal={openEntryQuizModal}
-                    onStartNextChapter={openChapterModal}
-                    onCreateFlashcards={openTutorFlashcardsAction}
-                    onCreateWorksheet={openTutorWorksheetAction}
-                    learnWorksheets={learnWorksheets}
-                    tutorWorksheetChapterIndex={tutorWorksheetChapterIndex}
-                  />
+                    <>
+                      <LearnConversationSection
+                        showChapterPreview={false}
+                        learningChaptersCount={0}
+                        chapterPreview={{
+                          greetingText: previewGreetingText,
+                          chapterOrdinal: safeChapterIndex + 1,
+                          chapterTitle: previewChapterTitle,
+                          statusLabel: previewStatusLabel,
+                          stepOrdinal: safeChapterStepIndex + 1,
+                          stepCount: previewStepCount,
+                          stepProgressPercent: currentChapterStepProgressPercent,
+                          statusText: previewStatusText,
+                          totalCorrect: totalCorrectChapterQuestions,
+                          totalWrong: totalWrongChapterQuestions,
+                          accuracyPercent: chapterAccuracyPercent,
+                          hasStartedFirstChapter,
+                          bullets: previewChapterBullets,
+                          estimatedMinutes: previewEstimatedMinutes,
+                          learningBlocksCount: Math.max(1, previewStepCount - previewQuestionCount),
+                          questionCount: previewQuestionCount,
+                          recommendation: previewRecommendation,
+                          canStartChapter: false,
+                          onStartChapter: () => {},
+                          canCreateFlashcards: false,
+                          isGeneratingFlashcards,
+                          onCreateFlashcards: () => setLearnMaterialChoiceTarget('flashcards'),
+                          hasSavedFlashcards: learnFlashcardSets.some((s) => s.cards.length > 0),
+                          onOpenSavedFlashcards: openSavedFlashcardsModal,
+                          canCreateWorksheet: false,
+                          isGeneratingWorksheet,
+                          onCreateWorksheet: () => setLearnMaterialChoiceTarget('worksheet'),
+                          hasSavedWorksheets: learnWorksheets.length > 0,
+                          onOpenSavedWorksheets: () =>
+                            openSavedWorksheetsModal(
+                              worksheetRequiredChapterIndex !== null ? worksheetRequiredChapterIndex : undefined,
+                            ),
+                        }}
+                        isPostEntryPrepLoading={isPostEntryPrepLoading}
+                        postEntryPrepPanel={{
+                          ariaLabel: 'Ladevorgang',
+                          setupAnalysisArcRadius,
+                          setupAnalysisArcLength,
+                          setupAnalysisCircumference,
+                          arcOffset: postEntryPrepArcOffset,
+                          overallPercent: postEntryPrepOverallPercent,
+                          stepLabels: POST_ENTRY_PREP_STEPS,
+                          activeStepIndex: postEntryPrepStepIndex,
+                          stepPercents: postEntryPrepPercents,
+                        }}
+                        tutorMessages={tutorMessages}
+                        isEntryQuizLoading={isEntryQuizLoading}
+                        isEntryPrepClosing={isEntryPrepClosing}
+                        entryPrepPanel={{
+                          ariaLabel: 'Ladevorgang Einstiegstest',
+                          setupAnalysisArcRadius,
+                          setupAnalysisArcLength,
+                          setupAnalysisCircumference,
+                          arcOffset: entryPrepArcOffset,
+                          overallPercent: entryPrepOverallPercent,
+                          stepLabels: ENTRY_TEST_PREP_STEPS,
+                          activeStepIndex: entryPrepStepIndex,
+                          stepPercents: entryPrepPercents,
+                          isExiting: isEntryPrepClosing,
+                        }}
+                        entryQuizFallbackError={error}
+                        onRetryEntryQuizGeneration={() => {
+                          setError(null)
+                          setHasTriedEntryQuizGeneration(false)
+                        }}
+                        entryQuizResult={entryQuizResult}
+                        entryTestDurationLabel={entryTestDurationLabel}
+                        onOpenEntryQuizModal={openEntryQuizModal}
+                        onStartNextChapter={openChapterModal}
+                        onCreateFlashcards={openTutorFlashcardsAction}
+                        onCreateWorksheet={openTutorWorksheetAction}
+                        learnWorksheets={learnWorksheets}
+                        tutorWorksheetChapterIndex={tutorWorksheetChapterIndex}
+                        footer={
+                          <>
+                            {completedChaptersForShowcase.length > 0 ? (
+                              <section className="learn-path-completed-showcase" aria-label="Erledigte Kapitel">
+                                <button
+                                  type="button"
+                                  className="learn-path-completed-toggle"
+                                  aria-expanded={isCompletedChaptersOpen}
+                                  onClick={() => setIsCompletedChaptersOpen((prev) => !prev)}
+                                >
+                                  <span
+                                    className={`learn-path-completed-toggle-arrow${
+                                      isCompletedChaptersOpen ? ' is-open' : ''
+                                    }`}
+                                    aria-hidden="true"
+                                  >
+                                    ▶
+                                  </span>
+                                  <span className="learn-path-completed-toggle-title">Erledigt</span>
+                                  <span className="learn-path-completed-toggle-line" aria-hidden="true" />
+                                </button>
+                                <div
+                                  className={`learn-path-completed-panel${isCompletedChaptersOpen ? ' is-open' : ''}`}
+                                  aria-hidden={!isCompletedChaptersOpen}
+                                >
+                                  <div className="learn-path-completed-panel-inner">
+                                    <div className="learn-path-completed-grid" role="list">
+                                      {completedChaptersForShowcase.map((chapter) => (
+                                        <article
+                                          key={`completed-${chapter.chapterIndex}`}
+                                          className="learn-path-completed-card"
+                                          role="listitem"
+                                        >
+                                          <p className="learn-path-completed-badge">Kapitel {chapter.chapterIndex + 1}</p>
+                                          <p className="learn-path-completed-title">{chapter.title}</p>
+                                          <p className="learn-path-completed-meta">
+                                            {chapter.questionCount > 0
+                                              ? `${chapter.questionCount} Fragen abgeschlossen`
+                                              : 'Abgeschlossen'}
+                                          </p>
+                                        </article>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </section>
+                            ) : null}
+                            <section
+                              className={`learn-path-readiness ${learningReadiness.isReady ? 'is-ready' : 'is-training'}`}
+                              aria-label="Lernstand Bereitschaft"
+                            >
+                              <p className="learn-path-readiness-title">
+                                {learningReadiness.isReady ? 'Bereit fuer den naechsten Level' : 'Noch im Trainingsmodus'}
+                              </p>
+                              <p className="learn-path-readiness-meta">
+                                Kapitel {learningReadiness.completedChapterCount}/{learningReadiness.requiredChapterCompletions}
+                                {' · '}
+                                Trefferquote {Math.round(learningReadiness.correctnessRatio * 100)}%
+                                {' · '}
+                                Mastery {Math.round(learningReadiness.masteryAverage * 100)}%
+                                {' · '}
+                                Schwache Skills {learningReadiness.weakSkillCount}
+                                {' · '}
+                                Unsichere Karten {learningReadiness.unknownFlashcards}
+                                {' · '}
+                                Abgaben {learningReadiness.submittedWorksheetCount}
+                              </p>
+                            </section>
+                          </>
+                        }
+                      />
+                    </>
                   )
                 ) : null}
                 {activeLearnTab === 'tests' ? (
@@ -2713,14 +3105,8 @@ export function LearnPage() {
                 ) : null}
                 {activeLearnTab === 'worksheets' ? (
                   <section className="learn-tab-panel">
-                    {worksheetRequiredChapterIndex !== null && requiredWorksheetProgress ? (
-                      <p className="learn-next-step-hint">
-                        {requiredWorksheetProgress.total === 0
-                          ? `Pflichtschritt: Erstelle das Lernblatt zu Kapitel ${worksheetRequiredChapterIndex + 1}.`
-                          : requiredWorksheetProgress.isComplete
-                            ? `Pflicht-Lernblatt zu Kapitel ${worksheetRequiredChapterIndex + 1} ist vollständig geprüft.`
-                            : `Pflicht-Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1}: ${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total} Aufgaben geprüft.`}
-                      </p>
+                    {showRequiredWorksheetHint && requiredWorksheetHintContent ? (
+                      <p className="learn-worksheet-required-hint">{requiredWorksheetHintContent}</p>
                     ) : null}
                     <div className="learn-next-step-actions learn-next-step-actions--worksheets">
                       <PrimaryButton
@@ -2732,9 +3118,13 @@ export function LearnPage() {
                           ? 'Lernblatt wird erstellt...'
                           : worksheetRequiredChapterIndex !== null && requiredWorksheetProgress
                             ? requiredWorksheetProgress.total === 0
-                              ? `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
+                              ? useMixedLearnMaterials
+                                ? 'Lernblatt (Lernstand)'
+                                : `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
                               : requiredWorksheetProgress.isComplete
-                                ? `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
+                                ? useMixedLearnMaterials
+                                  ? 'Lernblatt (Lernstand) ansehen'
+                                  : `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
                                 : `Lernblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
                             : 'Lernblatt'}
                       </PrimaryButton>
@@ -2743,9 +3133,8 @@ export function LearnPage() {
                       {worksheetChaptersForList.length === 0 ? (
                         <p className="learn-muted">Noch kein Lernblatt vorhanden.</p>
                       ) : (
-                        worksheetChaptersForList.map(({ chapterIndex, progress }) => {
-                          const chapterTitle =
-                            learningChapters[chapterIndex]?.trim() || `Kapitel ${chapterIndex + 1}`
+                        worksheetOpenChapters.map(({ chapterIndex, progress }) => {
+                          const chapterTitle = worksheetChapterDisplayLabel(chapterIndex, learningChapters)
                           const status: 'open' | 'in_progress' | 'completed' =
                             progress.total === 0
                               ? 'open'
@@ -2781,6 +3170,57 @@ export function LearnPage() {
                         })
                       )}
                     </section>
+                    {worksheetCompletedChapters.length > 0 ? (
+                      <section className="learn-worksheets-completed" aria-label="Erledigte Lernblätter">
+                        <button
+                          type="button"
+                          className="learn-path-completed-toggle"
+                          aria-expanded={isCompletedWorksheetsOpen}
+                          onClick={() => setIsCompletedWorksheetsOpen((prev) => !prev)}
+                        >
+                          <span
+                            className={`learn-path-completed-toggle-arrow${
+                              isCompletedWorksheetsOpen ? ' is-open' : ''
+                            }`}
+                            aria-hidden="true"
+                          >
+                            ▶
+                          </span>
+                          <span className="learn-path-completed-toggle-title">Erledigt</span>
+                          <span className="learn-path-completed-toggle-line" aria-hidden="true" />
+                        </button>
+                        <div
+                          className={`learn-path-completed-panel${isCompletedWorksheetsOpen ? ' is-open' : ''}`}
+                          aria-hidden={!isCompletedWorksheetsOpen}
+                        >
+                          <div className="learn-path-completed-panel-inner">
+                            <section className="learn-tests-list learn-worksheets-list-spaced" aria-label="Erledigte Lernblätter Liste">
+                              {worksheetCompletedChapters.map(({ chapterIndex, progress }) => {
+                                const chapterTitle = worksheetChapterDisplayLabel(chapterIndex, learningChapters)
+                                return (
+                                  <button
+                                    key={`ws-done-${chapterIndex}`}
+                                    type="button"
+                                    className="learn-tests-list-item"
+                                    onClick={() => openSavedWorksheetsModal(chapterIndex)}
+                                  >
+                                    <div className="learn-tests-list-item-main">
+                                      <div className="learn-tests-list-item-heading">
+                                        <p className="learn-tests-list-item-title">{chapterTitle}</p>
+                                        <span className="learn-tests-status-badge is-completed">Abgeschlossen</span>
+                                      </div>
+                                      <p className="learn-tests-list-item-meta">
+                                        {progress.evaluatedCount}/{progress.total} Aufgaben geprüft
+                                      </p>
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </section>
+                          </div>
+                        </div>
+                      </section>
+                    ) : null}
                     <button
                       type="button"
                       className="learn-mobile-floating-create-pill"
@@ -2792,9 +3232,13 @@ export function LearnPage() {
                         ? 'Lernblatt wird erstellt...'
                         : worksheetRequiredChapterIndex !== null && requiredWorksheetProgress
                           ? requiredWorksheetProgress.total === 0
-                            ? `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
+                            ? useMixedLearnMaterials
+                              ? 'Lernblatt (Lernstand)'
+                              : `Lernblatt für Kapitel ${worksheetRequiredChapterIndex + 1}`
                             : requiredWorksheetProgress.isComplete
-                              ? `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
+                              ? useMixedLearnMaterials
+                                ? 'Lernblatt (Lernstand) ansehen'
+                                : `Lernblatt Kapitel ${worksheetRequiredChapterIndex + 1} ansehen`
                               : `Lernblatt fortsetzen (${requiredWorksheetProgress.evaluatedCount}/${requiredWorksheetProgress.total})`
                           : 'Lernblatt'}
                     </button>
@@ -2929,13 +3373,16 @@ export function LearnPage() {
       <LearnWorksheetModal
         isMounted={isWorksheetModalMounted}
         isVisible={isWorksheetModalVisible}
-        title={worksheetModalSubtitle}
+        chapterTitle={worksheetModalChapterTitle}
+        chapterLabel={worksheetModalChapterLabel}
         items={worksheetModalItems}
         isLoading={isGeneratingWorksheet}
         error={worksheetError}
         onClose={closeWorksheetModal}
         onItemEvaluated={handleWorksheetItemEvaluated}
         onSavedAnswerChange={handleWorksheetSavedAnswerChange}
+        onSubmitWorksheet={handleSubmitWorksheet}
+        submittedCount={worksheetSubmittedCount}
       />
       {isSettingsMounted ? (
         <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>

@@ -1599,7 +1599,7 @@ function parseWorksheetPromptsFromRaw(raw: string): WorksheetPromptPayload[] {
         out.push({ prompt })
       }
     }
-    return out.slice(0, 24)
+    return out.slice(0, 12)
   } catch {
     return []
   }
@@ -1629,7 +1629,7 @@ function parseFlashcardsFromRaw(raw: string): FlashcardPayload[] {
         out.push({ question, answer })
       }
     }
-    return out.slice(0, 24)
+    return out.slice(0, 16)
   } catch {
     return []
   }
@@ -1655,7 +1655,8 @@ async function generateFlashcardsWithAi(
         'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
         'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
         'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)"}]',
-        'Maximal 16 Karten, auf Deutsch, fachlich korrekt, verschiedene Aspekte abdecken.',
+        'Lege die Anzahl der Karten selbst fest (mindestens 6, höchstens 16) — nur zu den Schwachstellen/Lernlücken im Text, nicht den ganzen Stoff breit wiederholen.',
+        'Auf Deutsch, fachlich korrekt.',
       ].join('\n'),
     },
     {
@@ -1696,7 +1697,8 @@ async function generateWorksheetWithAi(
         'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
         'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
         'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Sätzen"}]',
-        'Maximal 14 Aufgaben, auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
+        'Lege die Anzahl der Aufgaben selbst fest (mindestens 4, höchstens 12) — passend zum Umfang der Schwachstellen im Text.',
+        'Auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
       ].join('\n'),
     },
     {

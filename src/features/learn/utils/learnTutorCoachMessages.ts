@@ -37,8 +37,8 @@ export function buildPostEntryQuizTutorMessage(score: number, total: number): st
 
 export type TutorCoachStep =
   | { kind: 'start-chapter'; chapterNumber: number; entryScore: number; entryTotal: number }
-  | { kind: 'need-worksheet'; chapterNumber: number }
-  | { kind: 'worksheet-progress'; chapterNumber: number; evaluatedCount: number; total: number }
+  | { kind: 'need-worksheet'; chapterNumber: number; mixed?: boolean }
+  | { kind: 'worksheet-progress'; chapterNumber: number; evaluatedCount: number; total: number; mixed?: boolean }
   | { kind: 'next-chapter'; completedChapterNumber: number; nextChapterNumber: number }
   | { kind: 'all-done' }
 
@@ -50,9 +50,13 @@ export function buildTutorCoachMessage(step: TutorCoachStep): string {
       return `Hey! 👋 Dein Einstiegstest: ${entryScore}/${entryTotal} ${emoji}\n\nLass uns Kapitel ${chapterNumber} angehen — nimm dir Zeit, ich begleite dich.`
     }
     case 'need-worksheet':
-      return `Kapitel ${step.chapterNumber} — geschafft! 🎉\n\nAls Nächstes ein kurzes Lernblatt dazu. Wenn du das durch hast, schalten wir das nächste Kapitel frei.`
+      return step.mixed
+        ? `Geschafft! 🎉\n\nAls Nächstes ein Lernblatt zu deinen Schwachstellen (Lernstand). Wenn du das durch hast, schalten wir das nächste Kapitel frei.`
+        : `Kapitel ${step.chapterNumber} — geschafft! 🎉\n\nAls Nächstes ein kurzes Lernblatt dazu. Wenn du das durch hast, schalten wir das nächste Kapitel frei.`
     case 'worksheet-progress':
-      return `Du bist auf einem guten Weg 📌\n\nLernblatt zu Kapitel ${step.chapterNumber}: noch ${step.evaluatedCount}/${step.total} Aufgaben mit dem Kreis prüfen — dann geht's weiter.`
+      return step.mixed
+        ? `Du bist auf einem guten Weg 📌\n\nLernblatt (Lernstand): noch ${step.evaluatedCount}/${step.total} Aufgaben mit dem Kreis prüfen — dann geht's weiter.`
+        : `Du bist auf einem guten Weg 📌\n\nLernblatt zu Kapitel ${step.chapterNumber}: noch ${step.evaluatedCount}/${step.total} Aufgaben mit dem Kreis prüfen — dann geht's weiter.`
     case 'next-chapter':
       return `Lernblatt zu Kapitel ${step.completedChapterNumber} — alles geprüft ✅\n\nBereit für Kapitel ${step.nextChapterNumber}? Los geht's. 🚀`
     case 'all-done':

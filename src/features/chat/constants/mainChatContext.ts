@@ -10,6 +10,24 @@ export function estimateMessageTokensFromCharLength(length: number): number {
   return Math.max(1, Math.ceil(length / 4))
 }
 
+/**
+ * Vision: Base64 in `[BildData]` darf nicht mit Zeichenlänge budgetiert werden — sonst
+ * fällt `clipChatMessagesToEstimatedTokenBudget` auf nur die letzte Bild-Nachricht zurück.
+ */
+const BILDDATA_BLOCK_ESTIMATED_TOKENS = 2_500
+
+export function estimateMessageContentTokens(content: string): number {
+  if (!content.includes('[BildData:')) {
+    return estimateMessageTokensFromCharLength(content.length)
+  }
+  const textOnly = content.replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, ' ').trim()
+  const blockCount = (content.match(/\[BildData:[^\]]*\]/g) ?? []).length
+  return (
+    estimateMessageTokensFromCharLength(textOnly.length) +
+    Math.max(1, blockCount) * BILDDATA_BLOCK_ESTIMATED_TOKENS
+  )
+}
+
 function clipTextToMaxEstimatedTokens(raw: string, maxTokens: number): string {
   const t = raw
   if (t.length === 0) {
@@ -49,7 +67,7 @@ export function clipChatMessagesToEstimatedTokenBudget(
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i]!
     const c = typeof m.content === 'string' ? m.content : ''
-    const t = estimateMessageTokensFromCharLength(c.length)
+    const t = estimateMessageContentTokens(c)
     if (total + t <= maxTokens) {
       kept.unshift(m)
       total += t

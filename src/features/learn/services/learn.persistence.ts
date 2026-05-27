@@ -70,6 +70,8 @@ export type LearnWorksheetItem = {
   lastCorrect?: boolean
   /** Zuletzt eingegebene / gespeicherte Antwort (Textfeld) */
   savedAnswer?: string
+  /** Nutzer hat das Arbeitsblatt (bzw. die Aufgabe) bewusst abgegeben */
+  submittedAt?: string
 }
 
 export type ChapterStep =
@@ -124,6 +126,26 @@ export type ChapterSession = {
   correctnessByStepId: Record<string, boolean>
   evaluatedAnswersByStepId: Record<string, string>
   completedChapterIndexes: number[]
+  /** Skill-Mastery V2: 0..1 je Skill/Fragetyp im Lernpfad. */
+  skillMasteryBySkillId: Record<
+    string,
+    {
+      score: number
+      attempts: number
+      correct: number
+      label?: string
+      source?: 'chapter' | 'flashcard' | 'worksheet'
+      /** Letzte Prompts mit falscher Bewertung (max. 6). */
+      lastWrongPrompts?: string[]
+      /** Letzte Prompts mit korrekter Bewertung (max. 6). */
+      lastCorrectPrompts?: string[]
+      wrongStreak?: number
+      correctStreak?: number
+      lastWrongAt?: string
+      lastCorrectAt?: string
+      lastUpdatedAt: string
+    }
+  >
 }
 
 export type LearningPathRecord = LearningPathSummary & {
@@ -525,6 +547,7 @@ function mapChapterSession(value: unknown): ChapterSession {
       correctnessByStepId: {},
       evaluatedAnswersByStepId: {},
       completedChapterIndexes: [],
+      skillMasteryBySkillId: {},
     }
   }
   const item = value as Record<string, unknown>
@@ -533,6 +556,7 @@ function mapChapterSession(value: unknown): ChapterSession {
   const completedChapterIndexes = Array.isArray(item.completedChapterIndexes)
     ? item.completedChapterIndexes.filter((entry): entry is number => typeof entry === 'number' && Number.isFinite(entry))
     : []
+  const skillMasteryBySkillId = mapSkillMasteryRecord(item.skillMasteryBySkillId)
   return {
     chapterIndex,
     stepIndex,
@@ -541,7 +565,79 @@ function mapChapterSession(value: unknown): ChapterSession {
     correctnessByStepId: mapBooleanRecord(item.correctnessByStepId),
     evaluatedAnswersByStepId: mapEntryQuizAnswers(item.evaluatedAnswersByStepId),
     completedChapterIndexes,
+    skillMasteryBySkillId,
   }
+}
+
+function mapSkillMasteryRecord(
+  value: unknown,
+): ChapterSession['skillMasteryBySkillId'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  const out: ChapterSession['skillMasteryBySkillId'] = {}
+  for (const [skillId, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!skillId.trim() || !raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      continue
+    }
+    const e = raw as Record<string, unknown>
+    const scoreRaw = typeof e.score === 'number' && Number.isFinite(e.score) ? e.score : 0
+    const attemptsRaw = typeof e.attempts === 'number' && Number.isFinite(e.attempts) ? e.attempts : 0
+    const correctRaw = typeof e.correct === 'number' && Number.isFinite(e.correct) ? e.correct : 0
+    const score = Math.max(0, Math.min(1, scoreRaw))
+    const attempts = Math.max(0, Math.floor(attemptsRaw))
+    const correct = Math.max(0, Math.floor(correctRaw))
+    const label = typeof e.label === 'string' && e.label.trim().length > 0 ? e.label.trim() : undefined
+    const source =
+      e.source === 'chapter' || e.source === 'flashcard' || e.source === 'worksheet'
+        ? e.source
+        : undefined
+    const lastUpdatedAt =
+      typeof e.lastUpdatedAt === 'string' && e.lastUpdatedAt.trim().length > 0
+        ? e.lastUpdatedAt.trim()
+        : new Date(0).toISOString()
+    const rawWrongPrompts = Array.isArray(e.lastWrongPrompts) ? e.lastWrongPrompts : []
+    const rawCorrectPrompts = Array.isArray(e.lastCorrectPrompts) ? e.lastCorrectPrompts : []
+    const lastWrongPrompts = rawWrongPrompts
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim())
+      .slice(0, 6)
+    const lastCorrectPrompts = rawCorrectPrompts
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim())
+      .slice(0, 6)
+    const wrongStreak =
+      typeof e.wrongStreak === 'number' && Number.isFinite(e.wrongStreak)
+        ? Math.max(0, Math.floor(e.wrongStreak))
+        : 0
+    const correctStreak =
+      typeof e.correctStreak === 'number' && Number.isFinite(e.correctStreak)
+        ? Math.max(0, Math.floor(e.correctStreak))
+        : 0
+    const lastWrongAt =
+      typeof e.lastWrongAt === 'string' && e.lastWrongAt.trim().length > 0
+        ? e.lastWrongAt.trim()
+        : undefined
+    const lastCorrectAt =
+      typeof e.lastCorrectAt === 'string' && e.lastCorrectAt.trim().length > 0
+        ? e.lastCorrectAt.trim()
+        : undefined
+    out[skillId] = {
+      score,
+      attempts,
+      correct,
+      ...(label ? { label } : {}),
+      ...(source ? { source } : {}),
+      ...(lastWrongPrompts.length > 0 ? { lastWrongPrompts } : {}),
+      ...(lastCorrectPrompts.length > 0 ? { lastCorrectPrompts } : {}),
+      ...(wrongStreak > 0 ? { wrongStreak } : {}),
+      ...(correctStreak > 0 ? { correctStreak } : {}),
+      ...(lastWrongAt ? { lastWrongAt } : {}),
+      ...(lastCorrectAt ? { lastCorrectAt } : {}),
+      lastUpdatedAt,
+    }
+  }
+  return out
 }
 
 function mapEntryQuizAnswers(value: unknown): Record<string, string> {
@@ -852,7 +948,9 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
           ? o.question.trim()
           : ''
     const chapterIndex =
-      typeof o.chapterIndex === 'number' && Number.isFinite(o.chapterIndex) && o.chapterIndex >= 0
+      typeof o.chapterIndex === 'number' &&
+      Number.isFinite(o.chapterIndex) &&
+      (o.chapterIndex === -1 || o.chapterIndex >= 0)
         ? Math.floor(o.chapterIndex)
         : undefined
     if (rawPrompt) {
@@ -864,8 +962,10 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
           : typeof o.answer === 'string'
             ? o.answer
             : ''
+      const submittedAtRaw = typeof o.submittedAt === 'string' ? o.submittedAt.trim() : ''
       const clipped = rawSaved.length > 16000 ? `${rawSaved.slice(0, 16000)}…` : rawSaved
       const savedAnswer = clipped.length > 0 ? clipped : undefined
+      const submittedAt = submittedAtRaw.length > 0 ? submittedAtRaw : undefined
       out.push({
         id,
         prompt: rawPrompt,
@@ -873,6 +973,7 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
         ...(evaluated ? { evaluated: true } : {}),
         ...(typeof lastCorrect === 'boolean' ? { lastCorrect } : {}),
         ...(savedAnswer !== undefined && savedAnswer.length > 0 ? { savedAnswer } : {}),
+        ...(submittedAt ? { submittedAt } : {}),
       })
     }
   }

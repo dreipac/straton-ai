@@ -4,6 +4,7 @@ import {
   getAssistantMainChatBrevityFinalReminder,
   getAssistantMainChatBrevityInstruction,
   getAssistantMainChatGuidedDiagnosisInstruction,
+  getAssistantMainChatStepByStepIntakeInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import { env } from '../../../config/env'
@@ -223,8 +224,26 @@ function scrubMainChatInlineImagesPreservingBildData(content: string): string {
 }
 
 const RAG_RECENT_TURNS = 8
+/** Mehr Verlauf, wenn die letzte User-Nachricht ein Vision-Bild enthält (kurzer Text wie „hier“). */
+const RAG_RECENT_TURNS_WITH_VISION = 14
 const RAG_MAX_RETRIEVED_MESSAGES = 6
 const RAG_MIN_TERM_LEN = 3
+const STEP_BY_STEP_INTENT_RE =
+  /\b(wie\s+(geht|mache|richte)\b|schritt\s*(für|fuer)\s*schritt|einrichten|installieren|konfigurieren|setup|access\s*point|hotspot)\b/i
+const PLATFORM_HINT_RE =
+  /\b(windows|mac(?:os)?|linux|ubuntu|debian|arch|android|ios|iphone|ipad)\b/i
+const VERSION_HINT_RE = /\b(v(?:ersion)?\s?\d{1,2}|(?:\d{1,2}\.){1,2}\d{1,2})\b/i
+
+function shouldForceStepByStepIntake(message: ChatMessage | undefined): boolean {
+  const text = typeof message?.content === 'string' ? message.content.trim() : ''
+  if (!text || !STEP_BY_STEP_INTENT_RE.test(text)) {
+    return false
+  }
+  const hasPlatformHint = PLATFORM_HINT_RE.test(text)
+  const hasVersionHint = VERSION_HINT_RE.test(text)
+  // Harte Rückfragepflicht, wenn das Anliegen nach How-to klingt, aber Umgebung fehlt.
+  return !(hasPlatformHint && hasVersionHint)
+}
 
 function tokenizeRagTerms(text: string): string[] {
   return text
@@ -236,14 +255,23 @@ function tokenizeRagTerms(text: string): string[] {
 }
 
 function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage[] {
-  if (messages.length <= RAG_RECENT_TURNS) {
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
+  const lastHasVision = Boolean(lastUserMessage?.content.includes('[BildData:'))
+  const recentTurns = lastHasVision ? RAG_RECENT_TURNS_WITH_VISION : RAG_RECENT_TURNS
+
+  if (messages.length <= recentTurns) {
     return messages
   }
-  const recent = messages.slice(-RAG_RECENT_TURNS)
+  const recent = messages.slice(-recentTurns)
   const recentIds = new Set(recent.map((m) => m.id))
-  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
   const queryTerms = new Set(tokenizeRagTerms(lastUserMessage?.content ?? ''))
   if (queryTerms.size === 0) {
+    const firstUser = messages.find((m) => m.role === 'user')
+    if (lastHasVision && firstUser && !recentIds.has(firstUser.id)) {
+      return [firstUser, ...recent].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      )
+    }
     return recent
   }
 
@@ -270,6 +298,12 @@ function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage
     .map((entry) => entry.message)
 
   const selected = [...scored, ...recent]
+  if (lastHasVision) {
+    const firstUser = messages.find((m) => m.role === 'user')
+    if (firstUser && !selected.some((m) => m.id === firstUser.id)) {
+      selected.unshift(firstUser)
+    }
+  }
   selected.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   return selected
 }
@@ -302,6 +336,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const mainChatGuidedDiagnosis = mainChatInstantPrompts
     ? getAssistantMainChatGuidedDiagnosisInstruction()
     : ''
+  const mainChatStepByStepIntake = mainChatInstantPrompts
+    ? getAssistantMainChatStepByStepIntakeInstruction()
+    : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -311,6 +348,15 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         ? getChatComfortToneInstruction()
         : ''
   const lastUserMessage = [...threadMessages].reverse().find((m) => m.role === 'user')
+  const forceStepByStepIntake = mainChatInstantPrompts && shouldForceStepByStepIntake(lastUserMessage)
+  const stepByStepIntakeHardGuard = forceStepByStepIntake
+    ? [
+        'Harter Intake-Guard (diese Antwort):',
+        '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
+        '- Stelle stattdessen nur 3–5 präzise Rückfragen zur Umgebung (OS/Version/Verbindungsart/Ziel).',
+        '- Abschluss mit genau einer kurzen Frage nach den fehlenden Infos.',
+      ].join('\n')
+    : ''
   const thinkingClarifyPhase = thinking
     ? thinkingWord
       ? 'final'
@@ -358,6 +404,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     quizFormatBlock,
     mainChatBrevity,
     mainChatGuidedDiagnosis,
+    mainChatStepByStepIntake,
+    stepByStepIntakeHardGuard,
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -384,11 +432,24 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
           typeof content === 'string' ? scrubMainChatInlineImagesPreservingBildData(content) : ''
       : (content: string) => content
 
+  const forceIntakeSystemMessage: GatewayMessage | null = stepByStepIntakeHardGuard
+    ? {
+        role: 'system',
+        content: [
+          'VERBINDLICHE AUSGABEREGEL FÜR DIESE ANTWORT:',
+          '- Antworte ausschließlich mit klärenden Rückfragen.',
+          '- Gib keine Schritte, keine Lösungsliste und keine Befehle aus.',
+          '- Stelle 3 bis 5 kurze, konkrete Fragen zur fehlenden Umgebung.',
+        ].join('\n'),
+      }
+    : null
+
   return [
     {
       role: 'system',
       content: combinedSystemPrompt,
     },
+    ...(forceIntakeSystemMessage ? [forceIntakeSystemMessage] : []),
     ...threadMessages.map((message) => {
       let content = scrubDataImages(message.content)
       if (message.role === 'user' && isMainChat) {
@@ -1271,7 +1332,7 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
         throw new Error('Keine Lernkarten von der KI erhalten.')
       }
 
-      return cards.slice(0, 20)
+      return cards.slice(0, 16)
     },
   )
 }
@@ -1334,7 +1395,7 @@ function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] 
     items = fromCards
   }
 
-  return items.slice(0, 20)
+  return items.slice(0, 12)
 }
 
 function mockWorksheetFromOutline(outline: string): LearnWorksheetItem[] {

@@ -86,6 +86,33 @@ export function getAssistantMainChatGuidedDiagnosisInstruction(): string {
   ].join('\n')
 }
 
+/**
+ * Hauptchat: How-to / Schritt-für-Schritt-Anleitungen sollen **präzise** sein.
+ * Wenn entscheidende Infos fehlen, erst Rückfragen stellen, dann erst anleiten.
+ */
+export function getAssistantMainChatStepByStepIntakeInstruction(): string {
+  return [
+    'Schritt-für-Schritt-Anleitungen (Instant — verbindlich bei «Wie mache ich …?», «Zeig mir …», «Einrichten/Installieren/Konfigurieren», «mach das bitte»):',
+    '',
+    'Ziel:',
+    '- Bevor du Schritte ausgibst: stelle sicher, dass du **genug Kontext** hast, damit die Anleitung exakt passt (OS/Device, App/Version, Daten/Beispiel, Rechte, Zielzustand).',
+    '',
+    'Wann zuerst Rückfragen (statt Schritte):',
+    '- Wenn Nutzerziel/Umgebung/Constraints nicht eindeutig sind (z. B. «Wie richte ich X ein?» ohne OS/Tool/Version).',
+    '- Wenn mehrere Wege existieren und die Wahl vom Setup abhängt (z. B. Docker vs. native, Cloud vs. lokal).',
+    '- Wenn sicherheitskritisch oder potenziell destruktiv (Datenverlust, Netzwerk/Firewall, Produktion) — erst absichern.',
+    '',
+    'Rückfragen-Regeln:',
+    '- Stelle **2–6 gezielte Fragen** (kurz, nummeriert), die direkt die nächsten Schritte bestimmen.',
+    '- Keine Schritte/Commands davor «auf Verdacht» ausgeben. Ausnahme: der Nutzer fordert ausdrücklich «ohne Rückfragen / alles auf einmal».',
+    '- Wenn der Nutzer schon genug Infos liefert: keine Rückfragen erzwingen.',
+    '',
+    'Nach den Antworten:',
+    '- Gib eine präzise Anleitung passend zur Umgebung.',
+    '- Bei echter Schritt-für-Schritt-Begleitung: pro Nachricht **nur den nächsten Schritt** (wie bei geführter Diagnose), am Ende **eine** klare Frage nach dem Ergebnis.',
+  ].join('\n')
+}
+
 /** Letzte Systemzeile im Hauptchat (nach Formatregeln). */
 export function getAssistantMainChatBrevityFinalReminder(): string {
   return [

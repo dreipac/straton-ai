@@ -117,11 +117,66 @@
 .learn-worksheet-required-hint {
   margin: 0.1rem 0 0.55rem;
   padding: 0.46rem 0.62rem;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 0;
+  height: auto;
+  align-self: flex-start;
+  flex: 0 0 auto;
   border-radius: 10px;
   background: color-mix(in srgb, #f59e0b 16%, transparent);
   border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
   color: var(--color-text-app);
   font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.learn-area-admin-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin: 0.15rem 0 0.8rem;
+  padding: 0.72rem 0.9rem;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #fde047 26%, transparent),
+    color-mix(in srgb, #f59e0b 14%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, #fbbf24 58%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 10%, transparent) inset,
+    0 8px 22px color-mix(in srgb, #f59e0b 12%, transparent);
+}
+
+.learn-area-admin-banner-accent {
+  width: 4px;
+  min-height: 1.35rem;
+  margin-top: 0.12rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #fde047 0%, #f59e0b 100%);
+}
+
+.learn-area-admin-banner-text {
+  margin: 0;
+  color: var(--color-text-app);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+:root[data-theme='dark'] .learn-area-admin-banner {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #fbbf24 22%, transparent),
+    color-mix(in srgb, #d97706 12%, transparent)
+  );
+  border-color: color-mix(in srgb, #fbbf24 48%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset,
+    0 10px 28px color-mix(in srgb, #000 28%, transparent);
 }
 
 .learn-admin-debug-panel {
@@ -1446,16 +1501,20 @@ button.learn-flashcard:active:enabled {
   background: transparent;
 }
 
+.learn-worksheet-modal {
+  width: min(1120px, calc(100vw - 0.8rem));
+}
+
 .learn-worksheet-content {
   margin: 0 auto;
   width: 100%;
-  max-width: 980px;
+  max-width: 1080px;
   padding: 0 0.1rem 0.35rem;
   color: var(--color-text-app);
 }
 
 .learn-worksheet-content-header {
-  text-align: center;
+  text-align: left;
   padding-bottom: 1rem;
   margin-bottom: 1.1rem;
   border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 85%, transparent);
@@ -1465,8 +1524,7 @@ button.learn-flashcard:active:enabled {
   margin: 0 0 0.4rem;
   font-size: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
   font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--color-text-app);
 }
 
@@ -1500,17 +1558,23 @@ button.learn-flashcard:active:enabled {
   pointer-events: none;
 }
 
+.learn-worksheet-column {
+  display: grid;
+  gap: 1.35rem;
+  align-content: start;
+}
+
 .learn-worksheet-item {
   display: grid;
   gap: 0.55rem;
   align-content: start;
 }
 
-.learn-worksheet-item:nth-child(odd) {
+.learn-worksheet-column:first-child .learn-worksheet-item {
   padding-right: 0.85rem;
 }
 
-.learn-worksheet-item:nth-child(even) {
+.learn-worksheet-column:last-child .learn-worksheet-item {
   padding-left: 0.85rem;
 }
 
@@ -1642,7 +1706,38 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   margin-top: 0.15rem;
 }
 
+.learn-worksheet-pagination {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.learn-worksheet-page-indicator {
+  font-size: 0.84rem;
+  color: var(--color-text-secondary);
+}
+
+.learn-worksheet-submit-row {
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.learn-worksheet-submit-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
 @media (max-width: 900px) {
+  .learn-worksheet-modal {
+    width: min(760px, calc(100vw - 0.8rem));
+  }
+
   .learn-worksheet-list {
     grid-template-columns: 1fr;
     column-gap: 0;
@@ -1652,8 +1747,8 @@ textarea.ui-textarea.learn-worksheet-answer-field {
     display: none;
   }
 
-  .learn-worksheet-item:nth-child(odd),
-  .learn-worksheet-item:nth-child(even) {
+  .learn-worksheet-column:first-child .learn-worksheet-item,
+  .learn-worksheet-column:last-child .learn-worksheet-item {
     padding-left: 0;
     padding-right: 0;
   }
@@ -1867,6 +1962,10 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   min-height: calc(var(--straton-app-height) - 2.6rem);
   max-height: none;
   overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  grid-template-rows: unset;
 }
 
 .learn-main .learn-workspace-header {
@@ -1945,6 +2044,175 @@ textarea.ui-textarea.learn-worksheet-answer-field {
   font-size: clamp(1.05rem, 0.88rem + 0.4vw, 1.3rem);
   font-weight: 700;
   line-height: 1.1;
+}
+
+.learn-path-completed-showcase {
+  margin-top: 0.9rem;
+  padding-top: 0.2rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.learn-path-completed-toggle {
+  appearance: none;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.learn-path-completed-toggle:hover .learn-path-completed-toggle-title {
+  color: var(--color-text-app);
+}
+
+.learn-path-completed-toggle-arrow {
+  display: inline-flex;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: color-mix(in srgb, var(--color-accent, #6366f1) 75%, var(--color-text-secondary));
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+
+.learn-path-completed-toggle-arrow.is-open {
+  transform: rotate(90deg);
+}
+
+.learn-path-completed-toggle-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.learn-path-completed-toggle-line {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-border) 88%, transparent);
+}
+
+.learn-path-completed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.44rem;
+}
+
+.learn-path-completed-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+
+.learn-path-completed-panel.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.learn-path-completed-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0.45rem;
+}
+
+.learn-path-completed-card {
+  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  border-radius: 11px;
+  padding: 0.45rem 0.52rem;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, #fff 9%, transparent), transparent 58%),
+    var(--color-surface-elevated);
+  display: grid;
+  gap: 0.18rem;
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.learn-path-completed-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-accent, #6366f1) 50%, var(--color-border));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-accent, #6366f1) 16%, transparent);
+}
+
+.learn-path-completed-panel:not(.is-open) .learn-path-completed-card {
+  transform: translateY(-5px);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 160ms ease;
+}
+
+.learn-path-completed-panel.is-open .learn-path-completed-card {
+  transform: translateY(0);
+  opacity: 1;
+  transition:
+    transform 230ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.learn-path-completed-badge {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.learn-path-completed-title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.24;
+  color: var(--color-text-app);
+}
+
+.learn-path-completed-meta {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--color-text-secondary);
+}
+
+.learn-worksheets-completed {
+  margin-top: 0.3rem;
+}
+
+.learn-path-readiness {
+  margin-top: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: 11px;
+  padding: 0.52rem 0.6rem;
+  background: var(--color-surface-elevated);
+  display: grid;
+  gap: 0.16rem;
+}
+
+.learn-path-readiness.is-ready {
+  border-color: color-mix(in srgb, #22c55e 52%, var(--color-border));
+  background: color-mix(in srgb, #22c55e 10%, var(--color-surface-elevated));
+}
+
+.learn-path-readiness.is-training {
+  border-color: color-mix(in srgb, #f59e0b 46%, var(--color-border));
+  background: color-mix(in srgb, #f59e0b 8%, var(--color-surface-elevated));
+}
+
+.learn-path-readiness-title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.learn-path-readiness-meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
 }
 
 :root[data-theme='dark'] .learn-workspace-header {
