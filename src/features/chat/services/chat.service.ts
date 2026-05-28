@@ -43,12 +43,21 @@ import {
   getChatThinkingEmojiStyleInstruction,
   getChatThinkingFinalAnswerTurnInstruction,
   getChatThinkingFinalAnswerUiReminder,
+  getChatThinkingIntakeClarifyFocusInstruction,
   getChatThinkingMandatoryClarifyTurnInstruction,
   getChatThinkingMixedLayoutInstruction,
   getChatThinkingWordDocumentInstruction,
   getChatThinkingWorkflowInstruction,
 } from '../constants/chatThinkingInstruction'
-import { thinkingTurnExpectsDetailedAnswer } from '../utils/thinkingClarify'
+import {
+  buildThinkingAnalyzeBriefingForGateway,
+  fallbackThinkingAnalyzeResult,
+  formatThinkingAnalyzeContextLines,
+  sanitizeThinkingAnalyzeResult,
+  type ThinkingAnalyzeResult,
+} from '../constants/thinkingAnalyze'
+import type { ThinkingIntakeSession } from '../utils/thinkingIntake'
+import { buildThinkingIntakeSummary, resolveThinkingConversationPhase } from '../utils/thinkingIntake'
 import {
   getChatComfortToneInstruction,
   getChatStrictToneInstruction,
@@ -139,6 +148,14 @@ export type SendMessageOptions = {
   instantAnalyze?: InstantAnalyzeResult
   /** Live-Web war geplant, Tavily lieferte aber keinen Kontext (Fehler/Guthaben). */
   webSearchRequestedButMissing?: boolean
+  /** Thinking: Aufgabenanalyse vor Klärungsrunden. */
+  thinkingAnalyze?: ThinkingAnalyzeResult
+  /** Thinking: gesammelte Klärungsantworten + Bereitschaft für finale Anleitung. */
+  thinkingIntake?: ThinkingIntakeSession | null
+  /** Thinking: aktuelle Gesprächsphase (überschreibt Heuristik aus Verlauf). */
+  thinkingConversationPhase?: 'clarify' | 'final'
+  /** Thinking: Fokus der aktuellen Klärungsrunde. */
+  thinkingClarifyFocus?: { dimensionLabel: string; questionHint: string; round: number; roundsTotal: number }
 }
 
 type EvaluateQuizAnswerInput = {
@@ -429,10 +446,21 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const thinkingClarifyPhase = thinking
     ? thinkingWord
       ? 'final'
-      : thinkingTurnExpectsDetailedAnswer(threadMessages)
-        ? 'final'
-        : 'clarify'
+      : (options?.thinkingConversationPhase ??
+        resolveThinkingConversationPhase(threadMessages, options?.thinkingIntake ?? null))
     : null
+  const thinkingIntakeBlocks: string[] = []
+  if (thinking && options?.thinkingAnalyze) {
+    thinkingIntakeBlocks.push(
+      buildThinkingAnalyzeBriefingForGateway(
+        options.thinkingAnalyze,
+        options.thinkingIntake ? buildThinkingIntakeSummary(options.thinkingIntake) : undefined,
+      ),
+    )
+  }
+  if (thinking && thinkingClarifyPhase === 'clarify' && options?.thinkingClarifyFocus) {
+    thinkingIntakeBlocks.push(getChatThinkingIntakeClarifyFocusInstruction(options.thinkingClarifyFocus))
+  }
   const thinkingBlock = thinking
     ? [
         getChatThinkingWorkflowInstruction(),
@@ -441,7 +469,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         thinkingWord ? '' : getChatThinkingDetailDepthInstruction(),
         thinkingClarifyPhase === 'clarify'
           ? getChatThinkingMandatoryClarifyTurnInstruction()
-          : getChatThinkingFinalAnswerTurnInstruction(),
+          : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type),
       ]
         .filter(Boolean)
         .join('\n\n')
@@ -517,10 +545,15 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         lastUserMessage &&
         message.id === lastUserMessage.id
       ) {
+        const thinkingBlocks = [...thinkingIntakeBlocks]
         const docBlock = buildThinkingDocumentUserContextBlock(message.content)
         if (docBlock) {
+          thinkingBlocks.push(docBlock)
+        }
+        if (thinkingBlocks.length > 0) {
+          const body = thinkingBlocks.join('\n\n')
           const base = content.trim()
-          content = base ? `${base}\n\n${docBlock}` : docBlock
+          content = base ? `${base}\n\n---\n\n${body}` : body
         }
       }
       return {
@@ -673,7 +706,8 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
-const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v3'
+const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v5'
+const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v1'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v1'
 
@@ -1264,6 +1298,57 @@ export async function instantAnalyzeUserMessage(params: {
   }
 
   return { analyze: fallbackInstantAnalyzeResult(trimmed), source: 'fallback' }
+}
+
+export type ThinkingAnalyzeInvokeResult = {
+  analyze: ThinkingAnalyzeResult
+  source: 'edge' | 'fallback'
+}
+
+export async function thinkingAnalyzeUserMessage(params: {
+  userMessage: string
+  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+}): Promise<ThinkingAnalyzeInvokeResult> {
+  const trimmed = params.userMessage.trim()
+  if (!trimmed) {
+    return { analyze: fallbackThinkingAnalyzeResult(''), source: 'fallback' }
+  }
+  if (!usesGatewayAi()) {
+    return { analyze: fallbackThinkingAnalyzeResult(trimmed), source: 'fallback' }
+  }
+
+  const contextBlock = params.priorTurns?.length
+    ? formatThinkingAnalyzeContextLines(params.priorTurns)
+    : ''
+
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+      body: {
+        mode: 'thinking_analyze',
+        provider: providerForMainChat(),
+        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE,
+        promptCacheRetention: '24h',
+        payload: {
+          userMessage: trimmed,
+          contextBlock,
+        },
+      },
+    })
+
+    if (error) {
+      throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+    }
+
+    const parsed = sanitizeThinkingAnalyzeResult(data?.analyze)
+    if (parsed) {
+      return { analyze: parsed, source: 'edge' }
+    }
+  } catch {
+    /* Fallback */
+  }
+
+  return { analyze: fallbackThinkingAnalyzeResult(trimmed), source: 'fallback' }
 }
 
 export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {

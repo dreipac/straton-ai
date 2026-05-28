@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import { AssistantSourceBadges } from '../components/AssistantSourceBadges'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
+import { splitAssistantContentSources } from './assistantSourceBadges'
 import {
   ASSISTANT_SECTION_REPLY_MOBILE_MQ,
   useAssistantSectionReplySwipe,
@@ -1138,6 +1140,22 @@ function renderBlock(
   }
 }
 
+function wrapAssistantRichWithSourceBadges(
+  main: ReactNode,
+  sources: ReturnType<typeof splitAssistantContentSources>['sources'],
+  leadText?: string,
+): ReactNode {
+  if (!sources.length) {
+    return main
+  }
+  return (
+    <>
+      {main}
+      <AssistantSourceBadges sources={sources} leadText={leadText} />
+    </>
+  )
+}
+
 /** Strukturierter Assistententext: Markdown-ähnliche Blöcke (Überschriften, Listen, ---, Links). */
 export function renderAssistantRichContent(
   content: string,
@@ -1148,27 +1166,41 @@ export function renderAssistantRichContent(
     return null
   }
 
-  const blocks = parseBlocks(trimmed)
+  const { body, sources, leadText } = splitAssistantContentSources(trimmed)
+  const bodyTrimmed = body.trim()
+  if (!bodyTrimmed) {
+    return wrapAssistantRichWithSourceBadges(null, sources, leadText)
+  }
+
+  const blocks = parseBlocks(bodyTrimmed)
   if (blocks.length === 0) {
-    return <p className="chat-md-p">{renderAssistantInline(trimmed, options)}</p>
+    return wrapAssistantRichWithSourceBadges(
+      <p className="chat-md-p">{renderAssistantInline(bodyTrimmed, options)}</p>,
+      sources,
+      leadText,
+    )
   }
 
   /** Ein einzelner Absatz ohne Struktur-Marker → weiterhin ein p */
   if (blocks.length === 1 && blocks[0].type === 'p') {
-    return (
+    return wrapAssistantRichWithSourceBadges(
       <AssistantSectionShell block={blocks[0]} blockIndex={0} options={options}>
         <p className="chat-md-p">{renderAssistantInline(blocks[0].text, options)}</p>
-      </AssistantSectionShell>
+      </AssistantSectionShell>,
+      sources,
+      leadText,
     )
   }
 
-  return (
+  return wrapAssistantRichWithSourceBadges(
     <div className="chat-md-root">
       {blocks.map((b, i) => (
         <AssistantSectionShell key={`sec-${i}`} block={b} blockIndex={i} options={options}>
           {renderBlock(b, i, options)}
         </AssistantSectionShell>
       ))}
-    </div>
+    </div>,
+    sources,
+    leadText,
   )
 }

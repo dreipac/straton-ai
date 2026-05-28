@@ -1473,6 +1473,10 @@ export function ChatWindow({
         key={thinkingClarifyDialog.messageId}
         payload={thinkingClarifyDialog.payload}
         introMarkdown={thinkingClarifyDialog.introMarkdown}
+        clarifyRound={thinkingClarifyDialog.clarifyRound}
+        clarifyRoundsTotal={thinkingClarifyDialog.clarifyRoundsTotal}
+        intakeSummary={thinkingClarifyDialog.intakeSummary}
+        analysisSummary={thinkingClarifyDialog.analysisSummary}
         onDismiss={onDismissThinkingClarify}
         onSubmit={(text) => {
           void onSubmitThinkingClarifyAnswer(text)

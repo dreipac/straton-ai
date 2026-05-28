@@ -119,6 +119,7 @@ function resolveOpenAiPromptCacheForRequest(
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
     instant_analyze: { key: 'straton-instant-analyze-v1', retention: '24h' },
+    thinking_analyze: { key: 'straton-thinking-analyze-v1', retention: '24h' },
     generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
     generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
     generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
@@ -585,6 +586,7 @@ function normalizeMode(
   | 'evaluate_quiz'
   | 'generate_title'
   | 'instant_analyze'
+  | 'thinking_analyze'
   | 'generate_topic_suggestions'
   | 'generate_flashcards'
   | 'generate_worksheet'
@@ -610,6 +612,9 @@ function normalizeMode(
   }
   if (v === 'instant_analyze') {
     return 'instant_analyze'
+  }
+  if (v === 'thinking_analyze') {
+    return 'thinking_analyze'
   }
   if (v === 'generate_topic_suggestions') {
     return 'generate_topic_suggestions'
@@ -1586,6 +1591,141 @@ function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: st
   return { userMessage: userMessage.slice(0, 8000), contextBlock }
 }
 
+/** Thinking — Aufgabenanalyse (JSON) vor Klärungsrunden. */
+const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 420
+const THINKING_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
+
+type ThinkingAnalyzePayloadEdge = {
+  task_type:
+    | 'server_setup'
+    | 'software_setup'
+    | 'troubleshooting'
+    | 'document_summary'
+    | 'process_howto'
+    | 'decision_planning'
+    | 'general_howto'
+    | 'other'
+  complexity: 'low' | 'medium' | 'high'
+  intent: string
+  assumptions: string[]
+  risks: string[]
+  missing_dimensions: Array<{ id: string; label: string; question_hint: string }>
+  clarify_rounds_planned: number
+  analysis_summary: string
+}
+
+function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const taskRaw = typeof o.task_type === 'string' ? o.task_type.trim() : ''
+  const task_type =
+    taskRaw === 'server_setup' ||
+    taskRaw === 'software_setup' ||
+    taskRaw === 'troubleshooting' ||
+    taskRaw === 'document_summary' ||
+    taskRaw === 'process_howto' ||
+    taskRaw === 'decision_planning' ||
+    taskRaw === 'general_howto' ||
+    taskRaw === 'other'
+      ? taskRaw
+      : 'other'
+  const complexityRaw = typeof o.complexity === 'string' ? o.complexity.trim() : ''
+  const complexity =
+    complexityRaw === 'low' || complexityRaw === 'medium' || complexityRaw === 'high'
+      ? complexityRaw
+      : 'medium'
+  const intent = clipInstantAnalyzeText(o.intent, 160) || 'Aufgabe bearbeiten'
+  const assumptions = Array.isArray(o.assumptions)
+    ? o.assumptions
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 100))
+        .filter(Boolean)
+        .slice(0, 4)
+    : []
+  const risks = Array.isArray(o.risks)
+    ? o.risks
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 100))
+        .filter(Boolean)
+        .slice(0, 5)
+    : []
+  const missing_dimensions = Array.isArray(o.missing_dimensions)
+    ? o.missing_dimensions
+        .filter((e): e is Record<string, unknown> => Boolean(e && typeof e === 'object'))
+        .map((e) => ({
+          id: clipInstantAnalyzeText(e.id, 40),
+          label: clipInstantAnalyzeText(e.label, 80),
+          question_hint: clipInstantAnalyzeText(e.question_hint, 120),
+        }))
+        .filter((e) => e.id && e.label)
+        .slice(0, 6)
+    : []
+  let clarify_rounds_planned =
+    typeof o.clarify_rounds_planned === 'number' && Number.isFinite(o.clarify_rounds_planned)
+      ? Math.round(o.clarify_rounds_planned)
+      : 2
+  clarify_rounds_planned = Math.min(4, Math.max(1, clarify_rounds_planned))
+  const analysis_summary = clipInstantAnalyzeText(o.analysis_summary, 280) || intent
+  return {
+    task_type,
+    complexity,
+    intent,
+    assumptions,
+    risks,
+    missing_dimensions,
+    clarify_rounds_planned,
+    analysis_summary,
+  }
+}
+
+function parseThinkingAnalyzeResult(raw: string): ThinkingAnalyzePayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Thinking-Analyse konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeThinkingAnalyzePayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Thinking-Analyse enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+async function thinkingAnalyzeWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (nicht nur Server).',
+    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
+    'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
+    'missing_dimensions: 2-6 themenspezifische Infos die noch fehlen (id, label, question_hint) — immer zur konkreten Frage passend.',
+    'clarify_rounds_planned: 1-4 je nach complexity und offenen Dimensionen.',
+  ].join('\n')
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const messages: InputMessage[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: userParts.trim() },
+  ]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    [...THINKING_ANALYZE_OPENAI_MODELS],
+    openAiPromptCache,
+    THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
+  )
+  const analyze = parseThinkingAnalyzeResult(usage.text)
+  return { analyze, usage }
+}
+
 async function instantAnalyzeWithAi(
   apiKey: string,
   userMessage: string,
@@ -2304,6 +2444,27 @@ serve(async (req) => {
         clientPromptCacheRetention,
       )
       const { analyze, usage } = await instantAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
+      return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { analyze, usage } = await thinkingAnalyzeWithAi(
         openAiKey,
         analyzePayload.userMessage,
         analyzePayload.contextBlock,

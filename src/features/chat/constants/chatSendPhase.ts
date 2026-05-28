@@ -3,6 +3,8 @@ export type ChatSendPhase =
   | 'analyzing'
   | 'web_search'
   | 'generating'
+  | 'thinking_analyze'
+  | 'thinking_clarify'
   | 'thinking'
   | 'image'
   | 'excel'
@@ -18,8 +20,12 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'Suche im Web …'
     case 'generating':
       return 'Denkt nach …'
+    case 'thinking_analyze':
+      return 'Aufgabe wird analysiert …'
+    case 'thinking_clarify':
+      return 'Rückfrage wird vorbereitet …'
     case 'thinking':
-      return 'Denkt nach …'
+      return 'Anleitung wird erstellt …'
     case 'image':
       return 'Bild wird erstellt …'
     case 'excel':

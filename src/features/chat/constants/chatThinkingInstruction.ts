@@ -1,49 +1,122 @@
+import type { ThinkingTaskType } from './thinkingAnalyze'
+
 /** Systemblock nur im Hauptchat, wenn Thinking aktiv (Routing: GPT-5.4, kein Profil-Speicher). */
 export function getChatThinkingWorkflowInstruction(): string {
   return [
     'Thinking-Modus (GPT-5.4, Aufgaben & gründliche Bearbeitung):',
     'Persönlicher Nutzer-Speicher ist ausgeschaltet — nutze nur den sichtbaren Chatverlauf in dieser Unterhaltung.',
     '',
-    'Zwei-Phasen-Ablauf (verbindlich pro Nutzerauftrag):',
-    '1) Kurze Klärung: genau EINE Rückfrage als Clarify-Block (siehe unten) — noch keine ausführliche Lösung/Zusammenfassung.',
-    '2) Ausführliche Antwort: erst nach der Nutzerantwort auf die Rückfrage — vollständig strukturiert (Formatregeln).',
-    'Jede neue Nutzeraufgabe startet wieder bei Phase 1.',
+    'Drei-Phasen-Ablauf (verbindlich pro Nutzerauftrag):',
+    '0) Aufgabenanalyse liegt im Kontext unter «Thinking — Aufgabenanalyse» — nutze sie.',
+    '1) Klärung: pro Runde genau EINE Rückfrage als Clarify-Block — noch keine ausführliche Lösung.',
+    '   Dimension = das wichtigste noch fehlende Stück Info für DIESE Aufgabe (aus Analyse-Kontext).',
+    '   Nach jeder Nutzerantwort: nächste offene Dimension, bis alles Nötige da ist oder max. Runden erreicht.',
+    '2) Ausführliche Antwort: vollständige, umsetzbare Anleitung (Formatregeln) — kein Clarify-Block.',
+    'Jede neue Nutzeraufgabe startet wieder bei Analyse + Klärung.',
     '',
     'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
     '',
     'Clarify-Block — exakt dieses Muster (Zeilen getrennt):',
     '<<<STRATON_THINKING_CLARIFY>>>',
-    '{"prompt":"Eine zentrale Frage an den Nutzer","options":[{"id":"a","label":"Kurze Antwortmöglichkeit A"},{"id":"b","label":"Kurze Antwortmöglichkeit B"},{"id":"c","label":"Kurze Antwortmöglichkeit C"}]}',
+    '{"prompt":"Frage","options":[{"id":"a","label":"…"}],"round":1,"rounds_total":3,"dimension_id":"hosting","dimension_label":"Hosting","intake_summary":"Kurz was du verstanden hast"}',
     '<<<END_STRATON_THINKING_CLARIFY>>>',
     '',
     'Regeln zum JSON:',
-    '- prompt: eine klare, kurze Frage (ein Satz).',
-    '- options: 2 bis 5 Objekte mit id und label; IDs kurz und eindeutig; keine Option „Eigene Antwort“ (die App ergänzt sie).',
-    '- Bei Detailtiefe-Fragen: Labels z. B. «Kurz», «Standard — Fließtext + Stichpunkte», «Ausführlich» (nicht nur «3–5 Bullets»).',
-    '- JSON gültig, doppelte Anführungszeichen, kein Text ausserhalb der Marker ausser dem optionalen Satz davor.',
-    '- Pro Nachricht nur EIN Clarify-Block.',
+    '- prompt: eine klare Frage zur aktuellen dimension_id (ein Satz).',
+    '- options: 2 bis 5 Objekte mit id und label; keine Option „Eigene Antwort“ (die App ergänzt sie).',
+    '- round / rounds_total: Fortschritt der Klärung (aus Kontext).',
+    '- dimension_id / dimension_label: welche Info du gerade sammelst.',
+    '- intake_summary: optional 1 Satz Zusammenfassung für den Nutzer.',
+    '- JSON gültig; pro Nachricht nur EIN Clarify-Block.',
   ].join('\n')
 }
 
 /** Phase 1 — diese Antwort darf nur die kurze Rückfrage sein. */
 export function getChatThinkingMandatoryClarifyTurnInstruction(): string {
   return [
-    'Thinking — Phase 1 (diese Antwort):',
-    'PFLICHT: Du lieferst NUR die kurze Klärung — kein ##-Kapitel, keine Zusammenfassung, keine ausführliche Lösung.',
-    'Optional höchstens EIN kurzer Satz ohne Aufzählung, danach AUSSCHLIESSLICH den Clarify-Block mit JSON.',
-    'Die Nutzeroberfläche zeigt Rückfragen nur über diesen Block. Keine Markdown-Listen mit Fragen.',
+    'Thinking — Phase 1 (diese Antwort — Klärung):',
+    'PFLICHT: NUR Klärung — kein ##-Kapitel, keine Schritt-für-Schritt-Anleitung, keine Befehlsfolge.',
+    'Wähle die wichtigste noch offene Dimension aus dem Analyse-Kontext.',
+    'Optional EIN kurzer Satz, danach AUSSCHLIESSLICH den Clarify-Block mit JSON (inkl. dimension_id, round, rounds_total).',
+    'Keine Markdown-Listen mit mehreren Fragen gleichzeitig.',
   ].join('\n')
 }
 
-/** Phase 2 — nach Nutzerantwort auf die Rückfrage. */
-export function getChatThinkingFinalAnswerTurnInstruction(): string {
-  return [
-    'Thinking — Phase 2 (diese Antwort):',
-    'Der Nutzer hat deine Rückfrage beantwortet. Jetzt die vollständige, ausführliche Antwort liefern.',
-    'KEIN Clarify-Block in dieser Nachricht. NICHT die Umfangsregeln des Instant-Modus.',
+/** Phase 2 — nach Klärung; task_type steuert Zusatzstruktur (nicht nur Server). */
+export function getChatThinkingFinalAnswerTurnInstruction(taskType?: ThinkingTaskType): string {
+  const blocks = [
+    'Thinking — Phase 2 (diese Antwort — finale Bearbeitung):',
+    'Der Kontext ist geklärt (oder max. Runden erreicht). Jetzt vollständig und umsetzbar antworten.',
+    'KEIN Clarify-Block. NICHT die Umfangsregeln des Instant-Modus.',
     'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
-    'Glossare/Begriffe nur als Tabelle; bei ausführlicher Bearbeitung alles Relevante aus dem Material mitnehmen.',
-    'Offene Kleinigkeiten: knappe Annahmen nennen und trotzdem liefern.',
+    'Glossare/Begriffe nur als Tabelle; bei Dokumenten alles Wesentliche aus dem Material.',
+    'Offene Punkte: unter «Annahmen» knapp nennen, trotzdem liefern.',
+    getChatThinkingGenericDeliverableInstruction(),
+  ]
+  if (taskType === 'server_setup' || taskType === 'software_setup') {
+    blocks.push(getChatThinkingSetupGuideInstruction())
+  } else if (taskType === 'troubleshooting') {
+    blocks.push(getChatThinkingTroubleshootingGuideInstruction())
+  } else if (taskType === 'decision_planning') {
+    blocks.push(getChatThinkingDecisionGuideInstruction())
+  }
+  return blocks.join('\n\n')
+}
+
+export function getChatThinkingGenericDeliverableInstruction(): string {
+  return [
+    'Thinking — Allgemeine Qualität (jeder task_type):',
+    '- Antwort muss zur geklärten Nutzerabsicht passen — nicht ein generisches Server-Tutorial.',
+    '- Schrittfolge nur wenn es eine How-to-/Setup-/Prozess-Aufgabe ist.',
+    '- Bei Entscheidungen: Optionen vergleichen, Empfehlung mit Begründung.',
+    '- Bei Zusammenfassungen: strukturiertes Dokument, keine Rückfragen.',
+  ].join('\n')
+}
+
+/** Zusatzstruktur für Server-/Software-Setup in Phase 2. */
+export function getChatThinkingSetupGuideInstruction(): string {
+  return [
+    'Thinking — Setup-Anleitungen (server_setup / software_setup):',
+    '1) ## Voraussetzungen & Annahmen',
+    '2) ## Überblick (Architektur oder Ablauf in einem Satz)',
+    '3) ## Schritt für Schritt — je Schritt: Aktion, erwartetes Ergebnis, typischer Fehler',
+    '4) ## Prüfen & Testen',
+    '5) ## Typische Fehler & Behebung',
+    '6) ## Kurz-Checkliste',
+  ].join('\n')
+}
+
+export function getChatThinkingTroubleshootingGuideInstruction(): string {
+  return [
+    'Thinking — Fehlerdiagnose (troubleshooting):',
+    '1) ## Symptom & wahrscheinlichste Ursachen',
+    '2) ## Schrittweise Diagnose (ein Test pro Schritt, Ergebnis einordnen)',
+    '3) ## Behebung je nach Befund',
+    '4) ## Wenn es weiterhin scheitert',
+  ].join('\n')
+}
+
+export function getChatThinkingDecisionGuideInstruction(): string {
+  return [
+    'Thinking — Entscheidung (decision_planning):',
+    '1) ## Kriterien (aus Nutzerantworten)',
+    '2) ## Optionen im Vergleich (Tabelle wenn sinnvoll)',
+    '3) ## Empfehlung mit klarer Begründung',
+    '4) ## Nächste Schritte',
+  ].join('\n')
+}
+
+export function getChatThinkingIntakeClarifyFocusInstruction(params: {
+  dimensionLabel: string
+  questionHint: string
+  round: number
+  roundsTotal: number
+}): string {
+  return [
+    'Thinking — Fokus dieser Klärungsrunde:',
+    `Dimension: ${params.dimensionLabel}`,
+    `Hinweis: ${params.questionHint}`,
+    `Runde ${params.round} von ${params.roundsTotal}.`,
   ].join('\n')
 }
 

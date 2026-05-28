@@ -21,6 +21,13 @@ export type ThinkingClarifyPayload = {
   prompt: string
   /** 2–5 vordefinierte Antworten (ohne „Eigene Antwort“). */
   options: ThinkingClarifyOption[]
+  /** Aktuelle Klärungsrunde (1-basiert). */
+  round?: number
+  rounds_total?: number
+  dimension_id?: string
+  dimension_label?: string
+  /** Kurz-Analyse für den Nutzer (1–2 Sätze). */
+  intake_summary?: string
 }
 
 export type ThinkingClarifyParse =
@@ -52,7 +59,27 @@ function normalizePayload(raw: unknown): ThinkingClarifyPayload | null {
   if (options.length < 2 || options.length > 5) {
     return null
   }
-  return { prompt, options }
+  const round =
+    typeof o.round === 'number' && Number.isFinite(o.round) ? Math.max(1, Math.round(o.round)) : undefined
+  const rounds_total =
+    typeof o.rounds_total === 'number' && Number.isFinite(o.rounds_total)
+      ? Math.max(1, Math.round(o.rounds_total))
+      : undefined
+  const dimension_id = typeof o.dimension_id === 'string' ? o.dimension_id.trim().slice(0, 40) : undefined
+  const dimension_label =
+    typeof o.dimension_label === 'string' ? o.dimension_label.trim().slice(0, 80) : undefined
+  const intake_summary =
+    typeof o.intake_summary === 'string' ? o.intake_summary.trim().slice(0, 320) : undefined
+
+  return {
+    prompt,
+    options,
+    round,
+    rounds_total,
+    dimension_id: dimension_id || undefined,
+    dimension_label: dimension_label || undefined,
+    intake_summary: intake_summary || undefined,
+  }
 }
 
 export function parseThinkingClarifyContent(content: string | null | undefined): ThinkingClarifyParse {
@@ -124,6 +151,10 @@ export type ThinkingClarifyDialogState =
       messageId: string
       introMarkdown: string
       payload: ThinkingClarifyPayload
+      clarifyRound?: number
+      clarifyRoundsTotal?: number
+      intakeSummary?: string
+      analysisSummary?: string
     }
   | {
       kind: 'freeText'
@@ -131,6 +162,8 @@ export type ThinkingClarifyDialogState =
       messageId: string
       /** Anzuzeigender KI-Text */
       previewText: string
+      clarifyRound?: number
+      clarifyRoundsTotal?: number
     }
 
 /**

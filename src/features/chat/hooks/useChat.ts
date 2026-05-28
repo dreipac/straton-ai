@@ -40,8 +40,21 @@ import {
   instantAnalyzeUserMessage,
   sendMessage,
   sendMessageStreaming,
+  thinkingAnalyzeUserMessage,
   usesGatewayAi,
 } from '../services/chat.service'
+import type { ThinkingAnalyzeResult } from '../constants/thinkingAnalyze'
+import {
+  buildThinkingIntakeSummary,
+  createThinkingIntakeSession,
+  extractDimensionFromLastClarify,
+  getNextThinkingFocusDimension,
+  getThinkingClarifyProgress,
+  isThinkingClarifyFollowUp,
+  recordThinkingIntakeAnswer,
+  resolveThinkingConversationPhase,
+  type ThinkingIntakeSession,
+} from '../utils/thinkingIntake'
 import { fetchTavilySearchContext } from '../services/tavilySearch.service'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
@@ -52,7 +65,6 @@ import { errorMessageFromUnknown } from '../../../utils/errorMessage'
 import {
   parseThinkingClarifyContent,
   shouldOpenThinkingFallbackPopup,
-  thinkingTurnExpectsClarifyOnly,
 } from '../utils/thinkingClarify'
 import {
   createChatMessage,
@@ -255,6 +267,7 @@ export function useChat(
   const [thinkingClarifyDialog, setThinkingClarifyDialog] = useState<ThinkingClarifyDialogState | null>(
     null,
   )
+  const thinkingIntakeByThreadRef = useRef<Record<string, ThinkingIntakeSession>>({})
   /** Lokal gepflegt (Profil + optimistisch nach Thinking-Anfrage); Superadmin: null = unbegrenzt. */
   const [thinkingCreditsRemaining, setThinkingCreditsRemaining] = useState<number | null>(() =>
     options?.isSuperadmin === true ? null : (options?.thinkingCreditBalance ?? 0),
@@ -1157,8 +1170,102 @@ export function useChat(
       let finalAssistantContent: string
       let excelSpecModelLabel: 'Claude Sonnet' | 'OpenAI (Fallback)' | null = null
 
+      let thinkingIntake: ThinkingIntakeSession | null = null
+      let thinkingAnalyzeResult: ThinkingAnalyzeResult | undefined
+      let thinkingConversationPhase: 'clarify' | 'final' | undefined
+      let thinkingClarifyFocus:
+        | {
+            dimensionLabel: string
+            questionHint: string
+            round: number
+            roundsTotal: number
+          }
+        | undefined
+      let outboundSendPhase: ChatSendPhaseState = wantsThinkingTurn ? 'thinking' : 'generating'
+
+      if (wantsThinkingTurn && !wantsWord && !wantsExcel && trimmed) {
+        const clarifyFollowUp = isThinkingClarifyFollowUp(nextMessages)
+        let session = thinkingIntakeByThreadRef.current[targetThreadId] ?? null
+
+        if (clarifyFollowUp) {
+          const dim = extractDimensionFromLastClarify(nextMessages)
+          const userAnswer = trimmed
+          if (!session && userAnswer) {
+            outboundSendPhase = 'thinking_analyze'
+            setSendPhase(outboundSendPhase)
+            const priorTurns = nextMessages
+              .slice(0, -1)
+              .filter((m) => m.role === 'user' || m.role === 'assistant')
+              .map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+              }))
+            const { analyze } = await thinkingAnalyzeUserMessage({
+              userMessage: userAnswer,
+              priorTurns,
+            })
+            session = createThinkingIntakeSession(analyze)
+          }
+          if (session && userAnswer) {
+            session = recordThinkingIntakeAnswer(
+              session,
+              dim
+                ? {
+                    dimensionId: dim.dimensionId,
+                    label: dim.label,
+                    answer: userAnswer,
+                  }
+                : {
+                    dimensionId: `round_${session.clarifyRoundsCompleted}`,
+                    label: 'Antwort',
+                    answer: userAnswer,
+                  },
+            )
+            thinkingIntakeByThreadRef.current[targetThreadId] = session
+          }
+          thinkingAnalyzeResult = session?.analyze
+          thinkingIntake = session
+        } else {
+          delete thinkingIntakeByThreadRef.current[targetThreadId]
+          outboundSendPhase = 'thinking_analyze'
+          setSendPhase(outboundSendPhase)
+          const priorTurns = nextMessages
+            .slice(0, -1)
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            }))
+          const { analyze } = await thinkingAnalyzeUserMessage({
+            userMessage: trimmed,
+            priorTurns,
+          })
+          session = createThinkingIntakeSession(analyze)
+          thinkingIntakeByThreadRef.current[targetThreadId] = session
+          thinkingAnalyzeResult = analyze
+          thinkingIntake = session
+        }
+
+        thinkingConversationPhase = resolveThinkingConversationPhase(nextMessages, thinkingIntake)
+        const focusDim = thinkingIntake ? getNextThinkingFocusDimension(thinkingIntake) : null
+        const progress = thinkingIntake ? getThinkingClarifyProgress(thinkingIntake) : null
+        if (thinkingConversationPhase === 'clarify' && focusDim && progress) {
+          outboundSendPhase = 'thinking_clarify'
+          setSendPhase(outboundSendPhase)
+          thinkingClarifyFocus = {
+            dimensionLabel: focusDim.label,
+            questionHint: focusDim.question_hint,
+            round: progress.round,
+            roundsTotal: progress.roundsTotal,
+          }
+        } else if (thinkingConversationPhase === 'final') {
+          outboundSendPhase = 'thinking'
+          setSendPhase(outboundSendPhase)
+        }
+      }
+
       if (usesGatewayAi()) {
-        setSendPhase(wantsThinkingTurn ? 'thinking' : 'generating')
+        setSendPhase(outboundSendPhase)
         const streamingMessageId = crypto.randomUUID()
         streamAssistantId = streamingMessageId
         const streamCreatedAt = new Date().toISOString()
@@ -1191,6 +1298,10 @@ export function useChat(
             webSearchContext,
             instantAnalyze,
             webSearchRequestedButMissing: wantedAutoWebSearch && !webSearchContext?.trim(),
+            thinkingAnalyze: thinkingAnalyzeResult,
+            thinkingIntake,
+            thinkingConversationPhase,
+            thinkingClarifyFocus,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1236,6 +1347,10 @@ export function useChat(
           webSearchContext,
           instantAnalyze,
           webSearchRequestedButMissing: wantedAutoWebSearch && !webSearchContext?.trim(),
+          thinkingAnalyze: thinkingAnalyzeResult,
+          thinkingIntake,
+          thinkingConversationPhase,
+          thinkingClarifyFocus,
         })
         finalAssistantContent = assistantMessage.content
         if (wantsThinkingTurn && options?.isSuperadmin !== true) {
@@ -1323,7 +1438,9 @@ export function useChat(
         const rawAssistant = mergedAssistantMessage.content
         if (!hasExcelSpecMarkers(rawAssistant)) {
           const clarify = parseThinkingClarifyContent(rawAssistant)
-          const expectedClarifyOnly = thinkingTurnExpectsClarifyOnly(nextMessages)
+          const expectedClarifyOnly = thinkingConversationPhase === 'clarify'
+          const progress = thinkingIntake ? getThinkingClarifyProgress(thinkingIntake) : null
+          const collectedSummary = thinkingIntake ? buildThinkingIntakeSummary(thinkingIntake) : ''
 
           if (clarify.kind === 'clarify') {
             setThinkingClarifyDialog({
@@ -1332,6 +1449,10 @@ export function useChat(
               messageId: mergedAssistantMessage.id,
               introMarkdown: clarify.introMarkdown,
               payload: clarify.payload,
+              clarifyRound: clarify.payload.round ?? progress?.round,
+              clarifyRoundsTotal: clarify.payload.rounds_total ?? progress?.roundsTotal,
+              intakeSummary: collectedSummary || undefined,
+              analysisSummary: thinkingIntake?.analyze.analysis_summary,
             })
           } else if (
             expectedClarifyOnly &&
@@ -1344,7 +1465,11 @@ export function useChat(
               previewText:
                 rawAssistant.trim() ||
                 'Kurze Rückfrage: Was ist dir bei dieser Aufgabe am wichtigsten (Ziel, Tiefe oder Format)?',
+              clarifyRound: progress?.round,
+              clarifyRoundsTotal: progress?.roundsTotal,
             })
+          } else if (thinkingConversationPhase === 'final') {
+            delete thinkingIntakeByThreadRef.current[targetThreadId]
           }
         }
       }

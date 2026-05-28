@@ -9,6 +9,10 @@ import {
 export type ThinkingClarifyModalProps = {
   payload: ThinkingClarifyPayload
   introMarkdown?: string
+  clarifyRound?: number
+  clarifyRoundsTotal?: number
+  intakeSummary?: string
+  analysisSummary?: string
   onSubmit: (answerText: string) => void
   onDismiss: () => void
 }
@@ -17,6 +21,10 @@ export type ThinkingClarifyModalProps = {
 export function ThinkingClarifyModal({
   payload,
   introMarkdown,
+  clarifyRound,
+  clarifyRoundsTotal,
+  intakeSummary,
+  analysisSummary,
   onSubmit,
   onDismiss,
 }: ThinkingClarifyModalProps) {
@@ -66,6 +74,20 @@ export function ThinkingClarifyModal({
       aria-labelledby={headingId}
     >
       <div className="chat-thinking-clarify-sheet-inner">
+        {clarifyRound && clarifyRoundsTotal && clarifyRoundsTotal > 1 ? (
+          <p className="chat-thinking-clarify-progress" role="status">
+            Klärung {clarifyRound} von {clarifyRoundsTotal}
+          </p>
+        ) : null}
+        {analysisSummary?.trim() ? (
+          <p className="chat-thinking-clarify-analysis">{analysisSummary.trim()}</p>
+        ) : null}
+        {intakeSummary?.trim() ? (
+          <div className="chat-thinking-clarify-collected">
+            <p className="chat-thinking-clarify-collected-title">Bisher von dir</p>
+            <pre className="chat-thinking-clarify-collected-body">{intakeSummary.trim()}</pre>
+          </div>
+        ) : null}
         {introMarkdown?.trim() ? (
           <p className="chat-thinking-clarify-intro">{introMarkdown.trim()}</p>
         ) : null}
