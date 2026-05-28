@@ -261,6 +261,112 @@
   color: #64748b;
 }
 
+.chat-pending-orbit-wrap {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.chat-message-orbit-loader-wrap .chat-pending-orbit-wrap {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.chat-empty-send-status {
+  display: flex;
+  justify-content: center;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.chat-pending-special-loader {
+  margin-top: 0.15rem;
+}
+
+.chat-pending-status {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-text-app, #0f172a) 72%, #64748b 28%);
+  white-space: nowrap;
+}
+
+:root[data-theme='dark'] .chat-pending-status {
+  color: color-mix(in srgb, var(--color-text-app, #e2e8f0) 88%, #94a3b8 12%);
+}
+
+.chat-instant-analyze-debug {
+  margin-top: 0.35rem;
+  max-width: min(100%, 28rem);
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent, #6366f1) 35%, transparent);
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 8%, var(--color-surface, #fff) 92%);
+  padding: 0.35rem 0.5rem;
+}
+
+.chat-message.is-user .chat-instant-analyze-debug {
+  margin-left: auto;
+}
+
+.chat-instant-analyze-debug summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-accent, #6366f1) 90%, var(--color-text-app) 10%);
+  list-style: none;
+}
+
+.chat-instant-analyze-debug summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-instant-analyze-debug-dl {
+  margin: 0.4rem 0 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.chat-instant-analyze-debug-dl > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 38%) 1fr;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.chat-instant-analyze-debug-dl dt {
+  margin: 0;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.chat-instant-analyze-debug-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.chat-empty-instant-debug {
+  display: flex;
+  justify-content: center;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.chat-composer-instant-debug {
+  margin-bottom: 0.35rem;
+}
+
+.chat-message-web-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+  color: color-mix(in srgb, var(--color-accent, #6366f1) 88%, var(--color-text-app) 12%);
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 14%, transparent);
+}
+
 .chat-websearch-credits-hint {
   margin: 0.45rem 0 0;
   text-align: center;

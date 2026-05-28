@@ -25,7 +25,6 @@ import fileIcon from '../../../assets/icons/file.svg'
 import greenFileIcon from '../../../assets/icons/green-file.svg'
 import landscapePng from '../../../assets/png/Landscape.png'
 import sendIcon from '../../../assets/icons/send.svg'
-import webOutlinedIcon from '../../../assets/icons/web-outlined.svg'
 import wordIcon from '../../../assets/icons/word.svg'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
@@ -33,7 +32,7 @@ import { WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
 import { IMAGE_GEN_TILE_PROMPT_PREFIX } from '../constants/imageGenTile'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, InstantAnalyzeDebugMeta } from '../types'
 import { renderInlineMarkdown } from '../utils/markdownInline'
 import {
   renderAssistantRichContent,
@@ -48,6 +47,7 @@ import {
   ChatComposerReplyQuoteSlot,
   ChatMessageReplyQuotePreview,
 } from './ChatComposerReplyQuoteBar'
+import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import {
   canFinalizeWordExportFromThread,
@@ -93,7 +93,7 @@ import {
   type QuizFormatChoice,
 } from '../utils/quizFormatChoice'
 import { ChatUserMessageMenuSelect } from './ChatUserMessageMenuSelect'
-import { MAX_WEB_SEARCH_CREDIT_BALANCE } from '../constants/webSearchCredits'
+import { getChatSendPhaseLabel, type ChatSendPhaseState } from '../constants/chatSendPhase'
 import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
@@ -145,7 +145,7 @@ function buildExcelGenMatrixCells(): { key: string; delayMs: number }[] {
 const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
 
 /** Einträge im Slash-Menü (Excel, Word, Bilder) — für Pfeiltasten / Enter */
-const SLASH_MENU_ITEM_COUNT = 4
+const SLASH_MENU_ITEM_COUNT = 3
 
 /** Gleicher Breakpoint wie `chat.css` (@media max-width 860px) — Slash-Menü aus, Anhang-Bottom-Sheet */
 const MOBILE_COMPOSER_MQ = '(max-width: 860px)'
@@ -158,6 +158,12 @@ type ChatWindowProps = {
   threadKey: string | null
   messages: ChatMessage[]
   isSending: boolean
+  /** Smart Instant: Einordnung / automatische Websuche vor dem Stream. */
+  sendPhase?: ChatSendPhaseState
+  /** Superadmin + Admin-Center-Schalter: Einordnung unter User-Nachrichten. */
+  showInstantAnalyzeDebug?: boolean
+  /** Laufende Einordnung (vor Speichern der User-Nachricht). */
+  liveInstantAnalyzeDebug?: InstantAnalyzeDebugMeta | null
   error: string | null
   greetingName: string
   tokenLimitReached?: boolean
@@ -175,21 +181,7 @@ type ChatWindowProps = {
   thinkingClarifyDialog?: ThinkingClarifyDialogState | null
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
-  onSendMessage: (
-    content: string,
-    opts?: { useWebSearch?: boolean; quizFormat?: QuizFormatChoice },
-  ) => Promise<void>
-  /** Nach «Neuer Chat · Websuche»: einmalig Web-Modus aktivieren. */
-  pendingWebSearchComposer?: boolean
-  onPendingWebSearchComposerConsumed?: () => void
-  /** Mobile Bottom-Navigation: Websuche-Tab mit Composer-Modus synchronisieren. */
-  onWebSearchModeChange?: (active: boolean) => void
-  /** Von ChatPage erhöht — schaltet Websuche im Composer aus (z. B. Chat-Tab). */
-  exitWebSearchSignal?: number
-  /** Verbleibende Websuchen (Guthaben); bei Superadmin auslassen. */
-  webSearchCreditsRemaining?: number
-  /** Aus Abo: tägliche Aufladung für Hinweistext. */
-  webSearchDailyGrant?: number | null
+  onSendMessage: (content: string, opts?: { quizFormat?: QuizFormatChoice }) => Promise<void>
   /** Thinking-Modus: verbleibendes Guthaben (Superadmin: auslassen). */
   thinkingCreditsRemaining?: number
   thinkingCreditMax?: number
@@ -324,6 +316,9 @@ export function ChatWindow({
   threadKey,
   messages,
   isSending,
+  sendPhase = null,
+  showInstantAnalyzeDebug = false,
+  liveInstantAnalyzeDebug = null,
   error,
   greetingName,
   tokenLimitReached = false,
@@ -339,12 +334,6 @@ export function ChatWindow({
   onDismissThinkingClarify = () => {},
   onSubmitThinkingClarifyAnswer = async () => {},
   onSendMessage,
-  pendingWebSearchComposer = false,
-  onPendingWebSearchComposerConsumed,
-  onWebSearchModeChange,
-  exitWebSearchSignal,
-  webSearchCreditsRemaining,
-  webSearchDailyGrant,
   thinkingCreditsRemaining,
   thinkingCreditMax,
   thinkingDailyGrant,
@@ -370,21 +359,16 @@ export function ChatWindow({
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
   const [wordCommandSelected, setWordCommandSelected] = useState(false)
   const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
-  const [webSearchCommandSelected, setWebSearchCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
   const [imageLightboxOpen, setImageLightboxOpen] = useState(false)
   const imageLightboxClosePendingRef = useRef(false)
   const sectionReplyEmbedCancelRef = useRef<(() => void) | null>(null)
-  const [quizFormatPending, setQuizFormatPending] = useState<{
-    content: string
-    useWebSearch: boolean
-  } | null>(null)
+  const [quizFormatPending, setQuizFormatPending] = useState<{ content: string } | null>(null)
   const [composerSectionReply, setComposerSectionReply] = useState<AssistantSectionReference | null>(
     null,
   )
-  const exitWebSearchSignalHandledRef = useRef(0)
   const isEmptyState = messageList.length === 0
   const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
 
@@ -486,6 +470,10 @@ export function ChatWindow({
     !pendingWordGeneration
   const showPendingAssistantRow =
     showPendingTextOrbitRow || pendingImageGeneration || pendingExcelGeneration || pendingWordGeneration
+  const pendingStatusLabel =
+    getChatSendPhaseLabel(sendPhase) ??
+    (isSending && showPendingTextOrbitRow ? 'Denkt nach …' : undefined)
+  const streamingStatusLabel = getChatSendPhaseLabel(sendPhase) ?? 'Denkt nach …'
   const [animatedAssistantContent, setAnimatedAssistantContent] = useState<Record<string, string>>({})
   const [quizAnswers, setQuizAnswers] = useState<Record<string, QuizAnswerState>>({})
   const [quizChecksInProgress, setQuizChecksInProgress] = useState<Record<string, boolean>>({})
@@ -638,39 +626,12 @@ export function ChatWindow({
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setAttachComposerSheetOpen(false)
     sectionReplyEmbedCancelRef.current?.()
     sectionReplyEmbedCancelRef.current = null
     setComposerSectionReply(null)
   }, [threadKey])
-
-  useEffect(() => {
-    if (!pendingWebSearchComposer) {
-      return
-    }
-    setWebSearchCommandSelected(true)
-    setExcelCommandSelected(false)
-    setWordCommandSelected(false)
-    setImageGenCommandSelected(false)
-    onPendingWebSearchComposerConsumed?.()
-  }, [pendingWebSearchComposer, onPendingWebSearchComposerConsumed])
-
-  useEffect(() => {
-    onWebSearchModeChange?.(webSearchCommandSelected)
-  }, [webSearchCommandSelected, onWebSearchModeChange])
-
-  useEffect(() => {
-    if (exitWebSearchSignal === undefined) {
-      return
-    }
-    if (exitWebSearchSignal <= exitWebSearchSignalHandledRef.current) {
-      return
-    }
-    exitWebSearchSignalHandledRef.current = exitWebSearchSignal
-    setWebSearchCommandSelected(false)
-  }, [exitWebSearchSignal])
 
   useEffect(() => {
     if (isMobileComposer) {
@@ -1172,7 +1133,7 @@ export function ChatWindow({
 
   async function deliverComposerMessage(
     content: string,
-    sendOpts?: { useWebSearch?: boolean; quizFormat?: QuizFormatChoice },
+    sendOpts?: { quizFormat?: QuizFormatChoice },
   ) {
     const pastedImageEntries = pendingAttachments.filter(
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
@@ -1192,17 +1153,11 @@ export function ChatWindow({
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setPendingAttachments([])
     setQuizFormatPending(null)
     const payload = buildUserMessageWithSectionRef(content, composerSectionReply)
     setComposerSectionReply(null)
-    await onSendMessage(
-      payload,
-      sendOpts?.useWebSearch || sendOpts?.quizFormat
-        ? { useWebSearch: sendOpts.useWebSearch, quizFormat: sendOpts.quizFormat }
-        : undefined,
-    )
+    await onSendMessage(payload, sendOpts?.quizFormat ? { quizFormat: sendOpts.quizFormat } : undefined)
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1229,8 +1184,6 @@ export function ChatWindow({
       : excelCommandSelected
         ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
         : baseContent
-    const useWebSearch = webSearchCommandSelected && !wordCommandSelected && !excelCommandSelected
-
     if (
       shouldPromptQuizFormatChoice(textPart, {
         wantsWord: wordCommandSelected,
@@ -1239,16 +1192,14 @@ export function ChatWindow({
         thinkingMode: chatThinkingMode === 'thinking',
       })
     ) {
-      setQuizFormatPending({ content, useWebSearch })
+      setQuizFormatPending({ content })
       return
     }
 
     const explicitQuizFormat = detectExplicitQuizFormatInText(textPart)
     await deliverComposerMessage(
       content,
-      useWebSearch || explicitQuizFormat
-        ? { useWebSearch, quizFormat: explicitQuizFormat ?? undefined }
-        : undefined,
+      explicitQuizFormat ? { quizFormat: explicitQuizFormat } : undefined,
     )
   }
 
@@ -1256,13 +1207,13 @@ export function ChatWindow({
     if (!quizFormatPending) {
       return
     }
-    const { content, useWebSearch } = quizFormatPending
-    void deliverComposerMessage(content, { useWebSearch, quizFormat: format })
+    const { content } = quizFormatPending
+    void deliverComposerMessage(content, { quizFormat: format })
   }
 
   function handleDraftChange(nextValue: string) {
     setDraft(nextValue)
-    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected || webSearchCommandSelected) {
+    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected) {
       setShowSlashMenu(false)
       return
     }
@@ -1278,7 +1229,6 @@ export function ChatWindow({
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -1288,7 +1238,6 @@ export function ChatWindow({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
@@ -1298,38 +1247,15 @@ export function ChatWindow({
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
-  }
-
-  function handleSelectWebSearchSlashCommand() {
-    setWebSearchCommandSelected(true)
-    setExcelCommandSelected(false)
-    setWordCommandSelected(false)
-    setImageGenCommandSelected(false)
-    setShowSlashMenu(false)
-    setDraft((prev) => prev.replace('/', '').trimStart())
-    inputRef.current?.focus({ preventScroll: true })
-  }
-
-  function handleSelectWebSearchQuickTile() {
-    setWebSearchCommandSelected(true)
-    setExcelCommandSelected(false)
-    setWordCommandSelected(false)
-    setImageGenCommandSelected(false)
-    setShowSlashMenu(false)
-    if (!isMobileComposer) {
-      inputRef.current?.focus({ preventScroll: true })
-    }
   }
 
   function handleSelectExcelQuickTile() {
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -1340,7 +1266,6 @@ export function ChatWindow({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setImageGenCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -1351,7 +1276,6 @@ export function ChatWindow({
     setImageGenCommandSelected(true)
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
-    setWebSearchCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -1394,10 +1318,8 @@ export function ChatWindow({
           handleSelectExcelSlashCommand()
         } else if (slashMenuHighlightIndex === 1) {
           handleSelectWordSlashCommand()
-        } else if (slashMenuHighlightIndex === 2) {
-          handleSelectImageSlashCommand()
         } else {
-          handleSelectWebSearchSlashCommand()
+          handleSelectImageSlashCommand()
         }
         return
       }
@@ -1570,9 +1492,7 @@ export function ChatWindow({
   const quickTilesEl =
     tokenLimitReached ? null : (
       <div
-        className={`chat-quick-tiles${webSearchCommandSelected ? ' is-websearch-focus' : ''}${
-          isMobileComposer ? ' chat-quick-tiles--mobile-rail' : ''
-        }`}
+        className={`chat-quick-tiles${isMobileComposer ? ' chat-quick-tiles--mobile-rail' : ''}`}
         role="group"
         aria-label="Schnellaktionen"
       >
@@ -1619,20 +1539,6 @@ export function ChatWindow({
                 <span className="chat-quick-tile-text">
                   <span className="chat-quick-tile-title">Word</span>
                   <span className="chat-quick-tile-sub">Word generieren</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
-                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-                onClick={handleSelectWebSearchQuickTile}
-              >
-                <span className="chat-quick-tile-icon-wrap" aria-hidden>
-                  <img src={webOutlinedIcon} alt="" />
-                </span>
-                <span className="chat-quick-tile-text">
-                  <span className="chat-quick-tile-title">Websuche</span>
-                  <span className="chat-quick-tile-sub">Live-Web</span>
                 </span>
               </button>
             </div>
@@ -1684,37 +1590,11 @@ export function ChatWindow({
               <span className="chat-quick-tile-sub">Bild generieren</span>
             </span>
           </button>
-          <button
-            type="button"
-            className={`chat-quick-tile chat-quick-tile--websearch${webSearchCommandSelected ? ' is-active' : ''}`}
-            onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-            onClick={handleSelectWebSearchQuickTile}
-          >
-            <span className="chat-quick-tile-icon-wrap" aria-hidden>
-              <img src={webOutlinedIcon} alt="" />
-            </span>
-            <span className="chat-quick-tile-text">
-              <span className="chat-quick-tile-title">Websuche</span>
-              <span className="chat-quick-tile-sub">Live-Web</span>
-            </span>
-          </button>
         </div>
           </>
         )}
       </div>
     )
-
-  const webSearchCreditsHintEl =
-    webSearchCommandSelected &&
-    typeof webSearchCreditsRemaining === 'number' &&
-    !tokenLimitReached ? (
-      <p className="chat-websearch-credits-hint" role="status">
-        Noch {webSearchCreditsRemaining} Websuche(n) verfügbar (max. {MAX_WEB_SEARCH_CREDIT_BALANCE} Kontostand).
-        {typeof webSearchDailyGrant === 'number' && webSearchDailyGrant > 0
-          ? ` Täglich +${webSearchDailyGrant} (UTC).`
-          : ''}
-      </p>
-    ) : null
 
   const thinkingMaxCap =
     typeof thinkingCreditMax === 'number' ? thinkingCreditMax : DEFAULT_THINKING_CREDIT_MAX
@@ -1741,7 +1621,7 @@ export function ChatWindow({
       open={attachComposerSheetOpen}
       onClose={() => setAttachComposerSheetOpen(false)}
       title="Einfügen"
-      ariaLabel="Word, Excel, Bilder, Websuche oder Datei wählen"
+      ariaLabel="Word, Excel, Bilder oder Datei wählen"
       actions={[
         {
           id: 'word',
@@ -1765,13 +1645,6 @@ export function ChatWindow({
           actionClassName: 'action-bottom-sheet-action--compose-bilder',
           onClick: () => {
             handleSelectImageQuickTile()
-          },
-        },
-        {
-          id: 'websuche',
-          label: 'Websuche',
-          onClick: () => {
-            handleSelectWebSearchQuickTile()
           },
         },
         {
@@ -1811,9 +1684,7 @@ export function ChatWindow({
   if (isEmptyState) {
     return (
       <section
-        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}${
-          webSearchCommandSelected ? ' is-websearch-focus' : ''
-        }`}
+        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}
       >
         {tokenLimitReached ? (
           <p className="chat-limit-banner" role="alert">
@@ -1830,8 +1701,19 @@ export function ChatWindow({
           {quizFormatOverlay}
           {thinkingClarifyOverlay}
           {quickTilesEl}
-          {webSearchCreditsHintEl}
           {thinkingCreditsHintEl}
+          {isSending ? (
+            <div className="chat-empty-send-status" aria-live="polite">
+              <ChatPendingReplyLoader
+                statusLabel={getChatSendPhaseLabel(sendPhase) ?? 'Denkt nach …'}
+              />
+            </div>
+          ) : null}
+          {showInstantAnalyzeDebug && liveInstantAnalyzeDebug ? (
+            <div className="chat-empty-instant-debug">
+              <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
+            </div>
+          ) : null}
           <form
             className={buildComposerInputRowClass(true)}
             onSubmit={handleSubmit}
@@ -1891,10 +1773,7 @@ export function ChatWindow({
               {composerReplyQuoteSlot}
               {pendingAttachments.length > 0 ||
               (!isMobileComposer &&
-                (imageGenCommandSelected ||
-                  excelCommandSelected ||
-                  wordCommandSelected ||
-                  webSearchCommandSelected)) ? (
+                (imageGenCommandSelected || excelCommandSelected || wordCommandSelected)) ? (
                 <div className="chat-attachment-chips" aria-label="Anhänge">
                   {!isMobileComposer && imageGenCommandSelected ? (
                     <button
@@ -1930,18 +1809,6 @@ export function ChatWindow({
                     >
                       <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
                       <span className="chat-compose-mode-badge-label">Word</span>
-                    </button>
-                  ) : null}
-                  {!isMobileComposer && webSearchCommandSelected ? (
-                    <button
-                      type="button"
-                      className="chat-compose-mode-badge chat-compose-mode-badge--websearch"
-                      title="Websuche aktiv (klicken zum Entfernen)"
-                      aria-label="Websuche entfernen"
-                      onClick={() => setWebSearchCommandSelected(false)}
-                    >
-                      <img className="chat-compose-mode-badge-icon" src={webOutlinedIcon} alt="" aria-hidden="true" />
-                      <span className="chat-compose-mode-badge-label">Websuche</span>
                     </button>
                   ) : null}
                   {pendingAttachments.map((item) => (
@@ -2063,18 +1930,6 @@ export function ChatWindow({
                           onClick={handleSelectImageSlashCommand}
                         >
                           Bilder
-                        </button>
-                        <button
-                          type="button"
-                          className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
-                          role="menuitem"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                          }}
-                          onMouseEnter={() => setSlashMenuHighlightIndex(3)}
-                          onClick={handleSelectWebSearchSlashCommand}
-                        >
-                          Websuche
                         </button>
                       </div>
                     ) : null}
@@ -2208,10 +2063,17 @@ export function ChatWindow({
             >
               {showOrbitLoader ? (
                 <div className="chat-message-orbit-loader-wrap">
-                  <ChatPendingReplyLoader />
+                  <ChatPendingReplyLoader statusLabel={streamingStatusLabel} />
                 </div>
               ) : null}
-              {showAssistantAuthor ? <strong className="chat-message-author">Straton AI</strong> : null}
+              {showAssistantAuthor ? (
+                <strong className="chat-message-author">
+                  Straton AI
+                  {message.metadata?.assistantAutoWebSearch ? (
+                    <span className="chat-message-web-badge">Mit Websuche</span>
+                  ) : null}
+                </strong>
+              ) : null}
               {hasReloadedImageSrc ? (
                   <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
                   {pastedImageIds.map((imageId) => {
@@ -2252,6 +2114,11 @@ export function ChatWindow({
               ) : null}
               {userSectionReplyParsed?.sectionRef ? (
                 <ChatMessageReplyQuotePreview reference={userSectionReplyParsed.sectionRef} />
+              ) : null}
+              {message.role === 'user' &&
+              showInstantAnalyzeDebug &&
+              message.metadata?.instantAnalyzeDebug ? (
+                <ChatInstantAnalyzeDebugPanel debug={message.metadata.instantAnalyzeDebug} />
               ) : null}
               {thinkingClarifyStreaming ? (
                 <p className="chat-thinking-stream-hint" role="status">
@@ -2478,11 +2345,12 @@ export function ChatWindow({
                 <strong className="chat-message-author">Straton AI</strong>
               ) : null}
               {pendingImageGeneration ? (
-                <div
-                  className="chat-image-gen-loader-panel"
-                  role="status"
-                  aria-label="Bild wird generiert"
-                >
+                <div className="chat-pending-orbit-wrap chat-pending-special-loader">
+                  <div
+                    className="chat-image-gen-loader-panel"
+                    role="status"
+                    aria-label="Bild wird generiert"
+                  >
                   <div
                     className="chat-image-gen-matrix"
                     style={{
@@ -2499,10 +2367,13 @@ export function ChatWindow({
                       />
                     ))}
                   </div>
+                  </div>
+                  <p className="chat-pending-status">{getChatSendPhaseLabel('image')}</p>
                 </div>
               ) : pendingExcelGeneration || pendingWordGeneration ? (
                 <>
                 <strong className="chat-message-author">Straton AI</strong>
+                <div className="chat-pending-orbit-wrap chat-pending-special-loader">
                 <div
                   className="chat-excel-gen-loader-panel"
                   role="status"
@@ -2525,9 +2396,13 @@ export function ChatWindow({
                     ))}
                   </div>
                 </div>
+                <p className="chat-pending-status">
+                  {getChatSendPhaseLabel(pendingWordGeneration ? 'word' : 'excel')}
+                </p>
+                </div>
                 </>
               ) : (
-                <ChatPendingReplyLoader />
+                <ChatPendingReplyLoader statusLabel={pendingStatusLabel} />
               )}
             </div>
           ) : null}
@@ -2560,8 +2435,12 @@ export function ChatWindow({
         {quizFormatOverlay}
         {thinkingClarifyOverlay}
         {isMobileComposer ? quickTilesEl : null}
-        {isMobileComposer ? webSearchCreditsHintEl : null}
         {isMobileComposer ? thinkingCreditsHintEl : null}
+        {showInstantAnalyzeDebug && liveInstantAnalyzeDebug && isSending ? (
+          <div className="chat-composer-instant-debug">
+            <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
+          </div>
+        ) : null}
         {composerAttachSheet}
         <form
           className={buildComposerInputRowClass(false)}
@@ -2622,10 +2501,7 @@ export function ChatWindow({
           {composerReplyQuoteSlot}
           {pendingAttachments.length > 0 ||
           (!isMobileComposer &&
-            (imageGenCommandSelected ||
-              excelCommandSelected ||
-              wordCommandSelected ||
-              webSearchCommandSelected)) ? (
+            (imageGenCommandSelected || excelCommandSelected || wordCommandSelected)) ? (
             <div className="chat-attachment-chips" aria-label="Anhänge">
               {!isMobileComposer && imageGenCommandSelected ? (
                 <button
@@ -2661,18 +2537,6 @@ export function ChatWindow({
                 >
                   <img className="chat-compose-mode-badge-icon" src={wordIcon} alt="" aria-hidden="true" />
                   <span className="chat-compose-mode-badge-label">Word</span>
-                </button>
-              ) : null}
-              {!isMobileComposer && webSearchCommandSelected ? (
-                <button
-                  type="button"
-                  className="chat-compose-mode-badge chat-compose-mode-badge--websearch"
-                  title="Websuche aktiv (klicken zum Entfernen)"
-                  aria-label="Websuche entfernen"
-                  onClick={() => setWebSearchCommandSelected(false)}
-                >
-                  <img className="chat-compose-mode-badge-icon" src={webOutlinedIcon} alt="" aria-hidden="true" />
-                  <span className="chat-compose-mode-badge-label">Websuche</span>
                 </button>
               ) : null}
               {pendingAttachments.map((item) => (
@@ -2795,18 +2659,6 @@ export function ChatWindow({
                     >
                       Bilder
                     </button>
-                    <button
-                      type="button"
-                      className={`thread-menu-item${slashMenuHighlightIndex === 3 ? ' is-selected' : ''}`}
-                      role="menuitem"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                      }}
-                      onMouseEnter={() => setSlashMenuHighlightIndex(3)}
-                      onClick={handleSelectWebSearchSlashCommand}
-                    >
-                      Websuche
-                    </button>
                   </div>
                 ) : null}
                 <textarea
@@ -2828,7 +2680,6 @@ export function ChatWindow({
         </div>
         {!isMobileCompactComposer ? composerSendButton : null}
         </form>
-        {webSearchCreditsHintEl}
         {!isMobileComposer ? thinkingCreditsHintEl : null}
         <p className="chat-input-hint">
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen

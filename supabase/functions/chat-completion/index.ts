@@ -118,6 +118,7 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v1', retention: '24h' },
     generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
     generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
     generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
@@ -583,6 +584,7 @@ function normalizeMode(
   | 'learn_tutor'
   | 'evaluate_quiz'
   | 'generate_title'
+  | 'instant_analyze'
   | 'generate_topic_suggestions'
   | 'generate_flashcards'
   | 'generate_worksheet'
@@ -605,6 +607,9 @@ function normalizeMode(
   }
   if (v === 'generate_title') {
     return 'generate_title'
+  }
+  if (v === 'instant_analyze') {
+    return 'instant_analyze'
   }
   if (v === 'generate_topic_suggestions') {
     return 'generate_topic_suggestions'
@@ -1474,6 +1479,152 @@ function sanitizeGeneratedTitle(raw: string): string {
 /** Titel: kurze Ausgabe — Output-Tokens begrenzen (Kosten). */
 const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
 
+/** Smart Instant — Einordnung (JSON). */
+const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
+const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
+
+type InstantAnalyzePayloadEdge = {
+  clarity: 'clear' | 'partial' | 'vague'
+  intent: string
+  missing: string[]
+  reply_mode: 'ask_only' | 'one_step' | 'short_answer' | 'normal'
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
+}
+
+function clipInstantAnalyzeText(value: unknown, max: number): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const t = value.trim()
+  if (!t) {
+    return ''
+  }
+  return t.length > max ? t.slice(0, max).trim() : t
+}
+
+function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const clarityRaw = typeof o.clarity === 'string' ? o.clarity.trim() : ''
+  const clarity =
+    clarityRaw === 'clear' || clarityRaw === 'partial' || clarityRaw === 'vague' ? clarityRaw : 'partial'
+  const replyRaw = typeof o.reply_mode === 'string' ? o.reply_mode.trim() : ''
+  let reply_mode:
+    | 'ask_only'
+    | 'one_step'
+    | 'short_answer'
+    | 'normal' =
+    replyRaw === 'ask_only' ||
+    replyRaw === 'one_step' ||
+    replyRaw === 'short_answer' ||
+    replyRaw === 'normal'
+      ? replyRaw
+      : 'normal'
+  const intent = clipInstantAnalyzeText(o.intent, 120) || 'Allgemeine Anfrage'
+  const missing = Array.isArray(o.missing)
+    ? o.missing
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => clipInstantAnalyzeText(entry, 80))
+        .filter(Boolean)
+        .slice(0, 3)
+    : []
+  let needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  const web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (reply_mode === 'ask_only') {
+    needs_live_web = false
+    web_query = ''
+  }
+  if (!needs_live_web) {
+    web_query = ''
+  }
+  if (clarity === 'vague' && reply_mode === 'normal') {
+    reply_mode = 'ask_only'
+    needs_live_web = false
+    web_query = ''
+  }
+  return {
+    clarity,
+    intent,
+    missing,
+    reply_mode,
+    needs_live_web,
+    web_query,
+    web_reason,
+  }
+}
+
+function parseInstantAnalyzeResult(raw: string): InstantAnalyzePayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Instant-Einordnung konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeInstantAnalyzePayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Instant-Einordnung enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: string; contextBlock: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  if (!userMessage) {
+    return null
+  }
+  const contextBlock =
+    typeof payload.contextBlock === 'string' ? payload.contextBlock.trim().slice(0, 4000) : ''
+  return { userMessage: userMessage.slice(0, 8000), contextBlock }
+}
+
+async function instantAnalyzeWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
+    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
+    'Felder: clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
+    'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
+    'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
+    'Bei reply_mode "ask_only": needs_live_web false und web_query leer.',
+    'Bei vager Anfrage ohne Kernkontext: reply_mode "ask_only".',
+    'needs_live_web true bei: Aktienkurs/Ticker, Preise, News, «aktuell»/«aktuellste»/«neueste», Gesetzes- oder Rechtslage,',
+    '«aktuellste Information», Delikte/Strafen mit Zeitbezug, Produktversionen, Termine.',
+    'Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true,',
+    'web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
+    'needs_live_web false nur ohne Zeitbezug (allgemeine Erklärung, Coding, Mathe, reine Meinung).',
+  ].join('\n')
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const messages: InputMessage[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: userParts.trim() },
+  ]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    [...INSTANT_ANALYZE_OPENAI_MODELS],
+    openAiPromptCache,
+    INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
+  )
+  const analyze = parseInstantAnalyzeResult(usage.text)
+  return { analyze, usage }
+}
+
 async function generateTitleWithAi(
   provider: Provider,
   sourceMessages: InputMessage[],
@@ -2139,6 +2290,27 @@ serve(async (req) => {
       const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels, openAiPc)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ title })
+    }
+
+    if (mode === 'instant_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Instant-Einordnung.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'instant_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { analyze, usage } = await instantAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
+      return jsonResponse({ analyze })
     }
 
     const includeProfileMemory = body.includeProfileMemory === true

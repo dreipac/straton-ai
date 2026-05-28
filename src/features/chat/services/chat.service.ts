@@ -7,6 +7,15 @@ import {
   getAssistantMainChatStepByStepIntakeInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
+import {
+  applyLiveWebHeuristic,
+  buildInstantAnalyzeBriefingInstruction,
+  fallbackInstantAnalyzeResult,
+  formatInstantAnalyzeContextLines,
+  sanitizeInstantAnalyzeResult,
+  type InstantAnalyzeInvokeResult,
+  type InstantAnalyzeResult,
+} from '../constants/instantAnalyze'
 import { env } from '../../../config/env'
 import { errorMessageFromUnknown, parseApiErrorField } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
@@ -126,6 +135,10 @@ export type SendMessageOptions = {
    * eingebettet in den Systemprompt — ohne die Rohdaten in der Nutzernachricht zu speichern.
    */
   webSearchContext?: string
+  /** Smart Instant: Einordnung vor der Antwort (nur Hauptchat Instant). */
+  instantAnalyze?: InstantAnalyzeResult
+  /** Live-Web war geplant, Tavily lieferte aber keinen Kontext (Fehler/Guthaben). */
+  webSearchRequestedButMissing?: boolean
 }
 
 type EvaluateQuizAnswerInput = {
@@ -310,10 +323,30 @@ function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage
 
 function getChatWebSearchGroundingInstruction(): string {
   return [
-    'Die Nutzeranfrage wurde mit einer Live-Websuche (Tavily) ergänzt. Unten stehen Kurzauszüge inkl. URLs.',
+    'Live-Websuche (Tavily): Snippets können in der **letzten Nutzernachricht** unter «Kontext für diese Anfrage» stehen.',
     'Nutze diese Auszüge als Faktenbasis. Wenn etwas nicht belegt ist, sage das klar.',
     'Bei konkreten Behauptungen Quellen mit Seitentitel oder URL nennen.',
+    'Bei Aktienkursen/Preisen: nenne den Wert aus den Snippets (mit Währung und Stand/Stichtag wenn vorhanden).',
+    'Bei News/Politik/Deals: fasse die Snippets sachlich zusammen; nenne kein Trainings-Wissenscutoff-Datum.',
+    'Verweise den Nutzer nicht pauschal auf externe Seiten, wenn die Snippets bereits Antworten erlauben.',
+    'Ohne Websuche-Snippets: nicht mit «Wissensstand bis Oktober 2023» antworten — das ist irrelevant für Live-Anfragen.',
   ].join('\n')
+}
+
+const MAIN_CHAT_TURN_CONTEXT_HEADER =
+  '## Kontext für diese Anfrage (vom System ergänzt, nicht vom Nutzer geschrieben)'
+
+/** Dynamische Turn-Blöcke ans User-Text hängen — Systemprompt bleibt für Prompt-Cache stabil. */
+function prependMainChatTurnContextToUserContent(userContent: string, contextBlocks: string[]): string {
+  const blocks = contextBlocks.map((b) => b.trim()).filter(Boolean)
+  if (blocks.length === 0) {
+    return userContent
+  }
+  const body = blocks.join('\n\n')
+  const base = userContent.trim()
+  return base
+    ? `${MAIN_CHAT_TURN_CONTEXT_HEADER}\n\n${body}\n\n---\n\n${base}`
+    : `${MAIN_CHAT_TURN_CONTEXT_HEADER}\n\n${body}`
 }
 
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
@@ -349,14 +382,50 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         : ''
   const lastUserMessage = [...threadMessages].reverse().find((m) => m.role === 'user')
   const forceStepByStepIntake = mainChatInstantPrompts && shouldForceStepByStepIntake(lastUserMessage)
-  const stepByStepIntakeHardGuard = forceStepByStepIntake
-    ? [
-        'Harter Intake-Guard (diese Antwort):',
-        '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
-        '- Stelle stattdessen nur 3–5 präzise Rückfragen zur Umgebung (OS/Version/Verbindungsart/Ziel).',
-        '- Abschluss mit genau einer kurzen Frage nach den fehlenden Infos.',
-      ].join('\n')
-    : ''
+  const instantAnalyze = options?.instantAnalyze
+  const instantAskOnly = Boolean(
+    isMainChat && !thinking && instantAnalyze?.reply_mode === 'ask_only',
+  )
+  const stepByStepIntakeHardGuard =
+    forceStepByStepIntake || instantAskOnly
+      ? [
+          instantAskOnly
+            ? 'Harter Smart-Instant-Guard (diese Antwort):'
+            : 'Harter Intake-Guard (diese Antwort):',
+          '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
+          instantAskOnly
+            ? '- Stelle nur 2–4 kurze, präzise Rückfragen — keine Lösung, keine Schrittfolge.'
+            : '- Stelle stattdessen nur 3–5 präzise Rückfragen zur Umgebung (OS/Version/Verbindungsart/Ziel).',
+          '- Abschluss mit genau einer kurzen Frage nach den fehlenden Infos.',
+        ].join('\n')
+      : ''
+  const mainChatWebGrounding =
+    isMainChat && !thinking ? getChatWebSearchGroundingInstruction() : ''
+
+  const lastUserTurnContextBlocks: string[] = []
+  if (isMainChat && !thinking && instantAnalyze) {
+    lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    options?.webSearchRequestedButMissing &&
+    !options?.webSearchContext?.trim()
+  ) {
+    lastUserTurnContextBlocks.push(
+      [
+        'Hinweis: Eine Live-Websuche war für diese Anfrage vorgesehen, ist aber fehlgeschlagen oder nicht verfügbar.',
+        'Erfinde keine aktuellen Fakten und verweise nicht auf ein Trainings-Wissenscutoff-Datum (z. B. Oktober 2023).',
+        'Sage kurz, dass aktuelle Web-Infos gerade nicht abgerufen werden konnten, und bitte um erneuten Versuch oder präzisere Quelle.',
+      ].join(' '),
+    )
+  }
+  if (isMainChat && !thinking && options?.webSearchContext?.trim()) {
+    lastUserTurnContextBlocks.push(`--- Websuche ---\n${options.webSearchContext.trim()}`)
+  }
+  if (stepByStepIntakeHardGuard) {
+    lastUserTurnContextBlocks.push(stepByStepIntakeHardGuard)
+  }
   const thinkingClarifyPhase = thinking
     ? thinkingWord
       ? 'final'
@@ -383,29 +452,15 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : thinkingClarifyPhase === 'final'
         ? getChatThinkingFinalAnswerUiReminder()
         : ''
-  const webSearchBlock =
-    isMainChat && options?.webSearchContext?.trim()
-      ? `${getChatWebSearchGroundingInstruction()}\n\n--- Websuche ---\n${options.webSearchContext.trim()}`
-      : ''
-  const quizFormatUserMessage =
-    isMainChat && !thinking
-      ? [...threadMessages].reverse().find((m) => m.role === 'user' && m.metadata?.userQuizFormat)
-      : undefined
-  const quizFormatBlock =
-    quizFormatUserMessage?.metadata?.userQuizFormat
-      ? getQuizFormatGenerationInstruction(quizFormatUserMessage.metadata.userQuizFormat)
-      : ''
   const combinedSystemPrompt = [
     baseQuiz,
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
-    webSearchBlock,
-    quizFormatBlock,
+    mainChatWebGrounding,
     mainChatBrevity,
     mainChatGuidedDiagnosis,
     mainChatStepByStepIntake,
-    stepByStepIntakeHardGuard,
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -432,24 +487,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
           typeof content === 'string' ? scrubMainChatInlineImagesPreservingBildData(content) : ''
       : (content: string) => content
 
-  const forceIntakeSystemMessage: GatewayMessage | null = stepByStepIntakeHardGuard
-    ? {
-        role: 'system',
-        content: [
-          'VERBINDLICHE AUSGABEREGEL FÜR DIESE ANTWORT:',
-          '- Antworte ausschließlich mit klärenden Rückfragen.',
-          '- Gib keine Schritte, keine Lösungsliste und keine Befehle aus.',
-          '- Stelle 3 bis 5 kurze, konkrete Fragen zur fehlenden Umgebung.',
-        ].join('\n'),
-      }
-    : null
-
   return [
     {
       role: 'system',
       content: combinedSystemPrompt,
     },
-    ...(forceIntakeSystemMessage ? [forceIntakeSystemMessage] : []),
     ...threadMessages.map((message) => {
       let content = scrubDataImages(message.content)
       if (message.role === 'user' && isMainChat) {
@@ -458,6 +500,16 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       if (message.role === 'user' && message.metadata?.userWordCommand) {
         const t = content.trim()
         content = t ? `${t}\n\n${WORD_EXPORT_COMMAND_MARKER}` : WORD_EXPORT_COMMAND_MARKER
+      }
+      if (isMainChat && !thinking && message.role === 'user') {
+        const turnBlocks: string[] = []
+        if (message.metadata?.userQuizFormat) {
+          turnBlocks.push(getQuizFormatGenerationInstruction(message.metadata.userQuizFormat))
+        }
+        if (lastUserMessage && message.id === lastUserMessage.id) {
+          turnBlocks.push(...lastUserTurnContextBlocks)
+        }
+        content = prependMainChatTurnContextToUserContent(content, turnBlocks)
       }
       if (
         thinking &&
@@ -623,6 +675,7 @@ const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v3'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v1'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -1161,6 +1214,56 @@ function shortenContentForChatTitleApi(content: string | undefined | null): stri
     return ''
   }
   return content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/g, '[Generiertes Bild]')
+}
+
+export async function instantAnalyzeUserMessage(params: {
+  userMessage: string
+  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+}): Promise<InstantAnalyzeInvokeResult> {
+  const trimmed = params.userMessage.trim()
+  if (!trimmed) {
+    return { analyze: fallbackInstantAnalyzeResult(''), source: 'fallback' }
+  }
+  if (!usesGatewayAi()) {
+    return { analyze: fallbackInstantAnalyzeResult(trimmed), source: 'fallback' }
+  }
+
+  const contextBlock = params.priorTurns?.length
+    ? formatInstantAnalyzeContextLines(params.priorTurns)
+    : ''
+
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+      body: {
+        mode: 'instant_analyze',
+        provider: providerForMainChat(),
+        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE,
+        promptCacheRetention: '24h',
+        payload: {
+          userMessage: trimmed,
+          contextBlock,
+        },
+      },
+    })
+
+    if (error) {
+      throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+    }
+
+    const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
+    if (parsed) {
+      return {
+        analyze: applyLiveWebHeuristic(trimmed, parsed),
+        source: 'edge',
+        analyzeFromAi: parsed,
+      }
+    }
+  } catch {
+    /* Fallback unten */
+  }
+
+  return { analyze: fallbackInstantAnalyzeResult(trimmed), source: 'fallback' }
 }
 
 export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {

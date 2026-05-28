@@ -39,7 +39,7 @@ function ChatComposerThinkingModeNativeSelect({
   disabled,
 }: ChatComposerThinkingModePickerProps) {
   const currentLabel =
-    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Instant'
+    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Smart Instant'
 
   return (
     <div className="chat-model-picker chat-thinking-mode-picker">
@@ -91,7 +91,7 @@ function ChatComposerThinkingModeDropdown({
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   const currentLabel =
-    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Instant'
+    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Smart Instant'
 
   useEffect(() => {
     if (!open) {
@@ -140,7 +140,7 @@ function ChatComposerThinkingModeDropdown({
         <div
           className="chat-slash-menu thread-menu chat-model-picker-dropdown"
           role="listbox"
-          aria-label="Instant oder Thinking wählen"
+          aria-label="Smart Instant oder Thinking wählen"
         >
           {CHAT_THINKING_MODE_OPTIONS.map((option) => (
             <button

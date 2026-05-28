@@ -51,6 +51,35 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
   if (o.userWebSearchCommand === true) {
     out.userWebSearchCommand = true
   }
+  if (o.autoWebSearch === true) {
+    out.autoWebSearch = true
+  }
+  if (o.assistantAutoWebSearch === true) {
+    out.assistantAutoWebSearch = true
+  }
+
+  const dbg = o.instantAnalyzeDebug
+  if (dbg && typeof dbg === 'object') {
+    const d = dbg as Record<string, unknown>
+    const source = d.source === 'edge' || d.source === 'fallback' ? d.source : 'fallback'
+    const missing = Array.isArray(d.missing)
+      ? d.missing.filter((m): m is string => typeof m === 'string').slice(0, 3)
+      : []
+    out.instantAnalyzeDebug = {
+      source,
+      clarity: typeof d.clarity === 'string' ? d.clarity : 'partial',
+      intent: typeof d.intent === 'string' ? d.intent : '',
+      missing,
+      reply_mode: typeof d.reply_mode === 'string' ? d.reply_mode : 'normal',
+      needs_live_web_from_ai: d.needs_live_web_from_ai === true,
+      needs_live_web_final: d.needs_live_web_final === true,
+      heuristic_applied: d.heuristic_applied === true,
+      web_query: typeof d.web_query === 'string' ? d.web_query : '',
+      web_reason: typeof d.web_reason === 'string' ? d.web_reason : '',
+      auto_web_planned: d.auto_web_planned === true,
+      auto_web_ran: d.auto_web_ran === true,
+    }
+  }
 
   if (o.userQuizFormat === 'markdown_mcq' || o.userQuizFormat === 'interactive') {
     out.userQuizFormat = o.userQuizFormat

@@ -1,5 +1,21 @@
 export type ChatRole = 'user' | 'assistant'
 
+/** Admin-Debug: Ergebnis von Smart-Instant Schritt 1 (an User-Nachricht). */
+export type InstantAnalyzeDebugMeta = {
+  source: 'edge' | 'fallback'
+  clarity: string
+  intent: string
+  missing: string[]
+  reply_mode: string
+  needs_live_web_from_ai: boolean
+  needs_live_web_final: boolean
+  heuristic_applied: boolean
+  web_query: string
+  web_reason: string
+  auto_web_planned: boolean
+  auto_web_ran: boolean
+}
+
 export type ChatMessageExcelExport = {
   bucket: string
   path: string
@@ -41,6 +57,12 @@ export type ChatMessage = {
     userWordCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */
     userWebSearchCommand?: boolean
+    /** User-Nachricht: automatische Tavily-Websuche (Smart Instant). */
+    autoWebSearch?: boolean
+    /** Assistant-Nachricht: Antwort nutzte automatische Websuche. */
+    assistantAutoWebSearch?: boolean
+    /** User-Nachricht: Smart-Instant Einordnung (nur wenn Admin-Debug aktiv). */
+    instantAnalyzeDebug?: InstantAnalyzeDebugMeta
     /** User-Nachricht: gewähltes Quiz-Format vor Generierung (MC-Chat vs. interaktiv). */
     userQuizFormat?: 'markdown_mcq' | 'interactive'
   }

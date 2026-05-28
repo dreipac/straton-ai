@@ -283,11 +283,15 @@ export function ChatPage() {
     }
     return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
   }, [profile?.subscription_plans])
+  const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
+  const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
+  const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
   const {
     threads,
     activeThreadId,
     messages,
     isSending,
+    sendPhase,
     isBootstrapping,
     error,
     submitMessage,
@@ -309,6 +313,7 @@ export function ChatPage() {
     dismissThinkingClarify,
     thinkingCreditsRemaining,
     thinkingCreditsBlocked,
+    liveInstantAnalyzeDebug,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
@@ -318,6 +323,7 @@ export function ChatPage() {
     mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
     webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
     isSuperadmin: profile?.is_superadmin === true,
+    instantAnalyzeDebugEnabled: profile?.is_superadmin === true && instantAnalyzeDebugEnabled,
     onWebSearchCreditsConsumed: refreshProfile,
     thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
     onThinkingCreditsConsumed: refreshProfile,
@@ -341,23 +347,13 @@ export function ChatPage() {
   const [shareActionBusy, setShareActionBusy] = useState(false)
   /** Mobile «Neuer Chat» FAB: gleicher Ring wie Senden während createNewChat läuft */
   const [isNewChatPending, setIsNewChatPending] = useState(false)
-  /** Nach Tab «Web-Suche»: Composer einmal im Websuche-Modus öffnen */
-  const [pendingWebSearchComposer, setPendingWebSearchComposer] = useState(false)
-  /** Nur für Mobile-Tab: gefülltes Icon während Neuer-Chat-Lauf von «Web-Suche» */
-  const [isWebSearchNewChatPending, setIsWebSearchNewChatPending] = useState(false)
-  /** Bottom-Nav: Web-Suche-Tab aktiv (Composer-Modus), synchron über ChatWindow */
-  const [mobileWebSearchNavActive, setMobileWebSearchNavActive] = useState(false)
-  /** Chat-Tab erhöht Signal — Composer verlässt Websuche */
-  const [exitWebSearchSignal, setExitWebSearchSignal] = useState(0)
-  /** Sofortige Pill-Position beim Tab-Tap (vor async. Composer-/Web-Suche-State). */
+  /** Sofortige Pill-Position beim Tab-Tap (vor async. Composer-State). */
   const [optimisticPillTabIndex, setOptimisticPillTabIndex] = useState<number | null>(null)
   const [guestOptimisticPillTabIndex, setGuestOptimisticPillTabIndex] = useState<number | null>(null)
   const [pillAccentPulseActive, setPillAccentPulseActive] = useState(false)
   const [guestPillAccentPulseActive, setGuestPillAccentPulseActive] = useState(false)
   const pillAccentPulseTimerRef = useRef<number | null>(null)
   const guestPillAccentPulseTimerRef = useRef<number | null>(null)
-  const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
-  const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const canInviteToActiveChat = Boolean(
     user && activeThread && !activeThread.isTemporary && isThreadOwner(activeThread, user.id),
   )
@@ -954,11 +950,7 @@ export function ChatPage() {
       return
     }
     const nextSidebarOpen = !isMobileSidebarOpen
-    const nextPillIndex = nextSidebarOpen
-      ? 0
-      : user && (mobileWebSearchNavActive || isWebSearchNewChatPending)
-        ? 2
-        : 1
+    const nextPillIndex = nextSidebarOpen ? 0 : 1
     if (user) {
       selectMobileBottomNavTab(nextPillIndex as 0 | 1 | 2)
     } else {
@@ -1077,6 +1069,7 @@ export function ChatPage() {
         setShowBetaNoticeOnFirstLogin(flags.show_beta_notice_on_first_login)
         setLearnPathsEnabled(flags.learn_paths_enabled)
         setLearnPathCreateEnabled(flags.learn_path_create_enabled)
+        setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
       } catch {
         if (!isMounted) {
           return
@@ -1303,36 +1296,11 @@ export function ChatPage() {
     }
   }
 
-  async function handleCreateNewChatWithWebSearch() {
-    setIsWebSearchNewChatPending(true)
-    setIsNewChatPending(true)
-    try {
-      await createNewChat()
-      setPendingWebSearchComposer(true)
-      closeThreadActionMenu()
-      if (isCompactMobileSidebarLayout) {
-        profileFullSheetRef.current?.requestClose()
-      }
-      setIsMobileSidebarOpen(false)
-    } finally {
-      setIsWebSearchNewChatPending(false)
-      setIsNewChatPending(false)
-    }
-  }
-
-  const consumePendingWebSearchComposer = useCallback(() => {
-    setPendingWebSearchComposer(false)
-  }, [])
-
-  const computedMobileBottomNavTabIndex =
-    isMobileSidebarOpen ? 0 : mobileWebSearchNavActive || isWebSearchNewChatPending ? 2 : 1
+  const computedMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : 1
   const computedGuestMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : 1
   const mobileBottomNavTabIndex = optimisticPillTabIndex ?? computedMobileBottomNavTabIndex
   const guestMobileBottomNavTabIndex = guestOptimisticPillTabIndex ?? computedGuestMobileBottomNavTabIndex
-  const mobileChatBottomTabActive =
-    !isMobileSidebarOpen && !mobileWebSearchNavActive && !isWebSearchNewChatPending
-  const mobileWebBottomTabActive =
-    !isMobileSidebarOpen && (mobileWebSearchNavActive || isWebSearchNewChatPending)
+  const mobileChatBottomTabActive = !isMobileSidebarOpen
 
   useEffect(() => {
     if (optimisticPillTabIndex !== null && optimisticPillTabIndex === computedMobileBottomNavTabIndex) {
@@ -1544,7 +1512,6 @@ export function ChatPage() {
                 aria-label="Chat — Standardmodus"
                 onClick={() => {
                   selectMobileBottomNavTab(1)
-                  setExitWebSearchSignal((n) => n + 1)
                 }}
               >
                 <span className="chat-mobile-bottom-tab-icon-slot">
@@ -1561,25 +1528,14 @@ export function ChatPage() {
               </button>
               <button
                 type="button"
-                className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--websearch${mobileWebBottomTabActive ? ' is-active' : ''}`}
-                aria-label="Live-Web: Neuer Chat mit Websuche"
-                disabled={isNewChatPending}
-                onClick={() => {
-                  selectMobileBottomNavTab(2)
-                  void handleCreateNewChatWithWebSearch()
-                }}
+                className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
+                aria-label="Platzhalter"
+                disabled
               >
                 <span className="chat-mobile-bottom-tab-icon-slot">
-                  <span
-                    className={`chat-mobile-bottom-tab-icon-accent ${
-                      mobileWebBottomTabActive
-                        ? 'chat-mobile-bottom-tab-icon-accent--web-filled'
-                        : 'chat-mobile-bottom-tab-icon-accent--web-outlined'
-                    }`}
-                    aria-hidden="true"
-                  />
+                  <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--status" aria-hidden="true" />
                 </span>
-                <span className="chat-mobile-bottom-tab-label">Live-Web</span>
+                <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
               </button>
             </>
           )}
@@ -2225,6 +2181,7 @@ export function ChatPage() {
           threadKey={activeThreadId}
           messages={messages}
           isSending={isSending}
+          sendPhase={sendPhase}
           error={error}
           greetingName={greetingName}
           tokenLimitReached={tokenLimitReached}
@@ -2239,21 +2196,11 @@ export function ChatPage() {
           thinkingClarifyDialog={thinkingClarifyDialog}
           onDismissThinkingClarify={dismissThinkingClarify}
           onSubmitThinkingClarifyAnswer={(text) => void submitMessage(text)}
+          showInstantAnalyzeDebug={isAdmin && instantAnalyzeDebugEnabled}
+          liveInstantAnalyzeDebug={liveInstantAnalyzeDebug}
           onSendMessage={submitMessage}
           onFinalizeWordDocument={finalizeWordDocumentExport}
           wordFinalizeBusy={wordFinalizeBusy}
-          pendingWebSearchComposer={pendingWebSearchComposer}
-          onPendingWebSearchComposerConsumed={consumePendingWebSearchComposer}
-          onWebSearchModeChange={setMobileWebSearchNavActive}
-          exitWebSearchSignal={exitWebSearchSignal}
-          webSearchCreditsRemaining={
-            profile?.is_superadmin === true
-              ? undefined
-              : profile?.subscription_usages?.web_search_credit_balance ?? 0
-          }
-          webSearchDailyGrant={
-            profile?.is_superadmin === true ? undefined : profile?.subscription_plans?.web_search_daily_grant ?? null
-          }
           thinkingCreditsRemaining={
             profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
           }

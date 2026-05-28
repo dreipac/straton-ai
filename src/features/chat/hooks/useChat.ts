@@ -37,6 +37,7 @@ import {
   generateExcelSpecWithSonnet,
   generateWordFromOutline,
   mergePersistedAiChatMemoryAfterTurn,
+  instantAnalyzeUserMessage,
   sendMessage,
   sendMessageStreaming,
   usesGatewayAi,
@@ -66,7 +67,14 @@ import {
   type ChatMessageRow,
 } from '../services/chat.persistence'
 import { canFinalizeWordExportFromThread, extractWordOutlineFromThread } from '../utils/wordOutline'
+import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
+import type { ChatSendPhaseState } from '../constants/chatSendPhase'
+import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
+import type { InstantAnalyzeDebugMeta } from '../types'
 import type { ChatMessage, ChatThread } from '../types'
+
+export type { ChatSendPhase, ChatSendPhaseState } from '../constants/chatSendPhase'
+
 const TEMP_THREAD_PREFIX = 'temp-thread-'
 const THREAD_REMOVE_ANIMATION_MS = 180
 
@@ -208,6 +216,8 @@ export function useChat(
     /** Aktuelles Websuche-Guthaben (Profil); ohne Superadmin bei 0 keine Websuche. */
     webSearchCreditBalance?: number
     isSuperadmin?: boolean
+    /** App-Flag: Instant-Analyse-Debug im Chat (nur zusammen mit isSuperadmin). */
+    instantAnalyzeDebugEnabled?: boolean
     /** Nach erfolgreicher Tavily-Suche Profil aktualisieren (Guthaben). */
     onWebSearchCreditsConsumed?: () => void | Promise<void>
     /** Thinking-Modus-Guthaben (Profil); ohne Superadmin bei 0 keine Thinking-Anfrage. */
@@ -221,6 +231,9 @@ export function useChat(
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messagesByThreadId, setMessagesByThreadId] = useState<Record<string, ChatMessage[]>>({})
   const [isSending, setIsSending] = useState(false)
+  const [sendPhase, setSendPhase] = useState<ChatSendPhaseState>(null)
+  const [liveInstantAnalyzeDebug, setLiveInstantAnalyzeDebug] =
+    useState<InstantAnalyzeDebugMeta | null>(null)
   const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -788,7 +801,6 @@ export function useChat(
   async function submitMessage(
     content: string,
     sendOpts?: {
-      useWebSearch?: boolean
       quizFormat?: 'markdown_mcq' | 'interactive'
     },
   ) {
@@ -826,6 +838,7 @@ export function useChat(
 
     setThinkingClarifyDialog(null)
     setError(null)
+    setLiveInstantAnalyzeDebug(null)
     let threadId = activeThreadId
 
     if (wantsWord && !usesGatewayAi()) {
@@ -914,55 +927,129 @@ export function useChat(
         }
       }
 
-      let webSearchContext: string | undefined
-      if (
-        sendOpts?.useWebSearch &&
-        trimmed &&
+      const wantsSmartInstant =
         usesGatewayAi() &&
+        chatThinkingMode !== 'thinking' &&
         !wantsWord &&
         !wantsExcel &&
         !imageGenPrompt
-      ) {
-        if (!options?.isSuperadmin && (options?.webSearchCreditBalance ?? 0) < 1) {
-          setError(
-            'Dein Websuche-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen (max. 50 Kontostand).',
-          )
-          return
-        }
-        try {
-          const ws = await fetchTavilySearchContext(trimmed)
-          webSearchContext = ws.contextText
-          void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
-        } catch (wsErr) {
-          const message =
-            wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
-          setError(message)
-          return
-        }
-      }
 
       const userContent = trimmed || (wantsWord ? 'Word-Dokument vorbereiten' : trimmed)
-      const userMetadata =
-        wantsExcel
-          ? { userExcelCommand: true as const }
-          : wantsWord
-            ? { userWordCommand: true as const }
-            : webSearchContext
-              ? { userWebSearchCommand: true as const }
-              : sendOpts?.quizFormat
-                ? { userQuizFormat: sendOpts.quizFormat }
-                : undefined
+      const userMetadataBase = {
+        ...(wantsExcel ? { userExcelCommand: true as const } : {}),
+        ...(wantsWord ? { userWordCommand: true as const } : {}),
+        ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
+      }
+      const priorTurns = (messagesByThreadId[targetThreadId] ?? [])
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }))
 
-      const storedUserMessage = await createChatMessage(
-        targetThreadId,
-        'user',
-        userContent,
-        userMetadata,
-      )
+      const optimisticUserId = crypto.randomUUID()
+      const optimisticUserMessage: ChatMessage = {
+        id: optimisticUserId,
+        role: 'user',
+        content: userContent,
+        createdAt: new Date().toISOString(),
+        metadata: Object.keys(userMetadataBase).length > 0 ? userMetadataBase : undefined,
+      }
 
       let nextMessages: ChatMessage[] = []
       setMessagesByThreadId((prev) => {
         const list = prev[targetThreadId] ?? []
+        nextMessages = upsertChatMessage(list, optimisticUserMessage)
+        return { ...prev, [targetThreadId]: nextMessages }
+      })
+
+      if (wantsSmartInstant && trimmed) {
+        setSendPhase('analyzing')
+      }
+
+      let instantAnalyze: InstantAnalyzeResult | undefined
+      let webSearchContext: string | undefined
+      let usedAutoWebSearch = false
+      let wantedAutoWebSearch = false
+      let instantAnalyzeDebug: InstantAnalyzeDebugMeta | undefined
+      const persistInstantAnalyzeDebug =
+        options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
+
+      try {
+        if (wantsSmartInstant && trimmed) {
+          const invokeResult = await instantAnalyzeUserMessage({
+            userMessage: trimmed,
+            priorTurns,
+          })
+          instantAnalyze = invokeResult.analyze
+
+          const shouldAutoWeb =
+            instantAnalyze.needs_live_web &&
+            instantAnalyze.reply_mode !== 'ask_only' &&
+            instantAnalyze.web_query.trim().length > 0
+          wantedAutoWebSearch = shouldAutoWeb
+
+          if (shouldAutoWeb) {
+            if (!options?.isSuperadmin && (options?.webSearchCreditBalance ?? 0) < 1) {
+              setError(
+                'Für aktuelle Web-Infos ist dein Websuche-Guthaben aufgebraucht. Die Antwort erfolgt ohne Live-Suche.',
+              )
+            } else {
+              setSendPhase('web_search')
+              try {
+                const ws = await fetchTavilySearchContext(instantAnalyze.web_query.trim())
+                webSearchContext = ws.contextText
+                usedAutoWebSearch = true
+                void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
+              } catch (wsErr) {
+                const message =
+                  wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
+                setError(message)
+              }
+            }
+          }
+
+          if (persistInstantAnalyzeDebug) {
+            instantAnalyzeDebug = buildInstantAnalyzeDebugMeta({
+              invoke: invokeResult,
+              autoWebPlanned: wantedAutoWebSearch,
+              autoWebRan: usedAutoWebSearch,
+            })
+            setLiveInstantAnalyzeDebug(instantAnalyzeDebug)
+          }
+        }
+      } catch (analyzeErr) {
+        setMessagesByThreadId((prev) => ({
+          ...prev,
+          [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+        }))
+        throw analyzeErr
+      }
+
+      const userMetadataFinal = {
+        ...userMetadataBase,
+        ...(usedAutoWebSearch ? { autoWebSearch: true as const } : {}),
+        ...(instantAnalyzeDebug ? { instantAnalyzeDebug } : {}),
+      }
+
+      let storedUserMessage: ChatMessage
+      try {
+        storedUserMessage = await createChatMessage(
+          targetThreadId,
+          'user',
+          userContent,
+          Object.keys(userMetadataFinal).length > 0 ? userMetadataFinal : undefined,
+        )
+      } catch (persistErr) {
+        setMessagesByThreadId((prev) => ({
+          ...prev,
+          [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+        }))
+        throw persistErr
+      }
+
+      setMessagesByThreadId((prev) => {
+        const list = (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId)
         nextMessages = upsertChatMessage(list, storedUserMessage)
         return { ...prev, [targetThreadId]: nextMessages }
       })
@@ -999,6 +1086,7 @@ export function useChat(
           setError('Bildgenerierung ist im Demo-Modus nicht verfügbar.')
           return
         }
+        setSendPhase('image')
         try {
           const imageContextTurns = nextMessages.map((m) => ({
             role: m.role,
@@ -1070,6 +1158,7 @@ export function useChat(
       let excelSpecModelLabel: 'Claude Sonnet' | 'OpenAI (Fallback)' | null = null
 
       if (usesGatewayAi()) {
+        setSendPhase(wantsThinkingTurn ? 'thinking' : 'generating')
         const streamingMessageId = crypto.randomUUID()
         streamAssistantId = streamingMessageId
         const streamCreatedAt = new Date().toISOString()
@@ -1100,6 +1189,8 @@ export function useChat(
                 ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
                 : options.mainChatContextMaxTokens,
             webSearchContext,
+            instantAnalyze,
+            webSearchRequestedButMissing: wantedAutoWebSearch && !webSearchContext?.trim(),
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1127,6 +1218,7 @@ export function useChat(
           markThinkingCreditConsumedLocally()
         }
       } else {
+        setSendPhase(wantsThinkingTurn ? 'thinking' : 'generating')
         const { assistantMessage } = await sendMessage(nextMessages, {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
@@ -1142,6 +1234,8 @@ export function useChat(
               ? DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
               : options.mainChatContextMaxTokens,
           webSearchContext,
+          instantAnalyze,
+          webSearchRequestedButMissing: wantedAutoWebSearch && !webSearchContext?.trim(),
         })
         finalAssistantContent = assistantMessage.content
         if (wantsThinkingTurn && options?.isSuperadmin !== true) {
@@ -1149,6 +1243,7 @@ export function useChat(
         }
       }
       if (usesGatewayAi() && wantsExcel) {
+        setSendPhase('excel')
         try {
           const specResult = await generateExcelSpecWithSonnet(trimmed)
           excelSpecModelLabel = specResult.modelLabel
@@ -1166,6 +1261,7 @@ export function useChat(
         targetThreadId,
         'assistant',
         finalAssistantContent,
+        usedAutoWebSearch ? { assistantAutoWebSearch: true as const } : undefined,
       )
 
       let mergedAssistantMessage = storedAssistantMessage
@@ -1342,6 +1438,8 @@ export function useChat(
       if (wantsThinkingTurn && options?.isSuperadmin !== true) {
         await options?.onThinkingCreditsConsumed?.()?.catch(() => {})
       }
+      setSendPhase(null)
+      setLiveInstantAnalyzeDebug(null)
       setIsSending(false)
     }
   }
@@ -1351,6 +1449,11 @@ export function useChat(
     activeThreadId,
     messages,
     isSending,
+    sendPhase,
+    liveInstantAnalyzeDebug:
+      options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
+        ? liveInstantAnalyzeDebug
+        : null,
     isBootstrapping,
     error,
     submitMessage,

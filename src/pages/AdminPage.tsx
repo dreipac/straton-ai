@@ -68,6 +68,7 @@ import {
   adminSetBetaNoticeEnabled,
   adminSetDeployedAppVersion,
   adminSetLearnAreaBanner,
+  adminSetInstantAnalyzeDebugEnabled,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
@@ -286,6 +287,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isLoadingLearnAreaBannerToggle, setIsLoadingLearnAreaBannerToggle] = useState(false)
   const [isSavingLearnAreaBannerText, setIsSavingLearnAreaBannerText] = useState(false)
   const [learnAreaBannerInfo, setLearnAreaBannerInfo] = useState<string | null>(null)
+  const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
+  const [isLoadingInstantAnalyzeDebugToggle, setIsLoadingInstantAnalyzeDebugToggle] = useState(false)
+  const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiModelActive, setLearnAiModelActive] = useState<
@@ -512,6 +516,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAiModelDraft(flags.learn_ai_model_draft)
         setLearnAreaBannerEnabled(flags.learn_area_banner_enabled)
         setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
+        setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -1441,6 +1446,27 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleToggleInstantAnalyzeDebugEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setInstantAnalyzeDebugInfo(null)
+    setIsLoadingInstantAnalyzeDebugToggle(true)
+    try {
+      await adminSetInstantAnalyzeDebugEnabled(nextEnabled)
+      setInstantAnalyzeDebugEnabled(nextEnabled)
+      setInstantAnalyzeDebugInfo(
+        nextEnabled
+          ? 'Instant-Analyse-Debug im Chat für Superadmins eingeblendet.'
+          : 'Instant-Analyse-Debug im Chat ausgeblendet.',
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyse-Debug konnte nicht umgeschaltet werden.'),
+      )
+    } finally {
+      setIsLoadingInstantAnalyzeDebugToggle(false)
+    }
+  }
+
   async function handleSaveLearnAreaBannerText() {
     const nextText = learnAreaBannerTextDraft.trim()
     if (!nextText) {
@@ -1757,6 +1783,31 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   </span>
                 </button>
               </div>
+              <div className="chat-setting-row chat-setting-row--stacked">
+                <div className="chat-setting-copy">
+                  <h3>Instant-Analyse-Debug (Chat)</h3>
+                  <p>
+                    Zeigt Superadmins unter eigenen Chat-Nachrichten die Einordnung (Schritt 1): Web ja/nein,
+                    Suchquery, Heuristik, Tavily. Für normale Nutzer unsichtbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${instantAnalyzeDebugEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={instantAnalyzeDebugEnabled}
+                  aria-label="Instant-Analyse-Debug im Chat"
+                  disabled={isLoadingInstantAnalyzeDebugToggle}
+                  onClick={() => {
+                    void handleToggleInstantAnalyzeDebugEnabled(!instantAnalyzeDebugEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              {instantAnalyzeDebugInfo ? <p className="learn-muted">{instantAnalyzeDebugInfo}</p> : null}
               <div className="chat-setting-row chat-setting-row--stacked">
                 <div className="chat-setting-copy">
                   <h3>Hinweisbalken im Lernbereich</h3>
