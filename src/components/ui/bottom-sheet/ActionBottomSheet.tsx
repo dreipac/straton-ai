@@ -7,8 +7,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type PointerEvent,
 } from 'react'
+import { useActionBottomSheetDetentDrag } from '../../../hooks/useActionBottomSheetDetentDrag'
+import { GlassPillTouchSurface } from '../GlassPillTouchSurface'
 
 export type ActionBottomSheetItem = {
   id: string
@@ -40,7 +41,7 @@ const EXIT_MS = 440
 const EXIT_MS_REDUCED_MOTION = 55
 
 /**
- * Mobile/PWA: Bottom Sheet (~40% Höhe), oben abgerundet, grosse Touch-Buttons.
+ * Mobile/PWA: Bottom Sheet mit zwei Höhen-Stufen (Hebel ziehen), Tap-Feder auf Aktionen.
  */
 export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetProps>(function ActionBottomSheet(
   { open, onClose, title, actions, ariaLabel = 'Aktionen' }: ActionBottomSheetProps,
@@ -77,6 +78,18 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
       onClose()
     }, sheetExitMs)
   }, [onClose, sheetExitMs])
+
+  const {
+    panelClassName,
+    panelStyle,
+    handleHandlePointerDown,
+    handleHandlePointerMove,
+    handleHandlePointerUp,
+    handleHandlePointerCancel,
+  } = useActionBottomSheetDetentDrag({
+    open,
+    onRequestClose: requestClose,
+  })
 
   /** `isShown` bei jedem Öffnen neu triggern (Enter-Animation); bei Schließen zurücksetzen — sonst bleibt das Sheet nach erneutem Öffnen unsichtbar (leere deps lief nur beim ersten Mount). */
   useLayoutEffect(() => {
@@ -135,34 +148,6 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
     return () => window.clearTimeout(t)
   }, [open, isShown])
 
-  const startActionBreath = useCallback((btn: HTMLButtonElement) => {
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ) {
-      return
-    }
-    if (btn.classList.contains('is-pressing')) {
-      return
-    }
-    btn.classList.add('is-pressing')
-    const onAnimEnd = (e: AnimationEvent) => {
-      if (e.animationName !== 'actionSheetButtonBreath') {
-        return
-      }
-      btn.classList.remove('is-pressing')
-      btn.removeEventListener('animationend', onAnimEnd)
-    }
-    btn.addEventListener('animationend', onAnimEnd)
-  }, [])
-
-  function handleActionPointerDown(event: PointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0 && event.pointerType === 'mouse') {
-      return
-    }
-    startActionBreath(event.currentTarget)
-  }
-
   if (!open) {
     return null
   }
@@ -182,42 +167,51 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
       />
       <div
         ref={panelRef}
-        className="action-bottom-sheet-panel"
+        className={`action-bottom-sheet-panel${panelClassName ? ` ${panelClassName}` : ''}`}
+        style={panelStyle}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
         aria-labelledby={title?.trim() ? titleId : undefined}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="action-bottom-sheet-handle" aria-hidden="true" />
-        {title?.trim() ? (
-          <p id={titleId} className="action-bottom-sheet-title">
-            {title.trim()}
-          </p>
-        ) : null}
-        <div className="action-bottom-sheet-actions">
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className={`action-bottom-sheet-action${action.variant === 'danger' ? ' is-danger' : ''}${action.actionClassName ? ` ${action.actionClassName}` : ''}`}
-              onPointerDown={handleActionPointerDown}
-              onClick={(e) => {
-                if (e.detail === 0) {
-                  startActionBreath(e.currentTarget)
-                }
-                action.onClick()
-                if (action.closeSheetAfter !== false) {
-                  requestClose()
-                }
-              }}
-            >
-              {action.iconSrc ? (
-                <img className="action-bottom-sheet-action-icon" src={action.iconSrc} alt="" aria-hidden="true" />
-              ) : null}
-              <span className="action-bottom-sheet-action-label">{action.label}</span>
-            </button>
-          ))}
+        <button
+          type="button"
+          className="action-bottom-sheet-handle-hit"
+          aria-label="Sheet ziehen: nach oben vergrössern, nach unten verkleinern oder schliessen"
+          onPointerDown={handleHandlePointerDown}
+          onPointerMove={handleHandlePointerMove}
+          onPointerUp={handleHandlePointerUp}
+          onPointerCancel={handleHandlePointerCancel}
+        >
+          <span className="action-bottom-sheet-handle" aria-hidden="true" />
+        </button>
+        <div className="action-bottom-sheet-body">
+          {title?.trim() ? (
+            <p id={titleId} className="action-bottom-sheet-title">
+              {title.trim()}
+            </p>
+          ) : null}
+          <div className="action-bottom-sheet-actions">
+            {actions.map((action) => (
+              <GlassPillTouchSurface
+                key={action.id}
+                className={`action-bottom-sheet-action${action.variant === 'danger' ? ' is-danger' : ''}${action.actionClassName ? ` ${action.actionClassName}` : ''}`}
+                onClick={() => {
+                  action.onClick()
+                  if (action.closeSheetAfter !== false) {
+                    requestClose()
+                  }
+                }}
+              >
+                {action.iconSrc ? (
+                  <img className="action-bottom-sheet-action-icon" src={action.iconSrc} alt="" aria-hidden="true" />
+                ) : null}
+                <span className="action-bottom-sheet-action-label">{action.label}</span>
+              </GlassPillTouchSurface>
+            ))}
+          </div>
+          <div className="action-bottom-sheet-spacer" aria-hidden="true" />
         </div>
       </div>
     </div>

@@ -267,7 +267,13 @@ function parseOutline(raw: unknown): WordOutlineV1 | null {
     const b = item as Record<string, unknown>
     const t = typeof b.type === 'string' ? b.type.trim().toLowerCase() : ''
     if (t === 'heading') {
-      const lv = typeof b.level === 'number' ? b.level : Number(b.level)
+      const lvRaw =
+        typeof b.level === 'number'
+          ? b.level
+          : typeof b.depth === 'number'
+            ? b.depth
+            : Number(b.level ?? b.depth)
+      const lv = lvRaw
       const text = typeof b.text === 'string' ? b.text : ''
       if (!isHeadingLevel(lv)) {
         return null

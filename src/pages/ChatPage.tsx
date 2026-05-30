@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
+  type CSSProperties,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
@@ -70,6 +71,7 @@ import { ChatToolbarMobileMenuSelect } from '../features/chat/components/ChatToo
 import { ChatToolbarTitleMenuSelect } from '../features/chat/components/ChatToolbarTitleMenuSelect'
 import { ChatToolbarReplyModeSelect } from '../features/chat/components/ChatToolbarReplyModeSelect'
 import { ChatThreadSwipeRow } from '../features/chat/components/ChatThreadSwipeRow'
+import { ChatThreadListSkeleton } from '../features/chat/components/ChatThreadListSkeleton'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import {
@@ -79,6 +81,7 @@ import {
   type ChatThreadMemberPublic,
 } from '../features/chat/services/chat.collaboration'
 import { useChat } from '../features/chat/hooks/useChat'
+import { useChatPageEnter, useChatThreadListSkeletonVisibility } from '../features/chat/hooks/useChatPageEnter'
 import type { ChatThread } from '../features/chat/types'
 import { hapticLightImpact } from '../utils/haptics'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
@@ -297,6 +300,8 @@ export function ChatPage() {
     submitMessage,
     finalizeWordDocumentExport,
     wordFinalizeBusy,
+    finalizePdfDocumentExport,
+    pdfFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,
@@ -328,6 +333,13 @@ export function ChatPage() {
     thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
     onThinkingCreditsConsumed: refreshProfile,
   })
+  const isPageEnter = useChatPageEnter()
+  const {
+    threadSkeletonMounted,
+    threadSkeletonExiting,
+    handleThreadSkeletonTransitionEnd,
+  } = useChatThreadListSkeletonVisibility(isBootstrapping)
+  const pageEnterShellClass = isPageEnter ? ' is-page-enter' : ''
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
@@ -1664,7 +1676,7 @@ export function ChatPage() {
       <main
         className={`chat-app-shell chat-app-shell-guest ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
           isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
-        }`}
+        }${pageEnterShellClass}`}
       >
         <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
           <div className="chat-sidebar-top">
@@ -1820,7 +1832,7 @@ export function ChatPage() {
     <main
       className={`chat-app-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
         isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
-      }`}
+      }${pageEnterShellClass}`}
     >
       <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
         <div className="chat-sidebar-top">
@@ -1934,8 +1946,14 @@ export function ChatPage() {
           {!isSidebarCollapsed ? (
             <div className="chat-thread-list">
               <p className="thread-list-info">Chats</p>
-              {isBootstrapping ? <p className="thread-list-info">Lade Chats...</p> : null}
-              {threads.map((thread) => {
+              {threadSkeletonMounted ? (
+                <ChatThreadListSkeleton
+                  exiting={threadSkeletonExiting}
+                  onExitTransitionEnd={handleThreadSkeletonTransitionEnd}
+                />
+              ) : null}
+              {!isBootstrapping && !threadSkeletonMounted
+                ? threads.map((thread, threadIndex) => {
                 const canSwipeDeleteThread = Boolean(
                   isCompactMobileSidebarLayout && user && isThreadOwner(thread, user.id),
                 )
@@ -1950,6 +1968,7 @@ export function ChatPage() {
                 return (
                   <div
                     key={thread.id}
+                    style={{ '--chat-thread-enter-index': threadIndex } as CSSProperties}
                     className={`chat-thread-row ${thread.id === activeThreadId ? 'is-active' : ''} ${
                       openMenuThreadId === thread.id ? 'has-open-menu' : ''
                     } ${swipeOpenThreadId === thread.id ? 'has-swipe-open' : ''} ${
@@ -1994,8 +2013,9 @@ export function ChatPage() {
                     </ChatThreadSwipeRow>
                   </div>
                 )
-              })}
-              {!isBootstrapping && threads.length === 0 ? (
+              })
+                : null}
+              {!isBootstrapping && !threadSkeletonMounted && threads.length === 0 ? (
                 <p className="thread-list-info">Noch keine Chats vorhanden.</p>
               ) : null}
             </div>
@@ -2201,6 +2221,8 @@ export function ChatPage() {
           onSendMessage={submitMessage}
           onFinalizeWordDocument={finalizeWordDocumentExport}
           wordFinalizeBusy={wordFinalizeBusy}
+          onFinalizePdfDocument={finalizePdfDocumentExport}
+          pdfFinalizeBusy={pdfFinalizeBusy}
           thinkingCreditsRemaining={
             profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
           }

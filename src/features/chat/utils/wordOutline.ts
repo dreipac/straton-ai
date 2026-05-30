@@ -9,6 +9,20 @@ function isHeadingLevel(n: number): n is HeadingLevel {
   return n >= 1 && n <= 6
 }
 
+function resolveHeadingLevelField(b: Record<string, unknown>): number {
+  if (typeof b.level === 'number') {
+    return b.level
+  }
+  if (typeof b.depth === 'number') {
+    return b.depth
+  }
+  const fromLevel = Number(b.level)
+  if (Number.isFinite(fromLevel)) {
+    return fromLevel
+  }
+  return Number(b.depth)
+}
+
 /** Gleiche Validierung wie Edge `generate-word-from-outline`. */
 export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -29,7 +43,7 @@ export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
     const b = item as Record<string, unknown>
     const t = typeof b.type === 'string' ? b.type.trim().toLowerCase() : ''
     if (t === 'heading') {
-      const lv = typeof b.level === 'number' ? b.level : Number(b.level)
+      const lv = resolveHeadingLevelField(b)
       const text = typeof b.text === 'string' ? b.text : ''
       if (!isHeadingLevel(lv)) {
         return null
@@ -101,6 +115,60 @@ export function splitContentAroundFirstWordOutlineFence(content: string): {
   return null
 }
 
+export function isLikelyDocumentOutlinePayload(content: string): boolean {
+  const t = content.trim()
+  if (!t) {
+    return false
+  }
+  if (/```(?:json)?/i.test(t)) {
+    return true
+  }
+  if (t.startsWith('{') && /"version"\s*:\s*1/.test(t) && /"blocks"\s*:/.test(t)) {
+    return true
+  }
+  return false
+}
+
+/** Rohes `{ "version": 1, "blocks": … }` ohne ```json``` — manche Modelle liefern nur JSON. */
+export function tryParseBareWordOutlineFromContent(content: string): {
+  outline: WordOutlineV1
+  before: string
+  after: string
+} | null {
+  const trimmed = content.trim()
+  const direct = tryParseWordOutlineJson(trimmed)
+  if (direct) {
+    return { outline: direct, before: '', after: '' }
+  }
+
+  const start = trimmed.indexOf('{')
+  if (start === -1) {
+    return null
+  }
+  let end = trimmed.lastIndexOf('}')
+  while (end > start) {
+    const slice = trimmed.slice(start, end + 1)
+    const parsed = tryParseWordOutlineJson(slice)
+    if (parsed) {
+      return {
+        outline: parsed,
+        before: trimmed.slice(0, start).trimEnd(),
+        after: trimmed.slice(end + 1).trimStart(),
+      }
+    }
+    end = trimmed.lastIndexOf('}', end - 1)
+  }
+  return null
+}
+
+export function resolveWordOutlinePresentation(content: string): {
+  outline: WordOutlineV1
+  before: string
+  after: string
+} | null {
+  return splitContentAroundFirstWordOutlineFence(content) ?? tryParseBareWordOutlineFromContent(content)
+}
+
 /** Letzter ```json-Block im Text (KI-Antwort). */
 export function parseWordOutlineFromAssistantContent(content: string): WordOutlineV1 | null {
   const re = /```(?:json)?\s*([\s\S]*?)```/gi
@@ -113,7 +181,7 @@ export function parseWordOutlineFromAssistantContent(content: string): WordOutli
     }
   }
   if (!lastFence) {
-    return null
+    return tryParseBareWordOutlineFromContent(content)?.outline ?? null
   }
   return tryParseWordOutlineJson(lastFence)
 }

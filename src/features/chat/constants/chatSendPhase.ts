@@ -9,6 +9,7 @@ export type ChatSendPhase =
   | 'image'
   | 'excel'
   | 'word'
+  | 'pdf'
 
 export type ChatSendPhaseState = ChatSendPhase | null
 
@@ -32,6 +33,8 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'Excel wird vorbereitet …'
     case 'word':
       return 'Word wird vorbereitet …'
+    case 'pdf':
+      return 'PDF wird vorbereitet …'
     default:
       return undefined
   }

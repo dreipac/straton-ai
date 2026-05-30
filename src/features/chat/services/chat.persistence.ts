@@ -48,6 +48,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userWordCommand = true
   }
 
+  if (o.userPdfCommand === true) {
+    out.userPdfCommand = true
+  }
+
   if (o.userWebSearchCommand === true) {
     out.userWebSearchCommand = true
   }
@@ -108,6 +112,17 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     const fileName = typeof w.fileName === 'string' ? w.fileName : ''
     if (bucket && path && fileName) {
       out.wordExport = { bucket, path, fileName }
+    }
+  }
+
+  const px = o.pdfExport
+  if (px && typeof px === 'object') {
+    const p = px as Record<string, unknown>
+    const bucket = typeof p.bucket === 'string' ? p.bucket : ''
+    const path = typeof p.path === 'string' ? p.path : ''
+    const fileName = typeof p.fileName === 'string' ? p.fileName : ''
+    if (bucket && path && fileName) {
+      out.pdfExport = { bucket, path, fileName }
     }
   }
 

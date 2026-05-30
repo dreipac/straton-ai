@@ -405,6 +405,11 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/generate-word-from-outline/index.ts"
 
+[functions.generate-pdf-from-outline]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/generate-pdf-from-outline/index.ts"
+
 [functions.generate-chat-image]
 enabled = true
 verify_jwt = true

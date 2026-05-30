@@ -31,6 +31,17 @@ type Props = {
   bannerTitle?: string | null
 }
 
+/** Platzhalter während JSON/Gliederung noch streamt — kein Rohtext-Codeblock. */
+export function WordOutlinePaperBuilding() {
+  return (
+    <div className="word-outline-paper word-outline-paper--building" role="status" aria-live="polite">
+      <div className="word-outline-paper__body">
+        <p className="word-outline-paper__building-hint">Dokument wird aufgebaut …</p>
+      </div>
+    </div>
+  )
+}
+
 /** Weiße «Papier»-Karte für Gliederungsvorschau im Chat (nicht Rohtext im Sternenhintergrund). */
 export function WordOutlinePaper({ outline, bannerTitle }: Props) {
   const numByIndex = assignOutlineNumberLabels(outline.blocks)

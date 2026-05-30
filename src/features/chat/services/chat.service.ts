@@ -72,12 +72,14 @@ import {
 import type {
   ChatMessage,
   ChatMessageExcelExport,
+  ChatMessagePdfExport,
   ChatMessageWordExport,
   WordOutlineV1,
 } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
 import { WORD_CHAT_DOCUMENT_BODY_HINT, WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
+import { PDF_CHAT_DOCUMENT_BODY_HINT, PDF_EXPORT_COMMAND_MARKER } from '../constants/pdfExportPrompt'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -109,6 +111,8 @@ export type SendMessageOptions = {
   userRequestedExcel?: boolean
   /** Nutzer hat /Word gewählt: Dokumenttext ohne Meta-Erklärungen; schaltet Kürze-Hinweis ab. */
   userRequestedWord?: boolean
+  /** Nutzer hat /PDF gewählt: druckbares PDF-Gliederungs-JSON; schaltet Kürze-Hinweis ab. */
+  userRequestedPdf?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -371,6 +375,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
   const wordChatHint = options?.userRequestedWord ? WORD_CHAT_DOCUMENT_BODY_HINT : ''
+  const pdfChatHint = options?.userRequestedPdf ? PDF_CHAT_DOCUMENT_BODY_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const ragSelectedMessages = isMainChat ? selectMainChatMessagesWithRagLite(messages) : messages
@@ -379,9 +384,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       ? clipChatMessagesToEstimatedTokenBudget(ragSelectedMessages, contextCap)
       : ragSelectedMessages
   const thinking = isMainChat && options?.chatThinkingMode === 'thinking'
-  const thinkingWord = thinking && Boolean(options?.userRequestedWord)
+  const thinkingDoc =
+    thinking && (Boolean(options?.userRequestedWord) || Boolean(options?.userRequestedPdf))
   const mainChatInstantPrompts =
-    isMainChat && !options?.userRequestedWord && !thinking
+    isMainChat && !options?.userRequestedWord && !options?.userRequestedPdf && !thinking
   const mainChatBrevity = mainChatInstantPrompts ? getAssistantMainChatBrevityInstruction() : ''
   const mainChatGuidedDiagnosis = mainChatInstantPrompts
     ? getAssistantMainChatGuidedDiagnosisInstruction()
@@ -444,7 +450,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     lastUserTurnContextBlocks.push(stepByStepIntakeHardGuard)
   }
   const thinkingClarifyPhase = thinking
-    ? thinkingWord
+    ? thinkingDoc
       ? 'final'
       : (options?.thinkingConversationPhase ??
         resolveThinkingConversationPhase(threadMessages, options?.thinkingIntake ?? null))
@@ -464,9 +470,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const thinkingBlock = thinking
     ? [
         getChatThinkingWorkflowInstruction(),
-        thinkingWord ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
-        thinkingWord ? '' : getChatThinkingMixedLayoutInstruction(),
-        thinkingWord ? '' : getChatThinkingDetailDepthInstruction(),
+        thinkingDoc ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
+        thinkingDoc ? '' : getChatThinkingMixedLayoutInstruction(),
+        thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
         thinkingClarifyPhase === 'clarify'
           ? getChatThinkingMandatoryClarifyTurnInstruction()
           : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type),
@@ -485,6 +491,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
+    pdfChatHint,
     mainChatWebGrounding,
     mainChatBrevity,
     mainChatGuidedDiagnosis,
@@ -500,7 +507,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         }),
     thinking
       ? getChatThinkingEmojiStyleInstruction()
-      : !options?.userRequestedWord
+      : !options?.userRequestedWord && !options?.userRequestedPdf
         ? getAssistantEmojiStyleInstruction({ replyTone })
         : '',
     thinkingClarifyUiReminder,
@@ -528,6 +535,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       if (message.role === 'user' && message.metadata?.userWordCommand) {
         const t = content.trim()
         content = t ? `${t}\n\n${WORD_EXPORT_COMMAND_MARKER}` : WORD_EXPORT_COMMAND_MARKER
+      }
+      if (message.role === 'user' && message.metadata?.userPdfCommand) {
+        const t = content.trim()
+        content = t ? `${t}\n\n${PDF_EXPORT_COMMAND_MARKER}` : PDF_EXPORT_COMMAND_MARKER
       }
       if (isMainChat && !thinking && message.role === 'user') {
         const turnBlocks: string[] = []
@@ -688,6 +699,43 @@ export async function generateWordFromOutline(input: {
 
   return {
     wordExport: { bucket, path, fileName },
+    displayContent,
+  }
+}
+
+export async function generatePdfFromOutline(input: {
+  messageId: string
+  threadId: string
+  outline: WordOutlineV1
+}): Promise<{ pdfExport: ChatMessagePdfExport; displayContent: string }> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('generate-pdf-from-outline', {
+    body: input,
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const payload = data as { pdfExport?: unknown; displayContent?: unknown; error?: unknown } | undefined
+  if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+    throw new Error(payload.error.trim())
+  }
+
+  const pdfExport = payload?.pdfExport as Record<string, unknown> | undefined
+  const displayContent = payload?.displayContent
+  if (!pdfExport || typeof displayContent !== 'string') {
+    throw new Error('PDF-Export konnte nicht abgeschlossen werden.')
+  }
+  const bucket = typeof pdfExport.bucket === 'string' ? pdfExport.bucket : ''
+  const path = typeof pdfExport.path === 'string' ? pdfExport.path : ''
+  const fileName = typeof pdfExport.fileName === 'string' ? pdfExport.fileName : ''
+  if (!bucket || !path || !fileName) {
+    throw new Error('Ungültige PDF-Antwort.')
+  }
+
+  return {
+    pdfExport: { bucket, path, fileName },
     displayContent,
   }
 }

@@ -12,6 +12,7 @@ import {
 } from '../excel/excelSpec'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
+import { stripPdfCommandMarker, userWantsPdfExport } from '../constants/pdfExportPrompt'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -36,6 +37,7 @@ import {
   generateExcelFromSpec,
   generateExcelSpecWithSonnet,
   generateWordFromOutline,
+  generatePdfFromOutline,
   mergePersistedAiChatMemoryAfterTurn,
   instantAnalyzeUserMessage,
   sendMessage,
@@ -79,6 +81,10 @@ import {
   type ChatMessageRow,
 } from '../services/chat.persistence'
 import { canFinalizeWordExportFromThread, extractWordOutlineFromThread } from '../utils/wordOutline'
+import {
+  canFinalizePdfExportFromThread,
+  extractPdfOutlineFromThread,
+} from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
@@ -157,7 +163,11 @@ function mergeRealtimeChatMessage(existing: ChatMessage | undefined, incoming: C
     existing.metadata?.wordExport && !incoming.metadata?.wordExport
       ? existing.metadata.wordExport
       : undefined
-  if (!excelFromExisting && !wordFromExisting) {
+  const pdfFromExisting =
+    existing.metadata?.pdfExport && !incoming.metadata?.pdfExport
+      ? existing.metadata.pdfExport
+      : undefined
+  if (!excelFromExisting && !wordFromExisting && !pdfFromExisting) {
     return incoming
   }
   return {
@@ -166,6 +176,7 @@ function mergeRealtimeChatMessage(existing: ChatMessage | undefined, incoming: C
       ...(incoming.metadata ?? {}),
       ...(excelFromExisting ? { excelExport: excelFromExisting } : {}),
       ...(wordFromExisting ? { wordExport: wordFromExisting } : {}),
+      ...(pdfFromExisting ? { pdfExport: pdfFromExisting } : {}),
     },
   }
 }
@@ -176,6 +187,8 @@ function mergeDuplicateChatMessagePair(a: ChatMessage, b: ChatMessage): ChatMess
   const bHasExcel = Boolean(b.metadata?.excelExport)
   const aHasWord = Boolean(a.metadata?.wordExport)
   const bHasWord = Boolean(b.metadata?.wordExport)
+  const aHasPdf = Boolean(a.metadata?.pdfExport)
+  const bHasPdf = Boolean(b.metadata?.pdfExport)
   if (aHasExcel && !bHasExcel) {
     return a
   }
@@ -188,10 +201,19 @@ function mergeDuplicateChatMessagePair(a: ChatMessage, b: ChatMessage): ChatMess
   if (bHasWord && !aHasWord) {
     return b
   }
+  if (aHasPdf && !bHasPdf) {
+    return a
+  }
+  if (bHasPdf && !aHasPdf) {
+    return b
+  }
   if (aHasExcel && bHasExcel) {
     return b.content.length >= a.content.length ? b : a
   }
   if (aHasWord && bHasWord) {
+    return b.content.length >= a.content.length ? b : a
+  }
+  if (aHasPdf && bHasPdf) {
     return b.content.length >= a.content.length ? b : a
   }
   return b.content.length >= a.content.length ? b : a
@@ -247,6 +269,7 @@ export function useChat(
   const [liveInstantAnalyzeDebug, setLiveInstantAnalyzeDebug] =
     useState<InstantAnalyzeDebugMeta | null>(null)
   const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
+  const [pdfFinalizeBusy, setPdfFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [composerModelId, setComposerModelId] = useState<ChatComposerModelId>(() =>
@@ -796,6 +819,59 @@ export function useChat(
     }
   }
 
+  async function finalizePdfDocumentExport() {
+    if (!activeThreadId) {
+      return
+    }
+    if (!usesGatewayAi()) {
+      setError('PDF-Export ist im Demo-Modus nicht verfügbar.')
+      return
+    }
+    const list = messagesByThreadId[activeThreadId] ?? []
+    if (!canFinalizePdfExportFromThread(list)) {
+      setError(
+        'Es gibt noch keine exportierbare Gliederung. Bitte mit /PDF eine Vorschau erzeugen oder den Entwurf ergänzen.',
+      )
+      return
+    }
+    const outline = extractPdfOutlineFromThread(list)
+    if (!outline) {
+      return
+    }
+    const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.pdfExport)
+    if (!targetAssistant) {
+      return
+    }
+    setPdfFinalizeBusy(true)
+    setError(null)
+    try {
+      const pdfResult = await generatePdfFromOutline({
+        messageId: targetAssistant.id,
+        threadId: activeThreadId,
+        outline,
+      })
+      const meta = { ...(targetAssistant.metadata ?? {}) }
+      delete meta.liveStream
+      const updated: ChatMessage = {
+        ...targetAssistant,
+        content: pdfResult.displayContent,
+        metadata: {
+          ...meta,
+          pdfExport: pdfResult.pdfExport,
+        },
+      }
+      setMessagesByThreadId((prev) => ({
+        ...prev,
+        [activeThreadId]: (prev[activeThreadId] ?? []).map((m) => (m.id === targetAssistant.id ? updated : m)),
+      }))
+      void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PDF-Export ist fehlgeschlagen.')
+    } finally {
+      setPdfFinalizeBusy(false)
+    }
+  }
+
   function selectChat(threadId: string) {
     setThinkingClarifyDialog(null)
     if (autoRemoveEmptyChats && activeThreadId && activeThreadId !== threadId) {
@@ -818,22 +894,26 @@ export function useChat(
     },
   ) {
     const wantsWord = userWantsWordExport(content)
-    const wantsExcel = !wantsWord && userWantsExcelExport(content)
+    const wantsPdf = !wantsWord && userWantsPdfExport(content)
+    const wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
     let trimmed = stripExcelCommandMarker(content)
     trimmed = stripWordCommandMarker(trimmed)
+    trimmed = stripPdfCommandMarker(trimmed)
 
     if (!canSend) {
       return
     }
-    if (!wantsWord && !trimmed) {
+    if (!wantsWord && !wantsPdf && !trimmed) {
       return
     }
 
-    const imageCmd = wantsWord ? null : matchExplicitImageGenerationRequest(trimmed)
+    const imageCmd = wantsWord || wantsPdf ? null : matchExplicitImageGenerationRequest(trimmed)
     const wantsThinkingTurn =
       usesGatewayAi() &&
       chatThinkingMode === 'thinking' &&
       !wantsExcel &&
+      !wantsWord &&
+      !wantsPdf &&
       imageCmd?.kind !== 'prompt'
 
     if (wantsThinkingTurn && options?.isSuperadmin !== true && (thinkingCreditsRemaining ?? 0) < 1) {
@@ -854,8 +934,8 @@ export function useChat(
     setLiveInstantAnalyzeDebug(null)
     let threadId = activeThreadId
 
-    if (wantsWord && !usesGatewayAi()) {
-      setError('Word-Export ist im Demo-Modus nicht verfügbar.')
+    if ((wantsWord || wantsPdf) && !usesGatewayAi()) {
+      setError(`${wantsPdf ? 'PDF' : 'Word'}-Export ist im Demo-Modus nicht verfügbar.`)
       return
     }
 
@@ -932,7 +1012,7 @@ export function useChat(
 
       let imageGenPrompt =
         imageCmd && imageCmd.kind === 'prompt' ? imageCmd.prompt : null
-      if (!imageGenPrompt && !wantsWord) {
+      if (!imageGenPrompt && !wantsWord && !wantsPdf) {
         const prior = messagesByThreadId[targetThreadId] ?? []
         const follow = matchFollowUpImageEditRequest(trimmed, prior)
         if (follow.kind === 'prompt') {
@@ -944,13 +1024,17 @@ export function useChat(
         usesGatewayAi() &&
         chatThinkingMode !== 'thinking' &&
         !wantsWord &&
+        !wantsPdf &&
         !wantsExcel &&
         !imageGenPrompt
 
-      const userContent = trimmed || (wantsWord ? 'Word-Dokument vorbereiten' : trimmed)
+      const userContent =
+        trimmed ||
+        (wantsWord ? 'Word-Dokument vorbereiten' : wantsPdf ? 'PDF-Dokument vorbereiten' : trimmed)
       const userMetadataBase = {
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
+        ...(wantsPdf ? { userPdfCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
       const priorTurns = (messagesByThreadId[targetThreadId] ?? [])
@@ -1070,7 +1154,7 @@ export function useChat(
       const shouldRename =
         (aclThread?.title === 'Neuer Chat' || isTemporaryThread) && userOwnsThread
       const provisionalTitle = shouldRename
-        ? createChatTitle(trimmed || (wantsWord ? 'Word' : ''))
+        ? createChatTitle(trimmed || (wantsWord ? 'Word' : wantsPdf ? 'PDF' : ''))
         : aclThread?.title
 
       if (provisionalTitle && shouldRename && userOwnsThread) {
@@ -1183,7 +1267,7 @@ export function useChat(
         | undefined
       let outboundSendPhase: ChatSendPhaseState = wantsThinkingTurn ? 'thinking' : 'generating'
 
-      if (wantsThinkingTurn && !wantsWord && !wantsExcel && trimmed) {
+      if (wantsThinkingTurn && !wantsWord && !wantsPdf && !wantsExcel && trimmed) {
         const clarifyFollowUp = isThinkingClarifyFollowUp(nextMessages)
         let session = thinkingIntakeByThreadRef.current[targetThreadId] ?? null
 
@@ -1285,6 +1369,7 @@ export function useChat(
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
             userRequestedWord: wantsWord,
+            userRequestedPdf: wantsPdf,
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
@@ -1334,6 +1419,7 @@ export function useChat(
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
           userRequestedWord: wantsWord,
+          userRequestedPdf: wantsPdf,
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
@@ -1434,7 +1520,7 @@ export function useChat(
         return upsertThreadMessages(prev, targetThreadId, mergedAssistantMessage)
       })
 
-      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel && !wantsWord) {
+      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel && !wantsWord && !wantsPdf) {
         const rawAssistant = mergedAssistantMessage.content
         if (!hasExcelSpecMarkers(rawAssistant)) {
           const clarify = parseThinkingClarifyContent(rawAssistant)
@@ -1584,6 +1670,8 @@ export function useChat(
     submitMessage,
     finalizeWordDocumentExport,
     wordFinalizeBusy,
+    finalizePdfDocumentExport,
+    pdfFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,

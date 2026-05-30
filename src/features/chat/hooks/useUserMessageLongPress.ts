@@ -15,6 +15,7 @@ export function useUserMessageLongPress(enabled: boolean) {
   const [pressingMessageId, setPressingMessageId] = useState<string | null>(null)
   const [menuState, setMenuState] = useState<UserMessageCopyMenuState | null>(null)
   const menuSelectRef = useRef<HTMLSelectElement>(null)
+  const menuCopyTextRef = useRef('')
   const timerRef = useRef<number | null>(null)
   const startRef = useRef<{ x: number; y: number } | null>(null)
   const pendingMessageRef = useRef<{ id: string; copyText: string } | null>(null)
@@ -30,11 +31,17 @@ export function useUserMessageLongPress(enabled: boolean) {
   const closeMenu = useCallback(() => {
     setMenuState(null)
     setPressingMessageId(null)
+    menuCopyTextRef.current = ''
     pendingMessageRef.current = null
     startRef.current = null
     longPressArmedMessageIdRef.current = null
     clearTimer()
   }, [clearTimer])
+
+  const getMenuCopyText = useCallback(
+    () => menuCopyTextRef.current.trim() || menuState?.copyText?.trim() || '',
+    [menuState],
+  )
 
   useEffect(() => {
     if (!enabled) {
@@ -110,6 +117,7 @@ export function useUserMessageLongPress(enabled: boolean) {
         if (armedId === messageId && pending?.id === messageId) {
           const text = pending.copyText.trim()
           if (text) {
+            menuCopyTextRef.current = text
             setMenuState({ messageId, copyText: text })
             const select = menuSelectRef.current
             if (select) {
@@ -139,6 +147,7 @@ export function useUserMessageLongPress(enabled: boolean) {
   return {
     menuState,
     menuSelectRef,
+    getMenuCopyText,
     closeMenu,
     isMessagePressActive,
     shouldMountMenuOverlay,

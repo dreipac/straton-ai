@@ -28,6 +28,12 @@ export type ChatMessageWordExport = {
   fileName: string
 }
 
+export type ChatMessagePdfExport = {
+  bucket: string
+  path: string
+  fileName: string
+}
+
 /** KI/Gliederung für «Word aus Vorlage» – wird zu OOXML in die Vorlage injiziert. */
 export type WordOutlineV1 = {
   version: 1
@@ -49,12 +55,15 @@ export type ChatMessage = {
   metadata?: {
     excelExport?: ChatMessageExcelExport
     wordExport?: ChatMessageWordExport
+    pdfExport?: ChatMessagePdfExport
     /** Laufender OpenAI-SSE-Stream: UI blendet Text live ein (ohne Schreib-Animation). */
     liveStream?: boolean
     /** User-Nachricht: Excel-Modus (Marker wurde vor Speichern entfernt). */
     userExcelCommand?: boolean
     /** User-Nachricht: Word-Export-Befehl (Marker entfernt). */
     userWordCommand?: boolean
+    /** User-Nachricht: PDF-Export-Befehl (Marker entfernt). */
+    userPdfCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */
     userWebSearchCommand?: boolean
     /** User-Nachricht: automatische Tavily-Websuche (Smart Instant). */
