@@ -100,6 +100,9 @@ type BlockExcerptInput =
   | { type: 'h1'; text: string }
   | { type: 'h2'; text: string }
   | { type: 'h3'; text: string }
+  | { type: 'h4'; text: string }
+  | { type: 'h5'; text: string }
+  | { type: 'h6'; text: string }
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
@@ -116,7 +119,10 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
   switch (block.type) {
     case 'h1':
     case 'h2':
-    case 'h3': {
+    case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6': {
       const t = stripBoldMarkers(block.text)
       return { excerpt: t, previewTitle: t.slice(0, 72) }
     }

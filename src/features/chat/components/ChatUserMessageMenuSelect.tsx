@@ -1,5 +1,4 @@
-import { useEffect, useRef } from 'react'
-import { openNativeSelectPicker } from '../utils/openNativeSelectPicker'
+import { forwardRef, useRef } from 'react'
 
 export type ChatUserMessageMenuSelectProps = {
   onSelectCopy: () => void
@@ -7,65 +6,52 @@ export type ChatUserMessageMenuSelectProps = {
 }
 
 /**
- * Native `<select>` über der Nutzer-Bubble (iOS/PWA System-Aktionsliste), analog Titel-Pille.
+ * Verstecktes natives `<select>` — Öffnen per `openNativeSelectPicker` aus dem Long-Press-touchend
+ * (iOS erlaubt showPicker nur synchron zur Nutzergeste, nicht mitten in touchstart).
  */
-export function ChatUserMessageMenuSelect({ onSelectCopy, onClose }: ChatUserMessageMenuSelectProps) {
-  const selectRef = useRef<HTMLSelectElement | null>(null)
-  const dismissTimerRef = useRef<number | null>(null)
+export const ChatUserMessageMenuSelect = forwardRef<HTMLSelectElement, ChatUserMessageMenuSelectProps>(
+  function ChatUserMessageMenuSelect({ onSelectCopy, onClose }, ref) {
+    const dismissTimerRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    const el = selectRef.current
-    if (!el) {
-      return
-    }
-    const id = window.requestAnimationFrame(() => {
-      openNativeSelectPicker(el)
-    })
-    return () => {
-      window.cancelAnimationFrame(id)
+    function scheduleDismiss() {
       if (dismissTimerRef.current !== null) {
         window.clearTimeout(dismissTimerRef.current)
       }
+      dismissTimerRef.current = window.setTimeout(() => {
+        dismissTimerRef.current = null
+        onClose()
+      }, 420)
     }
-  }, [])
 
-  function scheduleDismiss() {
-    if (dismissTimerRef.current !== null) {
-      window.clearTimeout(dismissTimerRef.current)
-    }
-    dismissTimerRef.current = window.setTimeout(() => {
-      dismissTimerRef.current = null
-      onClose()
-    }, 420)
-  }
-
-  return (
-    <label className="chat-user-message-menu">
-      <select
-        ref={selectRef}
-        className="chat-user-message-menu-select"
-        value=""
-        aria-label="Nachrichten-Aktionen"
-        onChange={(event) => {
-          if (dismissTimerRef.current !== null) {
-            window.clearTimeout(dismissTimerRef.current)
-            dismissTimerRef.current = null
-          }
-          const action = event.target.value
-          if (action === 'copy') {
-            onSelectCopy()
-          }
-          event.target.value = ''
-          event.currentTarget.blur()
-          onClose()
-        }}
-        onBlur={scheduleDismiss}
-      >
-        <option value="" disabled hidden>
-          Nachricht
-        </option>
-        <option value="copy">Kopieren</option>
-      </select>
-    </label>
-  )
-}
+    return (
+      <label className="chat-user-message-menu-host" aria-hidden="true">
+        <select
+          ref={ref}
+          className="chat-user-message-menu-select"
+          value=""
+          tabIndex={-1}
+          aria-label="Nachrichten-Aktionen"
+          onChange={(event) => {
+            if (dismissTimerRef.current !== null) {
+              window.clearTimeout(dismissTimerRef.current)
+              dismissTimerRef.current = null
+            }
+            const action = event.target.value
+            if (action === 'copy') {
+              onSelectCopy()
+            }
+            event.target.value = ''
+            event.currentTarget.blur()
+            onClose()
+          }}
+          onBlur={scheduleDismiss}
+        >
+          <option value="" disabled hidden>
+            Nachricht
+          </option>
+          <option value="copy">Kopieren</option>
+        </select>
+      </label>
+    )
+  },
+)

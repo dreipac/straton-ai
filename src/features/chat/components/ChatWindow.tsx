@@ -1446,6 +1446,19 @@ export function ChatWindow({
     }
   }
 
+  const mobileUserMessageCopyMenuEl = isMobileComposer ? (
+    <ChatUserMessageMenuSelect
+      ref={userMessageLongPress.menuSelectRef}
+      onSelectCopy={() => {
+        const text = userMessageLongPress.menuState?.copyText
+        if (text) {
+          void handleCopyUserMessageText(text)
+        }
+      }}
+      onClose={userMessageLongPress.closeMenu}
+    />
+  ) : null
+
   const composerReplyQuoteSlot = (
     <ChatComposerReplyQuoteSlot
       reference={composerSectionReply}
@@ -1989,7 +2002,8 @@ export function ChatWindow({
           }
           const isWordAssistantTurn =
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userWordCommand)
-          const useWordOutlinePaperChrome = isWordAssistantTurn
+          /** Papier-Karte nur nach explizitem /Word — nicht bei zufälligen ####-Zeilen im Normalchat. */
+          const showWordPaperLayout = isWordAssistantTurn
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
@@ -2018,9 +2032,6 @@ export function ChatWindow({
             : userSectionReplyParsed
               ? stripAttachmentBlocksForDisplay(userSectionReplyParsed.userText)
               : stripAttachmentBlocksForDisplay(rawContent)
-          const showWordPaperLayout =
-            isAssistant &&
-            (useWordOutlinePaperChrome || usesStratonWordMarkdownConvention(displayContent ?? ''))
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
             message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
@@ -2230,17 +2241,6 @@ export function ChatWindow({
                 <p className="chat-message-body chat-excel-fallback-text">
                   Die Word-Datei ist bereit — nutze den Download-Button unten.
                 </p>
-              ) : null}
-              {isMobileComposer && userMessageLongPress.menuState?.messageId === message.id ? (
-                <ChatUserMessageMenuSelect
-                  onSelectCopy={() => {
-                    const text = userMessageLongPress.menuState?.copyText
-                    if (text) {
-                      void handleCopyUserMessageText(text)
-                    }
-                  }}
-                  onClose={userMessageLongPress.closeMenu}
-                />
               ) : null}
 
               {message.metadata?.excelExport ? (
@@ -2689,6 +2689,7 @@ export function ChatWindow({
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
         </p>
       </div>
+      {mobileUserMessageCopyMenuEl}
       {imageLightboxEl}
     </section>
   )

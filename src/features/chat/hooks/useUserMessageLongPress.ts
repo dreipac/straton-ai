@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { hapticLightImpact } from '../../../utils/haptics'
+import { openNativeSelectPicker } from '../utils/openNativeSelectPicker'
 
 const LONG_PRESS_MS = 520
 const MOVE_CANCEL_PX = 14
@@ -13,14 +14,11 @@ export type UserMessageCopyMenuState = {
 export function useUserMessageLongPress(enabled: boolean) {
   const [pressingMessageId, setPressingMessageId] = useState<string | null>(null)
   const [menuState, setMenuState] = useState<UserMessageCopyMenuState | null>(null)
+  const menuSelectRef = useRef<HTMLSelectElement>(null)
   const timerRef = useRef<number | null>(null)
   const startRef = useRef<{ x: number; y: number } | null>(null)
   const pendingMessageRef = useRef<{ id: string; copyText: string } | null>(null)
-  const menuOpenRef = useRef(false)
-
-  useEffect(() => {
-    menuOpenRef.current = menuState !== null
-  }, [menuState])
+  const longPressArmedMessageIdRef = useRef<string | null>(null)
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -34,17 +32,21 @@ export function useUserMessageLongPress(enabled: boolean) {
     setPressingMessageId(null)
     pendingMessageRef.current = null
     startRef.current = null
+    longPressArmedMessageIdRef.current = null
     clearTimer()
   }, [clearTimer])
 
-  const openMenu = useCallback((messageId: string, copyText: string) => {
+  const openMenuFromGesture = useCallback((messageId: string, copyText: string) => {
     const text = copyText.trim()
     if (!text) {
       return
     }
     setPressingMessageId(null)
     setMenuState({ messageId, copyText: text })
-    hapticLightImpact()
+    const select = menuSelectRef.current
+    if (select) {
+      openNativeSelectPicker(select)
+    }
   }, [])
 
   useEffect(() => {
@@ -56,8 +58,8 @@ export function useUserMessageLongPress(enabled: boolean) {
   useEffect(() => () => clearTimer(), [clearTimer])
 
   const isMessagePressActive = useCallback(
-    (messageId: string) => pressingMessageId === messageId || menuState?.messageId === messageId,
-    [menuState, pressingMessageId],
+    (messageId: string) => pressingMessageId === messageId,
+    [pressingMessageId],
   )
 
   const bindUserMessageLongPress = useCallback(
@@ -71,6 +73,7 @@ export function useUserMessageLongPress(enabled: boolean) {
           return
         }
         const touch = event.touches[0]
+        longPressArmedMessageIdRef.current = null
         pendingMessageRef.current = { id: messageId, copyText }
         startRef.current = { x: touch.clientX, y: touch.clientY }
         setPressingMessageId(messageId)
@@ -79,7 +82,8 @@ export function useUserMessageLongPress(enabled: boolean) {
           timerRef.current = null
           const pending = pendingMessageRef.current
           if (pending?.id === messageId) {
-            openMenu(messageId, copyText)
+            longPressArmedMessageIdRef.current = messageId
+            hapticLightImpact()
           }
         }, LONG_PRESS_MS)
       }
@@ -98,17 +102,25 @@ export function useUserMessageLongPress(enabled: boolean) {
           clearTimer()
           startRef.current = null
           pendingMessageRef.current = null
+          longPressArmedMessageIdRef.current = null
           setPressingMessageId((current) => (current === messageId ? null : current))
         }
       }
 
       const endPress = () => {
         clearTimer()
+        const pending = pendingMessageRef.current
+        const armedId = longPressArmedMessageIdRef.current
         startRef.current = null
         pendingMessageRef.current = null
-        if (!menuOpenRef.current) {
-          setPressingMessageId((current) => (current === messageId ? null : current))
+        longPressArmedMessageIdRef.current = null
+
+        if (armedId === messageId && pending?.id === messageId) {
+          openMenuFromGesture(messageId, pending.copyText)
+          return
         }
+
+        setPressingMessageId((current) => (current === messageId ? null : current))
       }
 
       return {
@@ -121,11 +133,12 @@ export function useUserMessageLongPress(enabled: boolean) {
         },
       }
     },
-    [clearTimer, enabled, openMenu],
+    [clearTimer, enabled, openMenuFromGesture],
   )
 
   return {
     menuState,
+    menuSelectRef,
     closeMenu,
     isMessagePressActive,
     bindUserMessageLongPress,

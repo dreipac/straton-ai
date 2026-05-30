@@ -68,8 +68,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Bei clarity "vague" oder fehlendem Kernkontext: reply_mode "ask_only", needs_live_web false, web_query "".',
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
-    '- needs_live_web true bei «aktuell», «aktuellste», «neueste», «heute», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
-    '- Formulierungen wie «aktuellste Information», «neueste Lage», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
+    '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
+    '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
     '- Beispiel: «aktueller Kurs von Sherritt (S.TO)» → needs_live_web true, web_query «Sherritt S.TO Aktienkurs heute».',
     '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
     '- web_query präzise formulieren (Thema + Land/Sprache wenn erkennbar), nicht den Rohtext 1:1 kopieren.',
@@ -119,11 +119,11 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
   }
 }
 
-/** aktuell, aktuellste, aktuellen, … */
+/** Zeit-/Aktualitäts-Signale: aktuell, aktuelle, derzeitige, heutige, … */
 const LIVE_WEB_TIME_RE =
-  /\b(aktuell\w*|heute|jetzt|live|neuest\w*|jüngste|jungste|gerade|stand\s*(vom|von)?|as\s+of|was\s+gilt\s+jetzt)\b/i
+  /\b(?:aktuell\w*|aktuelle|aktuellen|aktueller|aktuelles|heut\w*|jetzt\w*|jetzige\w*|derzeit\w*|zurzeit|gegenwärtig\w*|gegenwaertig\w*|momentan\w*|neuest\w*|neuer\w*|jüngst\w*|jungst\w*|gerade|live|currently|latest|recent(?:ly)?|up[\s-]?to[\s-]?date|stand\s*(?:vom|von)?|as\s+of|was\s+gilt\s+jetzt)\b/i
 const LIVE_WEB_INFO_RE =
-  /\b(information\w*|infos|lage|entwicklung\w*|situation|übersicht|uebersicht|überblick|ueberblick|status|update\w*|meldungen)\b/i
+  /\b(?:information\w*|infos|lage|entwicklung\w*|situation|übersicht|uebersicht|überblick|ueberblick|status|update\w*|meldungen|daten|zahlen|werte|stand|version\w*|verfügbarkeit|verfuegbarkeit)\b/i
 const LIVE_WEB_LEGAL_RE =
   /\b(gesetz\w*|recht\w*|delikt\w*|straf\w*|verordnung\w*|regelung\w*|rechtslage|bußgeld|busgeld|verkehrs\w*|strafr\w*|tatbestand\w*|raser\w*)\b/i
 const LIVE_WEB_MARKET_RE =
@@ -133,6 +133,16 @@ const LIVE_WEB_NEWS_RE =
 const LIVE_WEB_TICKER_RE = /\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b|\([A-Z]{1,5}(?:\.[A-Z]{1,3})?\)/
 const LIVE_WEB_DATE_RE =
   /\b(20[2-9]\d)\b|\b\d{1,2}\.\s*(januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)\s*(20[2-9]\d)?\b/i
+
+/** «aktuelle Information», «derzeitige Lage», «heutiger Kurs», … */
+const LIVE_WEB_CURRENT_PHRASE_RE =
+  /\b(?:aktuell\w*|aktuelle|aktuellen|aktueller|aktuelles|derzeit\w*|gegenwärtig\w*|gegenwaertig\w*|momentan\w*|heut\w*|jetzt\w*|jetzige\w*|neuest\w*|jüngst\w*|jungst\w*)\s+(?:information\w*|infos|lage|entwicklung\w*|situation|status|meldungen|nachrichten|news|daten|zahlen|werte|preis\w*|kurs\w*|version\w*|regelung\w*|recht\w*|gesetz\w*|verfügbarkeit|verfuegbarkeit|stand|update\w*)\b/i
+
+const LIVE_WEB_PRICE_STAND_RE =
+  /\b(?:was\s+kostet|wie\s+hoch|wie\s+steht|wie\s+viel\s+kostet|was\s+ist\s+(?:der|die|das)\s+(?:aktuelle\w*|neuest\w*|derzeitige\w*|heutige\w*|jetzige\w*))\b/i
+
+const LIVE_WEB_SUPERLATIVE_INFO_RE =
+  /\b(?:aktuell\w*|neuest\w*|jüngst\w*|jungst\w*|derzeit\w*|heut\w*|jetzige\w*)\s+(?:information|infos|lage|entwicklung|meldungen|nachrichten|daten|status|stand|preis|kurs|version|regelung|recht|gesetz)\b/i
 
 /** 0 Token — erkennt offensichtliche Live-Fakten-Anfragen (Kurse, News, Rechtslage, «aktuell»). */
 export function detectLiveWebHeuristic(userMessage: string): {
@@ -159,10 +169,11 @@ export function detectLiveWebHeuristic(userMessage: string): {
     (hasTimeCue && (hasMarketCue || hasNewsCue || hasInfoCue || hasLegalCue || Boolean(ticker))) ||
     (hasMarketCue && Boolean(ticker)) ||
     (hasNewsCue && (hasTimeCue || hasRecentDate)) ||
-    /\b(was\s+kostet|wie\s+hoch|wie\s+steht|was\s+ist\s+(der|die|das)\s+(aktuelle|neueste))\b/i.test(lower) ||
-    /\b(aktuellste|neueste|jüngste|jungste)\s+(information|infos|lage|entwicklung|meldungen|nachrichten)\b/i.test(
-      lower,
-    )
+    LIVE_WEB_CURRENT_PHRASE_RE.test(lower) ||
+    LIVE_WEB_PRICE_STAND_RE.test(lower) ||
+    LIVE_WEB_SUPERLATIVE_INFO_RE.test(lower) ||
+    (/\b(?:derzeit|zurzeit|momentan|gegenwärtig|gegenwaertig|currently|latest)\b/i.test(lower) &&
+      (hasInfoCue || hasNewsCue || hasLegalCue || hasMarketCue))
 
   if (!needs) {
     return { needs: false, webQuery: '', hasLegalCue, hasMarketCue }

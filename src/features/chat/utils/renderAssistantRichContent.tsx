@@ -29,6 +29,9 @@ type Block =
   | { type: 'h1'; text: string }
   | { type: 'h2'; text: string }
   | { type: 'h3'; text: string }
+  | { type: 'h4'; text: string }
+  | { type: 'h5'; text: string }
+  | { type: 'h6'; text: string }
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
@@ -44,6 +47,21 @@ type Block =
   | { type: 'mcq'; title?: string; questionNumber: number; prompt: string; options: McqOption[] }
 
 type McqOption = { letter: string; text: string }
+
+const HEADING_BLOCK_TYPES = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
+type HeadingBlockType = (typeof HEADING_BLOCK_TYPES)[number]
+
+function tryParseMarkdownHeading(trimmed: string): { type: HeadingBlockType; text: string } | null {
+  const m = trimmed.match(/^(#{1,6})\s+(.+)$/)
+  if (!m?.[1] || !m[2]?.trim()) {
+    return null
+  }
+  const level = m[1].length
+  if (level < 1 || level > 6) {
+    return null
+  }
+  return { type: `h${level}` as HeadingBlockType, text: m[2].trim() }
+}
 
 function stripBoldMarkers(line: string): string {
   return line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').trim()
@@ -194,6 +212,9 @@ function parseBlocks(raw: string): Block[] {
           case 'h1':
           case 'h2':
           case 'h3':
+          case 'h4':
+          case 'h5':
+          case 'h6':
           case 'p':
             return b.text
           case 'ul':
@@ -320,37 +341,13 @@ function parseBlocks(raw: string): Block[] {
       continue
     }
 
-    if (trimmed.startsWith('###')) {
-      const m = trimmed.match(/^###\s+(.*)$/)
-      if (m) {
-        flushQuote()
-        flushList()
-        flushPara()
-        blocks.push({ type: 'h3', text: m[1] })
-        continue
-      }
-    }
-
-    if (trimmed.startsWith('##') && !trimmed.startsWith('###')) {
-      const m = trimmed.match(/^##\s+(.*)$/)
-      if (m) {
-        flushQuote()
-        flushList()
-        flushPara()
-        blocks.push({ type: 'h2', text: m[1] })
-        continue
-      }
-    }
-
-    if (trimmed.startsWith('#') && !trimmed.startsWith('##')) {
-      const m = trimmed.match(/^#\s+(.*)$/)
-      if (m) {
-        flushQuote()
-        flushList()
-        flushPara()
-        blocks.push({ type: 'h1', text: m[1] })
-        continue
-      }
+    const heading = tryParseMarkdownHeading(trimmed)
+    if (heading) {
+      flushQuote()
+      flushList()
+      flushPara()
+      blocks.push(heading)
+      continue
     }
 
     const ul = trimmed.match(/^[-*]\s+(.*)$/)
@@ -1030,6 +1027,24 @@ function renderBlock(
         <h4 key={key} className="chat-md-h chat-md-h3">
           {renderAssistantInline(block.text, options)}
         </h4>
+      )
+    case 'h4':
+      return (
+        <h5 key={key} className="chat-md-h chat-md-h4">
+          {renderAssistantInline(block.text, options)}
+        </h5>
+      )
+    case 'h5':
+      return (
+        <h6 key={key} className="chat-md-h chat-md-h5">
+          {renderAssistantInline(block.text, options)}
+        </h6>
+      )
+    case 'h6':
+      return (
+        <p key={key} className="chat-md-h chat-md-h6" role="heading" aria-level={6}>
+          {renderAssistantInline(block.text, options)}
+        </p>
       )
     case 'p':
       return (
