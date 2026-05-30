@@ -20,7 +20,7 @@ function joinClasses(...parts: Array<string | false | null | undefined>): string
   return parts.filter(Boolean).join(' ')
 }
 
-function GlassPillTouchSurfaceWithFeedback<T extends ElementType>({
+function GlassPillTouchSurfaceWithFeedback({
   Component,
   isButton,
   className,

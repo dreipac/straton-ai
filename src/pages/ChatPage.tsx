@@ -7,7 +7,6 @@ import {
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
-  type CSSProperties,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
