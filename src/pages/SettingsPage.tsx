@@ -26,6 +26,17 @@ import {
   writeMobileComposerCompact,
 } from '../features/chat/constants/mobileComposerCompact'
 import {
+  getAppFeatureFlags,
+} from '../features/auth/services/appFeatureFlags.service'
+import {
+  readMobileFoldersInSidebar,
+  writeMobileFoldersInSidebar,
+} from '../features/chat/constants/mobileFoldersInSidebar'
+import {
+  readDesktopFoldersInSidebar,
+  writeDesktopFoldersInSidebar,
+} from '../features/chat/constants/desktopFoldersInSidebar'
+import {
   applySidebarPreferenceToDocument,
   persistSidebarPreferenceToStorage,
   themeModeToDatasetVariant,
@@ -159,6 +170,9 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   )
   const [assistantEmojisEnabled, setAssistantEmojisEnabled] = useState(() => readAssistantEmojisEnabled())
   const [mobileComposerCompact, setMobileComposerCompact] = useState(() => readMobileComposerCompact())
+  const [mobileFoldersInSidebar, setMobileFoldersInSidebar] = useState(() => readMobileFoldersInSidebar())
+  const [desktopFoldersInSidebar, setDesktopFoldersInSidebar] = useState(() => readDesktopFoldersInSidebar())
+  const [chatFoldersFeatureEnabled, setChatFoldersFeatureEnabled] = useState(true)
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
   const [chatCleanupInfo, setChatCleanupInfo] = useState<string | null>(null)
@@ -179,6 +193,27 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   const [uiSettingsHydrated, setUiSettingsHydrated] = useState(false)
   const uiHydratedForUserIdRef = useRef<string | null>(null)
   const skipNextUiPersistRef = useRef(false)
+
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const flags = await getAppFeatureFlags()
+        if (!mounted) {
+          return
+        }
+        setChatFoldersFeatureEnabled(flags.chat_folders_enabled)
+      } catch {
+        if (!mounted) {
+          return
+        }
+        setChatFoldersFeatureEnabled(true)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   useEffect(() => {
     setActiveSection(initialSection)
@@ -469,6 +504,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     setLearnPathTitleColorMode(s.learnPathTitleColorMode)
     setAssistantEmojisEnabled(s.assistantEmojis)
     setMobileComposerCompact(s.mobileComposerCompact)
+    setMobileFoldersInSidebar(s.mobileFoldersInSidebar)
+    setDesktopFoldersInSidebar(s.desktopFoldersInSidebar)
     setUiSettingsHydrated(true)
   }, [user, profile])
 
@@ -490,6 +527,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       learnPathTitleColorMode,
       assistantEmojis: assistantEmojisEnabled,
       mobileComposerCompact,
+      mobileFoldersInSidebar,
+      desktopFoldersInSidebar,
     }
     const timerId = window.setTimeout(() => {
       void updateUiSettings(snapshot)
@@ -509,6 +548,8 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     learnPathTitleColorMode,
     assistantEmojisEnabled,
     mobileComposerCompact,
+    mobileFoldersInSidebar,
+    desktopFoldersInSidebar,
     updateUiSettings,
   ])
 
@@ -519,6 +560,14 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   useEffect(() => {
     writeMobileComposerCompact(mobileComposerCompact)
   }, [mobileComposerCompact])
+
+  useEffect(() => {
+    writeMobileFoldersInSidebar(mobileFoldersInSidebar)
+  }, [mobileFoldersInSidebar])
+
+  useEffect(() => {
+    writeDesktopFoldersInSidebar(desktopFoldersInSidebar)
+  }, [desktopFoldersInSidebar])
 
   useEffect(() => {
     const baseTheme = themeMode === 'light' ? 'light' : 'dark'
@@ -743,6 +792,14 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
 
   function handleToggleMobileComposerCompact() {
     setMobileComposerCompact((v) => !v)
+  }
+
+  function handleToggleMobileFoldersInSidebar() {
+    setMobileFoldersInSidebar((v) => !v)
+  }
+
+  function handleToggleDesktopFoldersInSidebar() {
+    setDesktopFoldersInSidebar((v) => !v)
   }
 
   async function handleToggleAutoRemoveEmptyChats() {
@@ -970,6 +1027,11 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             onToggleAssistantEmojis={handleToggleAssistantEmojis}
             mobileComposerCompact={mobileComposerCompact}
             onToggleMobileComposerCompact={handleToggleMobileComposerCompact}
+            chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
+            mobileFoldersInSidebar={mobileFoldersInSidebar}
+            onToggleMobileFoldersInSidebar={handleToggleMobileFoldersInSidebar}
+            desktopFoldersInSidebar={desktopFoldersInSidebar}
+            onToggleDesktopFoldersInSidebar={handleToggleDesktopFoldersInSidebar}
             autoRemoveEmptyChats={autoRemoveEmptyChats}
             isUpdatingChatSetting={isUpdatingChatSetting}
             isCleaningEmptyChats={isCleaningEmptyChats}

@@ -83,9 +83,6 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
     panelClassName,
     panelStyle,
     handleHandlePointerDown,
-    handleHandlePointerMove,
-    handleHandlePointerUp,
-    handleHandlePointerCancel,
   } = useActionBottomSheetDetentDrag({
     open,
     onRequestClose: requestClose,
@@ -180,9 +177,6 @@ export const ActionBottomSheet = forwardRef<HTMLDivElement, ActionBottomSheetPro
           className="action-bottom-sheet-handle-hit"
           aria-label="Sheet ziehen: nach oben vergrössern, nach unten verkleinern oder schliessen"
           onPointerDown={handleHandlePointerDown}
-          onPointerMove={handleHandlePointerMove}
-          onPointerUp={handleHandlePointerUp}
-          onPointerCancel={handleHandlePointerCancel}
         >
           <span className="action-bottom-sheet-handle" aria-hidden="true" />
         </button>

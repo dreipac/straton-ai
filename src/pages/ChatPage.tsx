@@ -12,6 +12,8 @@ import {
 import { useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
 import editIcon from '../assets/icons/edit.svg'
+import fileIcon from '../assets/icons/file.svg'
+import folderFilledIcon from '../assets/icons/folder-filled.svg'
 import loginIcon from '../assets/icons/login.svg'
 import logoutIcon from '../assets/icons/logout.svg'
 import accountIcon from '../assets/icons/account.svg'
@@ -70,8 +72,10 @@ import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTo
 import { ChatToolbarMobileMenuSelect } from '../features/chat/components/ChatToolbarMobileMenuSelect'
 import { ChatToolbarTitleMenuSelect } from '../features/chat/components/ChatToolbarTitleMenuSelect'
 import { ChatToolbarReplyModeSelect } from '../features/chat/components/ChatToolbarReplyModeSelect'
-import { ChatThreadSwipeRow } from '../features/chat/components/ChatThreadSwipeRow'
 import { ChatThreadListSkeleton } from '../features/chat/components/ChatThreadListSkeleton'
+import { ChatFolderSidebarSection } from '../features/chat/components/ChatFolderSidebarSection'
+import { ChatFoldersMobilePanel } from '../features/chat/components/ChatFoldersMobilePanel'
+import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import {
@@ -81,8 +85,11 @@ import {
   type ChatThreadMemberPublic,
 } from '../features/chat/services/chat.collaboration'
 import { useChat } from '../features/chat/hooks/useChat'
+import { useChatFolders } from '../features/chat/hooks/useChatFolders'
 import { useChatPageEnter, useChatThreadListSkeletonVisibility } from '../features/chat/hooks/useChatPageEnter'
-import type { ChatThread } from '../features/chat/types'
+import type { ChatFolder, ChatThread } from '../features/chat/types'
+import { readMobileFoldersInSidebar } from '../features/chat/constants/mobileFoldersInSidebar'
+import { readDesktopFoldersInSidebar } from '../features/chat/constants/desktopFoldersInSidebar'
 import { hapticLightImpact } from '../utils/haptics'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
@@ -289,6 +296,7 @@ export function ChatPage() {
   const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
+  const [chatFoldersFeatureEnabled, setChatFoldersFeatureEnabled] = useState(true)
   const {
     threads,
     activeThreadId,
@@ -333,6 +341,7 @@ export function ChatPage() {
     thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
     onThinkingCreditsConsumed: refreshProfile,
   })
+  const chatFolders = useChatFolders(user?.id, threads)
   const isPageEnter = useChatPageEnter()
   const {
     threadSkeletonMounted,
@@ -797,6 +806,20 @@ export function ChatPage() {
   const [isAdminMounted, setIsAdminMounted] = useState(false)
   const [isAdminVisible, setIsAdminVisible] = useState(false)
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
+  const [pressingThreadId, setPressingThreadId] = useState<string | null>(null)
+  const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null)
+  const [folderMenuVariant, setFolderMenuVariant] = useState<'none' | 'context' | 'sheet'>('none')
+  const [folderContextMenuPosition, setFolderContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const [folderMoveThreadId, setFolderMoveThreadId] = useState<string | null>(null)
+  const [isFolderMoveModalVisible, setIsFolderMoveModalVisible] = useState(false)
+  const [folderNameSheetMode, setFolderNameSheetMode] = useState<'create' | { renameFolderId: string } | null>(null)
+  const [folderNameDraft, setFolderNameDraft] = useState('')
+  const [isFolderNameSheetOpen, setIsFolderNameSheetOpen] = useState(false)
+  const [isFolderNameModalVisible, setIsFolderNameModalVisible] = useState(false)
+  const folderSheetRef = useRef<HTMLDivElement | null>(null)
+  const folderMenuWrapperRef = useRef<HTMLDivElement | null>(null)
+  const folderLongPressTimerRef = useRef<number | null>(null)
+  const folderLongPressStartRef = useRef<{ x: number; y: number } | null>(null)
   const [swipeOpenThreadId, setSwipeOpenThreadId] = useState<string | null>(null)
   const threadForMenu = useMemo(
     () => (openMenuThreadId ? threads.find((t) => t.id === openMenuThreadId) : undefined),
@@ -821,6 +844,13 @@ export function ChatPage() {
   const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isMobileFoldersOpen, setIsMobileFoldersOpen] = useState(false)
+  const [mobileFoldersInSidebarEnabled, setMobileFoldersInSidebarEnabled] = useState(() =>
+    readMobileFoldersInSidebar(),
+  )
+  const [desktopFoldersInSidebarEnabled, setDesktopFoldersInSidebarEnabled] = useState(() =>
+    readDesktopFoldersInSidebar(),
+  )
   const mobileBottomNavSpring = useGlassPillTouchFeedback()
   const mobileNewChatTouch = useGlassPillTouchFeedback()
   const sidebarNewChatTouch = useGlassPillTouchFeedback()
@@ -850,12 +880,32 @@ export function ChatPage() {
   )
   const [compactTourReveal, setCompactTourReveal] = useState(false)
   const chatTourOverlayActive = chatTourEligible && (!isCompactMobileSidebarLayout || compactTourReveal)
+  const showFoldersInSidebar =
+    chatFoldersFeatureEnabled &&
+    (isCompactMobileSidebarLayout ? mobileFoldersInSidebarEnabled : desktopFoldersInSidebarEnabled)
+  const sidebarThreadList = showFoldersInSidebar ? chatFolders.threadsWithoutFolder : threads
+  const isMobileFoldersTabDisabled = !chatFoldersFeatureEnabled
+
+  useEffect(() => {
+    const syncFolderSidebarPref = () => {
+      setMobileFoldersInSidebarEnabled(readMobileFoldersInSidebar())
+      setDesktopFoldersInSidebarEnabled(readDesktopFoldersInSidebar())
+    }
+    window.addEventListener('focus', syncFolderSidebarPref)
+    window.addEventListener('storage', syncFolderSidebarPref)
+    return () => {
+      window.removeEventListener('focus', syncFolderSidebarPref)
+      window.removeEventListener('storage', syncFolderSidebarPref)
+    }
+  }, [])
+
   const sidebarEdgeSwipe = useMobileSidebarEdgeSwipe({
     enabled: isCompactMobileSidebarLayout,
     isOpen: isMobileSidebarOpen,
     swipeOpenBlocked: chatTourEligible || mobileSheetMode !== 'closed',
     swipeCloseBlocked: chatTourEligible,
     onOpen: () => {
+      setIsMobileFoldersOpen(false)
       setIsSidebarCollapsed(false)
       setIsMobileSidebarOpen(true)
       hapticLightImpact()
@@ -872,6 +922,8 @@ export function ChatPage() {
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
   const renameCloseTimerRef = useRef<number | null>(null)
+  const folderNameCloseTimerRef = useRef<number | null>(null)
+  const folderMoveCloseTimerRef = useRef<number | null>(null)
   const betaNoticeCloseTimerRef = useRef<number | null>(null)
   const betaNoticeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const endSharingSheetRef = useRef<ContentBottomSheetHandle | null>(null)
@@ -887,6 +939,7 @@ export function ChatPage() {
       longPressTimerRef.current = null
     }
     longPressStartRef.current = null
+    setPressingThreadId(null)
   }, [])
 
   useEffect(() => {
@@ -948,8 +1001,30 @@ export function ChatPage() {
   }
 
   function selectMobileBottomNavTab(index: 0 | 1 | 2) {
+    if (index === 2 && !chatFoldersFeatureEnabled) {
+      return
+    }
     setOptimisticPillTabIndex(index)
     startPillAccentPulse('main')
+    if (index === 0) {
+      setIsMobileFoldersOpen(false)
+      setIsSidebarCollapsed(false)
+      setIsMobileSidebarOpen(true)
+      return
+    }
+    if (index === 1) {
+      setIsMobileFoldersOpen(false)
+      setIsMobileSidebarOpen(false)
+      profileFullSheetRef.current?.requestClose()
+      closeThreadActionMenu()
+      closeFolderActionMenu()
+      return
+    }
+    setIsMobileFoldersOpen(true)
+    setIsMobileSidebarOpen(false)
+    profileFullSheetRef.current?.requestClose()
+    closeThreadActionMenu()
+    closeFolderActionMenu()
   }
 
   function selectGuestMobileBottomNavTab(index: 0 | 1) {
@@ -962,12 +1037,15 @@ export function ChatPage() {
       return
     }
     const nextSidebarOpen = !isMobileSidebarOpen
-    const nextPillIndex = nextSidebarOpen ? 0 : 1
     if (user) {
-      selectMobileBottomNavTab(nextPillIndex as 0 | 1 | 2)
-    } else {
-      selectGuestMobileBottomNavTab(nextPillIndex as 0 | 1)
+      if (nextSidebarOpen) {
+        hapticLightImpact()
+      }
+      selectMobileBottomNavTab(nextSidebarOpen ? 0 : 1)
+      return
     }
+    const nextPillIndex = nextSidebarOpen ? 0 : 1
+    selectGuestMobileBottomNavTab(nextPillIndex as 0 | 1)
     setIsSidebarCollapsed(false)
     setIsMobileSidebarOpen((prev) => {
       const next = !prev
@@ -981,7 +1059,7 @@ export function ChatPage() {
   useEffect(() => {
     function handleOutsidePointer(event: MouseEvent | TouchEvent) {
       const compactSheetOpen = isCompactMobileSidebarLayout && mobileSheetMode !== 'closed'
-      if (!openMenuThreadId && !compactSheetOpen) {
+      if (!openMenuThreadId && !openFolderMenuId && !compactSheetOpen) {
         return
       }
 
@@ -992,12 +1070,18 @@ export function ChatPage() {
 
       const isInsideThreadMenu = menuWrapperRef.current?.contains(target) ?? false
       const isInsideThreadSheet = threadSheetRef.current?.contains(target) ?? false
+      const isInsideFolderMenu = folderMenuWrapperRef.current?.contains(target) ?? false
+      const isInsideFolderSheet = folderSheetRef.current?.contains(target) ?? false
       const isInsideProfileMenu = profileMenuRef.current?.contains(target) ?? false
 
       if (!isInsideThreadMenu && !isInsideThreadSheet && openMenuThreadId) {
         setOpenMenuThreadId(null)
         setContextMenuPosition(null)
         setThreadMenuVariant('none')
+      }
+
+      if (!isInsideFolderMenu && !isInsideFolderSheet && openFolderMenuId) {
+        closeFolderActionMenu()
       }
 
       if (!isInsideProfileMenu && compactSheetOpen) {
@@ -1014,7 +1098,7 @@ export function ChatPage() {
       document.removeEventListener('mousedown', handleOutsidePointer)
       document.removeEventListener('touchstart', handleOutsidePointer)
     }
-  }, [openMenuThreadId, isCompactMobileSidebarLayout, mobileSheetMode])
+  }, [openMenuThreadId, openFolderMenuId, isCompactMobileSidebarLayout, mobileSheetMode])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${COMPACT_MOBILE_SIDEBAR_MAX_PX}px)`)
@@ -1053,6 +1137,12 @@ export function ChatPage() {
       if (renameCloseTimerRef.current) {
         window.clearTimeout(renameCloseTimerRef.current)
       }
+      if (folderNameCloseTimerRef.current) {
+        window.clearTimeout(folderNameCloseTimerRef.current)
+      }
+      if (folderMoveCloseTimerRef.current) {
+        window.clearTimeout(folderMoveCloseTimerRef.current)
+      }
       if (betaNoticeCloseTimerRef.current) {
         window.clearTimeout(betaNoticeCloseTimerRef.current)
       }
@@ -1082,6 +1172,7 @@ export function ChatPage() {
         setLearnPathsEnabled(flags.learn_paths_enabled)
         setLearnPathCreateEnabled(flags.learn_path_create_enabled)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
+        setChatFoldersFeatureEnabled(flags.chat_folders_enabled)
       } catch {
         if (!isMounted) {
           return
@@ -1089,6 +1180,7 @@ export function ChatPage() {
         setShowBetaNoticeOnFirstLogin(true)
         setLearnPathsEnabled(true)
         setLearnPathCreateEnabled(true)
+        setChatFoldersFeatureEnabled(true)
       }
     })()
 
@@ -1103,10 +1195,17 @@ export function ChatPage() {
         return
       }
       setIsMobileSidebarOpen(false)
+      setIsMobileFoldersOpen(false)
       if (openMenuThreadId) {
         setOpenMenuThreadId(null)
         setContextMenuPosition(null)
         setThreadMenuVariant('none')
+      }
+      if (openFolderMenuId) {
+        closeFolderActionMenu()
+      }
+      if (folderMoveThreadId) {
+        closeFolderMoveDialog()
       }
     }
 
@@ -1308,11 +1407,26 @@ export function ChatPage() {
     }
   }
 
-  const computedMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : 1
+  const computedMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : isMobileFoldersOpen ? 2 : 1
   const computedGuestMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : 1
   const mobileBottomNavTabIndex = optimisticPillTabIndex ?? computedMobileBottomNavTabIndex
   const guestMobileBottomNavTabIndex = guestOptimisticPillTabIndex ?? computedGuestMobileBottomNavTabIndex
-  const mobileChatBottomTabActive = !isMobileSidebarOpen
+  const mobileChatBottomTabActive = !isMobileSidebarOpen && !isMobileFoldersOpen
+  const mobileFoldersBottomTabActive = isMobileFoldersOpen && chatFoldersFeatureEnabled
+
+  useEffect(() => {
+    if (!chatFoldersFeatureEnabled) {
+      setIsMobileFoldersOpen(false)
+      setOpenFolderMenuId(null)
+      setFolderContextMenuPosition(null)
+      setFolderMenuVariant('none')
+      setFolderMoveThreadId(null)
+      setIsFolderMoveModalVisible(false)
+      setFolderNameSheetMode(null)
+      setIsFolderNameSheetOpen(false)
+      setIsFolderNameModalVisible(false)
+    }
+  }, [chatFoldersFeatureEnabled])
 
   useEffect(() => {
     if (optimisticPillTabIndex !== null && optimisticPillTabIndex === computedMobileBottomNavTabIndex) {
@@ -1344,6 +1458,198 @@ export function ChatPage() {
     setOpenMenuThreadId(null)
     setContextMenuPosition(null)
     setThreadMenuVariant('none')
+    setPressingThreadId(null)
+  }
+
+  function closeFolderActionMenu() {
+    setOpenFolderMenuId(null)
+    setFolderContextMenuPosition(null)
+    setFolderMenuVariant('none')
+  }
+
+  function openFolderContextMenuAt(folderId: string, clientX: number, clientY: number) {
+    setOpenFolderMenuId(folderId)
+    if (isMobileViewport()) {
+      setFolderMenuVariant('sheet')
+      setFolderContextMenuPosition(null)
+      return
+    }
+    setFolderMenuVariant('context')
+    const margin = 8
+    const menuW = 168
+    const menuH = 96
+    const x = Math.max(margin, Math.min(clientX, window.innerWidth - menuW - margin))
+    const y = Math.max(margin, Math.min(clientY, window.innerHeight - menuH - margin))
+    setFolderContextMenuPosition({ x, y })
+  }
+
+  function openFolderContextMenu(folder: ChatFolder, event: ReactMouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    openFolderContextMenuAt(folder.id, event.clientX, event.clientY)
+  }
+
+  function cancelFolderLongPress() {
+    if (folderLongPressTimerRef.current !== null) {
+      window.clearTimeout(folderLongPressTimerRef.current)
+      folderLongPressTimerRef.current = null
+    }
+    folderLongPressStartRef.current = null
+  }
+
+  function handleFolderLongPressTouchStart(folder: ChatFolder, event: ReactTouchEvent) {
+    if (event.touches.length !== 1) {
+      return
+    }
+    const touch = event.touches[0]
+    folderLongPressStartRef.current = { x: touch.clientX, y: touch.clientY }
+    if (folderLongPressTimerRef.current !== null) {
+      window.clearTimeout(folderLongPressTimerRef.current)
+    }
+    folderLongPressTimerRef.current = window.setTimeout(() => {
+      folderLongPressTimerRef.current = null
+      openFolderContextMenuAt(folder.id, touch.clientX, touch.clientY)
+      hapticLightImpact()
+    }, LONG_PRESS_MS)
+  }
+
+  function handleFolderLongPressTouchMove(event: ReactTouchEvent) {
+    if (!folderLongPressStartRef.current || folderLongPressTimerRef.current === null) {
+      return
+    }
+    if (event.touches.length === 0) {
+      return
+    }
+    const touch = event.touches[0]
+    const dx = Math.abs(touch.clientX - folderLongPressStartRef.current.x)
+    const dy = Math.abs(touch.clientY - folderLongPressStartRef.current.y)
+    if (dx > LONG_PRESS_MOVE_CANCEL_PX || dy > LONG_PRESS_MOVE_CANCEL_PX) {
+      cancelFolderLongPress()
+    }
+  }
+
+  function handleFolderLongPressTouchEnd() {
+    cancelFolderLongPress()
+  }
+
+  function openFolderNameDialog(mode: 'create' | { renameFolderId: string }, draft: string) {
+    if (folderNameCloseTimerRef.current) {
+      window.clearTimeout(folderNameCloseTimerRef.current)
+      folderNameCloseTimerRef.current = null
+    }
+
+    setFolderNameDraft(draft)
+    setFolderNameSheetMode(mode)
+    setIsFolderNameSheetOpen(true)
+
+    if (!isCompactMobileSidebarLayout) {
+      setIsFolderNameModalVisible(false)
+      window.requestAnimationFrame(() => {
+        setIsFolderNameModalVisible(true)
+      })
+    }
+  }
+
+  function openCreateFolderSheet() {
+    if (!chatFoldersFeatureEnabled) {
+      return
+    }
+    openFolderNameDialog('create', '')
+  }
+
+  function openRenameFolderSheet(folder: ChatFolder) {
+    closeFolderActionMenu()
+    openFolderNameDialog({ renameFolderId: folder.id }, folder.name)
+  }
+
+  function closeFolderNameSheet() {
+    if (isCompactMobileSidebarLayout) {
+      setIsFolderNameSheetOpen(false)
+      setFolderNameSheetMode(null)
+      setFolderNameDraft('')
+      return
+    }
+
+    setIsFolderNameModalVisible(false)
+    folderNameCloseTimerRef.current = window.setTimeout(() => {
+      setIsFolderNameSheetOpen(false)
+      setFolderNameSheetMode(null)
+      setFolderNameDraft('')
+      folderNameCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
+  async function handleFolderNameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmed = folderNameDraft.trim()
+    if (!trimmed) {
+      return
+    }
+    try {
+      if (folderNameSheetMode === 'create') {
+        await chatFolders.createFolder(trimmed)
+        pushToast('Ordner erstellt.')
+      } else if (folderNameSheetMode && typeof folderNameSheetMode === 'object') {
+        await chatFolders.renameFolder(folderNameSheetMode.renameFolderId, trimmed)
+        pushToast('Ordner umbenannt.')
+      }
+      closeFolderNameSheet()
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Ordner konnte nicht gespeichert werden.')
+    }
+  }
+
+  async function handleDeleteFolder(folderId: string) {
+    closeFolderActionMenu()
+    try {
+      await chatFolders.removeFolder(folderId)
+      pushToast('Ordner gelöscht. Chats sind wieder ohne Ordner.')
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Ordner konnte nicht gelöscht werden.')
+    }
+  }
+
+  function openFolderMoveDialog(threadId: string) {
+    if (!chatFoldersFeatureEnabled) {
+      return
+    }
+    if (folderMoveCloseTimerRef.current) {
+      window.clearTimeout(folderMoveCloseTimerRef.current)
+      folderMoveCloseTimerRef.current = null
+    }
+
+    setFolderMoveThreadId(threadId)
+
+    if (!isCompactMobileSidebarLayout) {
+      setIsFolderMoveModalVisible(false)
+      window.requestAnimationFrame(() => {
+        setIsFolderMoveModalVisible(true)
+      })
+    }
+  }
+
+  function closeFolderMoveDialog() {
+    if (isCompactMobileSidebarLayout) {
+      setFolderMoveThreadId(null)
+      return
+    }
+
+    setIsFolderMoveModalVisible(false)
+    folderMoveCloseTimerRef.current = window.setTimeout(() => {
+      setFolderMoveThreadId(null)
+      folderMoveCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
+  }
+
+  async function handleMoveThreadToFolder(threadId: string, folderId: string | null) {
+    closeFolderMoveDialog()
+    closeThreadActionMenu()
+    try {
+      await chatFolders.moveThreadToFolder(threadId, folderId)
+      pushToast(folderId ? 'Chat verschoben.' : 'Chat aus Ordner entfernt.')
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Chat konnte nicht verschoben werden.')
+    }
   }
 
   function handleSidebarHeaderToggleClick() {
@@ -1396,6 +1702,9 @@ export function ChatPage() {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current)
     }
+    if (isMobileViewport()) {
+      setPressingThreadId(threadId)
+    }
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null
       suppressThreadClickRef.current = true
@@ -1418,6 +1727,7 @@ export function ChatPage() {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
       longPressStartRef.current = null
+      setPressingThreadId(null)
     }
   }
 
@@ -1427,6 +1737,57 @@ export function ChatPage() {
       longPressTimerRef.current = null
     }
     longPressStartRef.current = null
+    setPressingThreadId(null)
+  }
+
+  function buildThreadLongPressHandlers(threadId: string) {
+    return {
+      onTouchStart: (event: ReactTouchEvent<HTMLElement>) =>
+        handleThreadLongPressTouchStart(threadId, event),
+      onTouchMove: handleThreadLongPressTouchMove,
+      onTouchEnd: handleThreadLongPressTouchEnd,
+      onTouchCancel: handleThreadLongPressTouchEnd,
+    }
+  }
+
+  function handleSidebarThreadSelect(threadId: string) {
+    if (suppressThreadClickRef.current) {
+      suppressThreadClickRef.current = false
+      return
+    }
+    if (swipeOpenThreadId && swipeOpenThreadId !== threadId) {
+      setSwipeOpenThreadId(null)
+    }
+    selectChat(threadId)
+    closeThreadActionMenu()
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+  }
+
+  function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
+    return (
+      <ChatSidebarThreadRow
+        key={thread.id}
+        thread={thread}
+        threadIndex={threadIndex}
+        activeThreadId={activeThreadId}
+        openMenuThreadId={openMenuThreadId}
+        swipeOpenThreadId={swipeOpenThreadId}
+        pressingThreadId={pressingThreadId}
+        canSwipeDeleteThread={false}
+        longPressHandlers={buildThreadLongPressHandlers(thread.id)}
+        onContextMenu={openThreadContextMenu}
+        onSwipeOpen={(id) => setSwipeOpenThreadId(id)}
+        onSwipeClose={(id) => setSwipeOpenThreadId((current) => (current === id ? null : current))}
+        onSelect={handleSidebarThreadSelect}
+        onSwipeDeleteStart={() => {
+          setSwipeOpenThreadId(null)
+          closeThreadActionMenu()
+        }}
+        onDelete={(id) => void deleteThreadFromSwipe(id)}
+        onSwipeGestureStart={cancelThreadLongPress}
+      />
+    )
   }
 
   const displayName = getUserDisplayName(user, profile)
@@ -1459,6 +1820,7 @@ export function ChatPage() {
   function renderMobileBottomDock(variant: 'guest' | 'main') {
     const tabIndex = variant === 'guest' ? guestMobileBottomNavTabIndex : mobileBottomNavTabIndex
     const pillPulseActive = variant === 'guest' ? guestPillAccentPulseActive : pillAccentPulseActive
+    const isMobileFolderDockAction = variant === 'main' && mobileFoldersBottomTabActive
 
     return (
       <div className="chat-mobile-bottom-dock">
@@ -1540,42 +1902,70 @@ export function ChatPage() {
               </button>
               <button
                 type="button"
-                className="chat-mobile-bottom-tab chat-mobile-bottom-tab--placeholder"
-                aria-label="Platzhalter"
-                disabled
+                className={`chat-mobile-bottom-tab chat-mobile-bottom-tab--folders${
+                  mobileFoldersBottomTabActive ? ' is-active' : ''
+                }${isMobileFoldersTabDisabled ? ' is-disabled' : ''}`}
+                aria-label="Ordner"
+                disabled={isMobileFoldersTabDisabled}
+                aria-disabled={isMobileFoldersTabDisabled}
+                onClick={() => {
+                  if (isMobileFoldersTabDisabled) {
+                    return
+                  }
+                  selectMobileBottomNavTab(2)
+                }}
               >
                 <span className="chat-mobile-bottom-tab-icon-slot">
-                  <span className="chat-mobile-bottom-tab-icon-accent chat-mobile-bottom-tab-icon-accent--status" aria-hidden="true" />
+                  <span
+                    className={`chat-mobile-bottom-tab-icon-accent ${
+                      mobileFoldersBottomTabActive
+                        ? 'chat-mobile-bottom-tab-icon-accent--folder-filled'
+                        : 'chat-mobile-bottom-tab-icon-accent--folder-outlined'
+                    }`}
+                    aria-hidden="true"
+                  />
                 </span>
-                <span className="chat-mobile-bottom-tab-label">N. Verfügbar</span>
+                <span className="chat-mobile-bottom-tab-label">Ordner</span>
               </button>
             </>
           )}
         </nav>
         <button
           type="button"
-          ref={variant === 'main' && isCompactMobileSidebarLayout ? newChatTourRef : undefined}
+          ref={variant === 'main' && isCompactMobileSidebarLayout && !isMobileFolderDockAction ? newChatTourRef : undefined}
           className={[
             'chat-mobile-new-chat-btn',
             'new-chat-touch-btn',
+            isMobileFolderDockAction ? 'chat-mobile-new-chat-btn--folder' : '',
             mobileNewChatTouch.touchStateClass,
-            variant === 'main' && isNewChatPending ? 'is-new-chat-pending' : '',
-            variant === 'main' && chatTourEligible ? 'chat-onboarding-tour-block' : '',
+            variant === 'main' && !isMobileFolderDockAction && isNewChatPending ? 'is-new-chat-pending' : '',
+            variant === 'main' && !isMobileFolderDockAction && chatTourEligible ? 'chat-onboarding-tour-block' : '',
           ]
             .filter(Boolean)
             .join(' ')}
-          aria-label="Neuer Chat"
-          aria-busy={variant === 'main' && isNewChatPending ? true : undefined}
+          aria-label={
+            variant === 'guest' ? 'Anmelden' : isMobileFolderDockAction ? 'Neuer Ordner' : 'Neuer Chat'
+          }
+          aria-busy={variant === 'main' && !isMobileFolderDockAction && isNewChatPending ? true : undefined}
           onClick={() => {
             if (variant === 'guest') {
               navigate('/login')
+              return
+            }
+            if (isMobileFolderDockAction) {
+              openCreateFolderSheet()
               return
             }
             void handleCreateNewChat()
           }}
           {...mobileNewChatTouch.touchHandlers}
         >
-          <span className="chat-mobile-new-chat-btn-icon new-chat-touch-btn__icon" aria-hidden="true" />
+          <span
+            className={`chat-mobile-new-chat-btn-icon new-chat-touch-btn__icon${
+              isMobileFolderDockAction ? ' chat-mobile-new-chat-btn-icon--folder' : ''
+            }`}
+            aria-hidden="true"
+          />
         </button>
       </div>
     )
@@ -1945,6 +2335,19 @@ export function ChatPage() {
         <div className="chat-sidebar-list-wrap">
           {!isSidebarCollapsed ? (
             <div className="chat-thread-list">
+              {user && showFoldersInSidebar ? (
+                <ChatFolderSidebarSection
+                  folders={chatFolders.folders}
+                  threadsByFolderId={chatFolders.threadsByFolderId}
+                  openFolderMenuId={openFolderMenuId}
+                  onCreateFolder={openCreateFolderSheet}
+                  onFolderContextMenu={openFolderContextMenu}
+                  onFolderLongPressStart={handleFolderLongPressTouchStart}
+                  onFolderLongPressMove={handleFolderLongPressTouchMove}
+                  onFolderLongPressEnd={handleFolderLongPressTouchEnd}
+                  renderThreadRow={renderSidebarThreadRow}
+                />
+              ) : null}
               <p className="thread-list-info">Chats</p>
               {threadSkeletonMounted ? (
                 <ChatThreadListSkeleton
@@ -1953,70 +2356,17 @@ export function ChatPage() {
                 />
               ) : null}
               {!isBootstrapping && !threadSkeletonMounted
-                ? threads.map((thread, threadIndex) => {
-                const canSwipeDeleteThread = Boolean(
-                  isCompactMobileSidebarLayout && user && isThreadOwner(thread, user.id),
-                )
-                const longPressHandlers = {
-                  onTouchStart: (event: ReactTouchEvent<HTMLElement>) =>
-                    handleThreadLongPressTouchStart(thread.id, event),
-                  onTouchMove: handleThreadLongPressTouchMove,
-                  onTouchEnd: handleThreadLongPressTouchEnd,
-                  onTouchCancel: handleThreadLongPressTouchEnd,
-                }
-
-                return (
-                  <div
-                    key={thread.id}
-                    style={{ '--chat-thread-enter-index': threadIndex } as CSSProperties}
-                    className={`chat-thread-row ${thread.id === activeThreadId ? 'is-active' : ''} ${
-                      openMenuThreadId === thread.id ? 'has-open-menu' : ''
-                    } ${swipeOpenThreadId === thread.id ? 'has-swipe-open' : ''} ${
-                      thread.isTemporary ? 'is-temporary' : ''
-                    } ${thread.isRemoving ? 'is-removing' : ''}`}
-                    onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
-                    {...(canSwipeDeleteThread ? {} : longPressHandlers)}
-                  >
-                    <ChatThreadSwipeRow
-                      enabled={canSwipeDeleteThread}
-                      isSwipeOpen={swipeOpenThreadId === thread.id}
-                      isActive={thread.id === activeThreadId}
-                      isRemoving={thread.isRemoving}
-                      onSwipeOpen={() => {
-                        setSwipeOpenThreadId(thread.id)
-                      }}
-                      onSwipeClose={() => {
-                        setSwipeOpenThreadId((current) => (current === thread.id ? null : current))
-                      }}
-                      onSelect={() => {
-                        if (suppressThreadClickRef.current) {
-                          suppressThreadClickRef.current = false
-                          return
-                        }
-                        if (swipeOpenThreadId && swipeOpenThreadId !== thread.id) {
-                          setSwipeOpenThreadId(null)
-                        }
-                        selectChat(thread.id)
-                        closeThreadActionMenu()
-                        setIsMobileSidebarOpen(false)
-                      }}
-                      onSwipeDeleteStart={() => {
-                        setSwipeOpenThreadId(null)
-                        closeThreadActionMenu()
-                      }}
-                      onDelete={() => void deleteThreadFromSwipe(thread.id)}
-                      onSwipeGestureStart={cancelThreadLongPress}
-                      onContextMenu={(event) => openThreadContextMenu(event, thread.id)}
-                      longPressTouchHandlers={canSwipeDeleteThread ? longPressHandlers : undefined}
-                    >
-                      <span className="chat-thread-title">{thread.title}</span>
-                    </ChatThreadSwipeRow>
-                  </div>
-                )
-              })
+                ? sidebarThreadList.map((thread, threadIndex) => renderSidebarThreadRow(thread, threadIndex))
                 : null}
               {!isBootstrapping && !threadSkeletonMounted && threads.length === 0 ? (
                 <p className="thread-list-info">Noch keine Chats vorhanden.</p>
+              ) : null}
+              {!isBootstrapping &&
+              !threadSkeletonMounted &&
+              showFoldersInSidebar &&
+              threads.length > 0 &&
+              chatFolders.threadsWithoutFolder.length === 0 ? (
+                <p className="thread-list-info thread-list-info--muted">Alle Chats sind in Ordnern.</p>
               ) : null}
             </div>
           ) : null}
@@ -2094,7 +2444,18 @@ export function ChatPage() {
       </aside>
 
       <section className={`chat-main${showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}`}>
-        {showFloatingChatToolbar && isChatToolbarMobile ? renderMobileChatTopBar() : null}
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled ? (
+          <ChatFoldersMobilePanel
+            folders={chatFolders.folders}
+            threadsByFolderId={chatFolders.threadsByFolderId}
+            onFolderContextMenu={openFolderContextMenu}
+            onFolderLongPressStart={handleFolderLongPressTouchStart}
+            onFolderLongPressMove={handleFolderLongPressTouchMove}
+            onFolderLongPressEnd={handleFolderLongPressTouchEnd}
+            renderThreadRow={renderSidebarThreadRow}
+          />
+        ) : null}
+        {showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen ? renderMobileChatTopBar() : null}
         {showFloatingChatToolbar && !isChatToolbarMobile ? (
           <div className="chat-main-toolbar">
             <div className="chat-main-toolbar-share-row">
@@ -2563,6 +2924,23 @@ export function ChatPage() {
           title={threads.find((t) => t.id === openMenuThreadId)?.title}
           onClose={closeThreadActionMenu}
           actions={[
+            ...(chatFoldersFeatureEnabled
+              ? [
+                  {
+                    id: 'move-folder',
+                    label: 'In Ordner verschieben',
+                    iconSrc: fileIcon,
+                    closeSheetAfter: false,
+                    onClick: () => {
+                      const id = openMenuThreadId
+                      closeThreadActionMenu()
+                      if (id) {
+                        openFolderMoveDialog(id)
+                      }
+                    },
+                  },
+                ]
+              : []),
             ...(ownsThreadForMenu
               ? [
                   {
@@ -2621,6 +2999,20 @@ export function ChatPage() {
           className="thread-menu-context-global"
           style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
         >
+          {chatFoldersFeatureEnabled ? (
+            <MenuItem
+              iconSrc={fileIcon}
+              onClick={() => {
+                const id = openMenuThreadId
+                closeThreadActionMenu()
+                if (id) {
+                  openFolderMoveDialog(id)
+                }
+              }}
+            >
+              In Ordner verschieben
+            </MenuItem>
+          ) : null}
           {ownsThreadForMenu ? (
             <MenuItem
               iconSrc={editIcon}
@@ -2666,6 +3058,182 @@ export function ChatPage() {
             </MenuItem>
           ) : null}
         </ContextMenu>
+      ) : null}
+      {chatFoldersFeatureEnabled && folderMoveThreadId && isCompactMobileSidebarLayout ? (
+        <ActionBottomSheet
+          open
+          ariaLabel="Ordner wählen"
+          title={threads.find((t) => t.id === folderMoveThreadId)?.title ?? 'Chat verschieben'}
+          onClose={closeFolderMoveDialog}
+          actions={[
+            {
+              id: 'folder-none',
+              label: 'Ohne Ordner',
+              iconSrc: fileIcon,
+              onClick: () => {
+                void handleMoveThreadToFolder(folderMoveThreadId, null)
+              },
+            },
+            ...chatFolders.folders.map((folder) => ({
+              id: `folder-${folder.id}`,
+              label: folder.name,
+              iconSrc: folderFilledIcon,
+              onClick: () => {
+                void handleMoveThreadToFolder(folderMoveThreadId, folder.id)
+              },
+            })),
+          ]}
+        />
+      ) : chatFoldersFeatureEnabled && folderMoveThreadId ? (
+        <ModalShell isOpen={isFolderMoveModalVisible} onRequestClose={closeFolderMoveDialog}>
+          <section className="rename-modal chat-folder-move-modal" role="dialog" aria-modal="true" aria-label="In Ordner verschieben">
+            <ModalHeader
+              title="In Ordner verschieben"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={closeFolderMoveDialog}
+              closeLabel="Ordner wählen schließen"
+            />
+            <p className="chat-folder-move-modal-subtitle">
+              {threads.find((thread) => thread.id === folderMoveThreadId)?.title ?? 'Chat'}
+            </p>
+            <div className="chat-folder-move-modal-list">
+              <MenuItem
+                iconSrc={fileIcon}
+                onClick={() => {
+                  void handleMoveThreadToFolder(folderMoveThreadId, null)
+                }}
+              >
+                Ohne Ordner
+              </MenuItem>
+              {chatFolders.folders.map((folder) => (
+                <MenuItem
+                  key={folder.id}
+                  iconSrc={folderFilledIcon}
+                  onClick={() => {
+                    void handleMoveThreadToFolder(folderMoveThreadId, folder.id)
+                  }}
+                >
+                  {folder.name}
+                </MenuItem>
+              ))}
+            </div>
+          </section>
+        </ModalShell>
+      ) : null}
+      {chatFoldersFeatureEnabled && folderMenuVariant === 'sheet' && openFolderMenuId ? (
+        <ActionBottomSheet
+          ref={folderSheetRef}
+          open
+          ariaLabel="Ordner-Aktionen"
+          title={chatFolders.folders.find((folder) => folder.id === openFolderMenuId)?.name}
+          onClose={closeFolderActionMenu}
+          actions={[
+            {
+              id: 'rename-folder',
+              label: 'Umbenennen',
+              iconSrc: editIcon,
+              onClick: () => {
+                const folder = chatFolders.folders.find((item) => item.id === openFolderMenuId)
+                if (folder) {
+                  openRenameFolderSheet(folder)
+                }
+              },
+            },
+            {
+              id: 'delete-folder',
+              label: 'Ordner löschen',
+              iconSrc: deleteIcon,
+              variant: 'danger' as const,
+              onClick: () => {
+                if (openFolderMenuId) {
+                  void handleDeleteFolder(openFolderMenuId)
+                }
+              },
+            },
+          ]}
+        />
+      ) : null}
+      {chatFoldersFeatureEnabled && folderMenuVariant === 'context' && openFolderMenuId && folderContextMenuPosition ? (
+        <ContextMenu
+          ref={folderMenuWrapperRef}
+          className="thread-menu-context-global"
+          style={{ left: folderContextMenuPosition.x, top: folderContextMenuPosition.y }}
+        >
+          <MenuItem
+            iconSrc={editIcon}
+            onClick={() => {
+              const folder = chatFolders.folders.find((item) => item.id === openFolderMenuId)
+              if (folder) {
+                openRenameFolderSheet(folder)
+              }
+            }}
+          >
+            Umbenennen
+          </MenuItem>
+          <MenuItem
+            iconSrc={deleteIcon}
+            danger
+            onClick={() => {
+              if (openFolderMenuId) {
+                void handleDeleteFolder(openFolderMenuId)
+              }
+            }}
+          >
+            Ordner löschen
+          </MenuItem>
+        </ContextMenu>
+      ) : null}
+      {chatFoldersFeatureEnabled && isFolderNameSheetOpen && isCompactMobileSidebarLayout ? (
+        <RenameBottomSheet
+          open
+          onClose={closeFolderNameSheet}
+          heading={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
+          inputLabel="Ordnername"
+          inputId="chat-folder-name-input"
+          value={folderNameDraft}
+          onChange={setFolderNameDraft}
+          placeholder="z. B. Arbeit"
+          saveLabel={folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
+          onSubmit={handleFolderNameSubmit}
+        />
+      ) : chatFoldersFeatureEnabled && isFolderNameSheetOpen ? (
+        <ModalShell isOpen={isFolderNameModalVisible} onRequestClose={closeFolderNameSheet}>
+          <section
+            className="rename-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
+          >
+            <ModalHeader
+              title={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={closeFolderNameSheet}
+              closeLabel={
+                folderNameSheetMode === 'create' ? 'Neuer Ordner schließen' : 'Ordner umbenennen schließen'
+              }
+            />
+
+            <form className="rename-form" onSubmit={handleFolderNameSubmit}>
+              <label htmlFor="chat-folder-name-input">Ordnername</label>
+              <input
+                id="chat-folder-name-input"
+                type="text"
+                value={folderNameDraft}
+                onChange={(event) => setFolderNameDraft(event.target.value)}
+                placeholder="z. B. Arbeit"
+                autoFocus
+              />
+
+              <div className="rename-actions">
+                <PrimaryButton type="submit" disabled={!folderNameDraft.trim()}>
+                  {folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
+                </PrimaryButton>
+              </div>
+            </form>
+          </section>
+        </ModalShell>
       ) : null}
       {editingThread && isMobileViewport() ? (
         <RenameBottomSheet

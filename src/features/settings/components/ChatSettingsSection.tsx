@@ -9,6 +9,11 @@ type ChatSettingsSectionProps = {
   onToggleAssistantEmojis: () => void
   mobileComposerCompact: boolean
   onToggleMobileComposerCompact: () => void
+  chatFoldersFeatureEnabled: boolean
+  mobileFoldersInSidebar: boolean
+  onToggleMobileFoldersInSidebar: () => void
+  desktopFoldersInSidebar: boolean
+  onToggleDesktopFoldersInSidebar: () => void
   autoRemoveEmptyChats: boolean
   isUpdatingChatSetting: boolean
   isCleaningEmptyChats: boolean
@@ -65,6 +70,11 @@ export function ChatSettingsSection({
   onToggleAssistantEmojis,
   mobileComposerCompact,
   onToggleMobileComposerCompact,
+  chatFoldersFeatureEnabled,
+  mobileFoldersInSidebar,
+  onToggleMobileFoldersInSidebar,
+  desktopFoldersInSidebar,
+  onToggleDesktopFoldersInSidebar,
   autoRemoveEmptyChats,
   isUpdatingChatSetting,
   isCleaningEmptyChats,
@@ -125,6 +135,52 @@ export function ChatSettingsSection({
         </button>
       </div>
       <div className="chat-setting-divider" />
+      {chatFoldersFeatureEnabled ? (
+        <>
+          <div className="chat-setting-row">
+            <div className="chat-setting-copy">
+              <h3>Ordner in der Sidebar (Mobile)</h3>
+              <p>
+                Standard: Ordner nur über den Tab «Ordner» in der unteren Leiste. Wenn aktiviert, erscheinen Ordner
+                zusätzlich in der Menü-Sidebar.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`ios-switch ${mobileFoldersInSidebar ? 'is-on' : ''}`}
+              aria-label="Ordner in der mobilen Sidebar anzeigen"
+              aria-pressed={mobileFoldersInSidebar}
+              onClick={onToggleMobileFoldersInSidebar}
+            >
+              <span className="ios-switch-track" aria-hidden="true">
+                <span className="ios-switch-thumb" />
+              </span>
+            </button>
+          </div>
+          <div className="chat-setting-divider" />
+          <div className="chat-setting-row">
+            <div className="chat-setting-copy">
+              <h3>Ordner in der Sidebar (Desktop)</h3>
+              <p>
+                Standard: Ordner ausgeblendet. Wenn aktiviert, erscheint die Ordner-Sektion in der Chat-Sidebar auf dem
+                Desktop. Deaktiviert: alle Chats in der normalen Liste.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`ios-switch ${desktopFoldersInSidebar ? 'is-on' : ''}`}
+              aria-label="Ordner in der Desktop-Sidebar anzeigen"
+              aria-pressed={desktopFoldersInSidebar}
+              onClick={onToggleDesktopFoldersInSidebar}
+            >
+              <span className="ios-switch-track" aria-hidden="true">
+                <span className="ios-switch-thumb" />
+              </span>
+            </button>
+          </div>
+          <div className="chat-setting-divider" />
+        </>
+      ) : null}
       <div className="chat-setting-row">
         <div className="chat-setting-copy">
           <h3>Persönlicher KI-Speicher</h3>

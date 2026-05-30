@@ -88,3 +88,12 @@ export type ChatThread = {
   /** gesetzt wenn Thread über Mitgliedschaft (nicht nur Ersteller-Zeile) geladen wurde */
   membershipRole?: 'owner' | 'member'
 }
+
+export type ChatFolder = {
+  id: string
+  userId: string
+  name: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}

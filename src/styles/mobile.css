@@ -109,10 +109,15 @@
 }
 
 .action-bottom-sheet-panel.is-dragging {
+  touch-action: none;
   transition:
     transform 0s,
     opacity calc(var(--straton-sheet-exit-ms) * 0.9) ease-out,
     min-height 0s;
+}
+
+.action-bottom-sheet-panel.is-dragging .action-bottom-sheet-body {
+  touch-action: none;
 }
 
 .action-bottom-sheet-root.is-shown .action-bottom-sheet-backdrop {
@@ -150,6 +155,10 @@
   min-height: 0;
 }
 
+.action-bottom-sheet-panel.is-dragging .action-bottom-sheet-body {
+  touch-action: none;
+}
+
 .action-bottom-sheet-spacer {
   display: none;
   flex: 1 1 auto;
@@ -184,12 +193,14 @@
 
 .action-bottom-sheet-actions {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 0.55rem;
 }
 
 .action-bottom-sheet-action {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 0.65rem;

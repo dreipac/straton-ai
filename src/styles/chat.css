@@ -7920,6 +7920,16 @@ button.chat-onboarding-tour-block {
     mask-position: center;
     -webkit-mask-size: contain;
     mask-size: contain;
+    transition:
+      -webkit-mask-image 220ms ease,
+      mask-image 220ms ease,
+      transform 220ms ease;
+  }
+
+  .chat-mobile-new-chat-btn-icon--folder {
+    -webkit-mask-image: url('../assets/icons/folder-outlined.svg');
+    mask-image: url('../assets/icons/folder-outlined.svg');
+    transform: scale(0.94);
   }
 
   .chat-mobile-bottom-nav::before {
@@ -8069,6 +8079,16 @@ button.chat-onboarding-tour-block {
     mask-image: url('../assets/icons/status.svg');
   }
 
+  .chat-mobile-bottom-tab-icon-accent--folder-filled {
+    -webkit-mask-image: url('../assets/icons/folder-filled.svg');
+    mask-image: url('../assets/icons/folder-filled.svg');
+  }
+
+  .chat-mobile-bottom-tab-icon-accent--folder-outlined {
+    -webkit-mask-image: url('../assets/icons/folder-outlined.svg');
+    mask-image: url('../assets/icons/folder-outlined.svg');
+  }
+
   .chat-mobile-bottom-tab.is-active .chat-mobile-bottom-tab-icon-accent {
     background-color: transparent;
     background: var(--accent-gradient);
@@ -8077,6 +8097,16 @@ button.chat-onboarding-tour-block {
   }
 
   .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-icon-accent {
+    opacity: 0.45;
+  }
+
+  .chat-mobile-bottom-tab.is-disabled,
+  .chat-mobile-bottom-tab:disabled {
+    cursor: not-allowed;
+  }
+
+  .chat-mobile-bottom-tab:disabled .chat-mobile-bottom-tab-label,
+  .chat-mobile-bottom-tab.is-disabled .chat-mobile-bottom-tab-label {
     opacity: 0.45;
   }
 

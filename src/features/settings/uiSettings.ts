@@ -4,6 +4,8 @@ import { applyLearnPathTitleColorMode, type LearnPathTitleColorMode } from './co
 import { applyMessageBoxPalette, DEFAULT_MESSAGE_BOX_PALETTE_ID } from './constants/messageBoxPalettes'
 import { writeAssistantEmojisEnabled } from '../chat/constants/chatAssistantStyle'
 import { writeMobileComposerCompact } from '../chat/constants/mobileComposerCompact'
+import { writeMobileFoldersInSidebar } from '../chat/constants/mobileFoldersInSidebar'
+import { writeDesktopFoldersInSidebar } from '../chat/constants/desktopFoldersInSidebar'
 import { syncThemeColorMeta } from '../../utils/themeColorMeta'
 
 export type ThemeMode = 'light' | 'dark' | 'pink-glass' | 'black'
@@ -52,6 +54,10 @@ export type UiSettingsV1 = {
   assistantEmojis: boolean
   /** Mobile: eine Zeile — Anhang | Pill-Eingabe | Senden (≤860px). */
   mobileComposerCompact: boolean
+  /** Mobile: Ordner zusätzlich in der Menü-Sidebar anzeigen (sonst nur Navbar-Tab). */
+  mobileFoldersInSidebar: boolean
+  /** Desktop: Ordner-Sektion in der Chat-Sidebar anzeigen. */
+  desktopFoldersInSidebar: boolean
 }
 
 export function defaultUiSettings(): UiSettingsV1 {
@@ -65,6 +71,8 @@ export function defaultUiSettings(): UiSettingsV1 {
     learnPathTitleColorMode: 'neutral',
     assistantEmojis: true,
     mobileComposerCompact: false,
+    mobileFoldersInSidebar: false,
+    desktopFoldersInSidebar: false,
   }
 }
 
@@ -108,6 +116,18 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
   const assistantEmojis = o.assistantEmojis === false ? false : o.assistantEmojis === true ? true : d.assistantEmojis
   const mobileComposerCompact =
     o.mobileComposerCompact === true ? true : o.mobileComposerCompact === false ? false : d.mobileComposerCompact
+  const mobileFoldersInSidebar =
+    o.mobileFoldersInSidebar === true
+      ? true
+      : o.mobileFoldersInSidebar === false
+        ? false
+        : d.mobileFoldersInSidebar
+  const desktopFoldersInSidebar =
+    o.desktopFoldersInSidebar === true
+      ? true
+      : o.desktopFoldersInSidebar === false
+        ? false
+        : d.desktopFoldersInSidebar
 
   return {
     theme,
@@ -119,6 +139,8 @@ export function parseUiSettings(raw: unknown): UiSettingsV1 {
     learnPathTitleColorMode,
     assistantEmojis,
     mobileComposerCompact,
+    mobileFoldersInSidebar,
+    desktopFoldersInSidebar,
   }
 }
 
@@ -149,6 +171,10 @@ export function applyUiSettingsToDocument(settings: UiSettingsV1): void {
   writeAssistantEmojisEnabled(settings.assistantEmojis)
 
   writeMobileComposerCompact(settings.mobileComposerCompact)
+
+  writeMobileFoldersInSidebar(settings.mobileFoldersInSidebar)
+
+  writeDesktopFoldersInSidebar(settings.desktopFoldersInSidebar)
 
   syncThemeColorMeta()
 }

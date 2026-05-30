@@ -8,6 +8,13 @@ const HOLD_ACTIVATE_MS = 165
 const HOLD_RELEASE_MS = 220
 /** Horizontaler Wisch in Scroll-Leisten (z. B. Schnellaktionen) — kein Pointer-Capture. */
 const HORIZONTAL_SCROLL_SLOP_PX = 10
+/** Vertikaler Wisch (z. B. Bottom Sheet) — Tap-Feder abbrechen, Sheet übernimmt. */
+const VERTICAL_DRAG_SLOP_PX = 8
+
+export type GlassPillTouchFeedbackOptions = {
+  /** Vertikale Zieh-Geste bricht Tap-Feder ab (Bottom-Sheet-Buttons). */
+  cancelOnVerticalDrag?: boolean
+}
 
 export type GlassPillTouchHandlers = {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
@@ -44,7 +51,10 @@ function buildTouchStateClass(
 }
 
 /** Tap-Feder: kurzer Tipp = Feder-Durchlauf; Gedrückthalten = Peak-Scale bis Loslassen. */
-export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
+export function useGlassPillTouchFeedback(
+  options: GlassPillTouchFeedbackOptions = {},
+): GlassPillTouchFeedback {
+  const cancelOnVerticalDrag = options.cancelOnVerticalDrag === true
   const isSpringingRef = useRef(false)
   const isPressedRef = useRef(false)
   const holdActivatedRef = useRef(false)
@@ -186,9 +196,18 @@ export function useGlassPillTouchFeedback(): GlassPillTouchFeedback {
       ) {
         releasePointerCapture(event)
         cancelPressForScroll()
+        return
+      }
+      if (
+        cancelOnVerticalDrag &&
+        Math.abs(dy) >= VERTICAL_DRAG_SLOP_PX &&
+        Math.abs(dy) > Math.abs(dx) * 1.1
+      ) {
+        releasePointerCapture(event)
+        cancelPressForScroll()
       }
     },
-    [cancelPressForScroll, releasePointerCapture],
+    [cancelOnVerticalDrag, cancelPressForScroll, releasePointerCapture],
   )
 
   const onPointerUp = useCallback(

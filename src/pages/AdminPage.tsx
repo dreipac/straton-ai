@@ -69,6 +69,7 @@ import {
   adminSetDeployedAppVersion,
   adminSetLearnAreaBanner,
   adminSetInstantAnalyzeDebugEnabled,
+  adminSetChatFoldersEnabled,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
@@ -289,6 +290,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [learnAreaBannerInfo, setLearnAreaBannerInfo] = useState<string | null>(null)
   const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
   const [isLoadingInstantAnalyzeDebugToggle, setIsLoadingInstantAnalyzeDebugToggle] = useState(false)
+  const [chatFoldersEnabled, setChatFoldersEnabled] = useState(true)
+  const [isLoadingChatFoldersToggle, setIsLoadingChatFoldersToggle] = useState(false)
   const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
@@ -517,6 +520,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAreaBannerEnabled(flags.learn_area_banner_enabled)
         setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
+        setChatFoldersEnabled(flags.chat_folders_enabled)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -1467,6 +1471,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleToggleChatFoldersEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingChatFoldersToggle(true)
+    try {
+      await adminSetChatFoldersEnabled(nextEnabled)
+      setChatFoldersEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Chat-Ordner-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingChatFoldersToggle(false)
+    }
+  }
+
   async function handleSaveLearnAreaBannerText() {
     const nextText = learnAreaBannerTextDraft.trim()
     if (!nextText) {
@@ -1808,6 +1825,30 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </button>
               </div>
               {instantAnalyzeDebugInfo ? <p className="learn-muted">{instantAnalyzeDebugInfo}</p> : null}
+              <div className="chat-setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Chat-Ordner global aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, sind Ordner in der Desktop-Sidebar ausgeblendet, der Ordner-Tab in der mobilen
+                    Leiste ausgegraut und «In Ordner verschieben» nicht verfügbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${chatFoldersEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={chatFoldersEnabled}
+                  aria-label="Chat-Ordner global aktivieren"
+                  disabled={isLoadingChatFoldersToggle}
+                  onClick={() => {
+                    void handleToggleChatFoldersEnabled(!chatFoldersEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
               <div className="chat-setting-row chat-setting-row--stacked">
                 <div className="chat-setting-copy">
                   <h3>Hinweisbalken im Lernbereich</h3>
