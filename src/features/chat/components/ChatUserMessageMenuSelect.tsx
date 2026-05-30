@@ -6,8 +6,7 @@ export type ChatUserMessageMenuSelectProps = {
 }
 
 /**
- * Verstecktes natives `<select>` — Öffnen per `openNativeSelectPicker` aus dem Long-Press-touchend
- * (iOS erlaubt showPicker nur synchron zur Nutzergeste, nicht mitten in touchstart).
+ * Natives `<select>` über der Nutzer-Bubble — gleiches Muster wie Toolbar-Titel/Menü (iOS Systemliste).
  */
 export const ChatUserMessageMenuSelect = forwardRef<HTMLSelectElement, ChatUserMessageMenuSelectProps>(
   function ChatUserMessageMenuSelect({ onSelectCopy, onClose }, ref) {
@@ -24,12 +23,11 @@ export const ChatUserMessageMenuSelect = forwardRef<HTMLSelectElement, ChatUserM
     }
 
     return (
-      <label className="chat-user-message-menu-host" aria-hidden="true">
+      <label className="chat-user-message-menu">
         <select
           ref={ref}
           className="chat-user-message-menu-select"
           value=""
-          tabIndex={-1}
           aria-label="Nachrichten-Aktionen"
           onChange={(event) => {
             if (dismissTimerRef.current !== null) {

@@ -36,19 +36,6 @@ export function useUserMessageLongPress(enabled: boolean) {
     clearTimer()
   }, [clearTimer])
 
-  const openMenuFromGesture = useCallback((messageId: string, copyText: string) => {
-    const text = copyText.trim()
-    if (!text) {
-      return
-    }
-    setPressingMessageId(null)
-    setMenuState({ messageId, copyText: text })
-    const select = menuSelectRef.current
-    if (select) {
-      openNativeSelectPicker(select)
-    }
-  }, [])
-
   useEffect(() => {
     if (!enabled) {
       closeMenu()
@@ -60,6 +47,11 @@ export function useUserMessageLongPress(enabled: boolean) {
   const isMessagePressActive = useCallback(
     (messageId: string) => pressingMessageId === messageId,
     [pressingMessageId],
+  )
+
+  const shouldMountMenuOverlay = useCallback(
+    (messageId: string) => pressingMessageId === messageId || menuState?.messageId === messageId,
+    [menuState, pressingMessageId],
   )
 
   const bindUserMessageLongPress = useCallback(
@@ -116,7 +108,15 @@ export function useUserMessageLongPress(enabled: boolean) {
         longPressArmedMessageIdRef.current = null
 
         if (armedId === messageId && pending?.id === messageId) {
-          openMenuFromGesture(messageId, pending.copyText)
+          const text = pending.copyText.trim()
+          if (text) {
+            setMenuState({ messageId, copyText: text })
+            const select = menuSelectRef.current
+            if (select) {
+              openNativeSelectPicker(select)
+            }
+          }
+          setPressingMessageId(null)
           return
         }
 
@@ -133,7 +133,7 @@ export function useUserMessageLongPress(enabled: boolean) {
         },
       }
     },
-    [clearTimer, enabled, openMenuFromGesture],
+    [clearTimer, enabled],
   )
 
   return {
@@ -141,6 +141,7 @@ export function useUserMessageLongPress(enabled: boolean) {
     menuSelectRef,
     closeMenu,
     isMessagePressActive,
+    shouldMountMenuOverlay,
     bindUserMessageLongPress,
   }
 }

@@ -1446,19 +1446,6 @@ export function ChatWindow({
     }
   }
 
-  const mobileUserMessageCopyMenuEl = isMobileComposer ? (
-    <ChatUserMessageMenuSelect
-      ref={userMessageLongPress.menuSelectRef}
-      onSelectCopy={() => {
-        const text = userMessageLongPress.menuState?.copyText
-        if (text) {
-          void handleCopyUserMessageText(text)
-        }
-      }}
-      onClose={userMessageLongPress.closeMenu}
-    />
-  ) : null
-
   const composerReplyQuoteSlot = (
     <ChatComposerReplyQuoteSlot
       reference={composerSectionReply}
@@ -2242,6 +2229,18 @@ export function ChatWindow({
                   Die Word-Datei ist bereit — nutze den Download-Button unten.
                 </p>
               ) : null}
+              {isMobileComposer && userMessageLongPress.shouldMountMenuOverlay(message.id) ? (
+                <ChatUserMessageMenuSelect
+                  ref={userMessageLongPress.menuSelectRef}
+                  onSelectCopy={() => {
+                    const text = userMessageLongPress.menuState?.copyText
+                    if (text) {
+                      void handleCopyUserMessageText(text)
+                    }
+                  }}
+                  onClose={userMessageLongPress.closeMenu}
+                />
+              ) : null}
 
               {message.metadata?.excelExport ? (
                 <div className="chat-excel-download">
@@ -2689,7 +2688,6 @@ export function ChatWindow({
           Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
         </p>
       </div>
-      {mobileUserMessageCopyMenuEl}
       {imageLightboxEl}
     </section>
   )
