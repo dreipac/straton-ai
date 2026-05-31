@@ -86,6 +86,8 @@ import {
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
+import { persistInlineVisionImagesInContent } from '../services/chat.visionStorage'
+import { messageHasVisionPayload } from '../utils/visionMessageContent'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { InstantAnalyzeDebugMeta } from '../types'
@@ -903,7 +905,7 @@ export function useChat(
     if (!canSend) {
       return
     }
-    if (!wantsWord && !wantsPdf && !trimmed) {
+    if (!wantsWord && !wantsPdf && !trimmed && !messageHasVisionPayload(content)) {
       return
     }
 
@@ -1028,14 +1030,22 @@ export function useChat(
         !wantsExcel &&
         !imageGenPrompt
 
-      const userContent =
+      let userContent =
         trimmed ||
         (wantsWord ? 'Word-Dokument vorbereiten' : wantsPdf ? 'PDF-Dokument vorbereiten' : trimmed)
-      const userMetadataBase = {
+      const userMetadataBase: NonNullable<ChatMessage['metadata']> = {
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
+      }
+
+      if (userId && messageHasVisionPayload(userContent)) {
+        const persisted = await persistInlineVisionImagesInContent(userId, targetThreadId, userContent)
+        userContent = persisted.content
+        if (persisted.metadata?.visionImage) {
+          userMetadataBase.visionImage = persisted.metadata.visionImage
+        }
       }
       const priorTurns = (messagesByThreadId[targetThreadId] ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')

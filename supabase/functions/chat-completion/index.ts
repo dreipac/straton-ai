@@ -211,6 +211,102 @@ function findLastUserMessageIndex(messages: InputMessage[]): number {
   return -1
 }
 
+function messageContentHasVisionPayload(content: string): boolean {
+  return content.includes('[BildData:') || content.includes('@chat-media:')
+}
+
+function findLastUserMessageWithVisionIndex(messages: InputMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role === 'user' && messageContentHasVisionPayload(m.content)) {
+      return i
+    }
+  }
+  return -1
+}
+
+const CHAT_VISION_MEDIA_BUCKET = 'chat-media'
+const CHAT_MEDIA_REF_LINE = /@chat-media:([^\n]+)/
+
+async function downloadChatMediaAsDataUrl(
+  userClient: SupabaseClient,
+  path: string,
+): Promise<string | null> {
+  const objectPath = path.trim()
+  if (!objectPath) {
+    return null
+  }
+  const { data, error } = await userClient.storage.from(CHAT_VISION_MEDIA_BUCKET).download(objectPath)
+  if (error || !data) {
+    console.error('[chat-completion] vision storage download failed', objectPath, error?.message)
+    return null
+  }
+  const bytes = new Uint8Array(await data.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return sanitizeOpenAiVisionDataUrl(`data:image/jpeg;base64,${btoa(binary)}`)
+}
+
+async function resolveVisionDataUrlsForUserContent(
+  content: string,
+  userClient: SupabaseClient,
+): Promise<string[]> {
+  const inline = extractUserVisionFromContent(content).imageDataUrls
+  if (inline.length > 0) {
+    return inline
+  }
+  const pathMatch = CHAT_MEDIA_REF_LINE.exec(content)
+  if (!pathMatch?.[1]) {
+    return []
+  }
+  const dataUrl = await downloadChatMediaAsDataUrl(userClient, pathMatch[1])
+  return dataUrl ? [dataUrl] : []
+}
+
+/** Storage-Referenzen → inline Data-URL nur für den letzten Vision-Turn. */
+async function resolveChatMessagesVisionForOpenAi(
+  messages: InputMessage[],
+  userClient: SupabaseClient,
+): Promise<InputMessage[]> {
+  const lastVisionIdx = findLastUserMessageWithVisionIndex(messages)
+  const out: InputMessage[] = []
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i]!
+    if (message.role !== 'user') {
+      out.push(message)
+      continue
+    }
+    if (i !== lastVisionIdx) {
+      out.push({
+        role: 'user',
+        content: stripVisionAttachmentsFromContent(message.content) || message.content,
+      })
+      continue
+    }
+    const urls = await resolveVisionDataUrlsForUserContent(message.content, userClient)
+    if (urls.length === 0) {
+      out.push({
+        role: 'user',
+        content:
+          stripVisionAttachmentsFromContent(message.content) ||
+          'Der Nutzer hat ein Bild gesendet, aber es konnte nicht geladen werden.',
+      })
+      continue
+    }
+    const idMatch = message.content.match(/\[BildData:([^\]]+)\]/)
+    const id = idMatch?.[1] ?? 'vision'
+    const text = extractUserVisionFromContent(message.content).text
+    const block = `[BildData:${id}]\n${urls[0]}\n[/BildData]`
+    out.push({
+      role: 'user',
+      content: text ? `${text}\n\n${block}` : block,
+    })
+  }
+  return out
+}
+
 type AnthropicImageBlock = {
   type: 'image'
   source: { type: 'base64'; media_type: string; data: string }
@@ -850,7 +946,7 @@ function openAiChatRequestBody(
     maxOutputTokens?: number
   },
 ): Record<string, unknown> {
-  const lastUserIdx = findLastUserMessageIndex(messages)
+  const lastVisionIdx = findLastUserMessageWithVisionIndex(messages)
   const body: Record<string, unknown> = {
     model,
     messages: messages.map((message, idx) => {
@@ -860,11 +956,17 @@ function openAiChatRequestBody(
           content: message.content,
         }
       }
-      if (idx !== lastUserIdx) {
+      if (lastVisionIdx !== -1 && idx !== lastVisionIdx) {
         const stripped = stripVisionAttachmentsFromContent(message.content)
         return {
           role: message.role,
           content: stripped || '[Bild im Chatverlauf]',
+        }
+      }
+      if (lastVisionIdx === -1) {
+        return {
+          role: message.role,
+          content: message.content,
         }
       }
       const parsed = extractUserVisionFromContent(message.content)
@@ -872,7 +974,7 @@ function openAiChatRequestBody(
         const stripped = stripVisionAttachmentsFromContent(message.content)
         return {
           role: message.role,
-          content: stripped || message.content,
+          content: stripped || 'Der Nutzer hat ein Bild gesendet, aber es konnte nicht geladen werden.',
         }
       }
       const parts: OpenAiVisionContentPart[] = []
@@ -2633,6 +2735,20 @@ serve(async (req) => {
       typeof rawMax === 'number' && Number.isFinite(rawMax) && rawMax >= 64
         ? Math.min(16384, Math.floor(rawMax))
         : undefined
+
+    const chatHasVision =
+      mode === 'chat' &&
+      chatMessages.some((m) => m.role === 'user' && messageContentHasVisionPayload(m.content))
+    if (chatHasVision) {
+      chatMessages = await resolveChatMessagesVisionForOpenAi(chatMessages, userClient)
+      if (provider === 'openai') {
+        const visionFirst = ['gpt-4o-mini', 'gpt-4o']
+        openAiModels = [
+          ...visionFirst,
+          ...openAiModels.filter((id) => !visionFirst.includes(id)),
+        ]
+      }
+    }
 
     if (body.stream === true && mode === 'chat' && provider === 'openai') {
       const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)

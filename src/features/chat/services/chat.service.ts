@@ -64,7 +64,10 @@ import {
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
 import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
-import { prepareChatMessagesForVisionGateway } from '../utils/visionMessageContent'
+import {
+  messageHasVisionPayload,
+  prepareChatMessagesForVisionGateway,
+} from '../utils/visionMessageContent'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
@@ -923,6 +926,20 @@ function buildChatCompletionRequestBody(
   if (thinking) {
     body.billingConsumeThinkingCredit = true
   }
+
+  /** GPT-5.x wertet Vision in der Praxis oft schlecht; 4o-mini zuverlässig für Fotos. */
+  const gatewayHasVision = gatewayMessages.some(
+    (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
+  )
+  if (!options?.useLearnPathModel && body.provider === 'openai' && gatewayHasVision) {
+    const existing = Array.isArray(body.openAiModels) ? [...(body.openAiModels as string[])] : []
+    const prioritized = ['gpt-4o-mini', 'gpt-4o']
+    body.openAiModels = [
+      ...prioritized,
+      ...existing.filter((id) => !prioritized.includes(id)),
+    ]
+  }
+
   return body
 }
 

@@ -8,17 +8,22 @@ export function stripVisionBlocksFromMessageContent(content: string): string {
   return s
 }
 
+export function messageHasVisionPayload(content: string): boolean {
+  return content.includes('[BildData:') || content.includes('@chat-media:')
+}
+
 /**
- * Nur die letzte User-Nachricht darf `[BildData]` behalten — sonst multiplizieren sich
- * Vision-Tokens (z. B. 149k) und ältere Fotos überlasten die Anfrage.
+ * Nur die neueste User-Nachricht mit Bild bleibt für Vision vollständig — sonst Token-Explosion.
  */
 export function prepareChatMessagesForVisionGateway(messages: ChatMessage[]): ChatMessage[] {
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user')
-  if (!lastUser) {
+  const visionUser = [...messages]
+    .reverse()
+    .find((m) => m.role === 'user' && messageHasVisionPayload(m.content))
+  if (!visionUser) {
     return messages
   }
   return messages.map((m) => {
-    if (m.role === 'user' && m.id !== lastUser.id) {
+    if (m.role === 'user' && m.id !== visionUser.id) {
       return { ...m, content: stripVisionBlocksFromMessageContent(m.content) }
     }
     return m

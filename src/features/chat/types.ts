@@ -74,6 +74,12 @@ export type ChatMessage = {
     instantAnalyzeDebug?: InstantAnalyzeDebugMeta
     /** User-Nachricht: gewähltes Quiz-Format vor Generierung (MC-Chat vs. interaktiv). */
     userQuizFormat?: 'markdown_mcq' | 'interactive'
+    /** User-Nachricht: Foto in Storage (`chat-media`), Inhalt nur `@chat-media:`-Referenz. */
+    visionImage?: {
+      bucket: string
+      path: string
+      attachmentId: string
+    }
   }
 }
 

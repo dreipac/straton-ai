@@ -115,6 +115,17 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     }
   }
 
+  const vx = o.visionImage
+  if (vx && typeof vx === 'object') {
+    const v = vx as Record<string, unknown>
+    const bucket = typeof v.bucket === 'string' ? v.bucket : ''
+    const path = typeof v.path === 'string' ? v.path : ''
+    const attachmentId = typeof v.attachmentId === 'string' ? v.attachmentId : ''
+    if (bucket && path && attachmentId) {
+      out.visionImage = { bucket, path, attachmentId }
+    }
+  }
+
   const px = o.pdfExport
   if (px && typeof px === 'object') {
     const p = px as Record<string, unknown>
