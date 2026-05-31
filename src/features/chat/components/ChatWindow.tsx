@@ -1457,7 +1457,13 @@ export function ChatWindow({
 
       for (const file of files) {
         if (isChatVisionImageFile(file)) {
-          nextAttachments.push(...(await buildPastedImagePendingAttachments([file])))
+          try {
+            nextAttachments.push(...(await buildPastedImagePendingAttachments([file])))
+          } catch {
+            pushToast(
+              'Dieses Foto konnte nicht für die KI-Analyse vorbereitet werden. Bitte ein anderes Bild wählen oder erneut aufnehmen.',
+            )
+          }
         } else {
           const text = await extractLearningMaterialText(file)
           const excerpt = text.trim().slice(0, 1400)
@@ -1868,6 +1874,7 @@ export function ChatWindow({
               ref={fileInputRef}
               type="file"
               multiple
+              accept="image/*,.heic,.heif"
               className="chat-file-input-hidden"
               onChange={(event) => {
                 void handleAttachFiles(event.target.files)
@@ -2659,6 +2666,7 @@ export function ChatWindow({
           ref={fileInputRef}
           type="file"
           multiple
+          accept="image/*,.heic,.heif"
           className="chat-file-input-hidden"
           onChange={(event) => {
             void handleAttachFiles(event.target.files)

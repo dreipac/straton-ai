@@ -28,7 +28,18 @@ function looksLikeRawPdfPayload(text: string): boolean {
 }
 
 /** Raster-Bilder: OCR (kein SVG — das ist Vektor/Markup) */
-const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'])
+const IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'bmp',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+])
 
 function normalizeExtractedText(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim().slice(0, MAX_EXCERPT_LENGTH)

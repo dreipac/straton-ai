@@ -138,15 +138,38 @@ type OpenAiVisionContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
 
-/** Entfernt Zeilenumbrüche in Base64 (iOS-Zwischenablage) — sonst schlagen Vision-APIs fehl. */
+const OPENAI_VISION_MIME_RE = /^image\/(jpeg|png|gif|webp)$/i
+
+/** Entfernt Zeilenumbrüche in Base64 (iOS) und normalisiert MIME — sonst «invalid base64 image url». */
 function normalizeVisionDataUrl(dataUrl: string): string {
-  const t = dataUrl.trim()
+  let t = dataUrl.trim().replace(/^data:image\/jpg;/i, 'data:image/jpeg;')
   const marker = 'base64,'
   const idx = t.indexOf(marker)
   if (idx === -1) {
     return t
   }
   return t.slice(0, idx + marker.length) + t.slice(idx + marker.length).replace(/\s+/g, '')
+}
+
+/** Nur Formate, die OpenAI `image_url` mit data:-URL akzeptiert (kein HEIC/HEIF). */
+function sanitizeOpenAiVisionDataUrl(dataUrl: string): string | null {
+  const n = normalizeVisionDataUrl(dataUrl)
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i.exec(n)
+  if (!m?.[1] || !m[2]) {
+    return null
+  }
+  let media = (m[1] ?? '').toLowerCase()
+  if (media === 'image/jpg') {
+    media = 'image/jpeg'
+  }
+  if (!OPENAI_VISION_MIME_RE.test(media.replace(/^image\//, ''))) {
+    return null
+  }
+  const payload = (m[2] ?? '').replace(/\s+/g, '')
+  if (payload.length < 32 || !/^[A-Za-z0-9+/]+=*$/.test(payload)) {
+    return null
+  }
+  return `data:${media};base64,${payload}`
 }
 
 function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
@@ -156,7 +179,10 @@ function extractUserVisionFromContent(content: string): { text: string; imageDat
   while ((match = visionRegex.exec(content)) !== null) {
     const maybeUrl = String(match[1] ?? '').trim()
     if (maybeUrl.startsWith('data:image/')) {
-      imageDataUrls.push(normalizeVisionDataUrl(maybeUrl))
+      const safe = sanitizeOpenAiVisionDataUrl(maybeUrl)
+      if (safe) {
+        imageDataUrls.push(safe)
+      }
     }
   }
   const text = content
@@ -177,12 +203,18 @@ type AnthropicUserContentPart =
   | AnthropicImageBlock
 
 function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | null {
-  const n = normalizeVisionDataUrl(dataUrl)
-  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(n)
+  const safe = sanitizeOpenAiVisionDataUrl(dataUrl)
+  if (!safe) {
+    return null
+  }
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(safe)
   if (!m) {
     return null
   }
-  const media_type = m[1] ?? 'image/jpeg'
+  let media_type = (m[1] ?? 'image/jpeg').toLowerCase()
+  if (media_type === 'image/jpg') {
+    media_type = 'image/jpeg'
+  }
   const data = (m[2] ?? '').replace(/\s+/g, '')
   if (!data) {
     return null
