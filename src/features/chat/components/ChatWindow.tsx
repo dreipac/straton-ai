@@ -44,6 +44,7 @@ import {
   ChatComposerReplyQuoteSlot,
   ChatMessageReplyQuotePreview,
 } from './ChatComposerReplyQuoteBar'
+import { ChatExportActionHint } from './ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import {
@@ -2199,6 +2200,23 @@ export function ChatWindow({
             isAssistant &&
             Boolean(message.metadata?.pdfExport) &&
             !String(displayContent ?? '').trim()
+          const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
+          const showWordFinalizeHint =
+            isMobileComposer &&
+            isAssistant &&
+            isLatestMessage &&
+            !isSending &&
+            Boolean(onFinalizeWordDocument) &&
+            canFinalizeWordExportFromThread(messageList) &&
+            !message.metadata?.wordExport
+          const showPdfFinalizeHint =
+            isMobileComposer &&
+            isAssistant &&
+            isLatestMessage &&
+            !isSending &&
+            Boolean(onFinalizePdfDocument) &&
+            canFinalizePdfExportFromThread(messageList) &&
+            !message.metadata?.pdfExport
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
@@ -2207,7 +2225,6 @@ export function ChatWindow({
             !message.metadata?.pdfExport &&
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
-          const isLatestMessage = message.id === messageList[messageList.length - 1]?.id
           const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
           const showAssistantAuthor = isAssistant && !showOrbitLoader
 
@@ -2387,19 +2404,116 @@ export function ChatWindow({
                 )
               ) : null}
               {showExcelFallbackText ? (
-                <p className="chat-message-body chat-excel-fallback-text">
-                  Die Excel-Datei ist bereit — nutze den Download-Button unten.
-                </p>
+                isMobileComposer ? (
+                  <ChatExportActionHint
+                    label={
+                      excelDownloadBusyId === message.id
+                        ? 'Wird vorbereitet…'
+                        : 'Excel-Datei herunterladen'
+                    }
+                    busy={excelDownloadBusyId === message.id}
+                    onAction={() => {
+                      void downloadExcelExport(message)
+                    }}
+                  />
+                ) : (
+                  <p className="chat-message-body chat-excel-fallback-text">
+                    Die Excel-Datei ist bereit — nutze den Download-Button unten.
+                  </p>
+                )
               ) : null}
               {showWordFallbackText ? (
-                <p className="chat-message-body chat-excel-fallback-text">
-                  Die Word-Datei ist bereit — nutze den Download-Button unten.
-                </p>
+                isMobileComposer ? (
+                  <ChatExportActionHint
+                    label={
+                      wordDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Word-Datei herunterladen'
+                    }
+                    busy={wordDownloadBusyId === message.id}
+                    onAction={() => {
+                      void downloadWordExport(message)
+                    }}
+                  />
+                ) : (
+                  <p className="chat-message-body chat-excel-fallback-text">
+                    Die Word-Datei ist bereit — nutze den Download-Button unten.
+                  </p>
+                )
               ) : null}
               {showPdfFallbackText ? (
-                <p className="chat-message-body chat-excel-fallback-text">
-                  Die PDF-Datei ist bereit — nutze den Download-Button unten.
-                </p>
+                isMobileComposer ? (
+                  <ChatExportActionHint
+                    label={
+                      pdfDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'PDF-Datei herunterladen'
+                    }
+                    busy={pdfDownloadBusyId === message.id}
+                    onAction={() => {
+                      void downloadPdfExport(message)
+                    }}
+                  />
+                ) : (
+                  <p className="chat-message-body chat-excel-fallback-text">
+                    Die PDF-Datei ist bereit — nutze den Download-Button unten.
+                  </p>
+                )
+              ) : null}
+              {showWordFinalizeHint ? (
+                <ChatExportActionHint
+                  label={
+                    wordFinalizeBusy
+                      ? 'Word wird erstellt…'
+                      : 'Word generieren'
+                  }
+                  busy={wordFinalizeBusy}
+                  onAction={() => {
+                    void onFinalizeWordDocument?.()
+                  }}
+                />
+              ) : null}
+              {showPdfFinalizeHint ? (
+                <ChatExportActionHint
+                  label={
+                    pdfFinalizeBusy
+                      ? 'PDF wird erstellt…'
+                      : 'PDF generieren'
+                  }
+                  busy={pdfFinalizeBusy}
+                  onAction={() => {
+                    void onFinalizePdfDocument?.()
+                  }}
+                />
+              ) : null}
+              {isMobileComposer && message.metadata?.excelExport && !showExcelFallbackText ? (
+                <ChatExportActionHint
+                  label={
+                    excelDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Excel-Datei herunterladen'
+                  }
+                  busy={excelDownloadBusyId === message.id}
+                  onAction={() => {
+                    void downloadExcelExport(message)
+                  }}
+                />
+              ) : null}
+              {isMobileComposer && message.metadata?.wordExport && !showWordFallbackText ? (
+                <ChatExportActionHint
+                  label={
+                    wordDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Word-Datei herunterladen'
+                  }
+                  busy={wordDownloadBusyId === message.id}
+                  onAction={() => {
+                    void downloadWordExport(message)
+                  }}
+                />
+              ) : null}
+              {isMobileComposer && message.metadata?.pdfExport && !showPdfFallbackText ? (
+                <ChatExportActionHint
+                  label={
+                    pdfDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'PDF-Datei herunterladen'
+                  }
+                  busy={pdfDownloadBusyId === message.id}
+                  onAction={() => {
+                    void downloadPdfExport(message)
+                  }}
+                />
               ) : null}
               {isMobileComposer && userMessageLongPress.shouldMountMenuOverlay(message.id) ? (
                 <ChatUserMessageMenuSelect
@@ -2414,7 +2528,7 @@ export function ChatWindow({
                 />
               ) : null}
 
-              {message.metadata?.excelExport ? (
+              {message.metadata?.excelExport && !isMobileComposer ? (
                 <div className="chat-excel-download">
                   <button
                     type="button"
@@ -2429,7 +2543,7 @@ export function ChatWindow({
                 </div>
               ) : null}
 
-              {message.metadata?.wordExport ? (
+              {message.metadata?.wordExport && !isMobileComposer ? (
                 <div className="chat-excel-download">
                   <button
                     type="button"
@@ -2444,7 +2558,7 @@ export function ChatWindow({
                 </div>
               ) : null}
 
-              {message.metadata?.pdfExport ? (
+              {message.metadata?.pdfExport && !isMobileComposer ? (
                 <div className="chat-excel-download">
                   <button
                     type="button"
@@ -2613,25 +2727,24 @@ export function ChatWindow({
 
       {onFinalizeWordDocument &&
       canFinalizeWordExportFromThread(messageList) &&
-      !isSending ? (
+      !isSending &&
+      !isMobileComposer ? (
         <div className="chat-word-finalize-bar" role="region" aria-label="Word-Export">
-          <p className="chat-word-finalize-bar__hint">
-            Wenn die Vorschau oben passt, erzeuge die Word-Datei aus der Gliederung.
-          </p>
           <button
             type="button"
             className="chat-excel-download-button"
             disabled={wordFinalizeBusy}
             onClick={() => void onFinalizeWordDocument()}
           >
-            {wordFinalizeBusy ? 'Word wird erstellt…' : 'Word-Datei erzeugen'}
+            {wordFinalizeBusy ? 'Word wird erstellt…' : 'Word generieren'}
           </button>
         </div>
       ) : null}
 
       {onFinalizePdfDocument &&
       canFinalizePdfExportFromThread(messageList) &&
-      !isSending ? (
+      !isSending &&
+      !isMobileComposer ? (
         <div className="chat-word-finalize-bar" role="region" aria-label="PDF-Export">
           <p className="chat-word-finalize-bar__hint">
             Wenn die Vorschau oben passt, erzeuge die PDF-Datei aus der Gliederung.
@@ -2642,14 +2755,12 @@ export function ChatWindow({
             disabled={pdfFinalizeBusy}
             onClick={() => void onFinalizePdfDocument()}
           >
-            {pdfFinalizeBusy ? 'PDF wird erstellt…' : 'PDF-Datei erzeugen'}
+            {pdfFinalizeBusy ? 'PDF wird erstellt…' : 'PDF generieren'}
           </button>
         </div>
       ) : null}
 
-      <div
-        className="chat-composer-stack"
-      >
+      <div className="chat-composer-stack">
         {quizFormatOverlay}
         {thinkingClarifyOverlay}
         {isMobileComposer ? quickTilesEl : null}

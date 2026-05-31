@@ -318,13 +318,13 @@ export function tryParseWordMarkdownConvention(text: string): WordOutlineV1 | nu
     let m = trimmed.match(RE_WORD_H2)
     if (m?.[1]) {
       flushIntro()
-      blocks.push({ type: 'heading', level: 2, text: m[1].trim() })
+      blocks.push({ type: 'heading', level: 2, text: sanitizeHeadingTextForTemplate(m[1].trim()) })
       continue
     }
     m = trimmed.match(RE_WORD_H1)
     if (m?.[1]) {
       flushIntro()
-      blocks.push({ type: 'heading', level: 1, text: m[1].trim() })
+      blocks.push({ type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(m[1].trim()) })
       continue
     }
     m = trimmed.match(RE_WORD_BODY)
@@ -352,6 +352,34 @@ export function tryParseWordMarkdownConvention(text: string): WordOutlineV1 | nu
   }
 
   return { version: 1, blocks: expandWordOutlineTables(blocks) }
+}
+
+/** Entfernt «Kapitel 1:» / «1.» / «1.1» — nummerierte Word-Vorlagen nummerieren selbst. */
+export function sanitizeHeadingTextForTemplate(text: string): string {
+  let t = text.trim()
+  t = t.replace(/^Kapitel\s+\d+\s*[:：.\-–—]\s*/i, '')
+  t = t.replace(/^Chapter\s+\d+\s*[:：.\-–—]\s*/i, '')
+  t = t.replace(/^Kapitel\s+\d+\s*$/i, '')
+  t = t.replace(/^Chapter\s+\d+\s*$/i, '')
+  for (let i = 0; i < 3; i++) {
+    const next = t.replace(/^(\d+(?:\.\d+)*)(?:\.\s+|\s+)/, '').trim()
+    if (next === t) {
+      break
+    }
+    t = next
+  }
+  return t.trim()
+}
+
+function pushSanitizedHeading(
+  out: WordOutlineV1['blocks'],
+  level: HeadingLevel,
+  text: string,
+): void {
+  const clean = sanitizeHeadingTextForTemplate(text)
+  if (clean) {
+    out.push({ type: 'heading', level, text: clean })
+  }
 }
 
 /** Entfernt «1. » / «2) » am Zeilenanfang — die KI nummeriert oft die gesamte Gliederung. */
@@ -391,18 +419,18 @@ function tryMarkdownHeadingLine(line: string): HeadingLevel | null {
 }
 
 /** «1.1 Titel» / «2.3.1 Detail» als Unterkapitel (H2 / H3). */
-function tryDecimalSubsectionHeadingLine(line: string): HeadingLevel | null {
-  const t = line.trim()
+function tryDecimalSubsectionHeading(line: string): { level: HeadingLevel; text: string } | null {
+  const t = line.trim().replace(/\*\*/g, '').trim()
   if (t.length > 200) {
     return null
   }
   const three = t.match(/^(\d+)\.(\d+)\.(\d+)\s+(\S.*)$/)
-  if (three) {
-    return 3
+  if (three?.[4]) {
+    return { level: 3, text: three[4].trim() }
   }
   const two = t.match(/^(\d+)\.(\d+)\s+(\S.*)$/)
-  if (two) {
-    return 2
+  if (two?.[3]) {
+    return { level: 2, text: two[3].trim() }
   }
   return null
 }
@@ -414,6 +442,132 @@ function trySectionKeywordHeadingLine(line: string): boolean {
   }
   const re = new RegExp(`^(${SECTION_HEADING_KEYWORDS})(?:\\s*:\\s*|\\s+$|$)`, 'iu')
   return re.test(t)
+}
+
+const KAPITEL_WITH_SEP_RE = /^Kapitel\s+(\d+)\s*[:：.\-–—]\s*(.*)$/i
+const KAPITEL_STANDALONE_RE = /^Kapitel\s+(\d+)\s*$/i
+const CHAPTER_WITH_SEP_RE = /^Chapter\s+(\d+)\s*[:：.\-–—]\s*(.*)$/i
+const CHAPTER_STANDALONE_RE = /^Chapter\s+(\d+)\s*$/i
+
+function stripBoldMarkers(s: string): string {
+  return s
+    .replace(/\*\*/g, '')
+    .replace(/^\*+\s*/, '')
+    .replace(/\s*\*+$/, '')
+    .trim()
+}
+
+type WordBlock = WordOutlineV1['blocks'][number]
+
+/** Eine Textzeile → Überschrift oder Fließtext (Word-Export / Heuristik). */
+function classifyPlainLineToBlock(rawLine: string, lastHeadingLevel = 0): WordBlock | null {
+  const line = stripBoldMarkers(rawLine)
+  if (!line || isLikelyAssistantClosingBlurb(line)) {
+    return null
+  }
+
+  const mdLevel = tryMarkdownHeadingLine(line)
+  if (mdLevel !== null) {
+    const textOnly = line.replace(/^#{1,6}\s+/, '').trim()
+    return { type: 'heading', level: mdLevel, text: sanitizeHeadingTextForTemplate(textOnly || line) }
+  }
+
+  const sub = tryDecimalSubsectionHeading(line)
+  if (sub) {
+    return { type: 'heading', level: sub.level, text: sanitizeHeadingTextForTemplate(sub.text) }
+  }
+
+  const kapitelMatch = line.match(KAPITEL_WITH_SEP_RE)
+  if (kapitelMatch) {
+    const title = (kapitelMatch[2] ?? '').trim()
+    return { type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(title || line) }
+  }
+  if (KAPITEL_STANDALONE_RE.test(line)) {
+    return { type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(line) }
+  }
+  const chapterMatch = line.match(CHAPTER_WITH_SEP_RE)
+  if (chapterMatch) {
+    const title = (chapterMatch[2] ?? '').trim()
+    return { type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(title || line) }
+  }
+  if (CHAPTER_STANDALONE_RE.test(line)) {
+    return { type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(line) }
+  }
+
+  const { rest } = stripLeadingOrderedListMarker(line)
+  if (trySectionKeywordHeadingLine(rest)) {
+    return { type: 'heading', level: 1, text: sanitizeHeadingTextForTemplate(line) }
+  }
+
+  const singleNum = line.match(/^(\d+)\.\s+(.+)$/)
+  if (singleNum?.[2] && !/^\d+\.\d+/.test(line)) {
+    const n = parseInt(singleNum[1]!, 10)
+    const title = stripBoldMarkers(singleNum[2]!)
+    const wasBold = /^\*\*[^*]+\*\*/.test(rawLine.trim())
+    // Kapitel → Ebene 1 («1. Überschrift»), Unterkapitel → Ebene 2 («1.1 …»)
+    let level: HeadingLevel = 1
+    if (wasBold || n >= 2 || lastHeadingLevel === 0) {
+      level = 1
+    } else {
+      level = 2
+    }
+    return { type: 'heading', level, text: sanitizeHeadingTextForTemplate(title) }
+  }
+
+  /** Kurze fett markierte Zeilen: Kapitel wenn noch keine, sonst Unterkapitel. */
+  const boldOnly = rawLine.trim().match(/^\*\*([^*]+)\*\*\s*$/)
+  if (boldOnly?.[1] && boldOnly[1].length <= 120) {
+    const lv: HeadingLevel = lastHeadingLevel >= 1 ? 2 : 1
+    return { type: 'heading', level: lv, text: sanitizeHeadingTextForTemplate(boldOnly[1].trim()) }
+  }
+
+  return { type: 'paragraph', text: line }
+}
+
+/**
+ * Paragraphen mit eingebetteten Zeilenumbrüchen («Kapitel 1: …» in einem Block)
+ * in echte heading/paragraph-Blöcke zerlegen — damit Word-Formatvorlagen greifen.
+ */
+export function refineWordOutlineBlocksForExport(
+  blocks: WordOutlineV1['blocks'],
+): WordOutlineV1['blocks'] {
+  const out: WordOutlineV1['blocks'] = []
+  let lastHeadingLevel = 0
+  for (const b of blocks) {
+    if (b.type === 'table') {
+      out.push(b)
+      continue
+    }
+    if (b.type === 'heading') {
+      pushSanitizedHeading(out, b.level, b.text)
+      lastHeadingLevel = b.level
+      continue
+    }
+    const chunks = b.text
+      .split(/\n+/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+    if (chunks.length === 0) {
+      continue
+    }
+    for (const chunk of chunks) {
+      const kapitelSplit = chunk.match(/^(Kapitel\s+\d+\s*[:：.\-–—]\s*[^.!?]{3,80})([.!?].+)$/i)
+      if (kapitelSplit?.[1] && kapitelSplit[2]) {
+        pushSanitizedHeading(out, 1, kapitelSplit[1].trim())
+        lastHeadingLevel = 1
+        out.push({ type: 'paragraph', text: kapitelSplit[2].trim() })
+        continue
+      }
+      const classified = classifyPlainLineToBlock(chunk, lastHeadingLevel)
+      if (classified) {
+        out.push(classified)
+        if (classified.type === 'heading') {
+          lastHeadingLevel = classified.level
+        }
+      }
+    }
+  }
+  return out.length > 0 ? out : blocks
 }
 
 export function tryHeuristicWordOutlineFromPlainText(text: string): WordOutlineV1 | null {
@@ -434,79 +588,11 @@ export function tryHeuristicWordOutlineFromPlainText(text: string): WordOutlineV
 
   const blocks: WordOutlineV1['blocks'] = []
 
-  /**
-   * «Kapitel 1» / «Kapitel 1: Titel» / «Chapter 2» — viele KI-Texte nutzen keine Doppelpunkte.
-   */
-  const kapitelWithSepRe = /^Kapitel\s+(\d+)\s*[:：.\-–—]\s*(.*)$/i
-  const kapitelStandaloneRe = /^Kapitel\s+(\d+)\s*$/i
-  const chapterWithSepRe = /^Chapter\s+(\d+)\s*[:：.\-–—]\s*(.*)$/i
-  const chapterStandaloneRe = /^Chapter\s+(\d+)\s*$/i
-
-  function stripBoldMarkers(s: string): string {
-    return s
-      .replace(/\*\*/g, '')
-      .replace(/^\*+\s*/, '')
-      .replace(/\s*\*+$/, '')
-      .trim()
-  }
-
   for (const rawLine of lines) {
-    const line = stripBoldMarkers(rawLine)
-    if (!line) {
-      continue
+    const classified = classifyPlainLineToBlock(rawLine)
+    if (classified) {
+      blocks.push(classified)
     }
-
-    if (isLikelyAssistantClosingBlurb(line)) {
-      continue
-    }
-
-    const mdLevel = tryMarkdownHeadingLine(line)
-    if (mdLevel !== null) {
-      const textOnly = line.replace(/^#{1,6}\s+/, '').trim()
-      blocks.push({
-        type: 'heading',
-        level: mdLevel,
-        text: textOnly || line,
-      })
-      continue
-    }
-
-    const subLv = tryDecimalSubsectionHeadingLine(line)
-    if (subLv !== null) {
-      blocks.push({
-        type: 'heading',
-        level: subLv,
-        text: line,
-      })
-      continue
-    }
-
-    const { rest } = stripLeadingOrderedListMarker(line)
-    const isChapterHeading =
-      kapitelWithSepRe.test(rest) ||
-      kapitelStandaloneRe.test(rest) ||
-      chapterWithSepRe.test(rest) ||
-      chapterStandaloneRe.test(rest)
-
-    if (isChapterHeading) {
-      blocks.push({
-        type: 'heading',
-        level: 1,
-        text: line,
-      })
-      continue
-    }
-
-    if (trySectionKeywordHeadingLine(rest)) {
-      blocks.push({
-        type: 'heading',
-        level: 1,
-        text: line,
-      })
-      continue
-    }
-
-    blocks.push({ type: 'paragraph', text: line })
   }
 
   if (blocks.length === 0) {
@@ -546,7 +632,8 @@ export function normalizeHeadingLevelsForWord(outline: WordOutlineV1): WordOutli
 
 function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
   const { title: _d, ...rest } = stripTitle
-  return normalizeHeadingLevelsForWord({ ...rest, title: undefined })
+  const refined = refineWordOutlineBlocksForExport(rest.blocks)
+  return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks: refined })
 }
 
 export function extractWordOutlineFromThread(messages: ChatMessage[]): WordOutlineV1 | null {
