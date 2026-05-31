@@ -6,8 +6,11 @@
 const SUPPORTED_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 
 const MAX_BYTES_BEFORE_CANVAS = 4_200_000
-const MAX_EDGE = 2048
-const JPEG_QUALITY = 0.88
+/** Desktop: ausreichend für Vision; iOS kleiner → weniger Tokens / seltener OpenAI 429. */
+const MAX_EDGE_DESKTOP = 1536
+const MAX_EDGE_MOBILE = 1024
+const JPEG_QUALITY_DESKTOP = 0.85
+const JPEG_QUALITY_MOBILE = 0.78
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -73,12 +76,21 @@ function isValidVisionDataUrl(dataUrl: string): boolean {
   return b64.length >= 32 && /^[A-Za-z0-9+/]+=*$/.test(b64)
 }
 
+function visionMaxEdge(): number {
+  return isLikelyIos() ? MAX_EDGE_MOBILE : MAX_EDGE_DESKTOP
+}
+
+function visionJpegQuality(): number {
+  return isLikelyIos() ? JPEG_QUALITY_MOBILE : JPEG_QUALITY_DESKTOP
+}
+
 async function rasterToJpegDataUrl(
   source: CanvasImageSource,
   width: number,
   height: number,
 ): Promise<string> {
-  const scale = width <= MAX_EDGE && height <= MAX_EDGE ? 1 : Math.min(MAX_EDGE / width, MAX_EDGE / height)
+  const maxEdge = visionMaxEdge()
+  const scale = width <= maxEdge && height <= maxEdge ? 1 : Math.min(maxEdge / width, maxEdge / height)
   const cw = Math.max(1, Math.round(width * scale))
   const ch = Math.max(1, Math.round(height * scale))
 
@@ -111,7 +123,7 @@ async function rasterToJpegDataUrl(
         r.readAsDataURL(blob)
       },
       'image/jpeg',
-      JPEG_QUALITY,
+      visionJpegQuality(),
     )
   })
 }

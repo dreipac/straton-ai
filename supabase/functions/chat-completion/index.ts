@@ -136,7 +136,7 @@ function resolveOpenAiPromptCacheForRequest(
 
 type OpenAiVisionContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
 
 const OPENAI_VISION_MIME_RE = /^image\/(jpeg|png|gif|webp)$/i
 
@@ -854,7 +854,8 @@ function openAiChatRequestBody(
       for (const url of parsed.imageDataUrls) {
         parts.push({
           type: 'image_url',
-          image_url: { url },
+          /** `low` senkt TPM deutlich (wichtig bei iPhone-Fotos / data:-URLs). */
+          image_url: { url, detail: 'low' },
         })
       }
       return {
@@ -885,22 +886,50 @@ function openAiChatRequestBody(
   return body
 }
 
-function formatOpenAiHttpError(status: number, errorText: string): string {
-  if (status === 400 || status === 403) {
-    try {
-      const parsed = JSON.parse(errorText) as { error?: { message?: string } | string }
-      const msg =
-        typeof parsed.error === 'string'
-          ? parsed.error.trim()
-          : typeof parsed.error?.message === 'string'
-            ? parsed.error.message.trim()
-            : ''
-      if (msg) {
-        return `OpenAI Anfrage fehlgeschlagen (${status}): ${msg}`
-      }
-    } catch {
-      /* ignore */
+function parseOpenAiErrorMessage(errorText: string): string {
+  try {
+    const parsed = JSON.parse(errorText) as { error?: { message?: string } | string }
+    if (typeof parsed.error === 'string') {
+      return parsed.error.trim()
     }
+    if (typeof parsed.error?.message === 'string') {
+      return parsed.error.message.trim()
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+function formatOpenAiHttpError(status: number, errorText: string): string {
+  const apiMsg = parseOpenAiErrorMessage(errorText)
+  const lower = `${apiMsg} ${errorText}`.toLowerCase()
+
+  if (status === 429) {
+    if (
+      lower.includes('insufficient_quota') ||
+      lower.includes('billing') ||
+      lower.includes('exceeded your current quota')
+    ) {
+      return (
+        'OpenAI-Kontingent aufgebraucht (429). Bitte Guthaben/Billing im OpenAI-Dashboard prüfen oder später erneut versuchen.' +
+        (apiMsg ? ` (${apiMsg})` : '')
+      )
+    }
+    return apiMsg
+      ? `OpenAI ist gerade überlastet (429): ${apiMsg} Bitte 30–60 Sekunden warten und erneut senden.`
+      : 'OpenAI ist gerade überlastet (zu viele Anfragen). Bitte 30–60 Sekunden warten und erneut senden.'
+  }
+
+  if (status === 402 || lower.includes('insufficient_quota')) {
+    return (
+      'OpenAI-Guthaben reicht nicht aus. Bitte Billing im OpenAI-Dashboard prüfen.' +
+      (apiMsg ? ` (${apiMsg})` : '')
+    )
+  }
+
+  if (apiMsg) {
+    return `OpenAI Anfrage fehlgeschlagen (${status}): ${apiMsg}`
   }
   return `OpenAI Anfrage fehlgeschlagen (${status}).`
 }
