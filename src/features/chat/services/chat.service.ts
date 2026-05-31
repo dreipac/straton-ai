@@ -164,6 +164,11 @@ export type SendMessageOptions = {
   thinkingConversationPhase?: 'clarify' | 'final'
   /** Thinking: Fokus der aktuellen Klärungsrunde. */
   thinkingClarifyFocus?: { dimensionLabel: string; questionHint: string; round: number; roundsTotal: number }
+  /**
+   * Hauptchat Vision: Foto-Data-URL direkt an die Edge (zuverlässiger als Storage auf iOS).
+   * Wird nicht in der DB gespeichert.
+   */
+  visionInlineDataUrl?: string
 }
 
 type EvaluateQuizAnswerInput = {
@@ -927,10 +932,19 @@ function buildChatCompletionRequestBody(
     body.billingConsumeThinkingCredit = true
   }
 
+  const visionInline =
+    typeof options?.visionInlineDataUrl === 'string' ? options.visionInlineDataUrl.trim() : ''
+  if (visionInline.startsWith('data:image/')) {
+    body.visionInlineDataUrl = visionInline
+  }
+
   /** GPT-5.x wertet Vision in der Praxis oft schlecht; 4o-mini zuverlässig für Fotos. */
-  const gatewayHasVision = gatewayMessages.some(
-    (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
-  )
+  const gatewayHasVision =
+    gatewayMessages.some(
+      (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
+    ) ||
+    (typeof options?.visionInlineDataUrl === 'string' &&
+      options.visionInlineDataUrl.trim().startsWith('data:image/'))
   if (!options?.useLearnPathModel && body.provider === 'openai' && gatewayHasVision) {
     const existing = Array.isArray(body.openAiModels) ? [...(body.openAiModels as string[])] : []
     const prioritized = ['gpt-4o-mini', 'gpt-4o']

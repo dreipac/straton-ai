@@ -6,6 +6,9 @@ alter table "public"."subscription_plans" validate constraint "subscription_plan
 
 set check_function_bodies = off;
 
+-- Vorherige Migration (20260426120000) hatte RETURNS void — REPLACE ändert den Rückgabetyp nicht.
+drop function if exists public.accept_chat_invitation(uuid);
+
 CREATE OR REPLACE FUNCTION public.accept_chat_invitation(p_invitation_id uuid)
  RETURNS uuid
  LANGUAGE plpgsql

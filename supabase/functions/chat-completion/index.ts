@@ -265,15 +265,34 @@ async function resolveVisionDataUrlsForUserContent(
   return dataUrl ? [dataUrl] : []
 }
 
-/** Storage-Referenzen → inline Data-URL nur für den letzten Vision-Turn. */
+/** Storage-Referenzen → inline Data-URL; optional Client-Override (iOS, zuverlässig). */
 async function resolveChatMessagesVisionForOpenAi(
   messages: InputMessage[],
   userClient: SupabaseClient,
+  inlineOverride?: string | null,
 ): Promise<InputMessage[]> {
-  const lastVisionIdx = findLastUserMessageWithVisionIndex(messages)
+  let working = messages
+  if (typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')) {
+    const safe = sanitizeOpenAiVisionDataUrl(inlineOverride.trim())
+    if (safe) {
+      const idx = findLastUserMessageIndex(working)
+      if (idx >= 0) {
+        const msg = working[idx]!
+        const text = extractUserVisionFromContent(msg.content).text.trim()
+        const idMatch = msg.content.match(/\[BildData:([^\]]+)\]/)
+        const id = idMatch?.[1] ?? 'vision'
+        const block = `[BildData:${id}]\n${safe}\n[/BildData]`
+        working = working.map((m, i) =>
+          i === idx ? { ...m, content: text ? `${text}\n\n${block}` : block } : m,
+        )
+      }
+    }
+  }
+
+  const lastVisionIdx = findLastUserMessageWithVisionIndex(working)
   const out: InputMessage[] = []
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i]!
+  for (let i = 0; i < working.length; i += 1) {
+    const message = working[i]!
     if (message.role !== 'user') {
       out.push(message)
       continue
@@ -2459,6 +2478,8 @@ serve(async (req) => {
       includeProfileMemory?: unknown
       /** Thinking-Modus: 1 Guthaben pro Anfrage (`consume_one_thinking_credit`). */
       billingConsumeThinkingCredit?: unknown
+      /** Client: Foto-Data-URL für Vision (nicht in DB; iOS-Pfad). */
+      visionInlineDataUrl?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
@@ -2736,11 +2757,18 @@ serve(async (req) => {
         ? Math.min(16384, Math.floor(rawMax))
         : undefined
 
+    const visionInlineRaw =
+      typeof body.visionInlineDataUrl === 'string' ? body.visionInlineDataUrl.trim() : ''
     const chatHasVision =
       mode === 'chat' &&
-      chatMessages.some((m) => m.role === 'user' && messageContentHasVisionPayload(m.content))
+      (chatMessages.some((m) => m.role === 'user' && messageContentHasVisionPayload(m.content)) ||
+        visionInlineRaw.startsWith('data:image/'))
     if (chatHasVision) {
-      chatMessages = await resolveChatMessagesVisionForOpenAi(chatMessages, userClient)
+      chatMessages = await resolveChatMessagesVisionForOpenAi(
+        chatMessages,
+        userClient,
+        visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null,
+      )
       if (provider === 'openai') {
         const visionFirst = ['gpt-4o-mini', 'gpt-4o']
         openAiModels = [

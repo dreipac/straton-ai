@@ -87,7 +87,10 @@ import {
 } from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import { persistInlineVisionImagesInContent } from '../services/chat.visionStorage'
-import { messageHasVisionPayload } from '../utils/visionMessageContent'
+import {
+  extractInlineVisionDataUrlFromContent,
+  messageHasVisionPayload,
+} from '../utils/visionMessageContent'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { InstantAnalyzeDebugMeta } from '../types'
@@ -1028,7 +1031,8 @@ export function useChat(
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
-        !imageGenPrompt
+        !imageGenPrompt &&
+        !messageHasVisionPayload(content)
 
       let userContent =
         trimmed ||
@@ -1040,13 +1044,29 @@ export function useChat(
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
 
+      const visionInlineDataUrl = extractInlineVisionDataUrlFromContent(userContent) ?? undefined
+
       if (userId && messageHasVisionPayload(userContent)) {
-        const persisted = await persistInlineVisionImagesInContent(userId, targetThreadId, userContent)
-        userContent = persisted.content
-        if (persisted.metadata?.visionImage) {
-          userMetadataBase.visionImage = persisted.metadata.visionImage
+        try {
+          const persisted = await persistInlineVisionImagesInContent(userId, targetThreadId, userContent)
+          userContent = persisted.content
+          if (persisted.metadata?.visionImage) {
+            userMetadataBase.visionImage = persisted.metadata.visionImage
+          }
+        } catch (persistErr) {
+          console.warn('[useChat] vision storage persist failed', persistErr)
         }
       }
+
+      if (
+        messageHasVisionPayload(content) &&
+        !visionInlineDataUrl &&
+        !userContent.includes('@chat-media:')
+      ) {
+        setError('Das Foto konnte nicht für die KI vorbereitet werden. Bitte erneut anhängen.')
+        return
+      }
+
       const priorTurns = (messagesByThreadId[targetThreadId] ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({
@@ -1397,6 +1417,7 @@ export function useChat(
             thinkingIntake,
             thinkingConversationPhase,
             thinkingClarifyFocus,
+            visionInlineDataUrl,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1447,6 +1468,7 @@ export function useChat(
           thinkingIntake,
           thinkingConversationPhase,
           thinkingClarifyFocus,
+          visionInlineDataUrl,
         })
         finalAssistantContent = assistantMessage.content
         if (wantsThinkingTurn && options?.isSuperadmin !== true) {

@@ -71,7 +71,9 @@ export async function persistInlineVisionImagesInContent(
       upsert: true,
     })
     if (error) {
-      throw new Error(error.message || 'Foto konnte nicht gespeichert werden.')
+      /** iOS/Storage: Inline-Data-URL bleibt in `content` — Edge bekommt `visionInlineDataUrl` vom Client. */
+      console.warn('[chat.visionStorage] upload failed, keeping inline BildData', error.message)
+      continue
     }
 
     const replacement = buildPersistedBildDataBlock(attachmentId, path)

@@ -1,4 +1,21 @@
+import { normalizeVisionDataUrl } from './imageVisionNormalize'
 import type { ChatMessage } from '../types'
+
+const BILDDATA_BLOCK_RE = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/i
+
+/** Data-URL aus `[BildData]…[/BildData]` (vor Storage-Persistenz). */
+export function extractInlineVisionDataUrlFromContent(content: string): string | null {
+  const block = BILDDATA_BLOCK_RE.exec(content)
+  if (!block?.[1]) {
+    return null
+  }
+  const dataMatch = block[1].trim().match(/data:image\/[^;]+;base64,[\s\S]+/i)
+  if (!dataMatch?.[0]) {
+    return null
+  }
+  const normalized = normalizeVisionDataUrl(dataMatch[0])
+  return normalized.length > 64 ? normalized : null
+}
 
 /** Entfernt eingebettete Vision-Daten (Base64) — für ältere Chat-Turns im Gateway. */
 export function stripVisionBlocksFromMessageContent(content: string): string {
