@@ -64,7 +64,8 @@ function parseVisionDataUrlMime(dataUrl: string): string | null {
   return mime === 'image/jpg' ? 'image/jpeg' : mime
 }
 
-function isValidVisionDataUrl(dataUrl: string): boolean {
+/** Kein `/^…(.+)$/` auf 100k+ Base64 — bricht in Browser/Edge sonst oft. */
+export function isValidVisionDataUrl(dataUrl: string): boolean {
   const normalized = normalizeVisionDataUrl(dataUrl)
   const mime = parseVisionDataUrlMime(normalized)
   if (!mime || !SUPPORTED_VISION_MIMES.has(mime)) {
@@ -75,7 +76,24 @@ function isValidVisionDataUrl(dataUrl: string): boolean {
     return false
   }
   const b64 = normalized.slice(idx + 'base64,'.length)
-  return b64.length >= 32 && /^[A-Za-z0-9+/]+=*$/.test(b64)
+  if (b64.length < 32) {
+    return false
+  }
+  for (let i = 0; i < b64.length; i += 1) {
+    const ch = b64[i]!
+    if (
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '+' ||
+      ch === '/' ||
+      ch === '='
+    ) {
+      continue
+    }
+    return false
+  }
+  return true
 }
 
 function visionMaxEdge(): number {

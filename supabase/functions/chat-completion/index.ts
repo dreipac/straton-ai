@@ -151,46 +151,190 @@ function normalizeVisionDataUrl(dataUrl: string): string {
   return t.slice(0, idx + marker.length) + t.slice(idx + marker.length).replace(/\s+/g, '')
 }
 
-/** Nur Formate, die OpenAI `image_url` mit data:-URL akzeptiert (kein HEIC/HEIF). */
+function isLikelyValidBase64Payload(payload: string): boolean {
+  if (payload.length < 32) {
+    return false
+  }
+  for (let i = 0; i < payload.length; i += 1) {
+    const ch = payload[i]!
+    if (
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '+' ||
+      ch === '/' ||
+      ch === '='
+    ) {
+      continue
+    }
+    return false
+  }
+  return true
+}
+
+/** Streng; bei langen JPEG-Data-URLs kann Vollstring-Regex sonst fehlschlagen. */
 function sanitizeOpenAiVisionDataUrl(dataUrl: string): string | null {
   const n = normalizeVisionDataUrl(dataUrl)
-  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i.exec(n)
-  if (!m?.[1] || !m[2]) {
+  const headerMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/i.exec(n)
+  if (!headerMatch?.[1]) {
     return null
   }
-  let media = (m[1] ?? '').toLowerCase()
+  let media = (headerMatch[1] ?? '').toLowerCase()
   if (media === 'image/jpg') {
     media = 'image/jpeg'
   }
   if (!OPENAI_VISION_MIME_RE.test(media.replace(/^image\//, ''))) {
     return null
   }
-  const payload = (m[2] ?? '').replace(/\s+/g, '')
-  if (payload.length < 32 || !/^[A-Za-z0-9+/]+=*$/.test(payload)) {
+  const marker = 'base64,'
+  const idx = n.indexOf(marker)
+  if (idx === -1) {
+    return null
+  }
+  const payload = n.slice(idx + marker.length).replace(/\s+/g, '')
+  if (!isLikelyValidBase64Payload(payload)) {
     return null
   }
   return `data:${media};base64,${payload}`
 }
 
-function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
-  const imageDataUrls: string[] = []
-  const visionRegex = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/g
-  let match: RegExpExecArray | null
-  while ((match = visionRegex.exec(content)) !== null) {
-    const maybeUrl = String(match[1] ?? '').trim()
-    if (maybeUrl.startsWith('data:image/')) {
-      const safe = sanitizeOpenAiVisionDataUrl(maybeUrl)
-      if (safe) {
-        imageDataUrls.push(safe)
-      }
+function stripToBase64Payload(payload: string): string {
+  let out = ''
+  for (let i = 0; i < payload.length; i += 1) {
+    const ch = payload[i]!
+    if (
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '+' ||
+      ch === '/' ||
+      ch === '='
+    ) {
+      out += ch
     }
   }
-  const text = content
-    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '')
+  return out
+}
+
+/**
+ * Client-`visionInlineDataUrl`: erst strict, sonst lenient (OpenAI validiert selbst).
+ * Logs zeigten «no vision URL» obwohl der Client ~48 KB JPEG mitschickte.
+ */
+function resolveVisionUrlFromBody(raw: string): string | null {
+  const t = raw.trim()
+  if (!t.startsWith('data:image/')) {
+    return null
+  }
+  const coerced = coerceOpenAiVisionDataUrl(t)
+  if (coerced) {
+    return coerced
+  }
+  const marker = 'base64,'
+  const idx = t.indexOf(marker)
+  if (idx === -1) {
+    console.warn('[chat-completion] vision inline: missing base64 marker', t.length)
+    return null
+  }
+  const payload = stripToBase64Payload(t.slice(idx + marker.length))
+  if (payload.length < 64) {
+    console.warn('[chat-completion] vision inline: payload too short', payload.length)
+    return null
+  }
+  console.warn('[chat-completion] vision inline: lenient accept', payload.length, 'chars b64')
+  return `data:image/jpeg;base64,${payload}`
+}
+
+/** Client-Override: normalisieren, Sanitize optional nachziehen. */
+function coerceOpenAiVisionDataUrl(dataUrl: string): string | null {
+  const n = normalizeVisionDataUrl(dataUrl.trim())
+  if (!n.startsWith('data:image/')) {
+    return null
+  }
+  const strict = sanitizeOpenAiVisionDataUrl(n)
+  if (strict) {
+    return strict
+  }
+  const marker = 'base64,'
+  const idx = n.indexOf(marker)
+  if (idx === -1 || n.length < idx + marker.length + 32) {
+    return null
+  }
+  const headerMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/i.exec(n)
+  let media = (headerMatch?.[1] ?? 'image/jpeg').toLowerCase()
+  if (media === 'image/jpg') {
+    media = 'image/jpeg'
+  }
+  if (!OPENAI_VISION_MIME_RE.test(media.replace(/^image\//, ''))) {
+    return null
+  }
+  const payload = n.slice(idx + marker.length).replace(/\s+/g, '')
+  if (!isLikelyValidBase64Payload(payload)) {
+    return null
+  }
+  return `data:${media};base64,${payload}`
+}
+
+/** `[BildData]`-Blöcke per indexOf — Regex auf 100k+ Base64 bricht sonst in Deno/Edge. */
+function stripBildDataBlocksFromContent(content: string): string {
+  let result = ''
+  let cursor = 0
+  const closeTag = '[/BildData]'
+  while (true) {
+    const openIdx = content.indexOf('[BildData:', cursor)
+    if (openIdx === -1) {
+      result += content.slice(cursor)
+      break
+    }
+    result += content.slice(cursor, openIdx)
+    const closeIdx = content.indexOf(closeTag, openIdx)
+    if (closeIdx === -1) {
+      result += content.slice(openIdx)
+      break
+    }
+    cursor = closeIdx + closeTag.length
+  }
+  return result
     .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
     .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
     .trim()
-  return { text, imageDataUrls: imageDataUrls.slice(0, 1) }
+}
+
+function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
+  const imageDataUrls: string[] = []
+  let searchFrom = 0
+  const closeTag = '[/BildData]'
+  while (imageDataUrls.length < 1) {
+    const openIdx = content.indexOf('[BildData:', searchFrom)
+    if (openIdx === -1) {
+      break
+    }
+    const closeIdx = content.indexOf(closeTag, openIdx)
+    if (closeIdx === -1) {
+      break
+    }
+    const headerEnd = content.indexOf(']', openIdx)
+    if (headerEnd === -1 || headerEnd > closeIdx) {
+      searchFrom = openIdx + 1
+      continue
+    }
+    const inner = content.slice(headerEnd + 1, closeIdx).trim()
+    if (inner.startsWith('data:image/')) {
+      const safe = resolveVisionUrlFromBody(inner)
+      if (safe) {
+        imageDataUrls.push(safe)
+      }
+    } else {
+      const dataIdx = inner.indexOf('data:image/')
+      if (dataIdx >= 0) {
+        const safe = resolveVisionUrlFromBody(inner.slice(dataIdx))
+        if (safe) {
+          imageDataUrls.push(safe)
+        }
+      }
+    }
+    searchFrom = closeIdx + closeTag.length
+  }
+  return { text: stripBildDataBlocksFromContent(content), imageDataUrls: imageDataUrls.slice(0, 1) }
 }
 
 function stripVisionAttachmentsFromContent(content: string): string {
@@ -225,33 +369,62 @@ function findLastUserMessageWithVisionIndex(messages: InputMessage[]): number {
   return -1
 }
 
+/** Vision immer auf der neuesten User-Nachricht, wenn dort ein Bild extrahierbar ist. */
+function findOpenAiVisionUserIndex(
+  messages: InputMessage[],
+  visionOverrideUrl?: string | null,
+): number {
+  const override =
+    typeof visionOverrideUrl === 'string' && visionOverrideUrl.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(visionOverrideUrl.trim())
+      : null
+  const lastUser = findLastUserMessageIndex(messages)
+  if (lastUser >= 0) {
+    const parsed = extractUserVisionFromContent(messages[lastUser]!.content)
+    if (parsed.imageDataUrls.length > 0 || override) {
+      return lastUser
+    }
+  }
+  const marked = findLastUserMessageWithVisionIndex(messages)
+  return marked >= 0 ? marked : lastUser
+}
+
 const CHAT_VISION_MEDIA_BUCKET = 'chat-media'
 const CHAT_MEDIA_REF_LINE = /@chat-media:([^\n]+)/
 
 async function downloadChatMediaAsDataUrl(
   userClient: SupabaseClient,
   path: string,
+  adminClient?: SupabaseClient | null,
 ): Promise<string | null> {
   const objectPath = path.trim()
   if (!objectPath) {
     return null
   }
-  const { data, error } = await userClient.storage.from(CHAT_VISION_MEDIA_BUCKET).download(objectPath)
-  if (error || !data) {
-    console.error('[chat-completion] vision storage download failed', objectPath, error?.message)
-    return null
+  const clients = [userClient, adminClient].filter((c): c is SupabaseClient => Boolean(c))
+  for (const client of clients) {
+    const { data, error } = await client.storage.from(CHAT_VISION_MEDIA_BUCKET).download(objectPath)
+    if (error || !data) {
+      continue
+    }
+    const bytes = new Uint8Array(await data.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    const dataUrl = coerceOpenAiVisionDataUrl(`data:image/jpeg;base64,${btoa(binary)}`)
+    if (dataUrl) {
+      return dataUrl
+    }
   }
-  const bytes = new Uint8Array(await data.arrayBuffer())
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  }
-  return sanitizeOpenAiVisionDataUrl(`data:image/jpeg;base64,${btoa(binary)}`)
+  console.error('[chat-completion] vision storage download failed', objectPath)
+  return null
 }
 
 async function resolveVisionDataUrlsForUserContent(
   content: string,
   userClient: SupabaseClient,
+  adminClient?: SupabaseClient | null,
 ): Promise<string[]> {
   const inline = extractUserVisionFromContent(content).imageDataUrls
   if (inline.length > 0) {
@@ -261,7 +434,7 @@ async function resolveVisionDataUrlsForUserContent(
   if (!pathMatch?.[1]) {
     return []
   }
-  const dataUrl = await downloadChatMediaAsDataUrl(userClient, pathMatch[1])
+  const dataUrl = await downloadChatMediaAsDataUrl(userClient, pathMatch[1], adminClient)
   return dataUrl ? [dataUrl] : []
 }
 
@@ -270,26 +443,41 @@ async function resolveChatMessagesVisionForOpenAi(
   messages: InputMessage[],
   userClient: SupabaseClient,
   inlineOverride?: string | null,
+  adminClient?: SupabaseClient | null,
 ): Promise<InputMessage[]> {
   let working = messages
-  if (typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')) {
-    const safe = sanitizeOpenAiVisionDataUrl(inlineOverride.trim())
-    if (safe) {
-      const idx = findLastUserMessageIndex(working)
-      if (idx >= 0) {
-        const msg = working[idx]!
-        const text = extractUserVisionFromContent(msg.content).text.trim()
-        const idMatch = msg.content.match(/\[BildData:([^\]]+)\]/)
-        const id = idMatch?.[1] ?? 'vision'
-        const block = `[BildData:${id}]\n${safe}\n[/BildData]`
-        working = working.map((m, i) =>
-          i === idx ? { ...m, content: text ? `${text}\n\n${block}` : block } : m,
-        )
-      }
+  const resolvedUrl =
+    typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(inlineOverride.trim())
+      : null
+
+  let forcedVisionIdx = -1
+  if (resolvedUrl) {
+    const idx = findLastUserMessageIndex(working)
+    if (idx >= 0) {
+      const msg = working[idx]!
+      const text = extractUserVisionFromContent(msg.content).text.trim()
+      const idMatch = msg.content.match(/\[BildData:([^\]]+)\]/)
+      const id = idMatch?.[1] ?? 'vision'
+      const block = `[BildData:${id}]\n${resolvedUrl}\n[/BildData]`
+      working = working.map((m, i) =>
+        i === idx ? { ...m, content: text ? `${text}\n\n${block}` : block } : m,
+      )
+      forcedVisionIdx = idx
     }
+  } else if (typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')) {
+    console.warn('[chat-completion] visionInlineDataUrl rejected (strict+lenient)', inlineOverride.trim().length)
   }
 
-  const lastVisionIdx = findLastUserMessageWithVisionIndex(working)
+  let lastVisionIdx =
+    forcedVisionIdx >= 0 ? forcedVisionIdx : findLastUserMessageWithVisionIndex(working)
+  if (lastVisionIdx < 0 && resolvedUrl) {
+    lastVisionIdx = findLastUserMessageIndex(working)
+  }
+  if (lastVisionIdx < 0) {
+    return working
+  }
+
   const out: InputMessage[] = []
   for (let i = 0; i < working.length; i += 1) {
     const message = working[i]!
@@ -304,8 +492,12 @@ async function resolveChatMessagesVisionForOpenAi(
       })
       continue
     }
-    const urls = await resolveVisionDataUrlsForUserContent(message.content, userClient)
+    const urls =
+      resolvedUrl
+        ? [resolvedUrl]
+        : await resolveVisionDataUrlsForUserContent(message.content, userClient, adminClient)
     if (urls.length === 0) {
+      console.warn('[chat-completion] vision resolve: no image URL for last user turn')
       out.push({
         role: 'user',
         content:
@@ -314,6 +506,7 @@ async function resolveChatMessagesVisionForOpenAi(
       })
       continue
     }
+    console.log('[chat-completion] vision resolve: image attached for OpenAI/Anthropic')
     const idMatch = message.content.match(/\[BildData:([^\]]+)\]/)
     const id = idMatch?.[1] ?? 'vision'
     const text = extractUserVisionFromContent(message.content).text
@@ -336,7 +529,7 @@ type AnthropicUserContentPart =
   | AnthropicImageBlock
 
 function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | null {
-  const safe = sanitizeOpenAiVisionDataUrl(dataUrl)
+  const safe = coerceOpenAiVisionDataUrl(dataUrl)
   if (!safe) {
     return null
   }
@@ -955,6 +1148,26 @@ function attachOpenAiMaxOutputTokens(body: Record<string, unknown>, model: strin
   }
 }
 
+function countOpenAiVisionImageParts(body: Record<string, unknown>): number {
+  const msgs = body.messages
+  if (!Array.isArray(msgs)) {
+    return 0
+  }
+  let n = 0
+  for (const msg of msgs) {
+    const content = (msg as { content?: unknown })?.content
+    if (!Array.isArray(content)) {
+      continue
+    }
+    for (const part of content) {
+      if (part && typeof part === 'object' && (part as { type?: string }).type === 'image_url') {
+        n += 1
+      }
+    }
+  }
+  return n
+}
+
 function openAiChatRequestBody(
   model: string,
   messages: InputMessage[],
@@ -963,9 +1176,17 @@ function openAiChatRequestBody(
     promptCache?: OpenAiPromptCacheOptions
     /** Completion-Obergrenze (Chat Completions: je nach Modell max_completion_tokens oder max_tokens). */
     maxOutputTokens?: number
+    /** Client-Feld `visionInlineDataUrl` — Fallback wenn `[BildData]`-Parsing fehlschlägt. */
+    visionOverrideUrl?: string | null
   },
 ): Record<string, unknown> {
-  const lastVisionIdx = findLastUserMessageWithVisionIndex(messages)
+  const visionOverride =
+    typeof options?.visionOverrideUrl === 'string' &&
+    options.visionOverrideUrl.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(options.visionOverrideUrl.trim())
+      : null
+  const lastVisionIdx = findOpenAiVisionUserIndex(messages, visionOverride)
+  let visionPartsAttached = false
   const body: Record<string, unknown> = {
     model,
     messages: messages.map((message, idx) => {
@@ -989,20 +1210,28 @@ function openAiChatRequestBody(
         }
       }
       const parsed = extractUserVisionFromContent(message.content)
-      if (parsed.imageDataUrls.length === 0) {
+      const imageUrls =
+        parsed.imageDataUrls.length > 0
+          ? parsed.imageDataUrls
+          : visionOverride
+            ? [visionOverride]
+            : []
+      if (imageUrls.length === 0) {
+        console.warn('[chat-completion] openAiChatRequestBody: no vision URL for last user turn')
         const stripped = stripVisionAttachmentsFromContent(message.content)
         return {
           role: message.role,
           content: stripped || 'Der Nutzer hat ein Bild gesendet, aber es konnte nicht geladen werden.',
         }
       }
+      visionPartsAttached = true
       const parts: OpenAiVisionContentPart[] = []
       if (parsed.text) {
         parts.push({ type: 'text', text: parsed.text })
       } else {
         parts.push({ type: 'text', text: 'Bitte analysiere dieses Bild.' })
       }
-      for (const url of parsed.imageDataUrls.slice(0, 1)) {
+      for (const url of imageUrls.slice(0, 1)) {
         parts.push({
           type: 'image_url',
           /** `low` senkt TPM deutlich (wichtig bei iPhone-Fotos / data:-URLs). */
@@ -1014,6 +1243,9 @@ function openAiChatRequestBody(
         content: parts,
       }
     }),
+  }
+  if (visionOverride && !visionPartsAttached) {
+    console.warn('[chat-completion] openAiChatRequestBody: visionOverride present but not attached')
   }
   if (!openAiUsesDefaultTemperatureOnly(model)) {
     body.temperature = 0.7
@@ -1099,6 +1331,7 @@ async function callOpenAi(
   models?: string[],
   promptCache?: OpenAiPromptCacheOptions,
   maxOutputTokens?: number,
+  visionOverrideUrl?: string | null,
 ): Promise<AiCallResult> {
   const modelsToTry =
     Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
@@ -1124,6 +1357,7 @@ async function callOpenAi(
               includeReasoningLow,
               promptCache: activePromptCache,
               maxOutputTokens,
+              visionOverrideUrl,
             }),
           ),
         })
@@ -1269,6 +1503,7 @@ async function handleOpenAiChatStream(
   openAiModels: string[],
   promptCache?: OpenAiPromptCacheOptions,
   maxOutputTokens?: number,
+  visionOverrideUrl?: string | null,
 ): Promise<Response> {
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -1287,6 +1522,7 @@ async function handleOpenAiChatStream(
         const reasoningSteps = openAiChatModelSupportsReasoningEffortParam(model)
           ? ([true, false] as const)
           : ([false] as const)
+        let visionImageParts = 0
 
         inner: for (const includeReasoningLow of reasoningSteps) {
           let includeUsageFlag = true
@@ -1299,12 +1535,14 @@ async function handleOpenAiChatStream(
                 includeReasoningLow,
                 promptCache: activePromptCache,
                 maxOutputTokens,
+                visionOverrideUrl,
               }),
               stream: true,
             }
             if (includeUsageFlag) {
               reqBody.stream_options = { include_usage: true }
             }
+            visionImageParts = countOpenAiVisionImageParts(reqBody)
 
             const res = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
@@ -1424,6 +1662,15 @@ async function handleOpenAiChatStream(
               model: usedModel,
               inputTokens,
               outputTokens,
+              visionDebug: {
+                imageParts: visionImageParts,
+                overrideLen:
+                  typeof visionOverrideUrl === 'string' ? visionOverrideUrl.trim().length : 0,
+                overrideResolved: Boolean(
+                  typeof visionOverrideUrl === 'string' &&
+                    resolveVisionUrlFromBody(visionOverrideUrl.trim()),
+                ),
+              },
             })
             closed = true
             break outer
@@ -2759,15 +3006,25 @@ serve(async (req) => {
 
     const visionInlineRaw =
       typeof body.visionInlineDataUrl === 'string' ? body.visionInlineDataUrl.trim() : ''
+    const resolvedVisionUrl =
+      visionInlineRaw.startsWith('data:image/') ? resolveVisionUrlFromBody(visionInlineRaw) : null
+    if (visionInlineRaw.startsWith('data:image/')) {
+      console.log('[chat-completion] vision body', {
+        rawLen: visionInlineRaw.length,
+        resolved: Boolean(resolvedVisionUrl),
+        resolvedLen: resolvedVisionUrl?.length ?? 0,
+      })
+    }
     const chatHasVision =
       mode === 'chat' &&
       (chatMessages.some((m) => m.role === 'user' && messageContentHasVisionPayload(m.content)) ||
-        visionInlineRaw.startsWith('data:image/'))
+        Boolean(resolvedVisionUrl))
     if (chatHasVision) {
       chatMessages = await resolveChatMessagesVisionForOpenAi(
         chatMessages,
         userClient,
-        visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null,
+        resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
+        admin,
       )
       if (provider === 'openai') {
         const visionFirst = ['gpt-4o-mini', 'gpt-4o']
@@ -2788,6 +3045,7 @@ serve(async (req) => {
         openAiModels,
         openAiPc,
         chatMaxTokens,
+        resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
       )
     }
 
@@ -2804,7 +3062,14 @@ serve(async (req) => {
             buildAnthropicChatModelChain(anthropicModelChat),
             chatMaxTokens ?? 8192,
           )
-        : await callOpenAi(chatMessages, apiKey, openAiModels, openAiChatPc, chatMaxTokens)
+        : await callOpenAi(
+            chatMessages,
+            apiKey,
+            openAiModels,
+            openAiChatPc,
+            chatMaxTokens,
+            resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
+          )
 
     await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
 

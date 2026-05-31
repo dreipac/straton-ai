@@ -181,7 +181,10 @@ type ChatWindowProps = {
   thinkingClarifyDialog?: ThinkingClarifyDialogState | null
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
-  onSendMessage: (content: string, opts?: { quizFormat?: QuizFormatChoice }) => Promise<void>
+  onSendMessage: (
+    content: string,
+    opts?: { quizFormat?: QuizFormatChoice; visionInlineDataUrl?: string },
+  ) => Promise<void>
   /** Thinking-Modus: verbleibendes Guthaben (Superadmin: auslassen). */
   thinkingCreditsRemaining?: number
   thinkingCreditMax?: number
@@ -1202,6 +1205,7 @@ export function ChatWindow({
       (entry): entry is PendingAttachment & { kind: 'pasted-image'; previewDataUrl: string } =>
         entry.kind === 'pasted-image' && typeof entry.previewDataUrl === 'string' && entry.previewDataUrl.length > 0,
     )
+    const visionInlineDataUrl = pastedImageEntries[0]?.previewDataUrl
     if (pastedImageEntries.length > 0) {
       setSentPastedImagePreviews((prev) => {
         const next = { ...prev }
@@ -1221,7 +1225,10 @@ export function ChatWindow({
     setQuizFormatPending(null)
     const payload = buildUserMessageWithSectionRef(content, composerSectionReply)
     setComposerSectionReply(null)
-    await onSendMessage(payload, sendOpts?.quizFormat ? { quizFormat: sendOpts.quizFormat } : undefined)
+    await onSendMessage(payload, {
+      ...(sendOpts?.quizFormat ? { quizFormat: sendOpts.quizFormat } : {}),
+      ...(visionInlineDataUrl ? { visionInlineDataUrl } : {}),
+    })
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

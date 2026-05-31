@@ -89,8 +89,11 @@ import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import { persistInlineVisionImagesInContent } from '../services/chat.visionStorage'
 import {
   extractInlineVisionDataUrlFromContent,
+  injectVisionInlineDataUrlIntoMessageContent,
+  isValidVisionDataUrlForGateway,
   messageHasVisionPayload,
 } from '../utils/visionMessageContent'
+import { normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { InstantAnalyzeDebugMeta } from '../types'
@@ -100,6 +103,46 @@ export type { ChatSendPhase, ChatSendPhaseState } from '../constants/chatSendPha
 
 const TEMP_THREAD_PREFIX = 'temp-thread-'
 const THREAD_REMOVE_ANIMATION_MS = 180
+
+/** Composer-Vorschau > Parsen aus `content` (Storage ersetzt Base64 oft vor dem API-Call). */
+function resolveVisionInlineDataUrlForSend(
+  composerPreviewUrl: string | undefined,
+  ...contentCandidates: string[]
+): string | undefined {
+  const fromComposer =
+    typeof composerPreviewUrl === 'string' ? normalizeVisionDataUrl(composerPreviewUrl.trim()) : ''
+  if (isValidVisionDataUrlForGateway(fromComposer)) {
+    return fromComposer
+  }
+  for (const raw of contentCandidates) {
+    const extracted = extractInlineVisionDataUrlFromContent(raw)
+    if (extracted) {
+      return extracted
+    }
+  }
+  return undefined
+}
+
+function applyVisionInlineToChatMessagesForGateway(
+  messages: ChatMessage[],
+  userMessageId: string,
+  visionInlineDataUrl: string | undefined,
+): ChatMessage[] {
+  const inline =
+    typeof visionInlineDataUrl === 'string' ? normalizeVisionDataUrl(visionInlineDataUrl.trim()) : ''
+  if (!inline.startsWith('data:image/') || inline.length <= 64) {
+    return messages
+  }
+  return messages.map((m) => {
+    if (m.id !== userMessageId || m.role !== 'user') {
+      return m
+    }
+    return {
+      ...m,
+      content: injectVisionInlineDataUrlIntoMessageContent(m.content, inline),
+    }
+  })
+}
 
 /** `merge_ai_chat_memory` nur alle N Nachrichten (jede User- und Assistant-Zeile zählt 1). */
 const MEMORY_MERGE_EVERY_N_MESSAGES = 8
@@ -896,6 +939,8 @@ export function useChat(
     content: string,
     sendOpts?: {
       quizFormat?: 'markdown_mcq' | 'interactive'
+      /** JPEG-Data-URL aus Composer-Vorschau — zuverlässiger als erneutes Parsen aus `content`. */
+      visionInlineDataUrl?: string
     },
   ) {
     const wantsWord = userWantsWordExport(content)
@@ -1044,7 +1089,11 @@ export function useChat(
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
 
-      const visionInlineDataUrl = extractInlineVisionDataUrlFromContent(userContent) ?? undefined
+      const visionInlineDataUrl = resolveVisionInlineDataUrlForSend(
+        sendOpts?.visionInlineDataUrl,
+        userContent,
+        content,
+      )
 
       if (userId && messageHasVisionPayload(userContent)) {
         try {
@@ -1395,7 +1444,13 @@ export function useChat(
         )
 
         try {
-          finalAssistantContent = await sendMessageStreaming(nextMessages, {
+          finalAssistantContent = await sendMessageStreaming(
+            applyVisionInlineToChatMessagesForGateway(
+              nextMessages,
+              storedUserMessage.id,
+              visionInlineDataUrl,
+            ),
+            {
             interactiveQuizPrompt: getPrompt('interactive_quiz'),
             userRequestedExcel: wantsExcel,
             userRequestedWord: wantsWord,
@@ -1446,7 +1501,13 @@ export function useChat(
         }
       } else {
         setSendPhase(wantsThinkingTurn ? 'thinking' : 'generating')
-        const { assistantMessage } = await sendMessage(nextMessages, {
+        const { assistantMessage } = await sendMessage(
+          applyVisionInlineToChatMessagesForGateway(
+            nextMessages,
+            storedUserMessage.id,
+            visionInlineDataUrl,
+          ),
+          {
           interactiveQuizPrompt: getPrompt('interactive_quiz'),
           userRequestedExcel: wantsExcel,
           userRequestedWord: wantsWord,

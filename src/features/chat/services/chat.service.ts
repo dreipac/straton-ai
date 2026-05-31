@@ -65,9 +65,12 @@ import {
 } from '../constants/chatTruthAndTone'
 import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
 import {
+  injectVisionInlineDataUrlIntoMessageContent,
+  isValidVisionDataUrlForGateway,
   messageHasVisionPayload,
   prepareChatMessagesForVisionGateway,
 } from '../utils/visionMessageContent'
+import { isValidVisionDataUrl, normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
@@ -865,11 +868,43 @@ function providerForLearnPath(): 'openai' {
   return 'openai'
 }
 
+function applyVisionInlineToGatewayMessages(
+  gatewayMessages: GatewayMessage[],
+  visionInlineDataUrl?: string,
+): GatewayMessage[] {
+  const inline = typeof visionInlineDataUrl === 'string' ? visionInlineDataUrl.trim() : ''
+  if (!inline.startsWith('data:image/') || inline.length <= 64) {
+    return gatewayMessages
+  }
+  let targetIdx = -1
+  for (let i = gatewayMessages.length - 1; i >= 0; i -= 1) {
+    if (gatewayMessages[i]?.role === 'user') {
+      targetIdx = i
+      break
+    }
+  }
+  if (targetIdx < 0) {
+    return gatewayMessages
+  }
+  return gatewayMessages.map((m, i) => {
+    if (i !== targetIdx || m.role !== 'user') {
+      return m
+    }
+    return {
+      ...m,
+      content: injectVisionInlineDataUrlIntoMessageContent(m.content, inline),
+    }
+  })
+}
+
 function buildChatCompletionRequestBody(
   messages: ChatMessage[],
   options?: SendMessageOptions,
 ): Record<string, unknown> {
-  const gatewayMessages = buildGatewayMessages(messages, options)
+  const gatewayMessages = applyVisionInlineToGatewayMessages(
+    buildGatewayMessages(messages, options),
+    options?.visionInlineDataUrl,
+  )
   if (options?.useLearnPathModel) {
     const learnMode = options.learnTelemetryMode ?? 'learn_tutor'
     const body: Record<string, unknown> = {
@@ -934,8 +969,23 @@ function buildChatCompletionRequestBody(
 
   const visionInline =
     typeof options?.visionInlineDataUrl === 'string' ? options.visionInlineDataUrl.trim() : ''
-  if (visionInline.startsWith('data:image/')) {
+  if (isValidVisionDataUrl(visionInline)) {
     body.visionInlineDataUrl = visionInline
+  } else if (visionInline.startsWith('data:image/') && visionInline.length > 200) {
+    /** Edge macht lenient accept — sonst fehlt das Feld bei knapp fehlgeschlagener Client-Validierung. */
+    body.visionInlineDataUrl = visionInline
+  }
+
+  if (import.meta.env.DEV) {
+    const lastUser = [...gatewayMessages].reverse().find((m) => m.role === 'user')
+    const hasInlineInMessages = Boolean(
+      lastUser?.content.includes('data:image/') && lastUser.content.includes('[BildData:'),
+    )
+    console.info('[chat-completion client]', {
+      visionInlineChars: visionInline.length,
+      visionInBody: Boolean(body.visionInlineDataUrl),
+      visionInMessages: hasInlineInMessages,
+    })
   }
 
   /** GPT-5.x wertet Vision in der Praxis oft schlecht; 4o-mini zuverlässig für Fotos. */
@@ -1083,7 +1133,17 @@ export type SendMessageStreamingOptions = SendMessageOptions & {
 
 type StreamSsePayload =
   | { type: 'delta'; t: string }
-  | { type: 'done'; model?: string; inputTokens?: number; outputTokens?: number }
+  | {
+      type: 'done'
+      model?: string
+      inputTokens?: number
+      outputTokens?: number
+      visionDebug?: {
+        imageParts?: number
+        overrideLen?: number
+        overrideResolved?: boolean
+      }
+    }
   | { type: 'error'; message?: string }
 
 async function consumeChatCompletionSse(
@@ -1145,6 +1205,8 @@ async function consumeChatCompletionSse(
           if (payload.type === 'delta' && typeof payload.t === 'string' && payload.t.length > 0) {
             full += payload.t
             onDelta(full)
+          } else if (payload.type === 'done' && import.meta.env.DEV && payload.visionDebug) {
+            console.info('[chat-completion vision]', payload.visionDebug)
           } else if (payload.type === 'error') {
             streamError = typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim() : 'Stream-Fehler'
           }

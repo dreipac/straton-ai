@@ -1,4 +1,4 @@
-import { normalizeVisionDataUrl } from './imageVisionNormalize'
+import { isValidVisionDataUrl, normalizeVisionDataUrl } from './imageVisionNormalize'
 import type { ChatMessage } from '../types'
 
 const BILDDATA_BLOCK_RE = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/i
@@ -9,12 +9,42 @@ export function extractInlineVisionDataUrlFromContent(content: string): string |
   if (!block?.[1]) {
     return null
   }
-  const dataMatch = block[1].trim().match(/data:image\/[^;]+;base64,[\s\S]+/i)
+  const dataMatch = block[1].trim().match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s_-]+/i)
   if (!dataMatch?.[0]) {
     return null
   }
-  const normalized = normalizeVisionDataUrl(dataMatch[0])
-  return normalized.length > 64 ? normalized : null
+  const normalized = normalizeVisionDataUrl(dataMatch[0].trim())
+  return isValidVisionDataUrl(normalized) ? normalized : null
+}
+
+/** Alias — gleiche Logik wie {@link isValidVisionDataUrl} (kein Vollstring-Regex). */
+export function isValidVisionDataUrlForGateway(dataUrl: string): boolean {
+  return isValidVisionDataUrl(dataUrl)
+}
+
+/**
+ * Ersetzt `@chat-media:` / fehlende Inline-Daten im letzten `[BildData]`-Block —
+ * damit die Edge Function das Bild auch ohne Storage-Download sieht.
+ */
+export function injectVisionInlineDataUrlIntoMessageContent(
+  content: string,
+  inlineDataUrl: string,
+): string {
+  const safe = normalizeVisionDataUrl(inlineDataUrl.trim())
+  if (!isValidVisionDataUrl(safe)) {
+    return content
+  }
+  const matches = [...content.matchAll(/\[BildData:([^\]]+)\]([\s\S]*?)\[\/BildData\]/gi)]
+  if (matches.length === 0) {
+    const block = `[BildData:vision]\n${safe}\n[/BildData]`
+    const trimmed = content.trim()
+    return trimmed ? `${trimmed}\n\n${block}` : block
+  }
+  const last = matches[matches.length - 1]!
+  const id = String(last[1] ?? 'vision').trim() || 'vision'
+  const full = last[0]!
+  const replacement = `[BildData:${id}]\n${safe}\n[/BildData]`
+  return content.replace(full, replacement)
 }
 
 /** Entfernt eingebettete Vision-Daten (Base64) — für ältere Chat-Turns im Gateway. */
