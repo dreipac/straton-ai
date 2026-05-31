@@ -14,7 +14,8 @@ export function estimateMessageTokensFromCharLength(length: number): number {
  * Vision: Base64 in `[BildData]` darf nicht mit Zeichenlänge budgetiert werden — sonst
  * fällt `clipChatMessagesToEstimatedTokenBudget` auf nur die letzte Bild-Nachricht zurück.
  */
-const BILDDATA_BLOCK_ESTIMATED_TOKENS = 2_500
+/** Grobe Vision-Kosten pro Bild (`detail: low`, komprimiertes JPEG). */
+const BILDDATA_BLOCK_ESTIMATED_TOKENS = 1_200
 
 export function estimateMessageContentTokens(content: string): number {
   if (!content.includes('[BildData:')) {

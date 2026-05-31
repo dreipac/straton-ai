@@ -190,7 +190,25 @@ function extractUserVisionFromContent(content: string): { text: string; imageDat
     .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
     .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
     .trim()
-  return { text, imageDataUrls: imageDataUrls.slice(0, 4) }
+  return { text, imageDataUrls: imageDataUrls.slice(0, 1) }
+}
+
+function stripVisionAttachmentsFromContent(content: string): string {
+  return content
+    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild im Chatverlauf]')
+    .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s_-]+/gi, '[Bild im Chatverlauf]')
+    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '[Bild im Chatverlauf]')
+    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '[Datei-Anhang]')
+    .trim()
+}
+
+function findLastUserMessageIndex(messages: InputMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      return i
+    }
+  }
+  return -1
 }
 
 type AnthropicImageBlock = {
@@ -226,7 +244,10 @@ function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | nu
 }
 
 /** Claude: Bilder als strukturierte Blöcke, nicht als Rohstring mit Base64. */
-function buildAnthropicUserMessageContent(raw: string): string | AnthropicUserContentPart[] {
+function buildAnthropicUserMessageContent(raw: string, allowVision: boolean): string | AnthropicUserContentPart[] {
+  if (!allowVision) {
+    return stripVisionAttachmentsFromContent(raw) || raw
+  }
   const { text, imageDataUrls } = extractUserVisionFromContent(raw)
   if (imageDataUrls.length === 0) {
     return raw
@@ -829,20 +850,29 @@ function openAiChatRequestBody(
     maxOutputTokens?: number
   },
 ): Record<string, unknown> {
+  const lastUserIdx = findLastUserMessageIndex(messages)
   const body: Record<string, unknown> = {
     model,
-    messages: messages.map((message) => {
+    messages: messages.map((message, idx) => {
       if (message.role !== 'user') {
         return {
           role: message.role,
           content: message.content,
         }
       }
-      const parsed = extractUserVisionFromContent(message.content)
-      if (parsed.imageDataUrls.length === 0) {
+      if (idx !== lastUserIdx) {
+        const stripped = stripVisionAttachmentsFromContent(message.content)
         return {
           role: message.role,
-          content: message.content,
+          content: stripped || '[Bild im Chatverlauf]',
+        }
+      }
+      const parsed = extractUserVisionFromContent(message.content)
+      if (parsed.imageDataUrls.length === 0) {
+        const stripped = stripVisionAttachmentsFromContent(message.content)
+        return {
+          role: message.role,
+          content: stripped || message.content,
         }
       }
       const parts: OpenAiVisionContentPart[] = []
@@ -851,7 +881,7 @@ function openAiChatRequestBody(
       } else {
         parts.push({ type: 'text', text: 'Bitte analysiere dieses Bild.' })
       }
-      for (const url of parsed.imageDataUrls) {
+      for (const url of parsed.imageDataUrls.slice(0, 1)) {
         parts.push({
           type: 'image_url',
           /** `low` senkt TPM deutlich (wichtig bei iPhone-Fotos / data:-URLs). */
@@ -1334,6 +1364,13 @@ async function callAnthropic(
   ]
   const dialog = messages.filter((message) => message.role === 'user' || message.role === 'assistant')
   const lastDynamicStart = Math.max(0, dialog.length - 2)
+  let lastUserDialogIdx = -1
+  for (let i = dialog.length - 1; i >= 0; i -= 1) {
+    if (dialog[i]?.role === 'user') {
+      lastUserDialogIdx = i
+      break
+    }
+  }
   const anthropicMessages = dialog.map((message, index) => {
     const shouldCache = index < lastDynamicStart
     if (message.role === 'assistant') {
@@ -1348,7 +1385,10 @@ async function callAnthropic(
         content: message.content,
       }
     }
-    const userContent = buildAnthropicUserMessageContent(message.content)
+    const userContent = buildAnthropicUserMessageContent(
+      message.content,
+      index === lastUserDialogIdx,
+    )
     if (shouldCache && typeof userContent === 'string') {
       return {
         role: message.role,

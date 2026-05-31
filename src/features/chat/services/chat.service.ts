@@ -64,6 +64,7 @@ import {
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
 import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
+import { prepareChatMessagesForVisionGateway } from '../utils/visionMessageContent'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
@@ -378,7 +379,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const pdfChatHint = options?.userRequestedPdf ? PDF_CHAT_DOCUMENT_BODY_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
-  const ragSelectedMessages = isMainChat ? selectMainChatMessagesWithRagLite(messages) : messages
+  const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
+  const ragSelectedMessages = isMainChat
+    ? selectMainChatMessagesWithRagLite(visionPreparedMessages)
+    : visionPreparedMessages
   const threadMessages =
     isMainChat && typeof contextCap === 'number' && contextCap > 0
       ? clipChatMessagesToEstimatedTokenBudget(ragSelectedMessages, contextCap)

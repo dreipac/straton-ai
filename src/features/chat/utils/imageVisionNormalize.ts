@@ -6,11 +6,13 @@
 const SUPPORTED_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 
 const MAX_BYTES_BEFORE_CANVAS = 4_200_000
-/** Desktop: ausreichend für Vision; iOS kleiner → weniger Tokens / seltener OpenAI 429. */
-const MAX_EDGE_DESKTOP = 1536
-const MAX_EDGE_MOBILE = 1024
-const JPEG_QUALITY_DESKTOP = 0.85
-const JPEG_QUALITY_MOBILE = 0.78
+/** Vision: Base64-Länge ≈ Text-Tokens, wenn die API sie als Rohstring sieht. */
+const MAX_VISION_DATA_URL_CHARS = 280_000
+/** Desktop / iOS — klein genug für `detail: low`, scharf genug für Tastatur/Foto. */
+const MAX_EDGE_DESKTOP = 1280
+const MAX_EDGE_MOBILE = 768
+const JPEG_QUALITY_DESKTOP = 0.82
+const JPEG_QUALITY_MOBILE = 0.72
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -84,13 +86,43 @@ function visionJpegQuality(): number {
   return isLikelyIos() ? JPEG_QUALITY_MOBILE : JPEG_QUALITY_DESKTOP
 }
 
-async function rasterToJpegDataUrl(
+async function fileToRasterSource(
+  file: File,
+): Promise<{ source: CanvasImageSource; width: number; height: number; cleanup?: () => void }> {
+  try {
+    const bitmap = await createImageBitmap(file)
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      cleanup: () => bitmap.close(),
+    }
+  } catch {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('Bild konnte nicht geladen werden.'))
+      img.src = url
+    })
+    return {
+      source: img,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      cleanup: () => URL.revokeObjectURL(url),
+    }
+  }
+}
+
+async function encodeRasterSourceToJpegUnderBudget(
   source: CanvasImageSource,
   width: number,
   height: number,
+  maxEdge: number,
+  quality: number,
 ): Promise<string> {
-  const maxEdge = visionMaxEdge()
-  const scale = width <= maxEdge && height <= maxEdge ? 1 : Math.min(maxEdge / width, maxEdge / height)
+  const scale =
+    width <= maxEdge && height <= maxEdge ? 1 : Math.min(maxEdge / width, maxEdge / height)
   const cw = Math.max(1, Math.round(width * scale))
   const ch = Math.max(1, Math.round(height * scale))
 
@@ -123,43 +155,25 @@ async function rasterToJpegDataUrl(
         r.readAsDataURL(blob)
       },
       'image/jpeg',
-      visionJpegQuality(),
+      quality,
     )
   })
-}
-
-async function fileToRasterSource(
-  file: File,
-): Promise<{ source: CanvasImageSource; width: number; height: number; cleanup?: () => void }> {
-  try {
-    const bitmap = await createImageBitmap(file)
-    return {
-      source: bitmap,
-      width: bitmap.width,
-      height: bitmap.height,
-      cleanup: () => bitmap.close(),
-    }
-  } catch {
-    const url = URL.createObjectURL(file)
-    const img = new Image()
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve()
-      img.onerror = () => reject(new Error('Bild konnte nicht geladen werden.'))
-      img.src = url
-    })
-    return {
-      source: img,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-      cleanup: () => URL.revokeObjectURL(url),
-    }
-  }
 }
 
 async function encodeFileToJpegDataUrl(file: File): Promise<string> {
   const { source, width, height, cleanup } = await fileToRasterSource(file)
   try {
-    return await rasterToJpegDataUrl(source, width, height)
+    let maxEdge = visionMaxEdge()
+    let quality = visionJpegQuality()
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const url = await encodeRasterSourceToJpegUnderBudget(source, width, height, maxEdge, quality)
+      if (url.length <= MAX_VISION_DATA_URL_CHARS) {
+        return url
+      }
+      maxEdge = Math.max(480, Math.round(maxEdge * 0.72))
+      quality = Math.max(0.55, quality - 0.08)
+    }
+    throw new Error('Foto ist auch nach Komprimierung zu groß. Bitte näher heranzoomen oder ein kleineres Bild wählen.')
   } finally {
     cleanup?.()
   }
@@ -211,7 +225,7 @@ export async function readImageFileAsVisionDataUrl(file: File): Promise<string> 
   }
 
   const raw = normalizeVisionDataUrl(await readFileAsDataUrl(file))
-  if (isValidVisionDataUrl(raw)) {
+  if (isValidVisionDataUrl(raw) && raw.length <= MAX_VISION_DATA_URL_CHARS) {
     return raw
   }
 

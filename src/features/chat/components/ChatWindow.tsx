@@ -1172,15 +1172,11 @@ export function ChatWindow({
     return items
       .map((item) =>
         item.kind === 'pasted-image'
-          ? (() => {
-              const dataBlock = item.previewDataUrl
-                ? `[BildData:${item.id}]\n${item.previewDataUrl}\n[/BildData]`
-                : ''
-              const ocrBlock = item.content.trim()
-                ? `[Bild:${item.id}:${item.name}]\n${item.content}\n[/Bild]`
-                : `[Bild:${item.id}:${item.name}] (Kein auslesbarer Text gefunden)\n[/Bild]`
-              return [dataBlock, ocrBlock].filter(Boolean).join('\n')
-            })()
+          ? item.previewDataUrl
+            ? `[BildData:${item.id}]\n${item.previewDataUrl}\n[/BildData]`
+            : item.content.trim()
+              ? `[Bild:${item.id}:${item.name}]\n${item.content}\n[/Bild]`
+              : ''
           : item.content.trim()
             ? `[Datei: ${item.name}]\n${item.content}\n[/Datei]`
             : `[Datei: ${item.name}] (Kein auslesbarer Text gefunden)\n[/Datei]`,
