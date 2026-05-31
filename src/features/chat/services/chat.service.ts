@@ -66,11 +66,10 @@ import {
 import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
 import {
   injectVisionInlineDataUrlIntoMessageContent,
-  isValidVisionDataUrlForGateway,
   messageHasVisionPayload,
   prepareChatMessagesForVisionGateway,
 } from '../utils/visionMessageContent'
-import { isValidVisionDataUrl, normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
+import { isValidVisionDataUrl } from '../utils/imageVisionNormalize'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_MAX_OUTPUT_TOKENS,
