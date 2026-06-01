@@ -611,20 +611,41 @@ function normalizeCodeLanguage(language: string): string {
   return language.trim() || 'text'
 }
 
-function promoteShellCommandsInListBlock(block: Extract<Block, { type: 'ul' | 'ol' }>): Block[] {
+function promoteShellCommandsInUlBlock(block: Extract<Block, { type: 'ul' }>): Block[] {
   const out: Block[] = []
   let pendingUl: string[] = []
-  let pendingOl: OlListItem[] = []
 
-  function flushList() {
-    if (block.type === 'ul') {
-      if (pendingUl.length === 0) {
-        return
-      }
-      out.push({ type: 'ul', items: [...pendingUl] })
-      pendingUl = []
+  function flushUl() {
+    if (pendingUl.length === 0) {
       return
     }
+    out.push({ type: 'ul', items: [...pendingUl] })
+    pendingUl = []
+  }
+
+  for (const item of block.items) {
+    const split = splitShellCommandFromText(item)
+    if (split) {
+      flushUl()
+      if (split.labelText) {
+        pendingUl.push(split.labelText)
+        flushUl()
+      }
+      out.push({ type: 'code', language: 'bash', code: split.command })
+      continue
+    }
+    pendingUl.push(item)
+  }
+
+  flushUl()
+  return out
+}
+
+function promoteShellCommandsInOlBlock(block: Extract<Block, { type: 'ol' }>): Block[] {
+  const out: Block[] = []
+  let pendingOl: OlListItem[] = []
+
+  function flushOl() {
     if (pendingOl.length === 0) {
       return
     }
@@ -633,30 +654,27 @@ function promoteShellCommandsInListBlock(block: Extract<Block, { type: 'ul' | 'o
   }
 
   for (const item of block.items) {
-    const raw = block.type === 'ol' ? olItemPlainText(item) : item
-    const split = splitShellCommandFromText(raw)
+    const split = splitShellCommandFromText(olItemPlainText(item))
     if (split) {
-      flushList()
+      flushOl()
       if (split.labelText) {
-        if (block.type === 'ol') {
-          pendingOl.push(split.labelText)
-        } else {
-          pendingUl.push(split.labelText)
-        }
-        flushList()
+        pendingOl.push(split.labelText)
+        flushOl()
       }
       out.push({ type: 'code', language: 'bash', code: split.command })
       continue
     }
-    if (block.type === 'ol') {
-      pendingOl.push(item)
-    } else {
-      pendingUl.push(item)
-    }
+    pendingOl.push(item)
   }
 
-  flushList()
+  flushOl()
   return out
+}
+
+function promoteShellCommandsInListBlock(block: Extract<Block, { type: 'ul' | 'ol' }>): Block[] {
+  return block.type === 'ul'
+    ? promoteShellCommandsInUlBlock(block)
+    : promoteShellCommandsInOlBlock(block)
 }
 
 function promoteShellCommandsToCodeBlocks(blocks: Block[]): Block[] {
@@ -850,7 +868,7 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
       const isOrphanedNumberedQuestion =
         tail?.type === 'ol' &&
         tail.items.length === 1 &&
-        /[?？]\s*$/.test(stripBoldMarkers(tail.items[0]?.trim() ?? '')) &&
+        /[?？]\s*$/.test(stripBoldMarkers(olItemPlainText(tail.items[0] ?? '').trim())) &&
         !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
 
       i = cursor + (isOrphanedNumberedQuestion ? 1 : 0)

@@ -105,7 +105,7 @@ type BlockExcerptInput =
   | { type: 'h6'; text: string }
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
-  | { type: 'ol'; items: string[] }
+  | { type: 'ol'; items: Array<string | { text: string }> }
   | { type: 'blockquote'; lines: string[] }
   | { type: 'code'; code: string }
   | { type: 'emailDraft'; body: string }
@@ -132,7 +132,10 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
     }
     case 'ul':
     case 'ol': {
-      const joined = block.items.map((i) => stripBoldMarkers(i)).filter(Boolean).join(' · ')
+      const joined = block.items
+        .map((i) => stripBoldMarkers(typeof i === 'string' ? i : i.text))
+        .filter(Boolean)
+        .join(' · ')
       return {
         excerpt: joined.slice(0, 420),
         previewTitle: block.type === 'ol' ? 'Nummerierte Liste' : 'Liste',
