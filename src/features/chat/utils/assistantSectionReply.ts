@@ -111,6 +111,7 @@ type BlockExcerptInput =
   | { type: 'emailDraft'; body: string }
   | { type: 'table'; rows: string[][] }
   | { type: 'mcq'; prompt: string; options: { text: string }[] }
+  | { type: 'math'; latex: string }
 
 export function blockToReferenceExcerpt(block: BlockExcerptInput): {
   excerpt: string
@@ -168,6 +169,11 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
       return {
         excerpt: [block.prompt, ...block.options.map((o) => o.text)].join(' · ').slice(0, 420),
         previewTitle: 'Frage',
+      }
+    case 'math':
+      return {
+        excerpt: block.latex.trim().slice(0, 280),
+        previewTitle: 'Formel',
       }
     case 'hr':
       return { excerpt: '—', previewTitle: 'Trennlinie' }

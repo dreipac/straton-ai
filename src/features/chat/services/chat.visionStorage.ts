@@ -1,11 +1,16 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
-import { normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
+import { compressDataUrlForChatStorage, normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import type { ChatMessage } from '../types'
 
 export const CHAT_VISION_MEDIA_BUCKET = 'chat-media'
 
 const BILDDATA_BLOCK_RE = /\[BildData:([^\]]+)\]([\s\S]*?)\[\/BildData\]/g
-const CHAT_MEDIA_REF_PREFIX = '@chat-media:'
+export const CHAT_MEDIA_REF_PREFIX = '@chat-media:'
+const GENERATED_IMAGE_MARKDOWN_RE = /!?\[Generiertes Bild\]\(\s*(data:image\/[^)]+)\s*\)/i
+
+export function buildGeneratedImageMarkdown(href: string): string {
+  return `![Generiertes Bild](${href})`
+}
 
 function dataUrlToBlob(dataUrl: string): Blob {
   const normalized = normalizeVisionDataUrl(dataUrl)
@@ -24,6 +29,55 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 export function buildChatVisionStoragePath(userId: string, threadId: string, attachmentId: string): string {
   return `${userId}/${threadId}/${attachmentId}.jpg`
+}
+
+export function buildChatGeneratedImageStoragePath(userId: string, threadId: string, imageId: string): string {
+  return `${userId}/${threadId}/gen-${imageId}.jpg`
+}
+
+export function chatMediaHrefFromPath(storagePath: string): string {
+  return `${CHAT_MEDIA_REF_PREFIX}${storagePath}`
+}
+
+/**
+ * Ersetzt `[Generiertes Bild](data:…)` durch Storage-Referenz + Metadaten (kleiner DB-Inhalt, Kontext bleibt nutzbar).
+ */
+export async function persistGeneratedImageInAssistantMessage(
+  userId: string,
+  threadId: string,
+  assistantMarkdown: string,
+): Promise<{ content: string; metadata?: ChatMessage['metadata'] }> {
+  const match = assistantMarkdown.match(GENERATED_IMAGE_MARKDOWN_RE)
+  if (!match?.[1]) {
+    return { content: assistantMarkdown }
+  }
+
+  const compressed = await compressDataUrlForChatStorage(match[1])
+  const imageId = crypto.randomUUID()
+  const path = buildChatGeneratedImageStoragePath(userId, threadId, imageId)
+  const supabase = getSupabaseClient()
+  const blob = dataUrlToBlob(compressed)
+  const { error } = await supabase.storage.from(CHAT_VISION_MEDIA_BUCKET).upload(path, blob, {
+    contentType: 'image/jpeg',
+    upsert: true,
+  })
+  if (error) {
+    throw new Error(error.message || 'Generiertes Bild konnte nicht gespeichert werden.')
+  }
+
+  const href = chatMediaHrefFromPath(path)
+  const content = assistantMarkdown.replace(GENERATED_IMAGE_MARKDOWN_RE, buildGeneratedImageMarkdown(href))
+
+  return {
+    content,
+    metadata: {
+      generatedImage: {
+        bucket: CHAT_VISION_MEDIA_BUCKET,
+        path,
+        imageId,
+      },
+    },
+  }
 }
 
 export function buildPersistedBildDataBlock(attachmentId: string, storagePath: string): string {

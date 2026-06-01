@@ -80,6 +80,12 @@ export type ChatMessage = {
       path: string
       attachmentId: string
     }
+    /** Assistant: generiertes Bild in Storage (`chat-media`), Inhalt nur `@chat-media:`-Link. */
+    generatedImage?: {
+      bucket: string
+      path: string
+      imageId: string
+    }
   }
 }
 

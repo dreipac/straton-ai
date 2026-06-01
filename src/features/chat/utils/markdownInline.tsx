@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react'
+import { ChatMediaInlineImage } from '../components/ChatMediaInlineImage'
+import { CHAT_MEDIA_REF_PREFIX } from '../services/chat.visionStorage'
+import { renderInlineMathNodes } from './renderMath'
 
 /** Optional: Klick auf eingebettete Bilder → z. B. Vollbild-Lightbox im Chat. */
 export type AssistantInlineImageOptions = {
@@ -126,7 +129,7 @@ function renderEmailsThenBold(text: string, keyBase: string): ReactNode[] {
   return out
 }
 
-function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[] {
+function renderPlainBoldUrlsAndEmailsWithoutMath(text: string, keyBase: string): ReactNode[] {
   const urlRe = /https?:\/\/[^\s<]+/gi
   const out: ReactNode[] = []
   let last = 0
@@ -158,6 +161,10 @@ function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[
   return out
 }
 
+function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[] {
+  return renderInlineMathNodes(text, renderPlainBoldUrlsAndEmailsWithoutMath, keyBase)
+}
+
 function withKeys(nodes: ReactNode[], prefix: string): ReactNode[] {
   return nodes.map((n, i) => {
     if (typeof n === 'object' && n !== null && 'key' in (n as object) && (n as { key?: unknown }).key != null) {
@@ -175,6 +182,21 @@ function assistantInlineImageEl(
 ): ReactNode {
   const alt = label || 'Bild'
   const preview = options?.onChatImagePreview
+
+  if (href.startsWith(CHAT_MEDIA_REF_PREFIX)) {
+    const storagePath = href.slice(CHAT_MEDIA_REF_PREFIX.length).trim()
+    if (storagePath) {
+      return (
+        <ChatMediaInlineImage
+          key={key}
+          storagePath={storagePath}
+          alt={alt}
+          onPreview={preview}
+        />
+      )
+    }
+  }
+
   if (preview) {
     return (
       <button
@@ -213,7 +235,7 @@ export function renderAssistantInline(content: string, options?: AssistantInline
     if (lm) {
       const href = trimTrailingPunctuation(lm[2].trim())
       const label = lm[1].trim() || hostnameFromUrl(href)
-      if (href.startsWith('data:image/')) {
+      if (href.startsWith('data:image/') || href.startsWith(CHAT_MEDIA_REF_PREFIX)) {
         out.push(assistantInlineImageEl(`mdi-${k++}`, href, label, options))
       } else if (/^mailto:/i.test(href)) {
         const raw = href.replace(/^mailto:/i, '').trim()

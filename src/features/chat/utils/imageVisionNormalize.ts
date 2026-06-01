@@ -237,6 +237,87 @@ function fileNeedsVisionEncode(file: File): boolean {
 /**
  * Liefert eine Data-URL (`image/jpeg` o. ä.) für `[BildData]` / Vision.
  */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const normalized = normalizeVisionDataUrl(dataUrl)
+  const m = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(normalized)
+  if (!m?.[2]) {
+    throw new Error('Bildformat ungültig.')
+  }
+  const mime = (m[1] ?? 'image/jpeg').toLowerCase() === 'image/jpg' ? 'image/jpeg' : (m[1] ?? 'image/jpeg')
+  const binary = atob(m[2]!.replace(/\s+/g, ''))
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new Blob([bytes], { type: mime })
+}
+
+async function dataUrlToRasterSource(
+  dataUrl: string,
+): Promise<{ source: CanvasImageSource; width: number; height: number; cleanup?: () => void }> {
+  const blob = dataUrlToBlob(dataUrl)
+  try {
+    const bitmap = await createImageBitmap(blob)
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      cleanup: () => bitmap.close(),
+    }
+  } catch {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('Bild konnte nicht geladen werden.'))
+      img.src = url
+    })
+    return {
+      source: img,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      cleanup: () => URL.revokeObjectURL(url),
+    }
+  }
+}
+
+const GENERATED_IMAGE_MAX_EDGE = 1024
+const GENERATED_IMAGE_JPEG_QUALITY = 0.78
+const GENERATED_IMAGE_MAX_DATA_URL_CHARS = 120_000
+
+/**
+ * Komprimiert generierte oder eingebettete Bilder für `chat_messages.content` (JPEG, max. Kantenlänge).
+ */
+export async function compressDataUrlForChatStorage(dataUrl: string): Promise<string> {
+  const normalized = normalizeVisionDataUrl(dataUrl)
+  if (!isValidVisionDataUrl(normalized)) {
+    throw new Error('Bild konnte nicht für den Chat-Verlauf aufbereitet werden.')
+  }
+  if (
+    normalized.length <= GENERATED_IMAGE_MAX_DATA_URL_CHARS &&
+    normalized.toLowerCase().startsWith('data:image/jpeg')
+  ) {
+    return normalized
+  }
+
+  const { source, width, height, cleanup } = await dataUrlToRasterSource(normalized)
+  try {
+    let maxEdge = GENERATED_IMAGE_MAX_EDGE
+    let quality = GENERATED_IMAGE_JPEG_QUALITY
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const url = await encodeRasterSourceToJpegUnderBudget(source, width, height, maxEdge, quality)
+      if (url.length <= GENERATED_IMAGE_MAX_DATA_URL_CHARS) {
+        return url
+      }
+      maxEdge = Math.max(384, Math.round(maxEdge * 0.75))
+      quality = Math.max(0.5, quality - 0.06)
+    }
+    throw new Error('Bild ist nach Komprimierung noch zu groß für den Chat-Verlauf.')
+  } finally {
+    cleanup?.()
+  }
+}
+
 export async function readImageFileAsVisionDataUrl(file: File): Promise<string> {
   if (fileNeedsVisionEncode(file)) {
     return encodeFileToJpegDataUrl(file)

@@ -1904,6 +1904,198 @@
   line-height: 1.45;
 }
 
+.admin-feedback-display-id {
+  margin: 0.35rem 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+  letter-spacing: 0.02em;
+}
+
+.admin-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.admin-feedback-resolved {
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #22c55e 35%, var(--color-border-subtle, #e2e8f0));
+  background: color-mix(in srgb, #22c55e 8%, var(--color-surface-soft, #f8fafc));
+}
+
+.admin-feedback-resolved-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #15803d;
+}
+
+.admin-feedback-resolved-message {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+}
+
+.admin-feedback-resolved-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+
+.admin-feedback-resolve-modal {
+  width: min(520px, 94vw);
+}
+
+.admin-feedback-resolve-id {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+}
+
+.admin-feedback-resolve-preview {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: var(--color-surface-soft, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+}
+
+.admin-feedback-resolve-textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  background: var(--color-surface-soft, #f8fafc);
+  color: var(--color-text-app);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.admin-feedback-resolve-form .rename-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.feedback-settings-success-id {
+  display: block;
+  margin-top: 0.2rem;
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+}
+
+.feedback-resolution-notice-modal {
+  width: min(460px, 94vw);
+}
+
+.feedback-resolution-notice-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.feedback-resolution-notice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.feedback-resolution-notice-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+}
+
+.feedback-resolution-notice-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.feedback-resolution-notice-id {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+  line-height: 1.3;
+  color: var(--color-text-app);
+}
+
+.feedback-resolution-notice-id-label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.feedback-resolution-notice-id-value {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--color-text-app);
+}
+
+.feedback-resolution-notice-message {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+}
+
+.feedback-resolution-notice-ok {
+  width: 100%;
+}
+
+.feedback-resolution-notice-ok.glass-pill-touch {
+  justify-content: center;
+}
+
+.feedback-resolution-notice-sheet-panel {
+  min-height: auto;
+}
+
+.feedback-resolution-notice-sheet-body {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 860px) {
+  .feedback-resolution-notice-icon {
+    width: 38px;
+    height: 38px;
+  }
+}
+
+:root[data-theme='dark'] .admin-feedback-resolved {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: rgba(22, 101, 52, 0.2);
+}
+
+:root[data-theme='dark'] .admin-feedback-resolved-label {
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .admin-feedback-resolve-preview,
+:root[data-theme='dark'] .admin-feedback-resolve-textarea {
+  border-color: var(--color-border);
+  background: var(--input-field-bg);
+  color: var(--color-text-app);
+}
+
 .admin-users-warning {
   margin: 0;
   padding: 0.5rem 0.65rem;

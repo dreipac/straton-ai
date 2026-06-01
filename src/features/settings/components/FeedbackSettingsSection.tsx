@@ -26,6 +26,7 @@ export function FeedbackSettingsSection(props: FeedbackSettingsSectionProps) {
           submit: 'Send feedback',
           sending: 'Sending…',
           success: 'Thank you! Your feedback has been submitted.',
+          successWithId: (id: string) => `Thank you! Your feedback ID is ${id}.`,
           needLogin: 'Please sign in to send feedback.',
         }
       : {
@@ -34,6 +35,7 @@ export function FeedbackSettingsSection(props: FeedbackSettingsSectionProps) {
           submit: 'Feedback absenden',
           sending: 'Wird gesendet…',
           success: 'Danke! Dein Feedback wurde übermittelt.',
+          successWithId: (id: string) => `Danke! Deine Feedback-ID lautet ${id}.`,
           needLogin: 'Bitte melde dich an, um Feedback zu senden.',
         }
 
@@ -42,13 +44,13 @@ export function FeedbackSettingsSection(props: FeedbackSettingsSectionProps) {
     setError(null)
     setIsSubmitting(true)
     try {
-      await submitUserFeedback(text, {
+      const { displayId } = await submitUserFeedback(text, {
         email: userEmail,
         firstName: authorFirstName,
         lastName: authorLastName,
       })
       setText('')
-      setMessage(i18n.success)
+      setMessage(i18n.successWithId(displayId))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Senden fehlgeschlagen.')
     } finally {

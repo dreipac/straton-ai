@@ -397,6 +397,125 @@ function findOpenAiVisionUserIndices(
 
 const CHAT_VISION_MEDIA_BUCKET = 'chat-media'
 const CHAT_MEDIA_REF_LINE = /@chat-media:([^\n]+)/
+const GENERATED_IMAGE_PATH_SEGMENT = '/gen-'
+
+function findLastGeneratedImagePathInMessages(messages: InputMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'assistant') {
+      continue
+    }
+    const content = typeof m.content === 'string' ? m.content : ''
+    if (!content.includes('@chat-media:') && !/\[Generiertes Bild\]/i.test(content)) {
+      continue
+    }
+    const ref =
+      CHAT_MEDIA_REF_LINE.exec(content) ?? content.match(/@chat-media:([^\s)\]]+)/i)
+    const path = ref?.[1]?.trim()
+    if (!path) {
+      continue
+    }
+    if (path.includes(GENERATED_IMAGE_PATH_SEGMENT) || /\[Generiertes Bild\]/i.test(content)) {
+      return path
+    }
+  }
+  return null
+}
+
+function userAsksAboutPriorImage(content: string): boolean {
+  const t = content.replace(/\s+/g, ' ').trim()
+  if (!t || t.length > 480) {
+    return false
+  }
+  if (
+    /^(?:was|welche[rs]?)\s+(?:steht|stehen|ist|sind|siehst\s+du|steht\s+da|zeigt|zeigen)/i.test(t) &&
+    /\b(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/^beschreib(?:e)?\s+(?:mir\s+)?(?:das\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/^(?:was|welcher)\s+text\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /^(?:kannst|könntest)\s+du\s+(?:das\s+)?(?:bild|foto)\s+(?:lesen|sehen|erkennen|analysieren)/i.test(t)
+  ) {
+    return true
+  }
+  if (/^lies\s+(?:mir\s+)?(?:den\s+)?text\s+(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/^(?:sieh|sieht)\s+du\s+(?:etwas\s+)?(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:mein(?:e)?|hochgeladene[ns]?)\s+(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:das|dem)\s+foto\b/i.test(t)) {
+    return true
+  }
+  if (/(?:nochmal|erneut|wieder)\s+(?:das\s+)?(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  return false
+}
+
+function findLastUserUploadedImagePathInMessages(messages: InputMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'user') {
+      continue
+    }
+    const content = typeof m.content === 'string' ? m.content : ''
+    if (!content.includes('[BildData:') && !content.includes('@chat-media:')) {
+      continue
+    }
+    const ref =
+      CHAT_MEDIA_REF_LINE.exec(content) ?? content.match(/@chat-media:([^\s)\]]+)/i)
+    const path = ref?.[1]?.trim()
+    if (path && !path.includes(GENERATED_IMAGE_PATH_SEGMENT)) {
+      return path
+    }
+  }
+  return null
+}
+
+function resolveReferencedImagePathInMessages(messages: InputMessage[]): string | null {
+  const gen = findLastGeneratedImagePathInMessages(messages)
+  const user = findLastUserUploadedImagePathInMessages(messages)
+  if (gen && !user) {
+    return gen
+  }
+  if (user && !gen) {
+    return user
+  }
+  if (gen && user) {
+    let genIdx = -1
+    let userIdx = -1
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i]
+      if (genIdx < 0 && m?.role === 'assistant') {
+        const c = typeof m.content === 'string' ? m.content : ''
+        if (c.includes('@chat-media:') && c.includes(GENERATED_IMAGE_PATH_SEGMENT)) {
+          genIdx = i
+        }
+      }
+      if (userIdx < 0 && m?.role === 'user') {
+        const c = typeof m.content === 'string' ? m.content : ''
+        if (c.includes('[BildData:') || c.includes('@chat-media:')) {
+          userIdx = i
+        }
+      }
+      if (genIdx >= 0 && userIdx >= 0) {
+        break
+      }
+    }
+    return genIdx > userIdx ? gen : user
+  }
+  return null
+}
 
 async function downloadChatMediaAsDataUrl(
   userClient: SupabaseClient,
@@ -456,6 +575,31 @@ async function resolveChatMessagesVisionForOpenAi(
     typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')
       ? resolveVisionUrlFromBody(inlineOverride.trim())
       : null
+
+  const lastUserIdxEarly = findLastUserMessageIndex(working)
+  if (
+    lastUserIdxEarly >= 0 &&
+    !resolvedUrl &&
+    typeof working[lastUserIdxEarly]?.content === 'string' &&
+    !messageContentHasVisionPayload(working[lastUserIdxEarly]!.content) &&
+    userAsksAboutPriorImage(working[lastUserIdxEarly]!.content)
+  ) {
+    const refPath = resolveReferencedImagePathInMessages(working)
+    if (refPath) {
+      const dataUrl = await downloadChatMediaAsDataUrl(userClient, refPath, adminClient)
+      if (dataUrl) {
+        const msg = working[lastUserIdxEarly]!
+        const text = stripVisionAttachmentsFromContent(msg.content).trim()
+        const block = `[BildData:referenced]\n${dataUrl}\n[/BildData]`
+        working = working.map((m, i) =>
+          i === lastUserIdxEarly
+            ? { ...m, content: text ? `${text}\n\n${block}` : block }
+            : m,
+        )
+        console.log('[chat-completion] vision: re-attached referenced image from storage')
+      }
+    }
+  }
 
   let forcedVisionIdx = -1
   if (resolvedUrl) {

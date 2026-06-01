@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import accountIcon from '../assets/icons/account.svg'
 import aiIcon from '../assets/icons/ai.svg'
@@ -79,6 +79,7 @@ import {
 import {
   deleteUserFeedbackById,
   listUserFeedbackForAdmin,
+  resolveUserFeedback,
   type UserFeedbackRow,
 } from '../features/feedback/services/feedback.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
@@ -207,6 +208,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false)
   const [feedbackError, setFeedbackError] = useState<string | null>(null)
   const [deletingFeedbackId, setDeletingFeedbackId] = useState<string | null>(null)
+  const [feedbackResolveTarget, setFeedbackResolveTarget] = useState<UserFeedbackRow | null>(null)
+  const [feedbackResolveMessage, setFeedbackResolveMessage] = useState('')
+  const [isResolvingFeedback, setIsResolvingFeedback] = useState(false)
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlanRow[]>([])
   const [isLoadingSubscriptionPlans, setIsLoadingSubscriptionPlans] = useState(false)
   const [subscriptionPlansError, setSubscriptionPlansError] = useState<string | null>(null)
@@ -1393,6 +1397,51 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setFeedbackError(getErrorMessage(err, 'Löschen fehlgeschlagen.'))
     } finally {
       setDeletingFeedbackId(null)
+    }
+  }
+
+  function openFeedbackResolveModal(row: UserFeedbackRow) {
+    setFeedbackResolveTarget(row)
+    setFeedbackResolveMessage(row.resolution_message ?? '')
+  }
+
+  function closeFeedbackResolveModal() {
+    if (isResolvingFeedback) {
+      return
+    }
+    setFeedbackResolveTarget(null)
+    setFeedbackResolveMessage('')
+  }
+
+  async function handleSubmitFeedbackResolve(event: FormEvent) {
+    event.preventDefault()
+    if (!feedbackResolveTarget) {
+      return
+    }
+    setFeedbackError(null)
+    setIsResolvingFeedback(true)
+    try {
+      await resolveUserFeedback(feedbackResolveTarget.id, feedbackResolveMessage)
+      const resolvedAt = new Date().toISOString()
+      const message = feedbackResolveMessage.trim()
+      setFeedbackItems((prev) =>
+        prev.map((row) =>
+          row.id === feedbackResolveTarget.id
+            ? {
+                ...row,
+                resolved_at: resolvedAt,
+                resolution_message: message,
+                resolution_seen_at: null,
+              }
+            : row,
+        ),
+      )
+      setFeedbackResolveTarget(null)
+      setFeedbackResolveMessage('')
+    } catch (err) {
+      setFeedbackError(getErrorMessage(err, 'Feedback konnte nicht abgeschlossen werden.'))
+    } finally {
+      setIsResolvingFeedback(false)
     }
   }
 
@@ -3043,8 +3092,30 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           </SecondaryButton>
                         </div>
                       </div>
+                      <p className="admin-feedback-display-id">Feedback-ID: {row.display_id}</p>
                       <p className="admin-feedback-userid">Nutzer-ID: {row.user_id}</p>
                       <p className="admin-feedback-body">{row.body}</p>
+                      {row.resolved_at ? (
+                        <div className="admin-feedback-resolved">
+                          <p className="admin-feedback-resolved-label">Erledigt</p>
+                          <p className="admin-feedback-resolved-message">{row.resolution_message}</p>
+                          {row.resolution_seen_at ? (
+                            <p className="admin-feedback-resolved-meta">Vom Nutzer gelesen</p>
+                          ) : (
+                            <p className="admin-feedback-resolved-meta">Hinweis beim Nutzer noch offen</p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="admin-feedback-actions">
+                          <PrimaryButton
+                            type="button"
+                            disabled={deletingFeedbackId === row.id || isResolvingFeedback}
+                            onClick={() => openFeedbackResolveModal(row)}
+                          >
+                            Als erledigt markieren
+                          </PrimaryButton>
+                        </div>
+                      )}
                     </article>
                   ))}
                   {feedbackItems.length === 0 ? <p className="admin-user-empty">Noch kein Feedback eingegangen.</p> : null}
@@ -3139,6 +3210,42 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           ) : null}
         </section>
       </div>
+      {feedbackResolveTarget ? (
+        <ModalShell isOpen={true} onRequestClose={closeFeedbackResolveModal}>
+          <section className="rename-modal admin-feedback-resolve-modal" role="dialog" aria-modal="true" aria-label="Feedback abschließen">
+            <ModalHeader
+              title="Feedback abschließen"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={closeFeedbackResolveModal}
+              closeLabel="Abschluss schließen"
+            />
+            <p className="admin-feedback-resolve-id">Feedback-ID: {feedbackResolveTarget.display_id}</p>
+            <p className="admin-feedback-resolve-preview">{feedbackResolveTarget.body}</p>
+            <form className="rename-form admin-feedback-resolve-form" onSubmit={(event) => void handleSubmitFeedbackResolve(event)}>
+              <label htmlFor="admin-feedback-resolve-message">Abschlussnachricht für den Nutzer</label>
+              <textarea
+                id="admin-feedback-resolve-message"
+                className="admin-feedback-resolve-textarea"
+                rows={4}
+                value={feedbackResolveMessage}
+                onChange={(event) => setFeedbackResolveMessage(event.target.value)}
+                placeholder="z. B. Danke — wir haben deinen Vorschlag umgesetzt."
+                disabled={isResolvingFeedback}
+                required
+              />
+              <div className="rename-actions">
+                <SecondaryButton type="button" disabled={isResolvingFeedback} onClick={closeFeedbackResolveModal}>
+                  Abbrechen
+                </SecondaryButton>
+                <PrimaryButton type="submit" disabled={isResolvingFeedback || !feedbackResolveMessage.trim()}>
+                  {isResolvingFeedback ? 'Speichern…' : 'Abschließen & Nutzer informieren'}
+                </PrimaryButton>
+              </div>
+            </form>
+          </section>
+        </ModalShell>
+      ) : null}
       {confirmDraftUserId ? (
         <ModalShell isOpen={Boolean(confirmDraftUserId)} onRequestClose={() => setConfirmDraftUserId(null)}>
           <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Entwurf speichern bestätigen">

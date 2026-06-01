@@ -263,10 +263,14 @@ async function messageFromFunctionsInvokeFailure(
 function scrubMainChatInlineImagesPreservingBildData(content: string): string {
   const preserved: string[] = []
   const hole = (idx: number) => `\uFFF0STRATON_BILDDATA_${idx}\uFFF1`
-  const withHoles = content.replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, (block) => {
+  let withHoles = content.replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, (block) => {
     preserved.push(block)
     return hole(preserved.length - 1)
   })
+  withHoles = withHoles.replace(
+    /!?\[Generiertes Bild\]\(\s*(?:data:image\/[^)]+|@chat-media:[^)]+)\s*\)/gi,
+    '[Generiertes Bild — im Chat sichtbar]',
+  )
   const scrubbed = withHoles.replace(
     /data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi,
     '[Eingebettetes Bild — im Chat sichtbar; hier nur Platzhalter]',
@@ -693,6 +697,7 @@ export type ChatImageContextTurn = { role: 'user' | 'assistant'; content: string
 
 function sanitizeContentForImageContext(content: string): string {
   let s = content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild im Chatverlauf]')
+  s = s.replace(/@chat-media:[^\s)\]]+/gi, '[Generiertes Bild im Chatverlauf]')
   s = s.replace(/\[BildData:[^\]]+\][\s\S]*?\[\/BildData\]/gi, '[Bild im Chatverlauf]')
   s = s.replace(/\[Bild:[^\]]+\][\s\S]*?\[\/Bild\]/gi, '[Bild im Chatverlauf]')
   s = s.replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/gi, '[Datei-Anhang]')

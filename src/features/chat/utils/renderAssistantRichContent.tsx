@@ -15,6 +15,11 @@ import {
   stripGeneratedImageModelFooter,
   type AssistantInlineImageOptions,
 } from './markdownInline'
+import {
+  ChatMathDisplay,
+  splitTextWithDisplayMath,
+  tryParseDisplayMathBlock,
+} from './renderMath'
 
 export type AssistantRichContentOptions = AssistantInlineImageOptions & {
   /** Abschnitts-Referenz (Antwort auf Teil der KI-Nachricht). */
@@ -45,6 +50,8 @@ type Block =
   | { type: 'table'; rows: string[][] }
   /** Multiple-Choice (Frage + A–D), getrennt von Standard-Listen */
   | { type: 'mcq'; title?: string; questionNumber: number; prompt: string; options: McqOption[] }
+  /** LaTeX/KaTeX: `\[ … \]` oder `$$ … $$` */
+  | { type: 'math'; latex: string }
 
 type McqOption = { letter: string; text: string }
 
@@ -333,6 +340,35 @@ function tryParseMarkdownTable(
   return { rows, end: i }
 }
 
+const MATH_CODE_LANGS = new Set(['math', 'latex', 'tex', 'katex'])
+
+function expandEmbeddedDisplayMath(blocks: Block[]): Block[] {
+  const out: Block[] = []
+  for (const block of blocks) {
+    if (block.type === 'code' && MATH_CODE_LANGS.has(block.language.trim().toLowerCase())) {
+      out.push({ type: 'math', latex: block.code.trim() })
+      continue
+    }
+    if (block.type !== 'p') {
+      out.push(block)
+      continue
+    }
+    const parts = splitTextWithDisplayMath(block.text)
+    if (parts.length === 1 && parts[0].type === 'text') {
+      out.push(block)
+      continue
+    }
+    for (const part of parts) {
+      if (part.type === 'math') {
+        out.push({ type: 'math', latex: part.latex })
+      } else if (part.value.trim()) {
+        out.push({ type: 'p', text: part.value })
+      }
+    }
+  }
+  return out
+}
+
 function parseBlocks(raw: string): Block[] {
   const lines = raw.replace(/\r\n/g, '\n').split('\n')
   const blocks: Block[] = []
@@ -456,6 +492,16 @@ function parseBlocks(raw: string): Block[] {
       continue
     }
 
+    const mathTry = tryParseDisplayMathBlock(lines, lineIndex)
+    if (mathTry) {
+      flushQuote()
+      flushList()
+      flushPara()
+      blocks.push({ type: 'math', latex: mathTry.latex })
+      lineIndex = mathTry.end - 1
+      continue
+    }
+
     if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
       flushQuote()
       flushList()
@@ -566,7 +612,9 @@ function parseBlocks(raw: string): Block[] {
   flushList()
   flushPara()
   return promoteShellCommandsToCodeBlocks(
-    transformBlocksWithMcq(promotePlainParagraphEmailDrafts(coalesceOrderedListBlocks(blocks))),
+    transformBlocksWithMcq(
+      promotePlainParagraphEmailDrafts(coalesceOrderedListBlocks(expandEmbeddedDisplayMath(blocks))),
+    ),
   )
 }
 
@@ -1331,6 +1379,8 @@ function renderBlock(
           </div>
         </blockquote>
       )
+    case 'math':
+      return <ChatMathDisplay key={key} latex={block.latex} />
     case 'code':
       return <CodeBlock key={key} code={block.code} language={block.language} />
     case 'emailDraft':

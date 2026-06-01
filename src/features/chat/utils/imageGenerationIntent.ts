@@ -116,6 +116,7 @@ export function matchFollowUpImageEditRequest(
   const prev = typeof lastAssistant?.content === 'string' ? lastAssistant.content : ''
   const hadGeneratedImage =
     prev.includes('data:image/') ||
+    prev.includes('@chat-media:') ||
     /\[[^\]]*\]\(\s*data:image\//i.test(prev) ||
     /\[Generiertes Bild\]/i.test(prev)
 

@@ -60,6 +60,11 @@ import {
 import { fetchTavilySearchContext } from '../services/tavilySearch.service'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
+  loadChatMediaPathAsVisionDataUrl,
+  matchImageReferenceQuestion,
+  resolveReferencedImageStoragePath,
+} from '../utils/referencedImageVision'
+import {
   matchExplicitImageGenerationRequest,
   matchFollowUpImageEditRequest,
 } from '../utils/imageGenerationIntent'
@@ -86,7 +91,10 @@ import {
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
-import { persistInlineVisionImagesInContent } from '../services/chat.visionStorage'
+import {
+  persistGeneratedImageInAssistantMessage,
+  persistInlineVisionImagesInContent,
+} from '../services/chat.visionStorage'
 import {
   extractInlineVisionDataUrlFromContent,
   injectVisionInlineDataUrlIntoMessageContent,
@@ -1070,15 +1078,6 @@ export function useChat(
         }
       }
 
-      const wantsSmartInstant =
-        usesGatewayAi() &&
-        chatThinkingMode !== 'thinking' &&
-        !wantsWord &&
-        !wantsPdf &&
-        !wantsExcel &&
-        !imageGenPrompt &&
-        !messageHasVisionPayload(content)
-
       let userContent =
         trimmed ||
         (wantsWord ? 'Word-Dokument vorbereiten' : wantsPdf ? 'PDF-Dokument vorbereiten' : trimmed)
@@ -1089,11 +1088,39 @@ export function useChat(
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
 
-      const visionInlineDataUrl = resolveVisionInlineDataUrlForSend(
+      let visionInlineDataUrl = resolveVisionInlineDataUrlForSend(
         sendOpts?.visionInlineDataUrl,
         userContent,
         content,
       )
+
+      if (
+        !visionInlineDataUrl &&
+        !imageGenPrompt &&
+        usesGatewayAi() &&
+        userId
+      ) {
+        const priorForVision = messagesByThreadId[targetThreadId] ?? []
+        if (matchImageReferenceQuestion(trimmed)) {
+          const refPath = resolveReferencedImageStoragePath(priorForVision)
+          if (refPath) {
+            const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
+            if (loaded) {
+              visionInlineDataUrl = loaded
+            }
+          }
+        }
+      }
+
+      const wantsSmartInstant =
+        usesGatewayAi() &&
+        chatThinkingMode !== 'thinking' &&
+        !wantsWord &&
+        !wantsPdf &&
+        !wantsExcel &&
+        !imageGenPrompt &&
+        !messageHasVisionPayload(content) &&
+        !visionInlineDataUrl
 
       if (userId && messageHasVisionPayload(userContent)) {
         try {
@@ -1272,10 +1299,22 @@ export function useChat(
             imageGenPrompt,
             imageContextTurns,
           )
+          let assistantContent = assistantMarkdown
+          let generatedImageMetadata: ChatMessage['metadata'] | undefined
+          if (userId) {
+            const persisted = await persistGeneratedImageInAssistantMessage(
+              userId,
+              targetThreadId,
+              assistantMarkdown,
+            )
+            assistantContent = persisted.content
+            generatedImageMetadata = persisted.metadata
+          }
           const storedAssistantMessage = await createChatMessage(
             targetThreadId,
             'assistant',
-            assistantMarkdown,
+            assistantContent,
+            generatedImageMetadata,
           )
           setMessagesByThreadId((prev) =>
             upsertThreadMessages(prev, targetThreadId, storedAssistantMessage),

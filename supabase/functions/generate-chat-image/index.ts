@@ -52,7 +52,9 @@ const MAX_CONTEXT_MESSAGES = 28
 const MAX_CONTEXT_MESSAGE_CHARS = 3200
 
 function stripHeavyMediaForContext(s: string): string {
-  return s.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
+  return s
+    .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
+    .replace(/@chat-media:[^\s)\]]+/gi, '[Generiertes Bild]')
 }
 
 type ContextTurn = { role: string; content: string }
@@ -312,7 +314,7 @@ serve(async (req) => {
     return jsonResponse({ error: msg }, 429)
   }
 
-  const assistantMarkdown = `[Generiertes Bild](${dataUrl})`
+  const assistantMarkdown = `![Generiertes Bild](${dataUrl})`
 
   return jsonResponse({
     assistantMarkdown,

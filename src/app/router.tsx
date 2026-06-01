@@ -1,6 +1,7 @@
 import { Navigate, Outlet, RouterProvider, createHashRouter, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { FirstLoginPasswordModal } from '../features/auth/components/FirstLoginPasswordModal'
+import { FeedbackResolutionNoticeModal } from '../features/feedback/components/FeedbackResolutionNoticeModal'
 import { useAuth } from '../features/auth/context/useAuth'
 import { ChatPage } from '../pages/ChatPage'
 import { LearnPage } from '../pages/LearnPage'
@@ -35,6 +36,7 @@ function AuthSessionLayout() {
     <>
       <Outlet />
       <FirstLoginPasswordModal />
+      <FeedbackResolutionNoticeModal />
     </>
   )
 }
