@@ -18,11 +18,13 @@ function NoticeContent({
   onAcknowledge,
   isBusy,
   enableTapFeedback,
+  errorMessage,
 }: {
   item: UnseenFeedbackResolution
   onAcknowledge: () => void
   isBusy: boolean
   enableTapFeedback: boolean
+  errorMessage?: string | null
 }) {
   const okTouch = useGlassPillTouchFeedback({ cancelOnVerticalDrag: true })
 
@@ -43,6 +45,11 @@ function NoticeContent({
             <span className="feedback-resolution-notice-id-value">{item.display_id}</span>
           </p>
           <p className="feedback-resolution-notice-message">{item.resolution_message}</p>
+          {errorMessage ? (
+            <p className="feedback-resolution-notice-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
         </div>
       </div>
       <PrimaryButton
@@ -70,6 +77,7 @@ export function FeedbackResolutionNoticeModal() {
   const [displayItem, setDisplayItem] = useState<UnseenFeedbackResolution | null>(null)
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [isAcknowledging, setIsAcknowledging] = useState(false)
+  const [acknowledgeError, setAcknowledgeError] = useState<string | null>(null)
 
   const refreshQueue = useCallback(async () => {
     if (!user) {
@@ -111,11 +119,12 @@ export function FeedbackResolutionNoticeModal() {
 
   async function acknowledgeFeedback(item: UnseenFeedbackResolution) {
     setIsAcknowledging(true)
+    setAcknowledgeError(null)
     try {
       await markFeedbackResolutionSeen(item.id)
       setQueue((prev) => prev.filter((entry) => entry.id !== item.id))
-    } catch {
-      /* bei Fehler Dialog offen lassen */
+    } catch (err) {
+      setAcknowledgeError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.')
     } finally {
       setIsAcknowledging(false)
     }
@@ -126,11 +135,13 @@ export function FeedbackResolutionNoticeModal() {
       return
     }
     setIsAcknowledging(true)
+    setAcknowledgeError(null)
     try {
       await markFeedbackResolutionSeen(displayItem.id)
       setQueue((prev) => prev.filter((entry) => entry.id !== displayItem.id))
       sheetRef.current?.requestClose()
-    } catch {
+    } catch (err) {
+      setAcknowledgeError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.')
       setIsAcknowledging(false)
     }
   }
@@ -139,6 +150,7 @@ export function FeedbackResolutionNoticeModal() {
     setDisplayItem(null)
     setMobileSheetOpen(false)
     setIsAcknowledging(false)
+    setAcknowledgeError(null)
   }
 
   if (isMobileUi) {
@@ -164,6 +176,7 @@ export function FeedbackResolutionNoticeModal() {
           onAcknowledge={handleMobileAcknowledge}
           isBusy={isAcknowledging}
           enableTapFeedback
+          errorMessage={acknowledgeError}
         />
       </ContentBottomSheet>
     )
@@ -194,6 +207,7 @@ export function FeedbackResolutionNoticeModal() {
           onAcknowledge={() => void acknowledgeFeedback(desktopItem)}
           isBusy={isAcknowledging}
           enableTapFeedback={false}
+          errorMessage={acknowledgeError}
         />
       </section>
     </ModalShell>

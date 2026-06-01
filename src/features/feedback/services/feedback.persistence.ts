@@ -108,6 +108,7 @@ export async function listUnseenFeedbackResolutions(): Promise<UnseenFeedbackRes
   const { data, error } = await supabase
     .from('user_feedback')
     .select('id, display_id, resolution_message, resolved_at')
+    .eq('user_id', user.id)
     .not('resolved_at', 'is', null)
     .is('resolution_seen_at', null)
     .order('resolved_at', { ascending: true })
@@ -136,12 +137,25 @@ export async function listUnseenFeedbackResolutions(): Promise<UnseenFeedbackRes
 
 export async function markFeedbackResolutionSeen(feedbackId: string): Promise<void> {
   const supabase = getSupabaseClient()
-  const { error } = await supabase.rpc('mark_feedback_resolution_seen', {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    throw new Error('Bitte melde dich an.')
+  }
+
+  const { data, error } = await supabase.rpc('mark_feedback_resolution_seen', {
     p_feedback_id: feedbackId,
   })
 
   if (error) {
     throw new Error(toErrorMessage(error))
+  }
+
+  if (data !== true) {
+    throw new Error('Der Hinweis konnte nicht als gelesen gespeichert werden.')
   }
 }
 

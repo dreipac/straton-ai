@@ -2049,6 +2049,12 @@
   color: var(--color-text-app);
 }
 
+.feedback-resolution-notice-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  color: #f87171;
+}
+
 .feedback-resolution-notice-message {
   margin: 0;
   font-size: 0.95rem;
