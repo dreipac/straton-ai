@@ -1473,6 +1473,7 @@ export function useChat(
             thinkingConversationPhase,
             thinkingClarifyFocus,
             visionInlineDataUrl,
+            mainChatThreadId: targetThreadId,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1530,6 +1531,7 @@ export function useChat(
           thinkingConversationPhase,
           thinkingClarifyFocus,
           visionInlineDataUrl,
+          mainChatThreadId: targetThreadId,
         })
         finalAssistantContent = assistantMessage.content
         if (wantsThinkingTurn && options?.isSuperadmin !== true) {

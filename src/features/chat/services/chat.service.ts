@@ -63,11 +63,19 @@ import {
   getChatStrictToneInstruction,
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
-import { clipChatMessagesToEstimatedTokenBudget } from '../constants/mainChatContext'
+import {
+  clipChatMessagesToEstimatedTokenBudget,
+  computeVisionTokenReserve,
+  estimateMessageContentTokens,
+  MAIN_CHAT_RAG_OVERFLOW_MESSAGE_COUNT,
+  type ThreadContextUsageEstimate,
+  VISION_CONTEXT_IMAGE_LIMIT,
+} from '../constants/mainChatContext'
 import {
   injectVisionInlineDataUrlIntoMessageContent,
   messageHasVisionPayload,
   prepareChatMessagesForVisionGateway,
+  stripEmbeddedVisionBase64ForTransport,
 } from '../utils/visionMessageContent'
 import { isValidVisionDataUrl } from '../utils/imageVisionNormalize'
 import {
@@ -171,6 +179,8 @@ export type SendMessageOptions = {
    * Wird nicht in der DB gespeichert.
    */
   visionInlineDataUrl?: string
+  /** Hauptchat: Prompt-Cache pro Thread (`straton-main-v4-{threadId}`). */
+  mainChatThreadId?: string | null
 }
 
 type EvaluateQuizAnswerInput = {
@@ -353,6 +363,83 @@ function selectMainChatMessagesWithRagLite(messages: ChatMessage[]): ChatMessage
   return selected
 }
 
+/** Voller Verlauf bis Abo-Token-Limit; RAG-lite nur ab {@link MAIN_CHAT_RAG_OVERFLOW_MESSAGE_COUNT} Nachrichten. */
+function selectMainChatMessagesForGateway(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length >= MAIN_CHAT_RAG_OVERFLOW_MESSAGE_COUNT) {
+    return selectMainChatMessagesWithRagLite(messages)
+  }
+  return messages
+}
+
+function mainChatPromptCacheKey(threadId?: string | null): string {
+  const tid = typeof threadId === 'string' ? threadId.trim() : ''
+  if (!tid) {
+    return OPENAI_PROMPT_CACHE_KEY_MAIN
+  }
+  return `straton-main-v4-${tid}`
+}
+
+/** Gleiche Auswahl wie beim Senden (Vision, RAG ab 200, Token-Clip). */
+export function prepareMainChatContextMessages(
+  messages: ChatMessage[],
+  maxTokens: number | null,
+): ChatMessage[] {
+  const visionPrepared = prepareChatMessagesForVisionGateway(messages)
+  const selected = selectMainChatMessagesForGateway(visionPrepared)
+  if (maxTokens === null) {
+    return selected
+  }
+  if (maxTokens <= 0) {
+    return selected
+  }
+  const visionReserve = computeVisionTokenReserve(messages)
+  return clipChatMessagesToEstimatedTokenBudget(selected, Math.max(1, maxTokens - visionReserve))
+}
+
+export function estimateMainChatContextUsage(
+  messages: ChatMessage[],
+  options: {
+    maxTokens: number | null
+    pendingVisionImages?: number
+  },
+): ThreadContextUsageEstimate {
+  const totalMessageCount = messages.length
+  const ragOverflowActive = totalMessageCount >= MAIN_CHAT_RAG_OVERFLOW_MESSAGE_COUNT
+  const maxTokens = options.maxTokens
+  const pending = options.pendingVisionImages ?? 0
+  const selected = prepareMainChatContextMessages(messages, maxTokens)
+
+  const usedTokens = selected.reduce(
+    (sum, m) => sum + estimateMessageContentTokens(typeof m.content === 'string' ? m.content : ''),
+    0,
+  )
+
+  let visionImagesInContext = 0
+  let seen = 0
+  for (let i = selected.length - 1; i >= 0 && seen < VISION_CONTEXT_IMAGE_LIMIT; i -= 1) {
+    const m = selected[i]!
+    if (m.role === 'user' && messageHasVisionPayload(m.content)) {
+      visionImagesInContext += 1
+      seen += 1
+    }
+  }
+
+  const percent =
+    typeof maxTokens === 'number' && maxTokens > 0
+      ? Math.min(100, Math.round((usedTokens / maxTokens) * 100))
+      : null
+
+  return {
+    usedTokens,
+    maxTokens,
+    percent,
+    messageCountInContext: selected.length,
+    totalMessageCount,
+    visionImagesInContext: Math.min(VISION_CONTEXT_IMAGE_LIMIT, visionImagesInContext + pending),
+    ragOverflowActive,
+  }
+}
+
 function getChatWebSearchGroundingInstruction(): string {
   return [
     'Live-Websuche (Tavily): Snippets können in der **letzten Nutzernachricht** unter «Kontext für diese Anfrage» stehen.',
@@ -390,13 +477,20 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
-  const ragSelectedMessages = isMainChat
-    ? selectMainChatMessagesWithRagLite(visionPreparedMessages)
+  const contextSelectedMessages = isMainChat
+    ? selectMainChatMessagesForGateway(visionPreparedMessages)
     : visionPreparedMessages
-  const threadMessages =
-    isMainChat && typeof contextCap === 'number' && contextCap > 0
-      ? clipChatMessagesToEstimatedTokenBudget(ragSelectedMessages, contextCap)
-      : ragSelectedMessages
+  const threadMessages = (() => {
+    if (!isMainChat || contextCap === null) {
+      return contextSelectedMessages
+    }
+    if (typeof contextCap === 'number' && contextCap > 0) {
+      const visionReserve = computeVisionTokenReserve(messages)
+      const textBudget = Math.max(1, contextCap - visionReserve)
+      return clipChatMessagesToEstimatedTokenBudget(contextSelectedMessages, textBudget)
+    }
+    return contextSelectedMessages
+  })()
   const thinking = isMainChat && options?.chatThinkingMode === 'thinking'
   const thinkingDoc =
     thinking && (Boolean(options?.userRequestedWord) || Boolean(options?.userRequestedPdf))
@@ -900,7 +994,7 @@ function buildChatCompletionRequestBody(
   messages: ChatMessage[],
   options?: SendMessageOptions,
 ): Record<string, unknown> {
-  const gatewayMessages = applyVisionInlineToGatewayMessages(
+  let gatewayMessages = applyVisionInlineToGatewayMessages(
     buildGatewayMessages(messages, options),
     options?.visionInlineDataUrl,
   )
@@ -958,7 +1052,9 @@ function buildChatCompletionRequestBody(
     body.anthropicModel = meta.anthropicModel
   }
   if (meta.provider === 'openai') {
-    body.promptCacheKey = thinking ? OPENAI_PROMPT_CACHE_KEY_THINKING : OPENAI_PROMPT_CACHE_KEY_MAIN
+    body.promptCacheKey = thinking
+      ? OPENAI_PROMPT_CACHE_KEY_THINKING
+      : mainChatPromptCacheKey(options?.mainChatThreadId)
     body.promptCacheRetention = '24h'
   }
   body.maxTokens = thinking ? THINKING_MAX_OUTPUT_TOKENS : MAIN_CHAT_MAX_OUTPUT_TOKENS
@@ -973,6 +1069,27 @@ function buildChatCompletionRequestBody(
   } else if (visionInline.startsWith('data:image/') && visionInline.length > 200) {
     /** Edge macht lenient accept — sonst fehlt das Feld bei knapp fehlgeschlagener Client-Validierung. */
     body.visionInlineDataUrl = visionInline
+  }
+
+  if (body.visionInlineDataUrl) {
+    let lastUserGatewayIdx = -1
+    for (let i = gatewayMessages.length - 1; i >= 0; i -= 1) {
+      if (gatewayMessages[i]?.role === 'user') {
+        lastUserGatewayIdx = i
+        break
+      }
+    }
+    gatewayMessages = gatewayMessages.map((m, i) => {
+      if (m.role !== 'user' || typeof m.content !== 'string') {
+        return m
+      }
+      /** Letzter User-Turn: Platzhalter + `visionInlineDataUrl`; ältere Turns: Base64 aus dem JSON entfernen. */
+      if (i !== lastUserGatewayIdx) {
+        return { ...m, content: stripEmbeddedVisionBase64ForTransport(m.content) }
+      }
+      return m
+    })
+    body.messages = gatewayMessages
   }
 
   if (import.meta.env.DEV) {
@@ -995,12 +1112,7 @@ function buildChatCompletionRequestBody(
     (typeof options?.visionInlineDataUrl === 'string' &&
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
   if (!options?.useLearnPathModel && body.provider === 'openai' && gatewayHasVision) {
-    const existing = Array.isArray(body.openAiModels) ? [...(body.openAiModels as string[])] : []
-    const prioritized = ['gpt-4o-mini', 'gpt-4o']
-    body.openAiModels = [
-      ...prioritized,
-      ...existing.filter((id) => !prioritized.includes(id)),
-    ]
+    body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
   }
 
   return body

@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type TransitionEvent as ReactTransitionEvent,
 } from 'react'
 import { flushSync } from 'react-dom'
@@ -45,6 +46,7 @@ import {
   ChatMessageReplyQuotePreview,
 } from './ChatComposerReplyQuoteBar'
 import { ChatExportActionHint } from './ChatExportActionHint'
+import { ChatContextUsageRing } from './ChatContextUsageRing'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import {
@@ -148,6 +150,55 @@ const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
 /** Einträge im Slash-Menü (Excel, Word, PDF, Bilder) — für Pfeiltasten / Enter */
 const SLASH_MENU_ITEM_COUNT = 4
 
+type MobileQuickTileProps = {
+  active: boolean
+  tileClassName: string
+  onActivate: () => void
+  onDeactivate: () => void
+  deactivateAriaLabel: string
+  children: ReactNode
+}
+
+/** Mobil: Schnellkachel mit kleinem X oben rechts zum Deaktivieren. */
+function MobileQuickTile({
+  active,
+  tileClassName,
+  onActivate,
+  onDeactivate,
+  deactivateAriaLabel,
+  children,
+}: MobileQuickTileProps) {
+  return (
+    <div className={`chat-quick-tile-wrap${active ? ' is-active' : ''}`}>
+      <button
+        type="button"
+        className={tileClassName}
+        onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+        onClick={onActivate}
+      >
+        {children}
+      </button>
+      {active ? (
+        <button
+          type="button"
+          className="chat-quick-tile-dismiss"
+          aria-label={deactivateAriaLabel}
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            preventIosBlurOnlyTapWhenChatInputFocused(e)
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDeactivate()
+          }}
+        >
+          <span aria-hidden>×</span>
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 /** Gleicher Breakpoint wie `chat.css` (@media max-width 860px) — Slash-Menü aus, Anhang-Bottom-Sheet */
 const MOBILE_COMPOSER_MQ = '(max-width: 860px)'
 
@@ -200,6 +251,8 @@ type ChatWindowProps = {
   /** Nach /PDF: PDF-Datei erzeugen, wenn die Papier-Vorschau passt. */
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy?: boolean
+  /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
+  mainChatContextMaxTokens?: number | null
 }
 
 type QuizAnswerStatus = 'idle' | 'correct' | 'incorrect'
@@ -350,6 +403,7 @@ export function ChatWindow({
   wordFinalizeBusy = false,
   onFinalizePdfDocument,
   pdfFinalizeBusy = false,
+  mainChatContextMaxTokens = null,
 }: ChatWindowProps) {
   const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
   const [draft, setDraft] = useState('')
@@ -596,6 +650,9 @@ export function ChatWindow({
     </span>
   )
 
+  const pendingVisionImageCount = pendingAttachments.filter((a) => a.kind === 'pasted-image').length
+  const showContextUsageRing = Boolean(threadKey) && chatThinkingMode !== 'thinking'
+
   const composerSendButton = (
     <button
       type="submit"
@@ -625,6 +682,19 @@ export function ChatWindow({
     >
       {composerSendIconEl}
     </button>
+  )
+
+  const composerSendActions = (
+    <div className="chat-composer-send-actions">
+      {showContextUsageRing ? (
+        <ChatContextUsageRing
+          messages={messageList}
+          maxTokens={mainChatContextMaxTokens}
+          pendingVisionImages={pendingVisionImageCount}
+        />
+      ) : null}
+      {composerSendButton}
+    </div>
   )
 
   const composerInputRowTouchHandlers = isMobileComposer
@@ -1602,11 +1672,12 @@ export function ChatWindow({
         {isMobileComposer ? (
           <div className="chat-quick-tiles-scroll">
             <div className="chat-quick-tiles-scroll-track">
-              <button
-                type="button"
-                className={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
-                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-                onClick={handleSelectImageQuickTile}
+              <MobileQuickTile
+                active={imageGenCommandSelected}
+                tileClassName={`chat-quick-tile chat-quick-tile--bilder${imageGenCommandSelected ? ' is-active' : ''}`}
+                onActivate={handleSelectImageQuickTile}
+                onDeactivate={() => setImageGenCommandSelected(false)}
+                deactivateAriaLabel="Bildgenerierung entfernen"
               >
                 <span className="chat-quick-tile-icon-wrap" aria-hidden>
                   <img className="chat-quick-tile-icon--landscape" src={landscapePng} alt="" />
@@ -1615,12 +1686,13 @@ export function ChatWindow({
                   <span className="chat-quick-tile-title">Bilder</span>
                   <span className="chat-quick-tile-sub">Bild generieren</span>
                 </span>
-              </button>
-              <button
-                type="button"
-                className={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
-                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-                onClick={handleSelectExcelQuickTile}
+              </MobileQuickTile>
+              <MobileQuickTile
+                active={excelCommandSelected}
+                tileClassName={`chat-quick-tile chat-quick-tile--excel${excelCommandSelected ? ' is-active' : ''}`}
+                onActivate={handleSelectExcelQuickTile}
+                onDeactivate={() => setExcelCommandSelected(false)}
+                deactivateAriaLabel="Excel-Befehl entfernen"
               >
                 <span className="chat-quick-tile-icon-wrap" aria-hidden>
                   <span className="chat-quick-tile-letter-mark">X</span>
@@ -1629,12 +1701,13 @@ export function ChatWindow({
                   <span className="chat-quick-tile-title">Excel</span>
                   <span className="chat-quick-tile-sub">Tabelle planen &amp; exportieren</span>
                 </span>
-              </button>
-              <button
-                type="button"
-                className={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
-                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-                onClick={handleSelectWordQuickTile}
+              </MobileQuickTile>
+              <MobileQuickTile
+                active={wordCommandSelected}
+                tileClassName={`chat-quick-tile chat-quick-tile--word${wordCommandSelected ? ' is-active' : ''}`}
+                onActivate={handleSelectWordQuickTile}
+                onDeactivate={() => setWordCommandSelected(false)}
+                deactivateAriaLabel="Word-Befehl entfernen"
               >
                 <span className="chat-quick-tile-icon-wrap" aria-hidden>
                   <span className="chat-quick-tile-letter-mark">W</span>
@@ -1643,12 +1716,13 @@ export function ChatWindow({
                   <span className="chat-quick-tile-title">Word</span>
                   <span className="chat-quick-tile-sub">Word generieren</span>
                 </span>
-              </button>
-              <button
-                type="button"
-                className={`chat-quick-tile chat-quick-tile--pdf${pdfCommandSelected ? ' is-active' : ''}`}
-                onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
-                onClick={handleSelectPdfQuickTile}
+              </MobileQuickTile>
+              <MobileQuickTile
+                active={pdfCommandSelected}
+                tileClassName={`chat-quick-tile chat-quick-tile--pdf${pdfCommandSelected ? ' is-active' : ''}`}
+                onActivate={handleSelectPdfQuickTile}
+                onDeactivate={() => setPdfCommandSelected(false)}
+                deactivateAriaLabel="PDF-Befehl entfernen"
               >
                 <span className="chat-quick-tile-icon-wrap" aria-hidden>
                   <span className="chat-quick-tile-letter-mark">P</span>
@@ -1657,7 +1731,7 @@ export function ChatWindow({
                   <span className="chat-quick-tile-title">PDF</span>
                   <span className="chat-quick-tile-sub">PDF generieren</span>
                 </span>
-              </button>
+              </MobileQuickTile>
             </div>
           </div>
         ) : (
@@ -1912,10 +1986,12 @@ export function ChatWindow({
             >
               {composerReplyQuoteSlot}
               {pendingAttachments.length > 0 ||
-              (!isMobileComposer &&
-                (imageGenCommandSelected || excelCommandSelected || wordCommandSelected || pdfCommandSelected)) ? (
+              imageGenCommandSelected ||
+              excelCommandSelected ||
+              wordCommandSelected ||
+              pdfCommandSelected ? (
                 <div className="chat-attachment-chips" aria-label="Anhänge">
-                  {!isMobileComposer && imageGenCommandSelected ? (
+                  {imageGenCommandSelected ? (
                     <span className="chat-attach-removable">
                       <span className="chat-compose-mode-badge chat-compose-mode-badge--image" title="Bildgenerierung aktiv">
                         <span className="chat-compose-mode-badge-label">Bilder</span>
@@ -1930,7 +2006,7 @@ export function ChatWindow({
                       </button>
                     </span>
                   ) : null}
-                  {!isMobileComposer && excelCommandSelected ? (
+                  {excelCommandSelected ? (
                     <span className="chat-attach-removable">
                       <span className="chat-compose-mode-badge chat-compose-mode-badge--excel" title="Excel-Befehl aktiv">
                         <span className="chat-compose-mode-badge-label">Excel</span>
@@ -1945,7 +2021,7 @@ export function ChatWindow({
                       </button>
                     </span>
                   ) : null}
-                  {!isMobileComposer && wordCommandSelected ? (
+                  {wordCommandSelected ? (
                     <span className="chat-attach-removable">
                       <span className="chat-compose-mode-badge chat-compose-mode-badge--word" title="Word-Export aktiv">
                         <span className="chat-compose-mode-badge-label">Word</span>
@@ -1960,7 +2036,7 @@ export function ChatWindow({
                       </button>
                     </span>
                   ) : null}
-                  {!isMobileComposer && pdfCommandSelected ? (
+                  {pdfCommandSelected ? (
                     <span className="chat-attach-removable">
                       <span className="chat-compose-mode-badge chat-compose-mode-badge--pdf" title="PDF-Export aktiv">
                         <span className="chat-compose-mode-badge-label">PDF</span>
@@ -2035,7 +2111,7 @@ export function ChatWindow({
                       />
                     </div>
                   </div>
-                  {composerSendButton}
+                  {composerSendActions}
                 </div>
               ) : (
                 <div className="chat-input-field">
@@ -2111,7 +2187,7 @@ export function ChatWindow({
                 </div>
               )}
             </div>
-            {!isMobileCompactComposer ? composerSendButton : null}
+            {!isMobileCompactComposer ? composerSendActions : null}
           </form>
           <p className="chat-input-hint">
             Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
@@ -2814,10 +2890,12 @@ export function ChatWindow({
         >
           {composerReplyQuoteSlot}
           {pendingAttachments.length > 0 ||
-          (!isMobileComposer &&
-            (imageGenCommandSelected || excelCommandSelected || wordCommandSelected || pdfCommandSelected)) ? (
+          imageGenCommandSelected ||
+          excelCommandSelected ||
+          wordCommandSelected ||
+          pdfCommandSelected ? (
             <div className="chat-attachment-chips" aria-label="Anhänge">
-              {!isMobileComposer && imageGenCommandSelected ? (
+              {imageGenCommandSelected ? (
                 <span className="chat-attach-removable">
                   <span className="chat-compose-mode-badge chat-compose-mode-badge--image" title="Bildgenerierung aktiv">
                     <span className="chat-compose-mode-badge-label">Bilder</span>
@@ -2832,7 +2910,7 @@ export function ChatWindow({
                   </button>
                 </span>
               ) : null}
-              {!isMobileComposer && excelCommandSelected ? (
+              {excelCommandSelected ? (
                 <span className="chat-attach-removable">
                   <span className="chat-compose-mode-badge chat-compose-mode-badge--excel" title="Excel-Befehl aktiv">
                     <span className="chat-compose-mode-badge-label">Excel</span>
@@ -2847,7 +2925,7 @@ export function ChatWindow({
                   </button>
                 </span>
               ) : null}
-              {!isMobileComposer && wordCommandSelected ? (
+              {wordCommandSelected ? (
                 <span className="chat-attach-removable">
                   <span className="chat-compose-mode-badge chat-compose-mode-badge--word" title="Word-Export aktiv">
                     <span className="chat-compose-mode-badge-label">Word</span>
@@ -2862,7 +2940,7 @@ export function ChatWindow({
                   </button>
                 </span>
               ) : null}
-              {!isMobileComposer && pdfCommandSelected ? (
+              {pdfCommandSelected ? (
                 <span className="chat-attach-removable">
                   <span className="chat-compose-mode-badge chat-compose-mode-badge--pdf" title="PDF-Export aktiv">
                     <span className="chat-compose-mode-badge-label">PDF</span>
@@ -2937,7 +3015,7 @@ export function ChatWindow({
                   />
                 </div>
               </div>
-              {composerSendButton}
+              {composerSendActions}
             </div>
           ) : (
             <div className="chat-input-field">
@@ -3013,7 +3091,7 @@ export function ChatWindow({
             </div>
           )}
         </div>
-        {!isMobileCompactComposer ? composerSendButton : null}
+        {!isMobileCompactComposer ? composerSendActions : null}
         </form>
         {!isMobileComposer ? thinkingCreditsHintEl : null}
         <p className="chat-input-hint">

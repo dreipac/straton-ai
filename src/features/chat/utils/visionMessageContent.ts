@@ -1,5 +1,6 @@
 import { isValidVisionDataUrl, normalizeVisionDataUrl } from './imageVisionNormalize'
 import type { ChatMessage } from '../types'
+import { VISION_CONTEXT_IMAGE_LIMIT } from '../constants/mainChatContext'
 
 const BILDDATA_BLOCK_RE = /\[BildData:[^\]]*\]([\s\S]*?)\[\/BildData\]/i
 
@@ -26,12 +27,23 @@ export function isValidVisionDataUrlForGateway(dataUrl: string): boolean {
  * Ersetzt `@chat-media:` / fehlende Inline-Daten im letzten `[BildData]`-Block —
  * damit die Edge Function das Bild auch ohne Storage-Download sieht.
  */
+/** Gleiche Schwelle wie `buildChatCompletionRequestBody` → Edge `resolveVisionUrlFromBody`. */
+function canInjectVisionDataUrlForGateway(dataUrl: string): boolean {
+  const safe = normalizeVisionDataUrl(dataUrl.trim())
+  if (!safe.startsWith('data:image/')) {
+    return false
+  }
+  const marker = 'base64,'
+  const idx = safe.indexOf(marker)
+  return idx >= 0 && safe.length > idx + marker.length + 64
+}
+
 export function injectVisionInlineDataUrlIntoMessageContent(
   content: string,
   inlineDataUrl: string,
 ): string {
   const safe = normalizeVisionDataUrl(inlineDataUrl.trim())
-  if (!isValidVisionDataUrl(safe)) {
+  if (!canInjectVisionDataUrlForGateway(safe)) {
     return content
   }
   const matches = [...content.matchAll(/\[BildData:([^\]]+)\]([\s\S]*?)\[\/BildData\]/gi)]
@@ -59,20 +71,52 @@ export function messageHasVisionPayload(content: string): boolean {
   return content.includes('[BildData:') || content.includes('@chat-media:')
 }
 
+/** IDs der letzten N User-Nachrichten mit Bild (chronologisch). */
+export function getLastVisionUserMessageIds(
+  messages: ChatMessage[],
+  limit = VISION_CONTEXT_IMAGE_LIMIT,
+): Set<string> {
+  const ids: string[] = []
+  for (let i = messages.length - 1; i >= 0 && ids.length < limit; i -= 1) {
+    const m = messages[i]!
+    if (m.role === 'user' && messageHasVisionPayload(m.content)) {
+      ids.push(m.id)
+    }
+  }
+  return new Set(ids)
+}
+
 /**
- * Nur die neueste User-Nachricht mit Bild bleibt für Vision vollständig — sonst Token-Explosion.
+ * Die letzten {@link VISION_CONTEXT_IMAGE_LIMIT} User-Bilder bleiben vollständig — ältere nur Platzhalter.
  */
 export function prepareChatMessagesForVisionGateway(messages: ChatMessage[]): ChatMessage[] {
-  const visionUser = [...messages]
-    .reverse()
-    .find((m) => m.role === 'user' && messageHasVisionPayload(m.content))
-  if (!visionUser) {
+  const keepIds = getLastVisionUserMessageIds(messages)
+  if (keepIds.size === 0) {
     return messages
   }
   return messages.map((m) => {
-    if (m.role === 'user' && m.id !== visionUser.id) {
+    if (m.role === 'user' && messageHasVisionPayload(m.content) && !keepIds.has(m.id)) {
       return { ...m, content: stripVisionBlocksFromMessageContent(m.content) }
     }
     return m
   })
+}
+
+/**
+ * Entfernt Base64 aus Gateway-`messages`, wenn das Bild separat als `visionInlineDataUrl` läuft
+ * (kleinerer Request; Edge hängt das Bild am letzten User-Turn an).
+ */
+export function stripEmbeddedVisionBase64ForTransport(content: string): string {
+  if (!content.includes('[BildData:') && !content.includes('data:image/')) {
+    return content
+  }
+  const textOnly = stripVisionBlocksFromMessageContent(content)
+  const idMatch = content.match(/\[BildData:([^\]]+)\]/)
+  if (!idMatch) {
+    return textOnly
+  }
+  const id = String(idMatch[1] ?? 'vision').trim() || 'vision'
+  const block = `[BildData:${id}]\n(Bild in dieser Nachricht)\n[/BildData]`
+  const trimmed = textOnly.trim()
+  return trimmed ? `${trimmed}\n\n${block}` : block
 }

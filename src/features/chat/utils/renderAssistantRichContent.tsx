@@ -34,7 +34,7 @@ type Block =
   | { type: 'h6'; text: string }
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
-  | { type: 'ol'; items: string[] }
+  | { type: 'ol'; items: OlListItem[] }
   /** Markdown-Zeilen mit > — Bibel/Quran nur bei erkennbarer Stellenangabe; sonst normales Zitat */
   | { type: 'blockquote'; lines: string[]; quoteKind: 'bible' | 'quran' | 'plain' }
   /** Markdown-Codeblock mit ``` */
@@ -65,6 +65,149 @@ function tryParseMarkdownHeading(trimmed: string): { type: HeadingBlockType; tex
 
 function stripBoldMarkers(line: string): string {
   return line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').trim()
+}
+
+type OlTrailingCode = { language: string; code: string }
+
+/** Eintrag in `<ol>`: Standard (1,2,3…), Unterpunkte (1.1), Bullets oder Code direkt danach. */
+export type OlListItem =
+  | string
+  | { text: string; marker?: string; bullets?: string[]; trailingCode?: OlTrailingCode }
+
+function olItemPlainText(item: OlListItem): string {
+  return typeof item === 'string' ? item : item.text
+}
+
+function olItemBullets(item: OlListItem): string[] {
+  return typeof item === 'object' && item.bullets?.length ? item.bullets : []
+}
+
+function appendBulletToLastOlItem(items: OlListItem[], bullet: string): OlListItem[] {
+  if (items.length === 0) {
+    return items
+  }
+  const next = [...items]
+  const last = next[next.length - 1]!
+  if (typeof last === 'string') {
+    next[next.length - 1] = { text: last, bullets: [bullet] }
+  } else {
+    next[next.length - 1] = { ...last, bullets: [...(last.bullets ?? []), bullet] }
+  }
+  return next
+}
+
+function mergeOlItemWithBullets(item: OlListItem, bullets: string[]): OlListItem {
+  if (typeof item === 'string') {
+    return { text: item, bullets: [...bullets] }
+  }
+  return { ...item, bullets: [...(item.bullets ?? []), ...bullets] }
+}
+
+function olItemTrailingCode(item: OlListItem): OlTrailingCode | null {
+  return typeof item === 'object' && item.trailingCode ? item.trailingCode : null
+}
+
+function attachCodeAfterOlItem(item: OlListItem, code: OlTrailingCode): OlListItem {
+  if (typeof item === 'string') {
+    return { text: item, trailingCode: code }
+  }
+  return { ...item, trailingCode: code }
+}
+
+function olItemsAsPlainStrings(items: OlListItem[]): string[] {
+  return items.map(olItemPlainText)
+}
+
+function parseOrderedListLine(
+  trimmed: string,
+): { kind: 'decimal'; text: string } | { kind: 'outline'; marker: string; text: string } | null {
+  const plain = stripBoldMarkers(trimmed)
+  const outline = plain.match(/^(\d+)\.(\d+)\s+(.+)$/)
+  if (outline) {
+    return {
+      kind: 'outline',
+      marker: `${outline[1]}.${outline[2]}`,
+      text: outline[3]!.trim(),
+    }
+  }
+  const decimal = plain.match(/^(\d{1,2})[.)]\s+(.*)$/)
+  if (decimal) {
+    return { kind: 'decimal', text: decimal[2]!.trim() }
+  }
+  return null
+}
+
+function mergeAdjacentOrderedListBlocks(blocks: Block[]): Block[] {
+  const out: Block[] = []
+  for (const block of blocks) {
+    const prev = out[out.length - 1]
+    if (block.type === 'ol' && prev?.type === 'ol') {
+      out[out.length - 1] = { type: 'ol', items: [...prev.items, ...block.items] }
+      continue
+    }
+    out.push(block)
+  }
+  return out
+}
+
+/** `1.` + Bullets + `2.` → eine `<ol>` (KI trennt oft mit `-` Zeilen dazwischen). */
+function coalesceOrderedListBlocks(blocks: Block[]): Block[] {
+  const merged = mergeAdjacentOrderedListBlocks(blocks)
+  const out: Block[] = []
+  for (let i = 0; i < merged.length; i += 1) {
+    const block = merged[i]!
+    if (block.type !== 'ol') {
+      out.push(block)
+      continue
+    }
+    let items = [...block.items]
+    let j = i + 1
+    while (j < merged.length) {
+      const next = merged[j]!
+      if (next.type === 'ul') {
+        if (items.length > 0) {
+          items[items.length - 1] = mergeOlItemWithBullets(items[items.length - 1]!, next.items)
+        } else {
+          out.push(next)
+        }
+        j += 1
+        continue
+      }
+      if (next.type === 'code') {
+        if (items.length > 0) {
+          items[items.length - 1] = attachCodeAfterOlItem(items[items.length - 1]!, {
+            language: next.language,
+            code: next.code,
+          })
+        } else {
+          out.push(next)
+        }
+        j += 1
+        continue
+      }
+      if (next.type === 'emailDraft') {
+        if (items.length > 0) {
+          items[items.length - 1] = attachCodeAfterOlItem(items[items.length - 1]!, {
+            language: 'email',
+            code: next.body,
+          })
+        } else {
+          out.push({ type: 'emailDraft', body: next.body })
+        }
+        j += 1
+        continue
+      }
+      if (next.type === 'ol') {
+        items.push(...next.items)
+        j += 1
+        continue
+      }
+      break
+    }
+    out.push({ type: 'ol', items })
+    i = j - 1
+  }
+  return out
 }
 
 /** Erste Zeile wirkt wie eine deutschsprachige Bibelstellenangabe (Buch + Kap.,Vers o. Ä.). */
@@ -195,7 +338,7 @@ function parseBlocks(raw: string): Block[] {
   const blocks: Block[] = []
   const para: string[] = []
   let listItems: string[] | null = null
-  let orderedItems: string[] | null = null
+  let orderedItems: OlListItem[] | null = null
   let quoteLines: string[] | null = null
   /** Kontext vor dem ersten `>` — zur Klassifikation Bibel / Quran / normales Zitat */
   let quoteParseContext = ''
@@ -204,7 +347,9 @@ function parseBlocks(raw: string): Block[] {
 
   function recentContextText(currentLine: string): string {
     const fromPara = para.slice(-2).join(' ')
-    const fromList = [...(listItems ?? []), ...(orderedItems ?? [])].slice(-2).join(' ')
+    const fromList = [...(listItems ?? []), ...(orderedItems ?? []).map(olItemPlainText)]
+      .slice(-2)
+      .join(' ')
     const fromBlocks = blocks
       .slice(-3)
       .map((b) => {
@@ -218,8 +363,9 @@ function parseBlocks(raw: string): Block[] {
           case 'p':
             return b.text
           case 'ul':
-          case 'ol':
             return b.items.slice(-2).join(' ')
+          case 'ol':
+            return olItemsAsPlainStrings(b.items).slice(-2).join(' ')
           default:
             return ''
         }
@@ -235,15 +381,23 @@ function parseBlocks(raw: string): Block[] {
     }
   }
 
-  function flushList() {
+  function flushUlOnly() {
     if (listItems && listItems.length) {
       blocks.push({ type: 'ul', items: [...listItems] })
       listItems = null
     }
+  }
+
+  function flushOlOnly() {
     if (orderedItems && orderedItems.length) {
       blocks.push({ type: 'ol', items: [...orderedItems] })
       orderedItems = null
     }
+  }
+
+  function flushList() {
+    flushUlOnly()
+    flushOlOnly()
   }
 
   function flushQuote() {
@@ -336,8 +490,17 @@ function parseBlocks(raw: string): Block[] {
 
     if (trimmed === '') {
       flushQuote()
-      flushList()
       flushPara()
+      let j = lineIndex + 1
+      while (j < lines.length && lines[j]!.trim() === '') {
+        j += 1
+      }
+      const nextTrimmed = j < lines.length ? lines[j]!.trim() : ''
+      if (orderedItems?.length && parseOrderedListLine(nextTrimmed)) {
+        flushUlOnly()
+        continue
+      }
+      flushList()
       continue
     }
 
@@ -355,7 +518,8 @@ function parseBlocks(raw: string): Block[] {
       flushQuote()
       flushPara()
       if (orderedItems?.length) {
-        flushList()
+        orderedItems = appendBulletToLastOlItem(orderedItems, ul[1])
+        continue
       }
       if (!listItems) {
         listItems = []
@@ -376,18 +540,19 @@ function parseBlocks(raw: string): Block[] {
       continue
     }
 
-    const olPlain = stripBoldMarkers(trimmed)
-    const ol = olPlain.match(/^(\d{1,2})[.)]\s+(.*)$/)
-    if (ol) {
+    const olParsed = parseOrderedListLine(trimmed)
+    if (olParsed) {
       flushQuote()
       flushPara()
-      if (listItems?.length) {
-        flushList()
-      }
+      flushUlOnly()
       if (!orderedItems) {
         orderedItems = []
       }
-      orderedItems.push(ol[2].trim())
+      if (olParsed.kind === 'outline') {
+        orderedItems.push({ text: olParsed.text, marker: olParsed.marker })
+      } else {
+        orderedItems.push(olParsed.text)
+      }
       continue
     }
 
@@ -401,7 +566,7 @@ function parseBlocks(raw: string): Block[] {
   flushList()
   flushPara()
   return promoteShellCommandsToCodeBlocks(
-    transformBlocksWithMcq(promotePlainParagraphEmailDrafts(blocks)),
+    transformBlocksWithMcq(promotePlainParagraphEmailDrafts(coalesceOrderedListBlocks(blocks))),
   )
 }
 
@@ -448,28 +613,46 @@ function normalizeCodeLanguage(language: string): string {
 
 function promoteShellCommandsInListBlock(block: Extract<Block, { type: 'ul' | 'ol' }>): Block[] {
   const out: Block[] = []
-  let pendingItems: string[] = []
+  let pendingUl: string[] = []
+  let pendingOl: OlListItem[] = []
 
   function flushList() {
-    if (pendingItems.length === 0) {
+    if (block.type === 'ul') {
+      if (pendingUl.length === 0) {
+        return
+      }
+      out.push({ type: 'ul', items: [...pendingUl] })
+      pendingUl = []
       return
     }
-    out.push({ type: block.type, items: [...pendingItems] })
-    pendingItems = []
+    if (pendingOl.length === 0) {
+      return
+    }
+    out.push({ type: 'ol', items: [...pendingOl] })
+    pendingOl = []
   }
 
   for (const item of block.items) {
-    const split = splitShellCommandFromText(item)
+    const raw = block.type === 'ol' ? olItemPlainText(item) : item
+    const split = splitShellCommandFromText(raw)
     if (split) {
       flushList()
       if (split.labelText) {
-        pendingItems.push(split.labelText)
+        if (block.type === 'ol') {
+          pendingOl.push(split.labelText)
+        } else {
+          pendingUl.push(split.labelText)
+        }
         flushList()
       }
       out.push({ type: 'code', language: 'bash', code: split.command })
       continue
     }
-    pendingItems.push(item)
+    if (block.type === 'ol') {
+      pendingOl.push(item)
+    } else {
+      pendingUl.push(item)
+    }
   }
 
   flushList()
@@ -545,7 +728,7 @@ function tryParseSingleMcqBlock(
     if (options.length < 2) {
       return null
     }
-    const prompt = ol.items[0]?.trim() ?? ''
+    const prompt = olItemPlainText(ol.items[0] ?? '').trim()
     if (!prompt) {
       return null
     }
@@ -1065,11 +1248,40 @@ function renderBlock(
     case 'ol':
       return (
         <ol key={key} className="chat-md-ol">
-          {block.items.map((item, j) => (
-            <li key={`${key}-li-${j}`} className="chat-md-li">
-              {renderAssistantInline(item, options)}
-            </li>
-          ))}
+          {block.items.map((item, j) => {
+            const customMarker =
+              typeof item === 'object' && item.marker ? item.marker : null
+            const text = olItemPlainText(item)
+            const bullets = olItemBullets(item)
+            const trailingCode = olItemTrailingCode(item)
+            return (
+              <li
+                key={`${key}-li-${j}`}
+                className={customMarker ? 'chat-md-li chat-md-li--ol-custom' : 'chat-md-li'}
+              >
+                {customMarker ? (
+                  <span className="chat-md-ol-marker" aria-hidden="true">
+                    {customMarker}
+                  </span>
+                ) : null}
+                {renderAssistantInline(text, options)}
+                {bullets.length > 0 ? (
+                  <ul className="chat-md-ul chat-md-ul--nested">
+                    {bullets.map((bullet, k) => (
+                      <li key={`${key}-li-${j}-ul-${k}`} className="chat-md-li">
+                        {renderAssistantInline(bullet, options)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {trailingCode ? (
+                  <div className="chat-md-ol-embedded-code">
+                    <CodeBlock code={trailingCode.code} language={trailingCode.language} />
+                  </div>
+                ) : null}
+              </li>
+            )
+          })}
         </ol>
       )
     case 'blockquote':

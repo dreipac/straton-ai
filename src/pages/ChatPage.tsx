@@ -2597,6 +2597,7 @@ export function ChatPage() {
               : profile?.subscription_plans?.thinking_daily_grant ?? null
           }
           thinkingCreditsBlocked={thinkingCreditsBlocked}
+          mainChatContextMaxTokens={mainChatContextMaxTokens}
         />
         <aside
           className={`chat-learnpath-draft-sidebar${learningPathDraftOpen ? ' is-open' : ''}`}
