@@ -6,7 +6,7 @@ import { LoginForm } from '../features/auth/components/LoginForm'
 import { useAuth } from '../features/auth/context/useAuth'
 
 export function LoginPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, isLoading } = useAuth()
   const themeVariant = useDocumentThemeVariant()
   const loginLogoSrc = useMemo(() => {
     const base = import.meta.env.BASE_URL
@@ -66,6 +66,10 @@ export function LoginPage() {
       html.classList.remove('auth-login-scroll-lock', 'auth-login-keyboard-active')
     }
   }, [user])
+
+  if (isLoading) {
+    return null
+  }
 
   if (user && profile?.must_change_password_on_first_login) {
     return <Navigate to="/chat" replace />

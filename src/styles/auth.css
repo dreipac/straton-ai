@@ -659,3 +659,35 @@ html.auth-login-scroll-lock.auth-login-keyboard-active #root {
     background-color: #131922;
   }
 }
+
+/* PWA / erster Paint: kein weisser Flash vor React */
+.app-boot-placeholder {
+  min-height: var(--straton-app-height);
+  background: var(--color-bg-app, #0b0f14);
+}
+
+.auth-session-bootstrap {
+  min-height: var(--straton-app-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: max(1rem, env(safe-area-inset-top)) 1.25rem max(1rem, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: var(--color-bg-app);
+  color: var(--color-text-app);
+}
+
+.auth-session-bootstrap-logo {
+  width: min(72px, 18vw);
+  height: auto;
+  object-fit: contain;
+}
+
+.auth-session-bootstrap-wordmark {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}

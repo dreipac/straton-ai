@@ -53,6 +53,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return
     }
 
+    async function loadProfileForUser(userId: string) {
+      try {
+        const nextProfile = await ensureProfileForUserWithSessionRecovery(userId)
+        if (!isMountedRef.current) {
+          return
+        }
+        setProfile(nextProfile)
+        setError(null)
+      } catch (err) {
+        if (!isMountedRef.current) {
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
+      }
+    }
+
     async function loadSession() {
       try {
         const session = await getCurrentSession()
@@ -62,19 +78,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const nextUser = getUserFromSession(session)
         setUser(nextUser)
         if (nextUser) {
-          try {
-            const nextProfile = await ensureProfileForUserWithSessionRecovery(nextUser.id)
-            if (!isMountedRef.current) {
-              return
-            }
-            setProfile(nextProfile)
-            setError(null)
-          } catch (err) {
-            if (!isMountedRef.current) {
-              return
-            }
-            setError(err instanceof Error ? err.message : 'Profil konnte nicht geladen werden.')
-          }
+          void loadProfileForUser(nextUser.id)
         } else {
           setProfile(null)
         }
@@ -85,6 +89,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setError(err instanceof Error ? err.message : 'Session konnte nicht geladen werden.')
       } finally {
         if (isMountedRef.current) {
+          /* Session zuerst — Routen/Login nicht warten auf Profil-Request (PWA-Flash vermeiden). */
           setIsLoading(false)
         }
       }

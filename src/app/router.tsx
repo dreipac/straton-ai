@@ -1,5 +1,6 @@
 import { Navigate, Outlet, RouterProvider, createHashRouter, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
+import { AuthSessionBootstrap } from '../features/auth/components/AuthSessionBootstrap'
 import { FirstLoginPasswordModal } from '../features/auth/components/FirstLoginPasswordModal'
 import { FeedbackResolutionNoticeModal } from '../features/feedback/components/FeedbackResolutionNoticeModal'
 import { useAuth } from '../features/auth/context/useAuth'
@@ -31,6 +32,10 @@ function AuthSessionLayout() {
       navigate('/chat', { replace: true })
     }
   }, [isLoading, user, profile, location.pathname, navigate])
+
+  if (isLoading) {
+    return <AuthSessionBootstrap />
+  }
 
   return (
     <>

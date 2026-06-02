@@ -46,6 +46,8 @@ import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewp
 import { useMobileSidebarEdgeSwipe } from '../hooks/useMobileSidebarEdgeSwipe'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useToast } from '../components/toast/ToastProvider'
+import { AuthSessionBootstrap } from '../features/auth/components/AuthSessionBootstrap'
+
 export function ChatPage() {
   const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
   const { push: pushToast } = useToast()
@@ -505,6 +507,10 @@ export function ChatPage() {
       onCreateChat={() => void handleCreateNewChat()}
     />
   )
+
+  if (isLoading) {
+    return <AuthSessionBootstrap />
+  }
 
   if (!user) {
     return (
