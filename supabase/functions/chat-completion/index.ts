@@ -2394,6 +2394,7 @@ async function instantAnalyzeWithAi(
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
     'Bei reply_mode "ask_only": needs_live_web false und web_query leer.',
     'Bei vager Anfrage ohne Kernkontext: reply_mode "ask_only".',
+    'Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?»): clarity "clear", reply_mode "short_answer" — nicht ask_only.',
     'needs_live_web true bei: Aktienkurs/Ticker, Preise, News, «aktuell/aktuelle/aktuellen/derzeit/derzeitige/heutige/jetzige/gegenwärtig/momentan/neueste»,',
     '«aktuelle Information», «derzeitige Regelung», Delikte/Strafen mit Zeitbezug, Produktversionen, Termine.',
     'Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true,',

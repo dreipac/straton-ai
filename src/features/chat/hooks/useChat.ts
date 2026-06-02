@@ -107,6 +107,7 @@ import {
 import { normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
+import type { ChatProfileIdentity } from '../constants/chatProfileIdentityContext'
 import type { InstantAnalyzeDebugMeta } from '../types'
 import type { ChatMessage, ChatThread } from '../types'
 
@@ -317,6 +318,8 @@ export function useChat(
     thinkingCreditBalance?: number
     /** Nach erfolgreicher Thinking-Buchung Profil aktualisieren. */
     onThinkingCreditsConsumed?: () => void | Promise<void>
+    /** Vor-/Nachname aus Profil — System-Prompt Hauptchat (kein Extra-Request pro Turn). */
+    profileIdentity?: ChatProfileIdentity | null
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -1542,6 +1545,7 @@ export function useChat(
             thinkingClarifyFocus,
             visionInlineDataUrl,
             mainChatThreadId: targetThreadId,
+            profileIdentity: options?.profileIdentity ?? null,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1600,6 +1604,7 @@ export function useChat(
           thinkingClarifyFocus,
           visionInlineDataUrl,
           mainChatThreadId: targetThreadId,
+          profileIdentity: options?.profileIdentity ?? null,
         })
         finalAssistantContent = assistantMessage.content
         if (wantsThinkingTurn && options?.isSuperadmin !== true) {

@@ -67,6 +67,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     'Regeln:',
     '- Bei clarity "vague" oder fehlendem Kernkontext: reply_mode "ask_only", needs_live_web false, web_query "".',
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
+    '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only.',
     '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
     '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
@@ -194,6 +195,57 @@ export function detectLiveWebHeuristic(userMessage: string): {
 const IDENTITY_OR_ACCOUNT_META_RE =
   /\b(wer\s+bin\s+ich|wie\s+hei[sß](?:e|t)?\s+ich|kennst\s+du\s+mich|was\s+wei[sß]t\s+du\s+(?:über\s+)?mich|mein\s+name|identit[aä]t)\b/i
 
+const CONVERSATIONAL_FOLLOW_UP_PHRASE_RE =
+  /^(?:und\s+)?(?:jetzt|nochmal|erneut|noch\s+einmal|weiter|dann|also|warum|wieso|weshalb|wie\s+so|mehr(?:\s+dazu)?|genau|präzise|bitte|noch|gleich|auch|stimmt\s+das|wirklich|ok|okay|ja|nein|danke|super|gut|verstanden|klar)\s*\??\.?$/i
+
+const NEW_TOPIC_STARTER_RE =
+  /^(?:erstelle|generiere|zeichne|schreibe|mach\s+mir|wie\s+richte|wie\s+installier|was\s+ist|erkläre|erklär|beschreib|hilf\s+mir\s+bei|ich\s+brauch)/i
+
+/** Kurze Nachricht als Fortsetzung der letzten Assistenten-Antwort (nicht «fehlender Kontext»). */
+export function isConversationalFollowUp(
+  userMessage: string,
+  priorTurns: ReadonlyArray<{ role: string; content?: string | null }>,
+): boolean {
+  const t = userMessage.trim()
+  if (!t || t.length > 96) {
+    return false
+  }
+  const lastAssistant = [...priorTurns].reverse().find((m) => m.role === 'assistant')
+  if (!lastAssistant?.content?.trim()) {
+    return false
+  }
+  if (CONVERSATIONAL_FOLLOW_UP_PHRASE_RE.test(t)) {
+    return true
+  }
+  if (t.length <= 32 && !NEW_TOPIC_STARTER_RE.test(t)) {
+    return true
+  }
+  return false
+}
+
+export const CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING =
+  'Folgenachricht (verbindlich): Die Nutzer-Nachricht knüpft an deine **letzte Antwort** an. Zuerst darauf eingehen (z. B. bei «und jetzt?» nach Uhrzeit: neue Uhrzeit nennen). **Nicht** so antworten, als fehle jeder Kontext («Was möchtest du erreichen?»).'
+
+/** Folgenachrichten nicht als ask_only / vague behandeln. */
+export function applyConversationalFollowUpHeuristic(
+  userMessage: string,
+  priorTurns: ReadonlyArray<{ role: string; content?: string | null }> | undefined,
+  analyze: InstantAnalyzeResult,
+): InstantAnalyzeResult {
+  if (!priorTurns?.length || !isConversationalFollowUp(userMessage, priorTurns)) {
+    return analyze
+  }
+  return {
+    ...analyze,
+    clarity: 'clear',
+    reply_mode: analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode,
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    intent: analyze.intent.trim() || 'Bezug auf vorherige Antwort',
+  }
+}
+
 /** Meta-/Identitätsfragen nicht als ask_only mit Fragenliste behandeln. */
 export function applyIdentityQuestionHeuristic(
   userMessage: string,
@@ -234,9 +286,13 @@ export function applyLiveWebHeuristic(
   }
 }
 
-export function fallbackInstantAnalyzeResult(userMessage: string): InstantAnalyzeResult {
+export function fallbackInstantAnalyzeResult(
+  userMessage: string,
+  priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
+): InstantAnalyzeResult {
   const trimmed = userMessage.trim()
-  const vague = trimmed.length < 12 || /^(hilfe|help|hi|hallo|hey|ok|ja|nein)[\s!.?]*$/i.test(trimmed)
+  const vague =
+    trimmed.length < 12 || /^(hilfe|help|hi|hallo|hey|ok|ja|nein)[\s!.?]*$/i.test(trimmed)
   const base: InstantAnalyzeResult = {
     clarity: vague ? 'vague' : 'partial',
     intent: trimmed.slice(0, 120) || 'Allgemeine Anfrage',
@@ -246,7 +302,9 @@ export function fallbackInstantAnalyzeResult(userMessage: string): InstantAnalyz
     web_query: '',
     web_reason: '',
   }
-  return applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, base))
+  let result = applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, base))
+  result = applyConversationalFollowUpHeuristic(trimmed, priorTurns, result)
+  return result
 }
 
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {

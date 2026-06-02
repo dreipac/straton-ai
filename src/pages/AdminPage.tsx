@@ -1665,6 +1665,65 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  const feedbackOpenItems = useMemo(
+    () => feedbackItems.filter((row) => !row.resolved_at),
+    [feedbackItems],
+  )
+  const feedbackResolvedItems = useMemo(
+    () => feedbackItems.filter((row) => row.resolved_at),
+    [feedbackItems],
+  )
+
+  function renderAdminFeedbackCard(row: UserFeedbackRow) {
+    return (
+      <article key={row.id} className="settings-card admin-feedback-card" role="listitem">
+        <div className="admin-feedback-header-row">
+          <div className="admin-feedback-person">
+            <p className="admin-feedback-name">{formatFeedbackAuthorName(row)}</p>
+            <p className="admin-feedback-email-line">{row.author_email ?? '—'}</p>
+          </div>
+          <div className="admin-feedback-header-aside">
+            <time className="admin-feedback-time" dateTime={row.created_at}>
+              {formatFeedbackDate(row.created_at)}
+            </time>
+            <SecondaryButton
+              type="button"
+              className="admin-feedback-delete-button"
+              disabled={deletingFeedbackId === row.id}
+              onClick={() => void handleDeleteFeedback(row.id)}
+            >
+              {deletingFeedbackId === row.id ? 'Löschen…' : 'Löschen'}
+            </SecondaryButton>
+          </div>
+        </div>
+        <p className="admin-feedback-display-id">Feedback-ID: {row.display_id}</p>
+        <p className="admin-feedback-userid">Nutzer-ID: {row.user_id}</p>
+        <p className="admin-feedback-body">{row.body}</p>
+        {row.resolved_at ? (
+          <div className="admin-feedback-resolved">
+            <p className="admin-feedback-resolved-label">Erledigt</p>
+            <p className="admin-feedback-resolved-message">{row.resolution_message}</p>
+            {row.resolution_seen_at ? (
+              <p className="admin-feedback-resolved-meta">Vom Nutzer gelesen</p>
+            ) : (
+              <p className="admin-feedback-resolved-meta">Hinweis beim Nutzer noch offen</p>
+            )}
+          </div>
+        ) : (
+          <div className="admin-feedback-actions">
+            <PrimaryButton
+              type="button"
+              disabled={deletingFeedbackId === row.id || isResolvingFeedback}
+              onClick={() => openFeedbackResolveModal(row)}
+            >
+              Als erledigt markieren
+            </PrimaryButton>
+          </div>
+        )}
+      </article>
+    )
+  }
+
   /** `ai_token_usage.created_at` — Anzeige in UTC (Spalte «Erstellt»). */
   function formatAiTokenUsageCreatedAt(iso: string) {
     try {
@@ -3070,56 +3129,53 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               {feedbackError ? <p className="error-text">{feedbackError}</p> : null}
               {isLoadingFeedback ? <p>Lade Feedback…</p> : null}
               {!isLoadingFeedback && !feedbackError ? (
-                <div className="admin-feedback-list" role="list" aria-label="Feedback Einträge">
-                  {feedbackItems.map((row) => (
-                    <article key={row.id} className="settings-card admin-feedback-card" role="listitem">
-                      <div className="admin-feedback-header-row">
-                        <div className="admin-feedback-person">
-                          <p className="admin-feedback-name">{formatFeedbackAuthorName(row)}</p>
-                          <p className="admin-feedback-email-line">{row.author_email ?? '—'}</p>
-                        </div>
-                        <div className="admin-feedback-header-aside">
-                          <time className="admin-feedback-time" dateTime={row.created_at}>
-                            {formatFeedbackDate(row.created_at)}
-                          </time>
-                          <SecondaryButton
-                            type="button"
-                            className="admin-feedback-delete-button"
-                            disabled={deletingFeedbackId === row.id}
-                            onClick={() => void handleDeleteFeedback(row.id)}
-                          >
-                            {deletingFeedbackId === row.id ? 'Löschen…' : 'Löschen'}
-                          </SecondaryButton>
-                        </div>
+                feedbackItems.length === 0 ? (
+                  <p className="admin-user-empty">Noch kein Feedback eingegangen.</p>
+                ) : (
+                  <div className="admin-feedback-sections" aria-label="Feedback nach Status">
+                    <details
+                      className="admin-feedback-section"
+                      open={feedbackOpenItems.length > 0}
+                    >
+                      <summary className="admin-feedback-section-summary">
+                        <span className="admin-feedback-section-title">Noch offen</span>
+                        <span className="admin-feedback-section-count">
+                          {feedbackOpenItems.length}{' '}
+                          {feedbackOpenItems.length === 1 ? 'Eintrag' : 'Einträge'}
+                        </span>
+                      </summary>
+                      <div
+                        className="admin-feedback-list admin-feedback-list--section"
+                        role="list"
+                        aria-label="Offenes Feedback"
+                      >
+                        {feedbackOpenItems.map((row) => renderAdminFeedbackCard(row))}
+                        {feedbackOpenItems.length === 0 ? (
+                          <p className="admin-user-empty admin-feedback-section-empty">Keine offenen Einträge.</p>
+                        ) : null}
                       </div>
-                      <p className="admin-feedback-display-id">Feedback-ID: {row.display_id}</p>
-                      <p className="admin-feedback-userid">Nutzer-ID: {row.user_id}</p>
-                      <p className="admin-feedback-body">{row.body}</p>
-                      {row.resolved_at ? (
-                        <div className="admin-feedback-resolved">
-                          <p className="admin-feedback-resolved-label">Erledigt</p>
-                          <p className="admin-feedback-resolved-message">{row.resolution_message}</p>
-                          {row.resolution_seen_at ? (
-                            <p className="admin-feedback-resolved-meta">Vom Nutzer gelesen</p>
-                          ) : (
-                            <p className="admin-feedback-resolved-meta">Hinweis beim Nutzer noch offen</p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="admin-feedback-actions">
-                          <PrimaryButton
-                            type="button"
-                            disabled={deletingFeedbackId === row.id || isResolvingFeedback}
-                            onClick={() => openFeedbackResolveModal(row)}
-                          >
-                            Als erledigt markieren
-                          </PrimaryButton>
-                        </div>
-                      )}
-                    </article>
-                  ))}
-                  {feedbackItems.length === 0 ? <p className="admin-user-empty">Noch kein Feedback eingegangen.</p> : null}
-                </div>
+                    </details>
+                    <details className="admin-feedback-section">
+                      <summary className="admin-feedback-section-summary">
+                        <span className="admin-feedback-section-title">Erledigt</span>
+                        <span className="admin-feedback-section-count">
+                          {feedbackResolvedItems.length}{' '}
+                          {feedbackResolvedItems.length === 1 ? 'Eintrag' : 'Einträge'}
+                        </span>
+                      </summary>
+                      <div
+                        className="admin-feedback-list admin-feedback-list--section"
+                        role="list"
+                        aria-label="Erledigtes Feedback"
+                      >
+                        {feedbackResolvedItems.map((row) => renderAdminFeedbackCard(row))}
+                        {feedbackResolvedItems.length === 0 ? (
+                          <p className="admin-user-empty admin-feedback-section-empty">Noch nichts erledigt.</p>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                )
               ) : null}
             </div>
           ) : null}

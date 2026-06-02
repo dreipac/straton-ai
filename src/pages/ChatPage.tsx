@@ -11,6 +11,7 @@ import {
   parseChatDailyTierConfigFromPlan,
   parseThinkingTierConfigFromPlan,
 } from '../features/chat/constants/chatDailyOpenAiTier'
+import { resolveChatProfileIdentity } from '../features/chat/constants/chatProfileIdentityContext'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import { getChatModelPolicyFromPlan } from '../features/chat/constants/chatComposerModels'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
@@ -84,6 +85,11 @@ export function ChatPage() {
     return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
   }, [profile?.subscription_plans])
 
+  const chatProfileIdentity = useMemo(
+    () => resolveChatProfileIdentity(user, profile),
+    [user, profile?.first_name, profile?.last_name, user?.email, user?.user_metadata],
+  )
+
   const featureFlags = useChatPageFeatureFlags({ user, profile, isLoading })
   const {
     instantAnalyzeDebugEnabled,
@@ -138,6 +144,7 @@ export function ChatPage() {
     onWebSearchCreditsConsumed: refreshProfile,
     thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
     onThinkingCreditsConsumed: refreshProfile,
+    profileIdentity: chatProfileIdentity,
   })
   const chatFolders = useChatFolders(user?.id, threads)
   const isPageEnter = useChatPageEnter()

@@ -6,14 +6,18 @@ import {
   getAssistantMainChatGuidedDiagnosisInstruction,
   getAssistantMainChatMandatoryFollowUpInstruction,
   getAssistantMainChatStepByStepIntakeInstruction,
+  getAssistantMainChatThreadContinuityInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import {
+  applyConversationalFollowUpHeuristic,
   applyIdentityQuestionHeuristic,
   applyLiveWebHeuristic,
   buildInstantAnalyzeBriefingInstruction,
+  CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING,
   fallbackInstantAnalyzeResult,
   formatInstantAnalyzeContextLines,
+  isConversationalFollowUp,
   sanitizeInstantAnalyzeResult,
   type InstantAnalyzeInvokeResult,
   type InstantAnalyzeResult,
@@ -65,6 +69,12 @@ import {
   getChatStrictToneInstruction,
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
+import { getStratonProductContextInstruction } from '../constants/chatProductContext'
+import { getChatCurrentDateContextInstruction } from '../constants/chatCurrentDateContext'
+import {
+  getChatProfileIdentityInstruction,
+  type ChatProfileIdentity,
+} from '../constants/chatProfileIdentityContext'
 import {
   clipChatMessagesToEstimatedTokenBudget,
   computeVisionTokenReserve,
@@ -183,6 +193,11 @@ export type SendMessageOptions = {
   visionInlineDataUrl?: string
   /** Hauptchat: Prompt-Cache pro Thread (`straton-main-v4-{threadId}`). */
   mainChatThreadId?: string | null
+  /**
+   * Hauptchat: Vor-/Nachname aus dem Profil (Auth-Context, kein Extra-Request).
+   * Im System-Prompt vor dem Datum — für Prompt-Cache und «Wer bin ich?».
+   */
+  profileIdentity?: ChatProfileIdentity | null
 }
 
 type EvaluateQuizAnswerInput = {
@@ -512,6 +527,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const mainChatMandatoryFollowUp = mainChatInstantPrompts
     ? getAssistantMainChatMandatoryFollowUpInstruction()
     : ''
+  const mainChatThreadContinuity = mainChatInstantPrompts
+    ? getAssistantMainChatThreadContinuityInstruction()
+    : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -542,6 +560,17 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat && !thinking ? getChatWebSearchGroundingInstruction() : ''
 
   const lastUserTurnContextBlocks: string[] = []
+  const priorTurnsForFollowUp = lastUserMessage
+    ? threadMessages.filter((m) => m.id !== lastUserMessage.id)
+    : threadMessages
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    isConversationalFollowUp(lastUserMessage.content, priorTurnsForFollowUp)
+  ) {
+    lastUserTurnContextBlocks.push(CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING)
+  }
   if (isMainChat && !thinking && instantAnalyze) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
   }
@@ -604,6 +633,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         : ''
   const combinedSystemPrompt = [
     baseQuiz,
+    isMainChat ? getStratonProductContextInstruction() : '',
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
@@ -613,6 +643,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     mainChatGuidedDiagnosis,
     mainChatStepByStepIntake,
     mainChatMandatoryFollowUp,
+    mainChatThreadContinuity,
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -629,6 +660,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         : '',
     thinkingClarifyUiReminder,
     mainChatBrevity && !thinkingClarifyUiReminder ? getAssistantMainChatBrevityFinalReminder() : '',
+    /* Profil + Zeit zuletzt: grosser statischer Prefix darüber bleibt prompt-cache-fähig; Datum ganz am Ende. */
+    isMainChat ? getChatProfileIdentityInstruction(options?.profileIdentity) : '',
+    isMainChat ? getChatCurrentDateContextInstruction() : '',
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -1537,10 +1571,10 @@ export async function instantAnalyzeUserMessage(params: {
 }): Promise<InstantAnalyzeInvokeResult> {
   const trimmed = params.userMessage.trim()
   if (!trimmed) {
-    return { analyze: fallbackInstantAnalyzeResult(''), source: 'fallback' }
+    return { analyze: fallbackInstantAnalyzeResult('', params.priorTurns), source: 'fallback' }
   }
   if (!usesGatewayAi()) {
-    return { analyze: fallbackInstantAnalyzeResult(trimmed), source: 'fallback' }
+    return { analyze: fallbackInstantAnalyzeResult(trimmed, params.priorTurns), source: 'fallback' }
   }
 
   const contextBlock = params.priorTurns?.length
@@ -1568,8 +1602,13 @@ export async function instantAnalyzeUserMessage(params: {
 
     const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
     if (parsed) {
+      const withHeuristics = applyConversationalFollowUpHeuristic(
+        trimmed,
+        params.priorTurns,
+        applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, parsed)),
+      )
       return {
-        analyze: applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, parsed)),
+        analyze: withHeuristics,
         source: 'edge',
         analyzeFromAi: parsed,
       }
@@ -1578,7 +1617,7 @@ export async function instantAnalyzeUserMessage(params: {
     /* Fallback unten */
   }
 
-  return { analyze: fallbackInstantAnalyzeResult(trimmed), source: 'fallback' }
+  return { analyze: fallbackInstantAnalyzeResult(trimmed, params.priorTurns), source: 'fallback' }
 }
 
 export type ThinkingAnalyzeInvokeResult = {

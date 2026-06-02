@@ -109,13 +109,15 @@
 }
 
 .settings-modal {
-  width: min(1050px, 100%);
-  height: min(720px, calc(100vh - 2rem));
+  width: min(1050px, calc(100vw - 2rem));
+  height: min(720px, calc(100dvh - 2rem));
+  max-height: calc(100dvh - 2rem);
   border: 1px solid var(--color-border);
   border-radius: 22px;
   background: var(--settings-modal-bg);
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   box-shadow: 0 24px 60px var(--color-shadow-strong);
   color: var(--color-text-app);
@@ -148,6 +150,9 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 0.9rem;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-sidebar h2 {
@@ -228,9 +233,10 @@
 
 .settings-content {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .settings-titlebar {
@@ -391,7 +397,10 @@
   align-content: start;
   background: var(--settings-body-bg);
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .settings-card {
@@ -1819,12 +1828,84 @@
 .admin-feedback-panel {
   display: grid;
   gap: 0.4rem;
+  min-height: 0;
+  min-width: 0;
+}
+
+.admin-feedback-sections {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.admin-feedback-section {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--color-surface-soft, #f8fafc);
+  overflow: hidden;
+}
+
+.admin-feedback-section > summary {
+  list-style: none;
+}
+
+.admin-feedback-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-feedback-section-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+
+.admin-feedback-section[open] > .admin-feedback-section-summary {
+  border-bottom-color: var(--color-border, #e2e8f0);
+}
+
+.admin-feedback-section-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #475569);
+  transition: transform 0.15s ease;
+}
+
+.admin-feedback-section[open] > .admin-feedback-section-summary::before {
+  transform: rotate(90deg);
+}
+
+.admin-feedback-section-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--color-text-app);
+}
+
+.admin-feedback-section-count {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary, #475569);
+}
+
+.admin-feedback-section-empty {
+  margin: 0;
+  padding: 0.15rem 0;
 }
 
 .admin-feedback-list {
   display: grid;
   gap: 0.65rem;
   margin-top: 0.35rem;
+}
+
+.admin-feedback-list--section {
+  margin-top: 0;
+  padding: 0.65rem 0.7rem 0.75rem;
 }
 
 .admin-feedback-card {
@@ -2084,6 +2165,15 @@
     width: 38px;
     height: 38px;
   }
+}
+
+:root[data-theme='dark'] .admin-feedback-section {
+  border-color: var(--color-border);
+  background: var(--color-surface-soft);
+}
+
+:root[data-theme='dark'] .admin-feedback-section[open] > .admin-feedback-section-summary {
+  border-bottom-color: var(--color-border);
 }
 
 :root[data-theme='dark'] .admin-feedback-resolved {
@@ -2473,6 +2563,26 @@
 
 .settings-overlay input::placeholder {
   color: var(--color-text-muted);
+}
+
+/* Laptop / niedrige Viewport-Höhe: Modal vollständig sichtbar, Inhalt scrollt im Body */
+@media (max-height: 820px) {
+  .settings-overlay {
+    align-items: flex-start;
+    padding: max(0.5rem, env(safe-area-inset-top)) 0.75rem max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .settings-modal {
+    height: min(720px, calc(100dvh - 1rem));
+    max-height: calc(100dvh - 1rem);
+    margin-inline: auto;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 861px) {
+  .settings-modal {
+    width: min(960px, calc(100vw - 1.5rem));
+  }
 }
 
 @media (max-width: 860px) {

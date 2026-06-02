@@ -28,6 +28,17 @@ export function getAssistantMainChatMandatoryFollowUpInstruction(): string {
     '- «Wer bin ich?» / «Wie heisse ich?»: ehrlich erklären (Konto, gespeicherter Kontext, Grenzen); **keine** Interview-Liste mit 3–4 Meta-Fragen.',
     '- Keine leeren Floskeln («Hast du noch Fragen?»).',
     '- Ausnahmen: Verabschiedung, reine Kurzbestätigung («danke», «passt»), oder Nutzer verlangt «keine Rückfragen».',
+    '- Kurze Folgen («und jetzt?», «mehr», «warum?») nach deiner letzten Antwort: **zuerst** darauf eingehen — nicht fragen, was der Nutzer «erreichen» will.',
+  ].join('\n')
+}
+
+/** Hauptchat Instant: Thread-Verlauf nicht ignorieren. */
+export function getAssistantMainChatThreadContinuityInstruction(): string {
+  return [
+    'Gesprächsverlauf (Instant — verbindlich):',
+    '- Lies den bisherigen Thread. Die Nutzer-Nachricht bezieht sich in der Regel auf das Gespräch — besonders kurze Folgen.',
+    '- «Und jetzt?», «nochmal», «mehr», «warum?» usw.: Fortsetzung der **letzten Assistenten-Antwort** — nicht als völlig neues, unklares Thema.',
+    '- Antworte zuerst inhaltlich; generische «Was ist dein Ziel?»-Rückfragen nur, wenn wirklich ein **neues** Thema ohne Bezug beginnt.',
   ].join('\n')
 }
 
