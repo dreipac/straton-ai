@@ -405,7 +405,8 @@ export function ChatWindow({
       ariaLabel={composer.isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Anhang-Menü öffnen'}
       isMobile={composer.isMobileComposer}
       onMobileOpen={composer.openMobileAttachSheet}
-      onUploadFile={() => composer.fileInputRef.current?.click()}
+      onUploadImage={() => composer.openImageFilePicker()}
+      onUploadFile={() => composer.openDocumentFilePicker()}
       replyMode={chatReplyMode}
       onReplyModeChange={onChatReplyModeChange}
       showReplyModeOption={showReplyModePicker && !composer.isMobileComposer}
@@ -417,7 +418,7 @@ export function ChatWindow({
       open={composer.attachComposerSheetOpen}
       onClose={() => composer.setAttachComposerSheetOpen(false)}
       title="Einfügen"
-      ariaLabel="Word, PDF, Excel, Bilder oder Datei wählen"
+      ariaLabel="Word, PDF, Excel, Foto oder Datei wählen"
       actions={[
         {
           id: 'word',
@@ -444,8 +445,17 @@ export function ChatWindow({
           },
         },
         {
+          id: 'foto',
+          label: 'Foto anhängen',
+          actionClassName: 'action-bottom-sheet-action--compose-bilder',
+          onClick: () => {
+            composer.setAttachComposerSheetOpen(false)
+            composer.openImageFilePicker()
+          },
+        },
+        {
           id: 'bilder',
-          label: 'Bilder',
+          label: 'Bild generieren',
           actionClassName: 'action-bottom-sheet-action--compose-bilder',
           onClick: () => {
             composer.handleSelectImageQuickTile()
@@ -455,7 +465,8 @@ export function ChatWindow({
           id: 'anhang',
           label: 'Datei anhängen',
           onClick: () => {
-            composer.fileInputRef.current?.click()
+            composer.setAttachComposerSheetOpen(false)
+            composer.openDocumentFilePicker()
           },
         },
       ]}
@@ -502,9 +513,10 @@ export function ChatWindow({
     </>
   )
 
-  async function handleCopyUserMessageText(text: string) {
+  async function handleCopyUserMessageText(text: string): Promise<boolean> {
     const ok = await copyTextToClipboard(text)
     pushToast(ok ? 'Nachricht kopiert' : 'Kopieren fehlgeschlagen')
+    return ok
   }
 
   if (isEmptyState) {

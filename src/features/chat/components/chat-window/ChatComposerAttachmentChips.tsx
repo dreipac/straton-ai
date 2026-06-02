@@ -1,3 +1,4 @@
+import fileIcon from '../../../../assets/icons/file.svg'
 import type { ChatWindowPendingAttachment } from './chatWindowMessageUtils'
 
 type ChatComposerAttachmentChipsProps = {
@@ -107,6 +108,7 @@ export function ChatComposerAttachmentChips({
           </span>
         ) : (
           <span key={item.id} className="chat-attachment-chip chat-attach-removable">
+            <img className="ui-icon chat-attachment-chip-icon" src={fileIcon} alt="" aria-hidden="true" />
             <span className="chat-attachment-chip-name">{item.name}</span>
             <button
               type="button"

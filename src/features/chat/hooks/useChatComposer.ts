@@ -20,7 +20,10 @@ import {
   getImageFilesFromClipboard,
   type ChatWindowPendingAttachment,
 } from '../components/chat-window/chatWindowMessageUtils'
-import { CHAT_WINDOW_MOBILE_COMPOSER_MQ, CHAT_WINDOW_SLASH_MENU_ITEM_COUNT } from '../components/chat-window/chatWindowConstants'
+import {
+  CHAT_WINDOW_MOBILE_COMPOSER_MQ,
+  CHAT_WINDOW_SLASH_MENU_ITEM_COUNT,
+} from '../components/chat-window/chatWindowConstants'
 
 const MAX_INPUT_HEIGHT_PX = 220
 
@@ -57,6 +60,7 @@ export function useChatComposer({
   const [attachComposerSheetOpen, setAttachComposerSheetOpen] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null)
   const [isAttachingFiles, setIsAttachingFiles] = useState(false)
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
   const [wordCommandSelected, setWordCommandSelected] = useState(false)
@@ -319,6 +323,14 @@ export function useChatComposer({
     setAttachComposerSheetOpen(true)
   }
 
+  function openDocumentFilePicker() {
+    fileInputRef.current?.click()
+  }
+
+  function openImageFilePicker() {
+    imageFileInputRef.current?.click()
+  }
+
   function handleComposeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (showSlashMenu) {
       if (event.key === 'ArrowDown') {
@@ -416,6 +428,9 @@ export function useChatComposer({
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+      if (imageFileInputRef.current) {
+        imageFileInputRef.current.value = ''
+      }
       if (!isMobileComposer) {
         inputRef.current?.focus({ preventScroll: true })
       }
@@ -478,6 +493,7 @@ export function useChatComposer({
     setAttachComposerSheetOpen,
     inputRef,
     fileInputRef,
+    imageFileInputRef,
     isAttachingFiles,
     excelCommandSelected,
     setExcelCommandSelected,
@@ -507,6 +523,8 @@ export function useChatComposer({
     handleSelectPdfQuickTile,
     handleSelectImageQuickTile,
     openMobileAttachSheet,
+    openDocumentFilePicker,
+    openImageFilePicker,
     handleComposeKeyDown,
     handleAttachFiles,
     handleComposePaste,

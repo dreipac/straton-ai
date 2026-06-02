@@ -56,7 +56,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- intent: kurze Beschreibung der Nutzerabsicht (max. 120 Zeichen, Deutsch)',
     '- missing: Array mit max. 3 fehlenden Infos (Strings, je max. 80 Zeichen); leer wenn klar genug',
     '- reply_mode:',
-    '  - "ask_only": zu wenig Kontext — in der Antwort NUR 2–4 klärende Rückfragen, keine Lösung',
+    '  - "ask_only": zu wenig Kontext — kurze Einordnung + genau eine Klärungsfrage im Fliesstext, keine nummerierte Fragenliste, keine Lösungsschritte',
     '  - "one_step": konkretes Problem — ein Prüfschritt / eine klare Kurzantwort',
     '  - "short_answer": einfache Wissens- oder How-to-Frage mit klarer Zielsetzung',
     '  - "normal": Standardantwort mit angemessener Tiefe',
@@ -67,6 +67,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     'Regeln:',
     '- Bei clarity "vague" oder fehlendem Kernkontext: reply_mode "ask_only", needs_live_web false, web_query "".',
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
+    '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
     '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
     '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
@@ -190,6 +191,27 @@ export function detectLiveWebHeuristic(userMessage: string): {
 }
 
 /** Erzwingt Tavily, wenn Nutzertext klar Live-Fakten verlangt (auch wenn Mini-Einordnung «nein» sagt). */
+const IDENTITY_OR_ACCOUNT_META_RE =
+  /\b(wer\s+bin\s+ich|wie\s+hei[sß](?:e|t)?\s+ich|kennst\s+du\s+mich|was\s+wei[sß]t\s+du\s+(?:über\s+)?mich|mein\s+name|identit[aä]t)\b/i
+
+/** Meta-/Identitätsfragen nicht als ask_only mit Fragenliste behandeln. */
+export function applyIdentityQuestionHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+): InstantAnalyzeResult {
+  if (!IDENTITY_OR_ACCOUNT_META_RE.test(userMessage.trim())) {
+    return analyze
+  }
+  return {
+    ...analyze,
+    clarity: 'partial',
+    reply_mode: 'short_answer',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+  }
+}
+
 export function applyLiveWebHeuristic(
   userMessage: string,
   analyze: InstantAnalyzeResult,
@@ -224,7 +246,7 @@ export function fallbackInstantAnalyzeResult(userMessage: string): InstantAnalyz
     web_query: '',
     web_reason: '',
   }
-  return applyLiveWebHeuristic(trimmed, base)
+  return applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, base))
 }
 
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {
@@ -239,7 +261,7 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
   }
   if (analyze.reply_mode === 'ask_only') {
     lines.push(
-      'Nur 2–4 kurze, präzise Rückfragen — keine Lösung, keine Schrittfolge, keine erfundenen Aktualitäten.',
+      'Kurz einordnen, was fehlt; dann **genau eine** Klärungsfrage im Fliesstext — **keine** nummerierte Liste (`1.` `2.` …), keine Schrittfolge, keine erfundenen Fakten.',
     )
   } else if (analyze.reply_mode === 'one_step') {
     lines.push('Ein klarer Prüfschritt oder eine fokussierte Kurzlösung — nicht alles auf einmal.')

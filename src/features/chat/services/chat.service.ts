@@ -4,10 +4,12 @@ import {
   getAssistantMainChatBrevityFinalReminder,
   getAssistantMainChatBrevityInstruction,
   getAssistantMainChatGuidedDiagnosisInstruction,
+  getAssistantMainChatMandatoryFollowUpInstruction,
   getAssistantMainChatStepByStepIntakeInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import {
+  applyIdentityQuestionHeuristic,
   applyLiveWebHeuristic,
   buildInstantAnalyzeBriefingInstruction,
   fallbackInstantAnalyzeResult,
@@ -507,6 +509,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const mainChatStepByStepIntake = mainChatInstantPrompts
     ? getAssistantMainChatStepByStepIntakeInstruction()
     : ''
+  const mainChatMandatoryFollowUp = mainChatInstantPrompts
+    ? getAssistantMainChatMandatoryFollowUpInstruction()
+    : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
   const toneBlock =
@@ -529,9 +534,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
             : 'Harter Intake-Guard (diese Antwort):',
           '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
           instantAskOnly
-            ? '- Stelle nur 2–4 kurze, präzise Rückfragen — keine Lösung, keine Schrittfolge.'
-            : '- Stelle stattdessen nur 3–5 präzise Rückfragen zur Umgebung (OS/Version/Verbindungsart/Ziel).',
-          '- Abschluss mit genau einer kurzen Frage nach den fehlenden Infos.',
+            ? '- Kurz sagen, was unklar ist; dann **genau eine** Klärungsfrage im Fliesstext — **keine** nummerierte Fragenliste, keine Schrittfolge.'
+            : '- Kurz sagen, was für eine Anleitung fehlt; dann **genau eine** Frage (OS/Version/Ziel) — **keine** nummerierte Liste mit 3–5 Punkten.',
         ].join('\n')
       : ''
   const mainChatWebGrounding =
@@ -608,6 +612,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     mainChatBrevity,
     mainChatGuidedDiagnosis,
     mainChatStepByStepIntake,
+    mainChatMandatoryFollowUp,
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -709,17 +714,32 @@ function sanitizeContentForImageContext(content: string): string {
  * Bildgenerierung über Edge Function `generate-chat-image` (OpenAI GPT Image 1/2 laut Abo).
  * Optional `contextMessages`: aktueller Chat-Verlauf für Nachbearbeitungen («wie vorher, aber …»).
  */
+export type GenerateChatImageOptions = {
+  /** Referenzfoto aus Composer — Bearbeitung via Images-Edits, Ausgabe max. 1024×1024. */
+  sourceImageDataUrl?: string
+}
+
 export async function generateChatImageFromPrompt(
   prompt: string,
   contextMessages?: ChatImageContextTurn[],
+  options?: GenerateChatImageOptions,
 ): Promise<{ assistantMarkdown: string }> {
   const supabase = getSupabaseClient()
-  const body: { prompt: string; contextMessages?: ChatImageContextTurn[] } = { prompt }
+  const body: {
+    prompt: string
+    contextMessages?: ChatImageContextTurn[]
+    sourceImageDataUrl?: string
+  } = { prompt }
   if (contextMessages?.length) {
     body.contextMessages = contextMessages.map((m) => ({
       role: m.role,
       content: sanitizeContentForImageContext(typeof m.content === 'string' ? m.content : ''),
     }))
+  }
+  const sourceInline =
+    typeof options?.sourceImageDataUrl === 'string' ? options.sourceImageDataUrl.trim() : ''
+  if (sourceInline.startsWith('data:image/') && sourceInline.length > 96) {
+    body.sourceImageDataUrl = sourceInline
   }
   const { data, error, response } = await supabase.functions.invoke('generate-chat-image', {
     body,
@@ -1549,7 +1569,7 @@ export async function instantAnalyzeUserMessage(params: {
     const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
     if (parsed) {
       return {
-        analyze: applyLiveWebHeuristic(trimmed, parsed),
+        analyze: applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, parsed)),
         source: 'edge',
         analyzeFromAi: parsed,
       }
@@ -1634,6 +1654,7 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
         body: {
           mode: 'generate_title',
           provider: providerForMainChat(),
+          openAiModels: ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'],
           payload: {
             messages: messages.map((message) => ({
               role: message.role,

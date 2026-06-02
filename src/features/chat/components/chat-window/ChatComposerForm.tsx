@@ -2,6 +2,10 @@ import type { ReactNode } from 'react'
 import { ChatComposerAttachmentChips } from './ChatComposerAttachmentChips'
 import { ChatComposerSlashMenu } from './ChatComposerSlashMenu'
 import type { useChatComposer } from '../../hooks/useChatComposer'
+import {
+  CHAT_COMPOSER_DOCUMENT_FILE_ACCEPT,
+  CHAT_COMPOSER_IMAGE_FILE_ACCEPT,
+} from './chatWindowConstants'
 
 type ComposerState = ReturnType<typeof useChatComposer>
 
@@ -40,6 +44,7 @@ export function ChatComposerForm({
     setSlashMenuHighlightIndex,
     inputRef,
     fileInputRef,
+    imageFileInputRef,
     composerSectionReply,
     composePlaceholder,
     handleSubmit,
@@ -74,7 +79,17 @@ export function ChatComposerForm({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,.heic,.heif"
+        accept={CHAT_COMPOSER_DOCUMENT_FILE_ACCEPT}
+        className="chat-file-input-hidden"
+        onChange={(event) => {
+          void handleAttachFiles(event.target.files)
+        }}
+      />
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        multiple
+        accept={CHAT_COMPOSER_IMAGE_FILE_ACCEPT}
         className="chat-file-input-hidden"
         onChange={(event) => {
           void handleAttachFiles(event.target.files)

@@ -982,11 +982,23 @@
 .chat-main::after {
   content: '';
   position: absolute;
-  inset: -35%;
+  /*
+   * Feste Überlauf-Marge statt inset:-35%: Prozent bezieht sich auf .chat-main — bei
+   * Tastatur/Visual-Viewport (useVisualKeyboardInset) springt die Höhe → Sterne ruckeln.
+   */
+  top: -28vmin;
+  right: -28vmin;
+  bottom: -28vmin;
+  left: -28vmin;
   z-index: -1;
   pointer-events: none;
   opacity: 0;
   transition: opacity 260ms ease;
+  /*
+   * Drift über background-position (nicht transform): .chat-main hat mobil transform/will-change
+   * für die Sidebar — doppelte Transform-Animationen führen zu synchronen Sprüngen + Stillstand.
+   */
+  transform: translateZ(0);
   background-image:
     radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
     radial-gradient(2px 2px at 66% 24%, rgba(226, 232, 240, 0.84) 0 1px, transparent 1.2px),
@@ -994,7 +1006,8 @@
     radial-gradient(2px 2px at 80% 74%, rgba(203, 213, 225, 0.84) 0 1px, transparent 1.2px),
     radial-gradient(2px 2px at 34% 82%, rgba(255, 255, 255, 0.84) 0 1px, transparent 1.2px);
   background-size: 260px 260px, 320px 320px, 380px 380px, 300px 300px, 420px 420px;
-  animation: chat-space-stars-drift 70s linear infinite;
+  background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
+  animation: none;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-main::after {
@@ -1008,16 +1021,21 @@
 }
 
 @keyframes chat-space-stars-drift {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
   to {
-    transform: translate3d(-80px, -48px, 0);
+    background-position: -80px -48px, -80px -48px, -80px -48px, -80px -48px, -80px -48px;
   }
 }
 
 :root[data-chat-background='space-stars'] .chat-main::after {
   opacity: 0.78;
+  animation: chat-space-stars-drift 70s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-chat-background='space-stars'] .chat-main::after {
+    animation: none;
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
+  }
 }
 
 /* Hellmodus: neutraler Chat-Hintergrund — kein Weltall, keine Sterne (unabhängig von Chat-Hintergrund-Wahl) */
@@ -1537,19 +1555,18 @@
     padding: 0;
     transform: translate3d(0, 0, 0);
     transition: transform var(--mobile-sidebar-transition-ms) cubic-bezier(0.25, 0.82, 0.3, 1);
-    will-change: transform;
   }
 
   .chat-main-guest {
     padding: calc(0.9rem + env(safe-area-inset-top, 0px)) 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
     transform: translate3d(0, 0, 0);
     transition: transform var(--mobile-sidebar-transition-ms) cubic-bezier(0.25, 0.82, 0.3, 1);
-    will-change: transform;
   }
 
   .chat-app-shell.is-mobile-sidebar-open .chat-main,
   .chat-app-shell.is-mobile-sidebar-open .chat-main-guest {
     transform: translate3d(var(--mobile-sidebar-width), 0, 0);
+    will-change: transform;
     pointer-events: none;
   }
 

@@ -6,3 +6,26 @@ export const CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS = 1100
 
 /** Einträge im Slash-Menü (Excel, Word, PDF, Bilder) — für Pfeiltasten / Enter */
 export const CHAT_WINDOW_SLASH_MENU_ITEM_COUNT = 4
+
+/** Foto aus Galerie/Kamera (Vision-Anhang). */
+export const CHAT_COMPOSER_IMAGE_FILE_ACCEPT =
+  'image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff'
+
+/** Datei anhängen: Dokumente + Bilder (s. extractLearningMaterialText / isChatVisionImageFile). */
+export const CHAT_COMPOSER_DOCUMENT_FILE_ACCEPT = [
+  CHAT_COMPOSER_IMAGE_FILE_ACCEPT,
+  '.pdf',
+  'application/pdf',
+  '.docx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx',
+  '.xls',
+  '.csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  '.txt',
+  'text/plain',
+  '.md',
+  'text/markdown',
+].join(',')

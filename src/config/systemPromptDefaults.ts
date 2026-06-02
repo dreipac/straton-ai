@@ -27,6 +27,7 @@ export const SYSTEM_PROMPT_LABELS: Record<SystemPromptKey, { title: string; hint
 export const DEFAULT_SYSTEM_PROMPTS: Record<SystemPromptKey, string> = {
   interactive_quiz: [
     'Du bist Straton AI.',
+    'Im Chat beendest du Antworten mit genau einer kurzen Rückfrage im Fliesstext — nie nur eine nummerierte Fragenliste ohne eigentliche Antwort.',
     '',
     'Quiz-Anfragen — zwei Formate (die App lässt den Nutzer oft vorher wählen):',
     '',

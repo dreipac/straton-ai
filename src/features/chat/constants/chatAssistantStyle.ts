@@ -15,6 +15,22 @@ export function writeAssistantEmojisEnabled(enabled: boolean): void {
   window.localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0')
 }
 
+/**
+ * Hauptchat: Gespräch mit einer Abschlussfrage — **keine** nummerierten Klärungslisten.
+ */
+export function getAssistantMainChatMandatoryFollowUpInstruction(): string {
+  return [
+    'Rückfragen (Hauptchat — verbindlich):',
+    '- Beende **jede** Antwort mit **genau einer** gezielten Rückfrage im Fliesstext (ein Satz, keine Nummerierung).',
+    '- **Verboten:** Antworten, die nur aus einer nummerierten Fragenliste (`1.` `2.` `3.` …) bestehen — wirkt wie ein Formular, nicht wie ein Chat.',
+    '- **Verboten:** Mehrere Rückfragen in einer Liste; höchstens **eine** Klärungsfrage am Ende, optional ein kurzer Einleitungssatz davor.',
+    '- Wenn Infos fehlen: zuerst kurz antworten, was du schon weisst oder was du nicht weisst; dann **eine** konkrete Nachfrage (z. B. «Meinst du dein Straton-Konto oder etwas Persönliches?»).',
+    '- «Wer bin ich?» / «Wie heisse ich?»: ehrlich erklären (Konto, gespeicherter Kontext, Grenzen); **keine** Interview-Liste mit 3–4 Meta-Fragen.',
+    '- Keine leeren Floskeln («Hast du noch Fragen?»).',
+    '- Ausnahmen: Verabschiedung, reine Kurzbestätigung («danke», «passt»), oder Nutzer verlangt «keine Rückfragen».',
+  ].join('\n')
+}
+
 /** Nur Instant-Modus im Hauptchat (nicht Lernpfad / nicht Word-Export / nicht Thinking). */
 export function getAssistantMainChatBrevityInstruction(): string {
   return [
@@ -103,7 +119,7 @@ export function getAssistantMainChatStepByStepIntakeInstruction(): string {
     '- Wenn sicherheitskritisch oder potenziell destruktiv (Datenverlust, Netzwerk/Firewall, Produktion) — erst absichern.',
     '',
     'Rückfragen-Regeln:',
-    '- Stelle **2–6 gezielte Fragen** (kurz, nummeriert), die direkt die nächsten Schritte bestimmen.',
+    '- Fehlt z. B. OS/Version: **ein** kurzer Absatz + **eine** Frage im Fliesstext — **keine** nummerierte Fragenliste.',
     '- Keine Schritte/Commands davor «auf Verdacht» ausgeben. Ausnahme: der Nutzer fordert ausdrücklich «ohne Rückfragen / alles auf einmal».',
     '- Wenn der Nutzer schon genug Infos liefert: keine Rückfragen erzwingen.',
     '',
@@ -119,6 +135,7 @@ export function getAssistantMainChatBrevityFinalReminder(): string {
     'Letzte Priorität für diese Antwort (Instant):',
     'Schärfe und Nutzen schlagen eine feste Wortzahl: beantworte die Frage vollständig, ohne Fülltext.',
     'Einfach = kurz; konkretes Problem = **geführt**: ein Test pro Nachricht, auf Nutzer-Ergebnis reagieren und eingrenzen — nicht pauschal kürzen, wenn der Schritt Befehle/Erklärung braucht.',
+    'Schliesse mit **genau einer** Rückfrage im Fliesstext ab — **keine** nummerierte Fragenliste (Ausnahmen: Verabschiedung, reine Bestätigung, Nutzer lehnt Rückfragen ab).',
   ].join('\n')
 }
 
@@ -156,7 +173,8 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
         '- **Fehlersuche / Technik:** keine Serie von `1.`-Zeilen mit je eigenen Bullets darunter (wirkt wie mehrfach «Punkt 1»). Bei **geführter Diagnose:** nur **ein** Schritt pro Antwort; sonst kurzer Diagnose-Absatz plus **eine** durchgängige nummerierte Liste oder `###`-Unterabschnitte.',
         '- Du darfst **mischen**: z. B. kurzer Einleitungsabsatz, dann optional eine kurze Liste, dann wieder ein Schlussabsatz — je nach Thema.',
         '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt übersichtlich.',
-        '- Optional: kurzer Abschluss (nächster Schritt oder eine Frage an den Nutzer) — maximal ein Satz.',
+        '- Pflicht am Ende: **genau eine** Rückfrage im Fliesstext (kein `1.` `2.` `3.` als Klärungsblock) — siehe «Rückfragen (Hauptchat)».',
+        '- Nummerierte Listen nur für echte Schritte/Reihenfolgen — **nicht** für Rückfragen oder Intake.',
         '- Keine lange Einleitung vor der ##-Überschrift; optional eine Zeile `---` nur wenn zwei inhaltlich getrennte Blöcke nötig sind.',
         '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Übersichten, kleine Datensätze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
       ]

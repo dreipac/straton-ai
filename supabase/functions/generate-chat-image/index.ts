@@ -50,6 +50,8 @@ const MAX_DIRECT_PROMPT_CHARS = 4000
 const MAX_FULL_PROMPT_CHARS = 14000
 const MAX_CONTEXT_MESSAGES = 28
 const MAX_CONTEXT_MESSAGE_CHARS = 3200
+const IMAGE_OUTPUT_SIZE = '1024x1024'
+const MAX_SOURCE_IMAGE_DATA_URL_CHARS = 6_500_000
 
 function stripHeavyMediaForContext(s: string): string {
   return s
@@ -109,12 +111,151 @@ function buildFullImagePrompt(directPrompt: string, turns: ContextTurn[]): strin
   return (header + body + tail).slice(0, MAX_FULL_PROMPT_CHARS)
 }
 
+function buildEditImagePrompt(directPrompt: string, turns: ContextTurn[]): string {
+  const header =
+    'Bearbeite das angehängte Referenzbild gemäss der Anweisung. Behalte Komposition und erkennbare Motive bei, sofern nicht anders verlangt.\n\n'
+  const base = buildFullImagePrompt(directPrompt, turns)
+  return `${header}${base}`.slice(0, MAX_FULL_PROMPT_CHARS)
+}
+
+function sanitizeSourceImageDataUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') {
+    return null
+  }
+  const t = raw.trim()
+  if (!t.startsWith('data:image/') || t.length < 96 || t.length > MAX_SOURCE_IMAGE_DATA_URL_CHARS) {
+    return null
+  }
+  if (!/;base64,/i.test(t)) {
+    return null
+  }
+  return t
+}
+
+type OpenAiImagesResponse = {
+  error?: { message?: string }
+  data?: Array<{ b64_json?: string }>
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+  }
+}
+
+async function callOpenAiImageGeneration(
+  apiKey: string,
+  apiModel: string,
+  prompt: string,
+): Promise<{ dataUrl: string; usage: OpenAiImagesResponse['usage'] }> {
+  const openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: apiModel,
+      prompt,
+      n: 1,
+      size: IMAGE_OUTPUT_SIZE,
+      quality: 'medium',
+    }),
+  })
+
+  const openAiJson = (await openAiRes.json()) as OpenAiImagesResponse
+  if (!openAiRes.ok) {
+    const detail =
+      typeof openAiJson?.error?.message === 'string'
+        ? openAiJson.error.message
+        : `OpenAI Images (${openAiRes.status})`
+    throw new Error(`Bildgenerierung fehlgeschlagen: ${detail}`)
+  }
+
+  const b64 = openAiJson?.data?.[0]?.b64_json
+  if (typeof b64 !== 'string' || !b64.trim()) {
+    throw new Error('OpenAI hat kein Bild geliefert.')
+  }
+
+  return {
+    dataUrl: `data:image/png;base64,${b64.trim()}`,
+    usage: openAiJson.usage,
+  }
+}
+
+async function callOpenAiImageEdit(
+  apiKey: string,
+  apiModel: string,
+  prompt: string,
+  sourceImageDataUrl: string,
+): Promise<{ dataUrl: string; usage: OpenAiImagesResponse['usage'] }> {
+  const openAiRes = await fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: apiModel,
+      prompt,
+      images: [{ image_url: sourceImageDataUrl }],
+      n: 1,
+      size: IMAGE_OUTPUT_SIZE,
+      quality: 'medium',
+    }),
+  })
+
+  const openAiJson = (await openAiRes.json()) as OpenAiImagesResponse
+  if (!openAiRes.ok) {
+    const detail =
+      typeof openAiJson?.error?.message === 'string'
+        ? openAiJson.error.message
+        : `OpenAI Image Edit (${openAiRes.status})`
+    throw new Error(`Bildbearbeitung fehlgeschlagen: ${detail}`)
+  }
+
+  const b64 = openAiJson?.data?.[0]?.b64_json
+  if (typeof b64 !== 'string' || !b64.trim()) {
+    throw new Error('OpenAI hat kein bearbeitetes Bild geliefert.')
+  }
+
+  return {
+    dataUrl: `data:image/png;base64,${b64.trim()}`,
+    usage: openAiJson.usage,
+  }
+}
+
+function normalizeImageUsage(
+  usage: OpenAiImagesResponse['usage'] | undefined,
+): { inputTokens: number; outputTokens: number } {
+  let inputTokens =
+    typeof usage?.input_tokens === 'number' && Number.isFinite(usage.input_tokens)
+      ? Math.max(0, Math.floor(usage.input_tokens))
+      : 0
+  let outputTokens =
+    typeof usage?.output_tokens === 'number' && Number.isFinite(usage.output_tokens)
+      ? Math.max(0, Math.floor(usage.output_tokens))
+      : 0
+  if (
+    inputTokens === 0 &&
+    outputTokens === 0 &&
+    typeof usage?.total_tokens === 'number' &&
+    Number.isFinite(usage.total_tokens) &&
+    usage.total_tokens > 0
+  ) {
+    const total = Math.floor(usage.total_tokens)
+    inputTokens = Math.min(total, Math.max(1, Math.floor(total * 0.15)))
+    outputTokens = Math.max(0, total - inputTokens)
+  }
+  return { inputTokens, outputTokens }
+}
+
 async function logAiTokenUsage(
   admin: SupabaseClient | null,
   userId: string,
   model: string,
   inputTokens: number,
   outputTokens: number,
+  mode: 'generate_chat_image' | 'generate_chat_image_edit' = 'generate_chat_image',
 ) {
   if (!admin) {
     return
@@ -124,7 +265,7 @@ async function logAiTokenUsage(
     user_id: userId,
     provider: 'openai',
     model: model.slice(0, 160),
-    mode: 'generate_chat_image',
+    mode,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     estimated_cost_usd,
@@ -159,9 +300,13 @@ serve(async (req) => {
     return jsonResponse({ error: 'Nicht authentifiziert.' }, 401)
   }
 
-  let bodyJson: { prompt?: unknown; contextMessages?: unknown }
+  let bodyJson: { prompt?: unknown; contextMessages?: unknown; sourceImageDataUrl?: unknown }
   try {
-    bodyJson = (await req.json()) as { prompt?: unknown; contextMessages?: unknown }
+    bodyJson = (await req.json()) as {
+      prompt?: unknown
+      contextMessages?: unknown
+      sourceImageDataUrl?: unknown
+    }
   } catch {
     return jsonResponse({ error: 'Ungültiger JSON-Body.' }, 400)
   }
@@ -175,7 +320,11 @@ serve(async (req) => {
   }
 
   const contextTurns = normalizeContextMessages(bodyJson.contextMessages)
-  const prompt = buildFullImagePrompt(directPrompt, contextTurns)
+  const sourceImageDataUrl = sanitizeSourceImageDataUrl(bodyJson.sourceImageDataUrl)
+  const isEdit = Boolean(sourceImageDataUrl)
+  const prompt = isEdit
+    ? buildEditImagePrompt(directPrompt, contextTurns)
+    : buildFullImagePrompt(directPrompt, contextTurns)
 
   const userClient = createClient(supabaseUrl, supabaseAnonKey, {
     global: {
@@ -235,69 +384,30 @@ serve(async (req) => {
     }
   }
 
-  const openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${openAiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: apiModel,
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      quality: 'medium',
-    }),
-  })
-
-  const openAiJson = (await openAiRes.json()) as {
-    error?: { message?: string }
-    data?: Array<{ b64_json?: string }>
-    usage?: {
-      input_tokens?: number
-      output_tokens?: number
-      total_tokens?: number
-    }
+  let dataUrl: string
+  let inputTokens = 0
+  let outputTokens = 0
+  try {
+    const result = isEdit
+      ? await callOpenAiImageEdit(openAiKey, apiModel, prompt, sourceImageDataUrl!)
+      : await callOpenAiImageGeneration(openAiKey, apiModel, prompt)
+    dataUrl = result.dataUrl
+    const normalized = normalizeImageUsage(result.usage)
+    inputTokens = normalized.inputTokens
+    outputTokens = normalized.outputTokens
+  } catch (imageErr) {
+    const message = imageErr instanceof Error ? imageErr.message : 'Bildverarbeitung fehlgeschlagen.'
+    return jsonResponse({ error: message }, 502)
   }
 
-  if (!openAiRes.ok) {
-    const detail =
-      typeof openAiJson?.error?.message === 'string'
-        ? openAiJson.error.message
-        : `OpenAI Images (${openAiRes.status})`
-    return jsonResponse({ error: `Bildgenerierung fehlgeschlagen: ${detail}` }, 502)
-  }
-
-  const b64 = openAiJson?.data?.[0]?.b64_json
-  if (typeof b64 !== 'string' || !b64.trim()) {
-    return jsonResponse({ error: 'OpenAI hat kein Bild geliefert.' }, 502)
-  }
-
-  const dataUrl = `data:image/png;base64,${b64.trim()}`
-
-  const usage = openAiJson.usage
-  let inputTokens =
-    typeof usage?.input_tokens === 'number' && Number.isFinite(usage.input_tokens)
-      ? Math.max(0, Math.floor(usage.input_tokens))
-      : 0
-  let outputTokens =
-    typeof usage?.output_tokens === 'number' && Number.isFinite(usage.output_tokens)
-      ? Math.max(0, Math.floor(usage.output_tokens))
-      : 0
-  if (
-    inputTokens === 0 &&
-    outputTokens === 0 &&
-    typeof usage?.total_tokens === 'number' &&
-    Number.isFinite(usage.total_tokens) &&
-    usage.total_tokens > 0
-  ) {
-    // Fallback, falls die API nur total_tokens liefert: grobe Aufteilung für Protokoll/Kosten
-    const total = Math.floor(usage.total_tokens)
-    inputTokens = Math.min(total, Math.max(1, Math.floor(total * 0.15)))
-    outputTokens = Math.max(0, total - inputTokens)
-  }
-
-  await logAiTokenUsage(adminClient, user.id, apiModel, inputTokens, outputTokens)
+  await logAiTokenUsage(
+    adminClient,
+    user.id,
+    apiModel,
+    inputTokens,
+    outputTokens,
+    isEdit ? 'generate_chat_image_edit' : 'generate_chat_image',
+  )
 
   /** Immer Zähler erhöhen (auch Superadmin): RPC setzt bei Superadmin keine Limits, nur Statistik/Guthaben-Logik. */
   const { error: quotaErr } = await userClient.rpc('user_increment_subscription_usage', {
@@ -319,5 +429,7 @@ serve(async (req) => {
   return jsonResponse({
     assistantMarkdown,
     openAiModel: apiModel,
+    imageMode: isEdit ? 'edit' : 'generate',
+    outputSize: IMAGE_OUTPUT_SIZE,
   })
 })

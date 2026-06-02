@@ -1,3 +1,5 @@
+import { stripImageGenTilePromptPrefix } from '../constants/imageGenTile'
+
 export type ImageGenerationIntentParse =
   | { kind: 'none' }
   | { kind: 'empty' }
@@ -140,4 +142,78 @@ export function matchFollowUpImageEditRequest(
   }
 
   return { kind: 'prompt', prompt: t }
+}
+
+/**
+ * «Bilder»-Modus + angehängtes Foto: Bearbeitungswunsch ohne explizites «Erstelle ein Bild …».
+ */
+export function matchAttachedImageEditRequest(
+  raw: string,
+  hasAttachedImage: boolean,
+): ImageGenerationIntentParse {
+  if (!hasAttachedImage) {
+    return { kind: 'none' }
+  }
+
+  const t = stripImageGenTilePromptPrefix(raw)
+  if (!t || t.length > 620) {
+    return { kind: 'none' }
+  }
+
+  if (matchExplicitImageGenerationRequest(raw).kind === 'prompt') {
+    return { kind: 'prompt', prompt: t }
+  }
+
+  const refersToAttachedImage =
+    /\b(?:im|am|auf dem|in dem)\s+(?:angehängten\s+)?(?:bild|foto|screenshot|anhang)\b/i.test(t) ||
+    /\b(?:meinem|meine[mrs]?)\s+(?:bild|foto)\b/i.test(t) ||
+    /\b(?:dieses|das)\s+(?:bild|foto)\b/i.test(t)
+
+  const looksLikeVisualEdit =
+    refersToAttachedImage ||
+    (/^(?:bitte\s+)?(?:ändere|ändere|passe|pass|bearbeit|mach|mache|entfern|füge|ersetz|korrigier|mach)\b/i.test(
+      t,
+    ) &&
+      /\b(schriftzug|schrift|text|beschriftung|überschrift|farbe|farbig|farben|blau|rot|grün|gelb|orange|lila|violett|rosa|türkis|braun|schwarz|weiss|weiß|grau|gold|silber|grösser|größer|kleiner|heller|dunkler|hintergrund|vordergrund|kontrast|schatten|rahmen|zentrier|verschieb|person|objekt|element|logo|himmel|wolken)\b/i.test(
+        t,
+      ))
+
+  if (!looksLikeVisualEdit) {
+    return { kind: 'none' }
+  }
+
+  if (/^(?:was|warum|wie\s+(?:funktioniert|geht)|erklär|beschreib\s+(?:mir\s+)?(?:nicht\s+)?(?:das\s+)?bild)/i.test(t)) {
+    return { kind: 'none' }
+  }
+
+  return { kind: 'prompt', prompt: t }
+}
+
+/** Neues Motiv statt Bearbeitung des Anhangs (z. B. «eine Katze im Wald»). */
+export function looksLikePureNewImageRequest(prompt: string): boolean {
+  const t = stripImageGenTilePromptPrefix(prompt).trim()
+  if (!t) {
+    return false
+  }
+  if (
+    /\b(?:im|am|auf dem|in dem)\s+(?:angehängten\s+)?(?:bild|foto|screenshot|anhang)\b/i.test(t) ||
+    /\b(?:meinem|meine[mrs]?)\s+(?:bild|foto)\b/i.test(t) ||
+    /^(?:bitte\s+)?(?:ändere|ändere|passe|pass|bearbeit|entfern|füge|ersetz|korrigier)\b/i.test(t)
+  ) {
+    return false
+  }
+  return (
+    /^(?:ein|eine)\s+/i.test(t) ||
+    /\b(?:zeichne|male|generiere|erstelle|stelle\s+dar|darstellung|szene|landschaft|portrait|illustration)\b/i.test(
+      t,
+    )
+  )
+}
+
+/** Anhang als Referenz für `/images/edits` nutzen (Ausgabe bleibt 1024×1024). */
+export function shouldUseAttachedImageEdit(prompt: string, hasSourceImage: boolean): boolean {
+  if (!hasSourceImage) {
+    return false
+  }
+  return !looksLikePureNewImageRequest(prompt)
 }

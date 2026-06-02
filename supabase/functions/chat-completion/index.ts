@@ -2135,6 +2135,8 @@ function sanitizeGeneratedTitle(raw: string): string {
 
 /** Titel: kurze Ausgabe — Output-Tokens begrenzen (Kosten). */
 const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
+/** Chat-Titel (Instant + Thinking): günstig, kein GPT-5.4-mini aus der Hauptchat-Staffel. */
+const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
 /** Smart Instant — Einordnung (JSON). */
 const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
@@ -2451,7 +2453,7 @@ async function generateTitleWithAi(
       : await callOpenAi(
           titleMessages,
           apiKey,
-          openAiModels,
+          [...GENERATE_TITLE_OPENAI_MODELS],
           openAiPromptCache,
           GENERATE_TITLE_MAX_OUTPUT_TOKENS,
         )
@@ -3078,6 +3080,9 @@ serve(async (req) => {
     }
 
     if (mode === 'generate_title') {
+      if (provider === 'openai') {
+        openAiModels = [...GENERATE_TITLE_OPENAI_MODELS]
+      }
       const openAiPc = provider === 'openai'
         ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
         : undefined

@@ -65,9 +65,12 @@ import {
   resolveReferencedImageStoragePath,
 } from '../utils/referencedImageVision'
 import {
+  matchAttachedImageEditRequest,
   matchExplicitImageGenerationRequest,
   matchFollowUpImageEditRequest,
+  shouldUseAttachedImageEdit,
 } from '../utils/imageGenerationIntent'
+import { stripImageGenTilePromptPrefix } from '../constants/imageGenTile'
 import { errorMessageFromUnknown } from '../../../utils/errorMessage'
 import {
   parseThinkingClarifyContent,
@@ -1068,8 +1071,17 @@ export function useChat(
         (activeThread?.id === targetThreadId ? activeThread : undefined)
       const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
 
+      const hasAttachedVisionEarly =
+        messageHasVisionPayload(content) || Boolean(sendOpts?.visionInlineDataUrl)
+
       let imageGenPrompt =
-        imageCmd && imageCmd.kind === 'prompt' ? imageCmd.prompt : null
+        imageCmd && imageCmd.kind === 'prompt' ? stripImageGenTilePromptPrefix(imageCmd.prompt) : null
+      if (!imageGenPrompt && !wantsWord && !wantsPdf && hasAttachedVisionEarly) {
+        const attachedEdit = matchAttachedImageEditRequest(trimmed, true)
+        if (attachedEdit.kind === 'prompt') {
+          imageGenPrompt = attachedEdit.prompt
+        }
+      }
       if (!imageGenPrompt && !wantsWord && !wantsPdf) {
         const prior = messagesByThreadId[targetThreadId] ?? []
         const follow = matchFollowUpImageEditRequest(trimmed, prior)
@@ -1295,10 +1307,27 @@ export function useChat(
             role: m.role,
             content: m.content,
           }))
-          const { assistantMarkdown } = await generateChatImageFromPrompt(
-            imageGenPrompt,
-            imageContextTurns,
+          let sourceImageDataUrl = resolveVisionInlineDataUrlForSend(
+            sendOpts?.visionInlineDataUrl,
+            content,
+            userContent,
           )
+          if (!sourceImageDataUrl && userContent.includes('@chat-media:') && userId) {
+            const pathMatch = userContent.match(/@chat-media:([^\s)\]]+)/)
+            if (pathMatch?.[1]) {
+              sourceImageDataUrl =
+                (await loadChatMediaPathAsVisionDataUrl(pathMatch[1])) ?? undefined
+            }
+          }
+          const useAttachedEdit = shouldUseAttachedImageEdit(
+            imageGenPrompt,
+            Boolean(sourceImageDataUrl),
+          )
+          const { assistantMarkdown } = await generateChatImageFromPrompt(imageGenPrompt, imageContextTurns, {
+            ...(useAttachedEdit && sourceImageDataUrl
+              ? { sourceImageDataUrl }
+              : {}),
+          })
           let assistantContent = assistantMarkdown
           let generatedImageMetadata: ChatMessage['metadata'] | undefined
           if (userId) {

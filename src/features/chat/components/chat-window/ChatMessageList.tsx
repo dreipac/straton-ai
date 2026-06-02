@@ -1,9 +1,12 @@
 import type { RefObject } from 'react'
+import fileIcon from '../../../../assets/icons/file.svg'
 import { ChatExportActionHint } from '../ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from '../ChatInstantAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from '../ChatPendingReplyLoader'
 import { ChatMessageReplyQuotePreview } from '../ChatComposerReplyQuoteBar'
 import { ChatUserMessageMenuSelect } from '../ChatUserMessageMenuSelect'
+import { ChatAssistantMessageCopyButton } from './ChatAssistantMessageCopyButton'
+import { extractAssistantMessageCopyText } from '../../utils/chatMessageCopy'
 import { WordOutlinePaper, WordOutlinePaperBuilding } from '../WordOutlinePaper'
 import { stripExcelSpecBlock } from '../../excel/excelSpec'
 import type { ChatMessage } from '../../types'
@@ -79,7 +82,7 @@ export type ChatMessageListProps = {
   wordFinalizeBusy: boolean
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy: boolean
-  onCopyUserMessage: (text: string) => void | Promise<void>
+  onCopyUserMessage: (text: string) => boolean | Promise<boolean>
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -217,6 +220,16 @@ export function ChatMessageList(props: ChatMessageListProps) {
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
           const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
+          const assistantCopySource = hasInteractiveQuiz ? parsed?.cleanText || '' : rawContent
+          const assistantCopyText = isAssistant
+            ? extractAssistantMessageCopyText(assistantCopySource)
+            : ''
+          const showAssistantCopyButton =
+            isAssistant &&
+            !isStreamingAssistant &&
+            !thinkingClarifyStreaming &&
+            !showOrbitLoader &&
+            assistantCopyText.length > 0
           const showAssistantAuthor = isAssistant && !showOrbitLoader
 
           const userMessageCopyText =
@@ -277,6 +290,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
                       key={`${message.id}-datei-${fileIndex}`}
                       className="chat-attachment-chip chat-attachment-chip--saved-file"
                     >
+                      <img
+                        className="ui-icon chat-attachment-chip-icon"
+                        src={fileIcon}
+                        alt=""
+                        aria-hidden="true"
+                      />
                       <span className="chat-attachment-chip-name">{name}</span>
                     </span>
                   ))}
@@ -393,6 +412,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 ) : (
                   <p>{renderInlineMarkdown(displayContent)}</p>
                 )
+              ) : null}
+              {showAssistantCopyButton ? (
+                <ChatAssistantMessageCopyButton
+                  onCopy={() => onCopyUserMessage(assistantCopyText)}
+                />
               ) : null}
               {showExcelFallbackText ? (
                 isMobileComposer ? (
