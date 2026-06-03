@@ -19,6 +19,22 @@ export function ChatInstantAnalyzeDebugPanel({ debug, compact = false }: ChatIns
           <dd>{debug.source === 'edge' ? 'KI (Edge)' : 'Fallback (ohne Edge)'}</dd>
         </div>
         <div>
+          <dt>category (final)</dt>
+          <dd>{debug.category}</dd>
+        </div>
+        <div>
+          <dt>action (final)</dt>
+          <dd>{debug.action}</dd>
+        </div>
+        <div>
+          <dt>category (KI)</dt>
+          <dd>{debug.category_from_ai}</dd>
+        </div>
+        <div>
+          <dt>action (KI)</dt>
+          <dd>{debug.action_from_ai}</dd>
+        </div>
+        <div>
           <dt>Klarheit</dt>
           <dd>{debug.clarity}</dd>
         </div>

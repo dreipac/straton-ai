@@ -3,6 +3,24 @@ export type InstantAnalyzeClarity = 'clear' | 'partial' | 'vague'
 export type InstantAnalyzeReplyMode = 'ask_only' | 'one_step' | 'short_answer' | 'normal'
 
 import type { InstantAnalyzeDebugMeta } from '../types'
+import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
+import {
+  applyRouteHeuristics,
+  buildInstantAnalyzeRoutePromptSection,
+  parseCategoryActionFields,
+  routeFromReplyMode,
+  syncReplyModeWithRoute,
+  type InstantAnalyzeAction,
+  type InstantAnalyzeCategory,
+} from './instantAnalyzeRoute'
+import {
+  extractImageSearchQuery,
+  isImageSearchTurnMessage,
+  matchImageTopicClarification,
+  type ImageSearchPriorTurn,
+} from '../utils/imageSearchIntent'
+
+export type { InstantAnalyzeAction, InstantAnalyzeCategory } from './instantAnalyzeRoute'
 
 export type InstantAnalyzeInvokeResult = {
   analyze: InstantAnalyzeResult
@@ -12,6 +30,8 @@ export type InstantAnalyzeInvokeResult = {
 }
 
 export type InstantAnalyzeResult = {
+  category: InstantAnalyzeCategory
+  action: InstantAnalyzeAction
   clarity: InstantAnalyzeClarity
   intent: string
   missing: string[]
@@ -56,7 +76,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- intent: kurze Beschreibung der Nutzerabsicht (max. 120 Zeichen, Deutsch)',
     '- missing: Array mit max. 3 fehlenden Infos (Strings, je max. 80 Zeichen); leer wenn klar genug',
     '- reply_mode:',
-    '  - "ask_only": zu wenig Kontext — kurze Einordnung + genau eine Klärungsfrage im Fliesstext, keine nummerierte Fragenliste, keine Lösungsschritte',
+    '  - "ask_only": nur wenn ohne eine konkrete Nutzerangabe gar nicht antwortbar (selten) — sonst "normal" mit Annahme',
     '  - "one_step": konkretes Problem — ein Prüfschritt / eine klare Kurzantwort',
     '  - "short_answer": einfache Wissens- oder How-to-Frage mit klarer Zielsetzung',
     '  - "normal": Standardantwort mit angemessener Tiefe',
@@ -65,16 +85,21 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- web_reason: kurzer Grund (max. 80 Zeichen), nur wenn needs_live_web true, sonst ""',
     '',
     'Regeln:',
-    '- Bei clarity "vague" oder fehlendem Kernkontext: reply_mode "ask_only", needs_live_web false, web_query "".',
+    '- Bei clarity "vague": bevorzugt reply_mode "normal" (action "answer") mit sinnvoller Annahme — nicht reflexartig ask_only.',
+    '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild mit Aufgabe: reply_mode "normal", action "answer", clarity "clear".',
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
     '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only.',
+    '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
     '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
+    '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
     '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
     '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
     '- Beispiel: «aktueller Kurs von Sherritt (S.TO)» → needs_live_web true, web_query «Sherritt S.TO Aktienkurs heute».',
     '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
     '- web_query präzise formulieren (Thema + Land/Sprache wenn erkennbar), nicht den Rohtext 1:1 kopieren.',
+    '',
+    buildInstantAnalyzeRoutePromptSection(),
   ].join('\n')
 }
 
@@ -104,13 +129,17 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
   if (!needs_live_web) {
     web_query = ''
   }
-  if (clarity === 'vague' && reply_mode === 'normal') {
-    reply_mode = 'ask_only'
+  if (clarity === 'vague' && reply_mode === 'ask_only') {
+    reply_mode = 'normal'
     needs_live_web = false
     web_query = ''
   }
 
-  return {
+  const { category, action } = parseCategoryActionFields(o, reply_mode)
+
+  return syncReplyModeWithRoute({
+    category,
+    action,
     clarity,
     intent,
     missing,
@@ -118,7 +147,7 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     needs_live_web,
     web_query,
     web_reason,
-  }
+  })
 }
 
 /** Zeit-/Aktualitäts-Signale: aktuell, aktuelle, derzeitige, heutige, … */
@@ -210,6 +239,9 @@ export function isConversationalFollowUp(
   if (!t || t.length > 96) {
     return false
   }
+  if (isImageSearchTurnMessage(t) || matchImageTopicClarification(t, priorTurns as ImageSearchPriorTurn[])) {
+    return false
+  }
   const lastAssistant = [...priorTurns].reverse().find((m) => m.role === 'assistant')
   if (!lastAssistant?.content?.trim()) {
     return false
@@ -235,18 +267,80 @@ export function applyConversationalFollowUpHeuristic(
   if (!priorTurns?.length || !isConversationalFollowUp(userMessage, priorTurns)) {
     return analyze
   }
-  return {
+  const reply_mode = analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode
+  const route = routeFromReplyMode(reply_mode)
+  return syncReplyModeWithRoute({
     ...analyze,
+    ...route,
     clarity: 'clear',
-    reply_mode: analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode,
     missing: [],
     needs_live_web: false,
     web_query: '',
     intent: analyze.intent.trim() || 'Bezug auf vorherige Antwort',
-  }
+  })
 }
 
-/** Meta-/Identitätsfragen nicht als ask_only mit Fragenliste behandeln. */
+const TASK_SOLVE_REQUEST_RE =
+  /\b(löse|lösung|aufgabe|übung|berechn|ermittl|bestimm|ausrechn|nachweis|beweis|zeichne|skizzier|formulier|mach(?:e)?\s+(?:die|das)\s+aufgabe|hilf\s+mir\s+bei)\b/i
+
+/** Aufgaben/Übungen: direkt answer/normal, nicht clarify. */
+export function applyTaskSolveHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  hasVisionAttachment = false,
+): InstantAnalyzeResult {
+  const t = userMessage.trim()
+  if (!t && !hasVisionAttachment) {
+    return analyze
+  }
+  if (
+    !hasVisionAttachment &&
+    !TASK_SOLVE_REQUEST_RE.test(t) &&
+    !userMessageSuggestsTableExercise(t)
+  ) {
+    return analyze
+  }
+  const route = routeFromReplyMode('normal')
+  return syncReplyModeWithRoute({
+    ...analyze,
+    ...route,
+    category: 'chat',
+    action: 'answer',
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+  })
+}
+
+/** Tabellen-/Zuordnungsübungen: normal beantworten, nicht ask_only. */
+export function applyTableExerciseHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  hasVisionAttachment = false,
+): InstantAnalyzeResult {
+  const t = userMessage.trim()
+  if (!hasVisionAttachment && !userMessageSuggestsTableExercise(t)) {
+    return analyze
+  }
+  const reply_mode = analyze.reply_mode === 'ask_only' ? 'normal' : analyze.reply_mode
+  const route = routeFromReplyMode(reply_mode)
+  return syncReplyModeWithRoute({
+    ...analyze,
+    ...route,
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    intent:
+      analyze.intent.trim() && analyze.intent !== 'Allgemeine Anfrage'
+        ? analyze.intent
+        : hasVisionAttachment
+          ? 'Zuordnung/Tabelle aus Bild'
+          : 'Zuordnungs- oder Tabellenaufgabe',
+  })
+}
+
 export function applyIdentityQuestionHeuristic(
   userMessage: string,
   analyze: InstantAnalyzeResult,
@@ -254,14 +348,15 @@ export function applyIdentityQuestionHeuristic(
   if (!IDENTITY_OR_ACCOUNT_META_RE.test(userMessage.trim())) {
     return analyze
   }
-  return {
+  const route = routeFromReplyMode('short_answer')
+  return syncReplyModeWithRoute({
     ...analyze,
+    ...route,
     clarity: 'partial',
-    reply_mode: 'short_answer',
     missing: [],
     needs_live_web: false,
     web_query: '',
-  }
+  })
 }
 
 export function applyLiveWebHeuristic(
@@ -272,8 +367,12 @@ export function applyLiveWebHeuristic(
   if (!h.needs) {
     return analyze
   }
-  return {
+  const reply_mode = analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode
+  const route =
+    analyze.category === 'chat' ? routeFromReplyMode(reply_mode) : { category: 'chat' as const, action: 'answer' as const }
+  return syncReplyModeWithRoute({
     ...analyze,
+    ...route,
     clarity: analyze.clarity === 'vague' ? 'clear' : analyze.clarity,
     needs_live_web: true,
     web_query: analyze.web_query.trim() || h.webQuery,
@@ -282,8 +381,7 @@ export function applyLiveWebHeuristic(
       (h.hasLegalCue && !h.hasMarketCue
         ? 'Aktuelle Rechtslage / Gesetzesinfos'
         : 'Aktuelle Fakten (z. B. Kurs, Preis, News)'),
-    reply_mode: analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode,
-  }
+  })
 }
 
 export function fallbackInstantAnalyzeResult(
@@ -293,23 +391,60 @@ export function fallbackInstantAnalyzeResult(
   const trimmed = userMessage.trim()
   const vague =
     trimmed.length < 12 || /^(hilfe|help|hi|hallo|hey|ok|ja|nein)[\s!.?]*$/i.test(trimmed)
-  const base: InstantAnalyzeResult = {
+  const reply_mode: InstantAnalyzeReplyMode = 'normal'
+  const route = routeFromReplyMode(reply_mode)
+  const base: InstantAnalyzeResult = syncReplyModeWithRoute({
+    category: route.category,
+    action: route.action,
     clarity: vague ? 'vague' : 'partial',
     intent: trimmed.slice(0, 120) || 'Allgemeine Anfrage',
     missing: [],
-    reply_mode: vague ? 'ask_only' : 'normal',
+    reply_mode,
     needs_live_web: false,
     web_query: '',
     web_reason: '',
-  }
+  })
   let result = applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, base))
   result = applyConversationalFollowUpHeuristic(trimmed, priorTurns, result)
+  const prior = priorTurns as ImageSearchPriorTurn[] | undefined
+  result = applyRouteHeuristics(trimmed, syncReplyModeWithRoute({ ...result, ...routeFromReplyMode(result.reply_mode) }), {
+    hasVisionAttachment: false,
+    priorTurns: prior,
+  })
+  result = applyImageSearchContextHeuristic(trimmed, result, prior)
+  return result
+}
+
+export function applyInstantAnalyzeHeuristics(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  options?: {
+    priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>
+    hasVisionAttachment?: boolean
+  },
+): InstantAnalyzeResult {
+  let result = applyLiveWebHeuristic(userMessage, analyze)
+  result = applyIdentityQuestionHeuristic(userMessage, result)
+  result = applyTableExerciseHeuristic(userMessage, result, options?.hasVisionAttachment === true)
+  result = applyConversationalFollowUpHeuristic(userMessage, options?.priorTurns, result)
+  result = applyRouteHeuristics(userMessage, result, {
+    hasVisionAttachment: options?.hasVisionAttachment === true,
+    priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
+  })
+  result = applyTaskSolveHeuristic(userMessage, result, options?.hasVisionAttachment === true)
+  result = applyImageSearchContextHeuristic(
+    userMessage,
+    result,
+    options?.priorTurns as ImageSearchPriorTurn[] | undefined,
+  )
   return result
 }
 
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {
   const lines = [
     'Smart Instant — Einordnung (verbindlich für diese Antwort):',
+    `Kategorie: ${analyze.category}`,
+    `Aktion: ${analyze.action}`,
     `Klarheit: ${analyze.clarity}`,
     `Nutzerabsicht: ${analyze.intent}`,
     `Antwortmodus: ${analyze.reply_mode}`,
@@ -317,17 +452,30 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
   if (analyze.missing.length > 0) {
     lines.push(`Fehlende Infos: ${analyze.missing.join('; ')}`)
   }
-  if (analyze.reply_mode === 'ask_only') {
+  if (analyze.action === 'clarify' || analyze.reply_mode === 'ask_only') {
     lines.push(
-      'Kurz einordnen, was fehlt; dann **genau eine** Klärungsfrage im Fliesstext — **keine** nummerierte Liste (`1.` `2.` …), keine Schrittfolge, keine erfundenen Fakten.',
+      'Nur wenn wirklich blockiert: **eine** kurze Frage. Sonst: **Lösung mit Annahme** liefern — keine Tipps «wie du selbst vorgehen könntest».',
     )
   } else if (analyze.reply_mode === 'one_step') {
     lines.push('Ein klarer Prüfschritt oder eine fokussierte Kurzlösung — nicht alles auf einmal.')
   } else if (analyze.reply_mode === 'short_answer') {
-    lines.push('Kompakte Antwort — Definition oder kurzes How-to ohne unnötige Ausführung.')
+    lines.push('Kompakte **fertige** Antwort — direkt liefern, nicht nachfragen.')
+  } else if (analyze.category === 'image' && analyze.action === 'search') {
+    lines.push(
+      'Unsplash-Fotosuche — die App zeigt bis zu 2 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',
+    )
+  } else if (analyze.action === 'answer' || analyze.reply_mode === 'normal') {
+    lines.push(
+      '**Zuerst** vollständige Lösung mit Annahme (Plan, Text, Tabelle …). **Danach** optional «Verbesserungen» + **eine** konkrete Anpassungsfrage (z. B. «Soll ich … auf X/Y anpassen?») — **nicht** vorher fragen.',
+    )
   }
   if (analyze.web_reason && analyze.needs_live_web) {
     lines.push(`Web-Kontext-Grund: ${analyze.web_reason}`)
+  }
+  if (/zuordnung|tabelle|einnahme|ausgabe|bild/i.test(analyze.intent)) {
+    lines.push(
+      'Lösung als Markdown-Tabelle (Struktur wie Aufgabe), ✓ in den richtigen Spalten — keine Bullet-Liste. Ton: definitive Lösung, nicht «mögliche Zuordnung».',
+    )
   }
   return lines.join('\n')
 }
@@ -340,15 +488,22 @@ export function buildInstantAnalyzeDebugMeta(params: {
   const { invoke, autoWebPlanned, autoWebRan } = params
   const fromAi = invoke.analyzeFromAi ?? invoke.analyze
   const final = invoke.analyze
+  const fromAiRoute = invoke.analyzeFromAi
   const heuristicApplied =
     invoke.source === 'edge' &&
-    Boolean(invoke.analyzeFromAi) &&
-    (invoke.analyzeFromAi!.needs_live_web !== final.needs_live_web ||
-      invoke.analyzeFromAi!.web_query !== final.web_query ||
-      invoke.analyzeFromAi!.reply_mode !== final.reply_mode)
+    Boolean(fromAiRoute) &&
+    (fromAiRoute!.needs_live_web !== final.needs_live_web ||
+      fromAiRoute!.web_query !== final.web_query ||
+      fromAiRoute!.reply_mode !== final.reply_mode ||
+      fromAiRoute!.category !== final.category ||
+      fromAiRoute!.action !== final.action)
 
   return {
     source: invoke.source,
+    category: final.category,
+    action: final.action,
+    category_from_ai: fromAiRoute?.category ?? final.category,
+    action_from_ai: fromAiRoute?.action ?? final.action,
     clarity: final.clarity,
     intent: final.intent,
     missing: [...final.missing],
@@ -364,10 +519,10 @@ export function buildInstantAnalyzeDebugMeta(params: {
 }
 
 export function formatInstantAnalyzeContextLines(
-  turns: Array<{ role: 'user' | 'assistant'; content: string }>,
+  turns: Array<{ role: 'user' | 'assistant'; content: string; unsplashQuery?: string }>,
 ): string {
   return turns
-    .slice(-6)
+    .slice(-8)
     .map((t) => {
       const label = t.role === 'user' ? 'Nutzer' : 'Assistent'
       const body = t.content
@@ -375,7 +530,44 @@ export function formatInstantAnalyzeContextLines(
         .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
         .trim()
       const clipped = body.length > 500 ? `${body.slice(0, 500)}…` : body
-      return `${label}: ${clipped}`
+      const topic =
+        t.unsplashQuery?.trim() && t.role === 'assistant'
+          ? ` [Thema Fotosuche: «${t.unsplashQuery.trim()}»]`
+          : ''
+      return `${label}${topic}: ${clipped}`
     })
     .join('\n')
+}
+
+/** Suchbegriff + Routing nach Kontext (Pronomen, Klarstellung, «The Rock»). */
+export function applyImageSearchContextHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  priorTurns?: ReadonlyArray<ImageSearchPriorTurn>,
+): InstantAnalyzeResult {
+  const prior = priorTurns ?? []
+  const wantsSearch =
+    (analyze.category === 'image' && analyze.action === 'search') ||
+    isImageSearchTurnMessage(userMessage) ||
+    matchImageTopicClarification(userMessage, prior)
+
+  if (!wantsSearch) {
+    return analyze
+  }
+
+  const resolved = extractImageSearchQuery(userMessage, analyze.intent, prior)
+  if (!resolved.trim()) {
+    return analyze
+  }
+
+  return syncReplyModeWithRoute({
+    ...analyze,
+    category: 'image',
+    action: 'search',
+    clarity: 'clear',
+    intent: resolved,
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+  })
 }

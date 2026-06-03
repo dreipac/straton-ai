@@ -7,6 +7,7 @@ export type ChatSendPhase =
   | 'thinking_clarify'
   | 'thinking'
   | 'image'
+  | 'image_search'
   | 'excel'
   | 'word'
   | 'pdf'
@@ -29,6 +30,8 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'Anleitung wird erstellt …'
     case 'image':
       return 'Bild wird erstellt …'
+    case 'image_search':
+      return 'Fotos werden gesucht …'
     case 'excel':
       return 'Excel wird vorbereitet …'
     case 'word':

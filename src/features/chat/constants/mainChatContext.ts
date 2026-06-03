@@ -1,6 +1,6 @@
 import type { ChatMessage } from '../types'
 
-function messageHasVisionPayload(content: string): boolean {
+export function messageHasVisionPayload(content: string): boolean {
   return content.includes('[BildData:') || content.includes('@chat-media:')
 }
 

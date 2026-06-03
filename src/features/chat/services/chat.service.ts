@@ -5,14 +5,21 @@ import {
   getAssistantMainChatBrevityInstruction,
   getAssistantMainChatGuidedDiagnosisInstruction,
   getAssistantMainChatMandatoryFollowUpInstruction,
+  getAssistantMainChatSolveDirectlyInstruction,
   getAssistantMainChatStepByStepIntakeInstruction,
   getAssistantMainChatThreadContinuityInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import {
-  applyConversationalFollowUpHeuristic,
-  applyIdentityQuestionHeuristic,
-  applyLiveWebHeuristic,
+  getAssistantExerciseSolutionToneInstruction,
+  getAssistantTableExerciseInstruction,
+  shouldApplyTableExerciseTurnBriefing,
+  TABLE_EXERCISE_TEXT_TURN_BRIEFING,
+  userTurnHasVisionAttachment,
+  VISION_TABLE_EXERCISE_TURN_BRIEFING,
+} from '../constants/chatTableExerciseInstruction'
+import {
+  applyInstantAnalyzeHeuristics,
   buildInstantAnalyzeBriefingInstruction,
   CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING,
   fallbackInstantAnalyzeResult,
@@ -304,21 +311,8 @@ const RAG_RECENT_TURNS = 8
 const RAG_RECENT_TURNS_WITH_VISION = 14
 const RAG_MAX_RETRIEVED_MESSAGES = 6
 const RAG_MIN_TERM_LEN = 3
-const STEP_BY_STEP_INTENT_RE =
-  /\b(wie\s+(geht|mache|richte)\b|schritt\s*(für|fuer)\s*schritt|einrichten|installieren|konfigurieren|setup|access\s*point|hotspot)\b/i
-const PLATFORM_HINT_RE =
-  /\b(windows|mac(?:os)?|linux|ubuntu|debian|arch|android|ios|iphone|ipad)\b/i
-const VERSION_HINT_RE = /\b(v(?:ersion)?\s?\d{1,2}|(?:\d{1,2}\.){1,2}\d{1,2})\b/i
-
-function shouldForceStepByStepIntake(message: ChatMessage | undefined): boolean {
-  const text = typeof message?.content === 'string' ? message.content.trim() : ''
-  if (!text || !STEP_BY_STEP_INTENT_RE.test(text)) {
-    return false
-  }
-  const hasPlatformHint = PLATFORM_HINT_RE.test(text)
-  const hasVersionHint = VERSION_HINT_RE.test(text)
-  // Harte Rückfragepflicht, wenn das Anliegen nach How-to klingt, aber Umgebung fehlt.
-  return !(hasPlatformHint && hasVersionHint)
+function shouldForceStepByStepIntake(_message: ChatMessage | undefined): boolean {
+  return false
 }
 
 function tokenizeRagTerms(text: string): string[] {
@@ -527,6 +521,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const mainChatMandatoryFollowUp = mainChatInstantPrompts
     ? getAssistantMainChatMandatoryFollowUpInstruction()
     : ''
+  const mainChatSolveDirectly = mainChatInstantPrompts ? getAssistantMainChatSolveDirectlyInstruction() : ''
   const mainChatThreadContinuity = mainChatInstantPrompts
     ? getAssistantMainChatThreadContinuityInstruction()
     : ''
@@ -542,7 +537,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const forceStepByStepIntake = mainChatInstantPrompts && shouldForceStepByStepIntake(lastUserMessage)
   const instantAnalyze = options?.instantAnalyze
   const instantAskOnly = Boolean(
-    isMainChat && !thinking && instantAnalyze?.reply_mode === 'ask_only',
+    isMainChat &&
+      !thinking &&
+      (instantAnalyze?.reply_mode === 'ask_only' || instantAnalyze?.action === 'clarify'),
   )
   const stepByStepIntakeHardGuard =
     forceStepByStepIntake || instantAskOnly
@@ -552,8 +549,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
             : 'Harter Intake-Guard (diese Antwort):',
           '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
           instantAskOnly
-            ? '- Kurz sagen, was unklar ist; dann **genau eine** Klärungsfrage im Fliesstext — **keine** nummerierte Fragenliste, keine Schrittfolge.'
-            : '- Kurz sagen, was für eine Anleitung fehlt; dann **genau eine** Frage (OS/Version/Ziel) — **keine** nummerierte Liste mit 3–5 Punkten.',
+            ? '- Nur bei echtem Blocker: kurz fragen — sonst Annahme, **Lösung**, dann optional Verbesserungen + Anpassungsfrage.'
+            : '- Annahme → **fertige Lösung** → optional Verbesserungen + **eine** konkrete Anpassungsfrage am Ende.',
         ].join('\n')
       : ''
   const mainChatWebGrounding =
@@ -573,6 +570,24 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   }
   if (isMainChat && !thinking && instantAnalyze) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    shouldApplyTableExerciseTurnBriefing(
+      lastUserMessage.content,
+      lastUserMessage.content,
+      options?.visionInlineDataUrl,
+    )
+  ) {
+    const hasVision = userTurnHasVisionAttachment(
+      lastUserMessage.content,
+      options?.visionInlineDataUrl,
+    )
+    lastUserTurnContextBlocks.push(
+      hasVision ? VISION_TABLE_EXERCISE_TURN_BRIEFING : TABLE_EXERCISE_TEXT_TURN_BRIEFING,
+    )
   }
   if (
     isMainChat &&
@@ -639,11 +654,14 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     wordChatHint,
     pdfChatHint,
     mainChatWebGrounding,
+    mainChatSolveDirectly,
     mainChatBrevity,
     mainChatGuidedDiagnosis,
     mainChatStepByStepIntake,
     mainChatMandatoryFollowUp,
     mainChatThreadContinuity,
+    mainChatInstantPrompts ? getAssistantTableExerciseInstruction() : '',
+    mainChatInstantPrompts ? getAssistantExerciseSolutionToneInstruction() : '',
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -924,7 +942,7 @@ const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v5'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v1'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
-const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v1'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v4'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -1567,14 +1585,35 @@ function shortenContentForChatTitleApi(content: string | undefined | null): stri
 
 export async function instantAnalyzeUserMessage(params: {
   userMessage: string
-  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string; unsplashQuery?: string }>
+  /** Aktueller Turn: Foto/Data-URL — auch ohne Nutzertext (Tabellenübung im Bild). */
+  hasVisionAttachment?: boolean
 }): Promise<InstantAnalyzeInvokeResult> {
   const trimmed = params.userMessage.trim()
-  if (!trimmed) {
+  const hasVision = params.hasVisionAttachment === true
+  if (!trimmed && !hasVision) {
     return { analyze: fallbackInstantAnalyzeResult('', params.priorTurns), source: 'fallback' }
   }
   if (!usesGatewayAi()) {
-    return { analyze: fallbackInstantAnalyzeResult(trimmed, params.priorTurns), source: 'fallback' }
+    return {
+      analyze: applyInstantAnalyzeHeuristics(
+        trimmed,
+        fallbackInstantAnalyzeResult(trimmed || (hasVision ? 'Bildanhang' : ''), params.priorTurns),
+        { priorTurns: params.priorTurns, hasVisionAttachment: hasVision },
+      ),
+      source: 'fallback',
+    }
+  }
+
+  if (!trimmed && hasVision) {
+    return {
+      analyze: applyInstantAnalyzeHeuristics(
+        '',
+        fallbackInstantAnalyzeResult('Bildanhang', params.priorTurns),
+        { priorTurns: params.priorTurns, hasVisionAttachment: true },
+      ),
+      source: 'fallback',
+    }
   }
 
   const contextBlock = params.priorTurns?.length
@@ -1602,11 +1641,10 @@ export async function instantAnalyzeUserMessage(params: {
 
     const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
     if (parsed) {
-      const withHeuristics = applyConversationalFollowUpHeuristic(
-        trimmed,
-        params.priorTurns,
-        applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, parsed)),
-      )
+      const withHeuristics = applyInstantAnalyzeHeuristics(trimmed, parsed, {
+        priorTurns: params.priorTurns,
+        hasVisionAttachment: hasVision,
+      })
       return {
         analyze: withHeuristics,
         source: 'edge',
@@ -1617,7 +1655,14 @@ export async function instantAnalyzeUserMessage(params: {
     /* Fallback unten */
   }
 
-  return { analyze: fallbackInstantAnalyzeResult(trimmed, params.priorTurns), source: 'fallback' }
+  return {
+    analyze: applyInstantAnalyzeHeuristics(
+      trimmed,
+      fallbackInstantAnalyzeResult(trimmed || (hasVision ? 'Bildanhang' : ''), params.priorTurns),
+      { priorTurns: params.priorTurns, hasVisionAttachment: hasVision },
+    ),
+    source: 'fallback',
+  }
 }
 
 export type ThinkingAnalyzeInvokeResult = {

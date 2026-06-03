@@ -5,6 +5,7 @@ import type { ChatMessage } from '../types'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
+import { matchImageSearchRequest } from '../utils/imageSearchIntent'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import { getChatSendPhaseLabel } from '../constants/chatSendPhase'
 import { safeMessageContent, shouldSkipAssistantTypingReveal } from '../components/chat-window/chatWindowMessageUtils'
@@ -37,8 +38,12 @@ export function useChatMessageList({
   const pendingUserContentForLoader = showAssistantPendingLoader
     ? safeMessageContent(messageList[messageList.length - 1]?.content)
     : ''
+  const pendingImageSearch =
+    showAssistantPendingLoader &&
+    matchImageSearchRequest(pendingUserContentForLoader).kind === 'query'
   const pendingImageGeneration =
     showAssistantPendingLoader &&
+    !pendingImageSearch &&
     matchExplicitImageGenerationRequest(pendingUserContentForLoader).kind === 'prompt'
 
   const lastExcelUserIndex = (() => {
@@ -59,6 +64,7 @@ export function useChatMessageList({
   const pendingExcelGeneration =
     isSending &&
     !pendingImageGeneration &&
+    !pendingImageSearch &&
     lastExcelUserIndex >= 0 &&
     !assistantHasExcelExportAfterLastExcelUser
 
@@ -78,6 +84,7 @@ export function useChatMessageList({
   const pendingWordGeneration =
     isSending &&
     !pendingImageGeneration &&
+    !pendingImageSearch &&
     !pendingExcelGeneration &&
     lastWordUserIndex >= 0 &&
     !assistantHasWordExportAfterLastWordUser
@@ -98,6 +105,7 @@ export function useChatMessageList({
   const pendingPdfGeneration =
     isSending &&
     !pendingImageGeneration &&
+    !pendingImageSearch &&
     !pendingExcelGeneration &&
     !pendingWordGeneration &&
     lastPdfUserIndex >= 0 &&
@@ -106,11 +114,13 @@ export function useChatMessageList({
   const showPendingTextOrbitRow =
     showAssistantPendingLoader &&
     !pendingImageGeneration &&
+    !pendingImageSearch &&
     !pendingExcelGeneration &&
     !pendingWordGeneration &&
     !pendingPdfGeneration
   const showPendingAssistantRow =
     showPendingTextOrbitRow ||
+    pendingImageSearch ||
     pendingImageGeneration ||
     pendingExcelGeneration ||
     pendingWordGeneration ||
@@ -493,6 +503,7 @@ export function useChatMessageList({
     animatedAssistantContent,
     showPendingAssistantRow,
     pendingImageGeneration,
+    pendingImageSearch,
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,

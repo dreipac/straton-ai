@@ -397,7 +397,7 @@
   align-content: start;
   background: var(--settings-body-bg);
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -1634,6 +1634,29 @@
 .admin-users-panel {
   display: grid;
   gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-token-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin-top: 0.5rem;
+}
+
+.admin-token-table-scroll > .admin-token-usage-table {
+  width: max-content;
+  min-width: 100%;
+  margin-top: 0;
+}
+
+.admin-token-user-log .admin-token-table-scroll {
+  margin-top: 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
 }
 
 .admin-token-usage-table {
@@ -3084,6 +3107,10 @@
 }
 
 :root[data-theme='dark'] .admin-token-log-detail-table {
+  border-top-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-token-user-log .admin-token-table-scroll {
   border-top-color: var(--color-border);
 }
 

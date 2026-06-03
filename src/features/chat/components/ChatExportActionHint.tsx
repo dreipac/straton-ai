@@ -4,7 +4,7 @@ type ChatExportActionHintProps = {
   onAction: () => void
 }
 
-/** Fetter Akzent-Text in der KI-Antwort (Mobile: statt Composer-Sheet / Download-Button). */
+/** Akzent-Link unter der KI-Antwort (Word/PDF/Excel-Aktionen). */
 export function ChatExportActionHint({ label, busy = false, onAction }: ChatExportActionHintProps) {
   return (
     <p className="chat-export-action-hint">

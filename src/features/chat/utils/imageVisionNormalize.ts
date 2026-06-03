@@ -8,11 +8,9 @@ const SUPPORTED_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 
 const MAX_BYTES_BEFORE_CANVAS = 4_200_000
 /** Vision: Base64-Länge ≈ Text-Tokens, wenn die API sie als Rohstring sieht. */
 const MAX_VISION_DATA_URL_CHARS = 280_000
-/** Desktop / iOS — klein genug für `detail: low`, scharf genug für Tastatur/Foto. */
-const MAX_EDGE_DESKTOP = 1280
-const MAX_EDGE_MOBILE = 768
-const JPEG_QUALITY_DESKTOP = 0.82
-const JPEG_QUALITY_MOBILE = 0.72
+/** Vision + Chat-Speicher: längste Kante (Mobil & Desktop gleich, OpenAI `detail: low`). */
+const MAX_EDGE_VISION = 768
+const JPEG_QUALITY_VISION = 0.75
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -97,11 +95,11 @@ export function isValidVisionDataUrl(dataUrl: string): boolean {
 }
 
 function visionMaxEdge(): number {
-  return isLikelyIos() ? MAX_EDGE_MOBILE : MAX_EDGE_DESKTOP
+  return MAX_EDGE_VISION
 }
 
 function visionJpegQuality(): number {
-  return isLikelyIos() ? JPEG_QUALITY_MOBILE : JPEG_QUALITY_DESKTOP
+  return JPEG_QUALITY_VISION
 }
 
 async function fileToRasterSource(
@@ -281,8 +279,8 @@ async function dataUrlToRasterSource(
   }
 }
 
-const GENERATED_IMAGE_MAX_EDGE = 1024
-const GENERATED_IMAGE_JPEG_QUALITY = 0.78
+const GENERATED_IMAGE_MAX_EDGE = MAX_EDGE_VISION
+const GENERATED_IMAGE_JPEG_QUALITY = JPEG_QUALITY_VISION
 const GENERATED_IMAGE_MAX_DATA_URL_CHARS = 120_000
 
 /**
@@ -319,13 +317,22 @@ export async function compressDataUrlForChatStorage(dataUrl: string): Promise<st
 }
 
 export async function readImageFileAsVisionDataUrl(file: File): Promise<string> {
-  if (fileNeedsVisionEncode(file)) {
-    return encodeFileToJpegDataUrl(file)
-  }
-
-  const raw = normalizeVisionDataUrl(await readFileAsDataUrl(file))
-  if (isValidVisionDataUrl(raw) && raw.length <= MAX_VISION_DATA_URL_CHARS) {
-    return raw
+  if (!fileNeedsVisionEncode(file)) {
+    const raw = normalizeVisionDataUrl(await readFileAsDataUrl(file))
+    if (isValidVisionDataUrl(raw) && raw.length <= MAX_VISION_DATA_URL_CHARS) {
+      try {
+        const { width, height, cleanup } = await fileToRasterSource(file)
+        try {
+          if (width <= MAX_EDGE_VISION && height <= MAX_EDGE_VISION) {
+            return raw
+          }
+        } finally {
+          cleanup?.()
+        }
+      } catch {
+        /* Fallback: Canvas-Komprimierung */
+      }
+    }
   }
 
   return encodeFileToJpegDataUrl(file)

@@ -17,8 +17,6 @@ import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
 import { ChatContextUsageRing } from './ChatContextUsageRing'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
-import { canFinalizeWordExportFromThread } from '../utils/wordOutline'
-import { canFinalizePdfExportFromThread } from '../pdf/pdfOutline'
 import { ChatEmptyGreetingTitle } from './ChatEmptyGreetingTitle'
 import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
@@ -144,6 +142,7 @@ export function ChatWindow({
     animatedAssistantContent,
     showPendingAssistantRow,
     pendingImageGeneration,
+    pendingImageSearch,
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,
@@ -594,6 +593,7 @@ export function ChatWindow({
         isSending={isSending}
         showPendingAssistantRow={showPendingAssistantRow}
         pendingImageGeneration={pendingImageGeneration}
+        pendingImageSearch={pendingImageSearch}
         pendingExcelGeneration={pendingExcelGeneration}
         pendingWordGeneration={pendingWordGeneration}
         pendingPdfGeneration={pendingPdfGeneration}
@@ -619,41 +619,6 @@ export function ChatWindow({
         onCopyUserMessage={handleCopyUserMessageText}
       />
       {error ? <p className="error-text">{error}</p> : null}
-
-      {onFinalizeWordDocument &&
-      canFinalizeWordExportFromThread(messageList) &&
-      !isSending &&
-      !composer.isMobileComposer ? (
-        <div className="chat-word-finalize-bar" role="region" aria-label="Word-Export">
-          <button
-            type="button"
-            className="chat-excel-download-button"
-            disabled={wordFinalizeBusy}
-            onClick={() => void onFinalizeWordDocument()}
-          >
-            {wordFinalizeBusy ? 'Word wird erstellt…' : 'Word generieren'}
-          </button>
-        </div>
-      ) : null}
-
-      {onFinalizePdfDocument &&
-      canFinalizePdfExportFromThread(messageList) &&
-      !isSending &&
-      !composer.isMobileComposer ? (
-        <div className="chat-word-finalize-bar" role="region" aria-label="PDF-Export">
-          <p className="chat-word-finalize-bar__hint">
-            Wenn die Vorschau oben passt, erzeuge die PDF-Datei aus der Gliederung.
-          </p>
-          <button
-            type="button"
-            className="chat-excel-download-button"
-            disabled={pdfFinalizeBusy}
-            onClick={() => void onFinalizePdfDocument()}
-          >
-            {pdfFinalizeBusy ? 'PDF wird erstellt…' : 'PDF generieren'}
-          </button>
-        </div>
-      ) : null}
 
       <div className="chat-composer-stack">
         {quizFormatOverlay}

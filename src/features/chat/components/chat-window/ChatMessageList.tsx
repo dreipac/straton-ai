@@ -8,6 +8,7 @@ import { ChatUserMessageMenuSelect } from '../ChatUserMessageMenuSelect'
 import { ChatAssistantMessageCopyButton } from './ChatAssistantMessageCopyButton'
 import { extractAssistantMessageCopyText } from '../../utils/chatMessageCopy'
 import { WordOutlinePaper, WordOutlinePaperBuilding } from '../WordOutlinePaper'
+import { UnsplashPhotoResults } from '../UnsplashPhotoResults'
 import { stripExcelSpecBlock } from '../../excel/excelSpec'
 import type { ChatMessage } from '../../types'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
@@ -60,6 +61,7 @@ export type ChatMessageListProps = {
   isSending: boolean
   showPendingAssistantRow: boolean
   pendingImageGeneration: boolean
+  pendingImageSearch: boolean
   pendingExcelGeneration: boolean
   pendingWordGeneration: boolean
   pendingPdfGeneration: boolean
@@ -98,6 +100,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     isSending,
     showPendingAssistantRow,
     pendingImageGeneration,
+    pendingImageSearch,
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,
@@ -196,7 +199,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !String(displayContent ?? '').trim()
           const isLatestMessage = message.id === messages[messages.length - 1]?.id
           const showWordFinalizeHint =
-            isMobileComposer &&
             isAssistant &&
             isLatestMessage &&
             !isSending &&
@@ -204,7 +206,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
             canFinalizeWordExportFromThread(messages) &&
             !message.metadata?.wordExport
           const showPdfFinalizeHint =
-            isMobileComposer &&
             isAssistant &&
             isLatestMessage &&
             !isSending &&
@@ -392,21 +393,31 @@ export function ChatMessageList(props: ChatMessageListProps) {
                           />
                         )
                       }
+                      const unsplash = message.metadata?.unsplashSearch
                       return (
-                        <div className="chat-message-body chat-message-body--rich">
+                        <div className="chat-message-body chat-message-body--rich chat-message-body--unsplash">
                           {renderAssistantRichContent(
                             displayContent,
                             buildAssistantRichOptions(message.id),
                           )}
+                          {unsplash ? (
+                            <UnsplashPhotoResults query={unsplash.query} photos={unsplash.photos} />
+                          ) : null}
                         </div>
                       )
                     })()
                   ) : (
-                    <div className="chat-message-body chat-message-body--rich">
+                    <div className="chat-message-body chat-message-body--rich chat-message-body--unsplash">
                       {renderAssistantRichContent(
                         displayContent,
                         buildAssistantRichOptions(message.id),
                       )}
+                      {message.metadata?.unsplashSearch ? (
+                        <UnsplashPhotoResults
+                          query={message.metadata.unsplashSearch.query}
+                          photos={message.metadata.unsplashSearch.photos}
+                        />
+                      ) : null}
                     </div>
                   )
                 ) : (
@@ -662,6 +673,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
               aria-live="polite"
               aria-busy="true"
             >
+              {pendingImageSearch ? (
+                <>
+                  <strong className="chat-message-author">Straton AI</strong>
+                  <ChatPendingReplyLoader statusLabel={getChatSendPhaseLabel('image_search')} />
+                </>
+              ) : null}
               {pendingImageGeneration ? (
                 <strong className="chat-message-author">Straton AI</strong>
               ) : null}

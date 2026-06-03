@@ -100,6 +100,73 @@ export function parseWordOutlineTableBlock(raw: unknown): WordOutlineTableBlock 
   }
 }
 
+function isPipeTableLine(line: string): boolean {
+  return parsePipeTableRow(line) !== null || isTableSeparatorLine(line)
+}
+
+/**
+ * Heuristik/Refine legt oft jede `|`-Zeile als eigenen `paragraph`-Block an — dann schlägt
+ * die Tabellenerkennung innerhalb eines Blocks fehl. Hier werden aufeinanderfolgende Pipe-Zeilen
+ * zu einem `table`-Block zusammengeführt.
+ */
+export function coalesceMarkdownTablesAcrossBlocks(
+  blocks: WordOutlineV1['blocks'],
+): WordOutlineV1['blocks'] {
+  const out: WordOutlineV1['blocks'] = []
+  let pipeBuf: string[] = []
+
+  const flushPipeBuf = () => {
+    if (pipeBuf.length === 0) {
+      return
+    }
+    const parsed = tryParseMarkdownTableLines(pipeBuf, 0)
+    if (parsed) {
+      out.push({ type: 'table', header: true, rows: parsed.rows })
+    } else {
+      for (const line of pipeBuf) {
+        out.push({ type: 'paragraph', text: line })
+      }
+    }
+    pipeBuf = []
+  }
+
+  for (const block of blocks) {
+    if (block.type === 'table') {
+      flushPipeBuf()
+      out.push(block)
+      continue
+    }
+    if (block.type === 'heading') {
+      flushPipeBuf()
+      out.push(block)
+      continue
+    }
+    if (block.type !== 'paragraph') {
+      flushPipeBuf()
+      out.push(block)
+      continue
+    }
+
+    const lines = block.text.split('\n')
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line) {
+        flushPipeBuf()
+        continue
+      }
+      if (isPipeTableLine(line)) {
+        pipeBuf.push(line)
+        continue
+      }
+      flushPipeBuf()
+      out.push({ type: 'paragraph', text: line })
+    }
+  }
+
+  flushPipeBuf()
+  return out
+}
+
 /** Markdown-Pipe-Tabellen in `paragraph`-Blöcken in eigene `table`-Blöcke aufteilen. */
 export function expandWordOutlineTables(blocks: WordOutlineV1['blocks']): WordOutlineV1['blocks'] {
   const out: WordOutlineV1['blocks'] = []
@@ -136,5 +203,5 @@ export function expandWordOutlineTables(blocks: WordOutlineV1['blocks']): WordOu
     }
     flushText()
   }
-  return out
+  return coalesceMarkdownTablesAcrossBlocks(out)
 }

@@ -119,7 +119,7 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v1', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v4', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v1', retention: '24h' },
     generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
     generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
@@ -2142,7 +2142,69 @@ const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as 
 const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
 const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
+type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document'
+type InstantAnalyzeActionEdge =
+  | 'answer'
+  | 'short_answer'
+  | 'clarify'
+  | 'one_step'
+  | 'generate'
+  | 'describe'
+  | 'search'
+  | 'word_generate'
+  | 'pdf_generate'
+  | 'excel_generate'
+
+const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
+  InstantAnalyzeCategoryEdge,
+  readonly InstantAnalyzeActionEdge[]
+> = {
+  chat: ['answer', 'short_answer', 'clarify', 'one_step'],
+  image: ['generate', 'describe', 'search'],
+  document: ['word_generate', 'pdf_generate', 'excel_generate'],
+}
+
+function isAllowedInstantCategoryAction(
+  category: string,
+  action: string,
+): category is InstantAnalyzeCategoryEdge {
+  if (category !== 'chat' && category !== 'image' && category !== 'document') {
+    return false
+  }
+  return (INSTANT_ANALYZE_ACTIONS_BY_CATEGORY[category] as readonly string[]).includes(action)
+}
+
+function replyModeFromInstantRoute(
+  category: InstantAnalyzeCategoryEdge,
+  action: InstantAnalyzeActionEdge,
+): 'ask_only' | 'one_step' | 'short_answer' | 'normal' {
+  if (category === 'chat') {
+    if (action === 'clarify') return 'ask_only'
+    if (action === 'short_answer') return 'short_answer'
+    if (action === 'one_step') return 'one_step'
+    return 'normal'
+  }
+  return 'normal'
+}
+
+function routeFromReplyModeEdge(
+  reply_mode: 'ask_only' | 'one_step' | 'short_answer' | 'normal',
+): { category: InstantAnalyzeCategoryEdge; action: InstantAnalyzeActionEdge } {
+  switch (reply_mode) {
+    case 'ask_only':
+      return { category: 'chat', action: 'clarify' }
+    case 'short_answer':
+      return { category: 'chat', action: 'short_answer' }
+    case 'one_step':
+      return { category: 'chat', action: 'one_step' }
+    default:
+      return { category: 'chat', action: 'answer' }
+  }
+}
+
 type InstantAnalyzePayloadEdge = {
+  category: InstantAnalyzeCategoryEdge
+  action: InstantAnalyzeActionEdge
   clarity: 'clear' | 'partial' | 'vague'
   intent: string
   missing: string[]
@@ -2201,12 +2263,35 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
   if (!needs_live_web) {
     web_query = ''
   }
-  if (clarity === 'vague' && reply_mode === 'normal') {
-    reply_mode = 'ask_only'
+  if (clarity === 'vague' && reply_mode === 'ask_only') {
+    reply_mode = 'normal'
+    needs_live_web = false
+    web_query = ''
+  }
+  const categoryRaw = typeof o.category === 'string' ? o.category.trim() : ''
+  const actionRaw = typeof o.action === 'string' ? o.action.trim() : ''
+  let category: InstantAnalyzeCategoryEdge
+  let action: InstantAnalyzeActionEdge
+  if (isAllowedInstantCategoryAction(categoryRaw, actionRaw)) {
+    category = categoryRaw
+    action = actionRaw
+  } else {
+    const route = routeFromReplyModeEdge(reply_mode)
+    category = route.category
+    action = route.action
+  }
+  reply_mode = replyModeFromInstantRoute(category, action)
+  if (category !== 'chat' || action === 'clarify') {
+    needs_live_web = false
+    web_query = ''
+  }
+  if (reply_mode === 'ask_only') {
     needs_live_web = false
     web_query = ''
   }
   return {
+    category,
+    action,
     clarity,
     intent,
     missing,
@@ -2389,17 +2474,21 @@ async function instantAnalyzeWithAi(
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
+    'Felder: category ("chat"|"image"|"document"), action (passend zur category),',
+    'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
-    'Bei reply_mode "ask_only": needs_live_web false und web_query leer.',
-    'Bei vager Anfrage ohne Kernkontext: reply_mode "ask_only".',
-    'Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?»): clarity "clear", reply_mode "short_answer" — nicht ask_only.',
-    'needs_live_web true bei: Aktienkurs/Ticker, Preise, News, «aktuell/aktuelle/aktuellen/derzeit/derzeitige/heutige/jetzige/gegenwärtig/momentan/neueste»,',
-    '«aktuelle Information», «derzeitige Regelung», Delikte/Strafen mit Zeitbezug, Produktversionen, Termine.',
-    'Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true,',
-    'web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
-    'needs_live_web false nur ohne Zeitbezug (allgemeine Erklärung, Coding, Mathe, reine Meinung).',
+    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search;',
+    'document → word_generate|pdf_generate|excel_generate.',
+    '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
+    '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel exportieren → document.*.',
+    'Anhang + beschreiben ohne Neuerstellung → image.describe.',
+    'Bei reply_mode "ask_only" / chat.clarify: needs_live_web false. Bei document/image.generate/image.search: needs_live_web false.',
+    'Kurze Folgenachricht mit Verlauf: chat.short_answer. Folgen «zeige Bilder», «von ihm», «ich meine den Schauspieler» nach Fotosuche: image.search — intent aus Verlauf (Name), nie «ihm» wörtlich.',
+    'Aufgabe/lösen/Übung: chat.answer.',
+    'Vage Anfrage: chat.answer mit Annahme — clarify nur wenn gar nicht lösbar.',
+    'needs_live_web true bei Aktienkurs, News, «aktuell», Gesetzeslage mit Zeitbezug.',
+    'needs_live_web false bei Coding, Mathe, document.*, image.generate, image.search.',
   ].join('\n')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',

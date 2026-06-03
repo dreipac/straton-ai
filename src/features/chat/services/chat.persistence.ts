@@ -71,6 +71,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
       : []
     out.instantAnalyzeDebug = {
       source,
+      category: typeof d.category === 'string' ? d.category : 'chat',
+      action: typeof d.action === 'string' ? d.action : 'answer',
+      category_from_ai: typeof d.category_from_ai === 'string' ? d.category_from_ai : 'chat',
+      action_from_ai: typeof d.action_from_ai === 'string' ? d.action_from_ai : 'answer',
       clarity: typeof d.clarity === 'string' ? d.clarity : 'partial',
       intent: typeof d.intent === 'string' ? d.intent : '',
       missing,
@@ -134,6 +138,41 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     const fileName = typeof p.fileName === 'string' ? p.fileName : ''
     if (bucket && path && fileName) {
       out.pdfExport = { bucket, path, fileName }
+    }
+  }
+
+  const unsplash = o.unsplashSearch
+  if (unsplash && typeof unsplash === 'object') {
+    const u = unsplash as Record<string, unknown>
+    const query = typeof u.query === 'string' ? u.query.trim() : ''
+    const photosRaw = Array.isArray(u.photos) ? u.photos : []
+    const photos = photosRaw
+      .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object' && !Array.isArray(p)))
+      .map((p) => ({
+        id: typeof p.id === 'string' ? p.id : '',
+        description: typeof p.description === 'string' ? p.description : '',
+        thumbUrl: typeof p.thumbUrl === 'string' ? p.thumbUrl : '',
+        regularUrl: typeof p.regularUrl === 'string' ? p.regularUrl : '',
+        photoPageUrl: typeof p.photoPageUrl === 'string' ? p.photoPageUrl : '',
+        photographerName: typeof p.photographerName === 'string' ? p.photographerName : '',
+        photographerUrl: typeof p.photographerUrl === 'string' ? p.photographerUrl : '',
+        downloadLocation: typeof p.downloadLocation === 'string' ? p.downloadLocation : '',
+      }))
+      .filter((p) => p.id && p.regularUrl && p.photoPageUrl)
+      .slice(0, 2)
+    if (query && photos.length > 0) {
+      out.unsplashSearch = { query, photos }
+    }
+  }
+
+  const gen = o.generatedImage
+  if (gen && typeof gen === 'object') {
+    const g = gen as Record<string, unknown>
+    const bucket = typeof g.bucket === 'string' ? g.bucket : ''
+    const path = typeof g.path === 'string' ? g.path : ''
+    const imageId = typeof g.imageId === 'string' ? g.imageId : ''
+    if (bucket && path && imageId) {
+      out.generatedImage = { bucket, path, imageId }
     }
   }
 

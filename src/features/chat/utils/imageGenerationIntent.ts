@@ -40,8 +40,6 @@ export function matchExplicitImageGenerationRequest(raw: string): ImageGeneratio
     '^\\s*(?:kannst\\s+du|könntest\\s+du|kann\\s+du)\\s+(?:mir\\s+)?(?:bitte\\s+)?(?:ein|eine)\\s+bild\\s*(?:[:,–—]|\\s+)\\s*(.+)$',
     'is',
   )
-  const withPromptZeig = /^\s*zeig\s+(?:mir\s+)?(?:ein|eine)\s+bild\s+(?:von|mit)\s+(.+)$/is
-
   const withPromptAfterGreeting = new RegExp(
     `^\\s*(?:hallo|hi|hey|servus|guten\\s+(?:tag|morgen|abend))[,!.]*\\s+(?:bitte\\s+)?${deVerb}\\s+(?:mir\\s+)?${imageWordDe}\\s*(?:[:,–—]|\\s+)\\s*(.+)$`,
     'is',
@@ -65,7 +63,6 @@ export function matchExplicitImageGenerationRequest(raw: string): ImageGeneratio
     withPromptDeVerb,
     withPromptIch,
     withPromptDu,
-    withPromptZeig,
     withPromptEn,
     withPromptCanYou,
     withPromptDeLoose,

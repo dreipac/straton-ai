@@ -3,6 +3,10 @@ export type ChatRole = 'user' | 'assistant'
 /** Admin-Debug: Ergebnis von Smart-Instant Schritt 1 (an User-Nachricht). */
 export type InstantAnalyzeDebugMeta = {
   source: 'edge' | 'fallback'
+  category: string
+  action: string
+  category_from_ai: string
+  action_from_ai: string
   clarity: string
   intent: string
   missing: string[]
@@ -32,6 +36,18 @@ export type ChatMessagePdfExport = {
   bucket: string
   path: string
   fileName: string
+}
+
+/** Unsplash-Treffer (Hotlink-URLs, Attribution in der UI). */
+export type UnsplashPhotoResult = {
+  id: string
+  description: string
+  thumbUrl: string
+  regularUrl: string
+  photoPageUrl: string
+  photographerName: string
+  photographerUrl: string
+  downloadLocation: string
 }
 
 /** KI/Gliederung für «Word aus Vorlage» – wird zu OOXML in die Vorlage injiziert. */
@@ -85,6 +101,11 @@ export type ChatMessage = {
       bucket: string
       path: string
       imageId: string
+    }
+    /** Assistant: Unsplash-Fotosuche (max. 2 Treffer). */
+    unsplashSearch?: {
+      query: string
+      photos: UnsplashPhotoResult[]
     }
   }
 }

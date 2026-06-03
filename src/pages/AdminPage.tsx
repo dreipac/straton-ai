@@ -2243,6 +2243,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       {lastAiUsageSorted.length === 0 ? (
                         <p className="admin-user-empty">Keine Zeilen für «zuletzt» (ungewöhnlich).</p>
                       ) : (
+                        <div className="admin-token-table-scroll">
                         <table className="admin-token-usage-table" aria-label="Letzter KI-Aufruf pro Nutzer">
                           <thead>
                             <tr>
@@ -2325,6 +2326,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             })}
                           </tbody>
                         </table>
+                        </div>
                       )}
 
                       <h3 className="admin-token-section-heading">Anfragen-Protokoll (je Nutzer aufklappbar)</h3>
@@ -2369,6 +2371,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                     {formatTokenInt(sumTok)} Tok. · {formatUsdEstimate(sumUsd, true)}
                                   </span>
                                 </summary>
+                                <div className="admin-token-table-scroll">
                                 <table
                                   className="admin-token-usage-table admin-token-log-detail-table"
                                   aria-label={`Anfragen für ${formatTokenLogPerson(head)}`}
@@ -2431,6 +2434,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                     })}
                                   </tbody>
                                 </table>
+                                </div>
                               </details>
                             )
                           })}
@@ -2562,6 +2566,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         <p className="admin-user-empty">Keine Zeilen für die aktuellen Filter.</p>
                       ) : (
                         <>
+                      <div className="admin-token-table-scroll">
                       <table className="admin-token-usage-table" aria-label="KI Token Verbrauch">
                         <thead>
                           <tr>
@@ -2695,6 +2700,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           </tr>
                         </tfoot>
                       </table>
+                      </div>
                       {tokenUsageCostTotals.hasUnknownModel ? (
                         <p className="admin-token-cost-footnote">
                           Kosten-Summen in der Fußzeile zählen nur Zeilen mit bekanntem Modelltarif (OpenAI/Anthropic

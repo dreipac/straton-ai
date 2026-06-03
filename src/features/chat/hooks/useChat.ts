@@ -58,6 +58,16 @@ import {
   type ThinkingIntakeSession,
 } from '../utils/thinkingIntake'
 import { fetchTavilySearchContext } from '../services/tavilySearch.service'
+import {
+  buildUnsplashSearchAssistantPayload,
+  fetchUnsplashSearchResults,
+} from '../services/unsplashSearch.service'
+import {
+  extractImageSearchQuery,
+  isImageSearchTurnMessage,
+  matchImageTopicClarification,
+  type ImageSearchPriorTurn,
+} from '../utils/imageSearchIntent'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import {
   loadChatMediaPathAsVisionDataUrl,
@@ -94,6 +104,7 @@ import {
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
+import { resolveInstantRouteOverrides } from '../constants/instantAnalyzeRoute'
 import {
   persistGeneratedImageInAssistantMessage,
   persistInlineVisionImagesInContent,
@@ -957,9 +968,9 @@ export function useChat(
       visionInlineDataUrl?: string
     },
   ) {
-    const wantsWord = userWantsWordExport(content)
-    const wantsPdf = !wantsWord && userWantsPdfExport(content)
-    const wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
+    let wantsWord = userWantsWordExport(content)
+    let wantsPdf = !wantsWord && userWantsPdfExport(content)
+    let wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
     let trimmed = stripExcelCommandMarker(content)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
@@ -1079,6 +1090,23 @@ export function useChat(
 
       let imageGenPrompt =
         imageCmd && imageCmd.kind === 'prompt' ? stripImageGenTilePromptPrefix(imageCmd.prompt) : null
+      const priorTurnsForContext: ImageSearchPriorTurn[] = (messagesByThreadId[targetThreadId] ?? [])
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          ...(m.metadata?.unsplashSearch?.query
+            ? { unsplashQuery: m.metadata.unsplashSearch.query }
+            : {}),
+        }))
+
+      let imageSearchQuery: string | null =
+        !imageGenPrompt &&
+        !wantsWord &&
+        !wantsPdf &&
+        (isImageSearchTurnMessage(trimmed) || matchImageTopicClarification(trimmed, priorTurnsForContext))
+          ? extractImageSearchQuery(trimmed, undefined, priorTurnsForContext) || null
+          : null
       if (!imageGenPrompt && !wantsWord && !wantsPdf && hasAttachedVisionEarly) {
         const attachedEdit = matchAttachedImageEditRequest(trimmed, true)
         if (attachedEdit.kind === 'prompt') {
@@ -1112,6 +1140,7 @@ export function useChat(
       if (
         !visionInlineDataUrl &&
         !imageGenPrompt &&
+        !imageSearchQuery &&
         usesGatewayAi() &&
         userId
       ) {
@@ -1134,6 +1163,7 @@ export function useChat(
         !wantsPdf &&
         !wantsExcel &&
         !imageGenPrompt &&
+        !imageSearchQuery &&
         !messageHasVisionPayload(content) &&
         !visionInlineDataUrl
 
@@ -1158,12 +1188,7 @@ export function useChat(
         return
       }
 
-      const priorTurns = (messagesByThreadId[targetThreadId] ?? [])
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }))
+      const priorTurns = priorTurnsForContext
 
       const optimisticUserId = crypto.randomUUID()
       const optimisticUserMessage: ChatMessage = {
@@ -1198,12 +1223,74 @@ export function useChat(
           const invokeResult = await instantAnalyzeUserMessage({
             userMessage: trimmed,
             priorTurns,
+            hasVisionAttachment: hasAttachedVisionEarly,
           })
           instantAnalyze = invokeResult.analyze
 
+          const composerRouteLocked =
+            wantsWord ||
+            wantsPdf ||
+            wantsExcel ||
+            imageCmd?.kind === 'prompt'
+          const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, trimmed, {
+            composerRouteLocked,
+            priorTurns: priorTurnsForContext,
+          })
+          if (routeOverrides.imageGenEmpty) {
+            setMessagesByThreadId((prev) => ({
+              ...prev,
+              [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+            }))
+            setError(
+              'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
+            )
+            return
+          }
+          if (routeOverrides.wantsWord) {
+            wantsWord = true
+            wantsPdf = false
+            wantsExcel = false
+          } else if (routeOverrides.wantsPdf) {
+            wantsPdf = true
+            wantsWord = false
+            wantsExcel = false
+          } else if (routeOverrides.wantsExcel) {
+            wantsExcel = true
+            wantsWord = false
+            wantsPdf = false
+          }
+          if (routeOverrides.imageSearchQuery) {
+            imageSearchQuery = routeOverrides.imageSearchQuery
+            imageGenPrompt = null
+          } else if (routeOverrides.imageGenPrompt) {
+            imageGenPrompt = routeOverrides.imageGenPrompt
+            imageSearchQuery = null
+          }
+          if (wantsWord) {
+            userMetadataBase.userWordCommand = true
+            delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userExcelCommand
+            if (!trimmed) {
+              userContent = 'Word-Dokument vorbereiten'
+            }
+          } else if (wantsPdf) {
+            userMetadataBase.userPdfCommand = true
+            delete userMetadataBase.userWordCommand
+            delete userMetadataBase.userExcelCommand
+            if (!trimmed) {
+              userContent = 'PDF-Dokument vorbereiten'
+            }
+          } else if (wantsExcel) {
+            userMetadataBase.userExcelCommand = true
+            delete userMetadataBase.userWordCommand
+            delete userMetadataBase.userPdfCommand
+          }
+
           const shouldAutoWeb =
+            instantAnalyze.category === 'chat' &&
             instantAnalyze.needs_live_web &&
             instantAnalyze.reply_mode !== 'ask_only' &&
+            instantAnalyze.action !== 'clarify' &&
             instantAnalyze.web_query.trim().length > 0
           wantedAutoWebSearch = shouldAutoWeb
 
@@ -1242,6 +1329,15 @@ export function useChat(
           [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
         }))
         throw analyzeErr
+      }
+
+      if ((wantsWord || wantsPdf) && !usesGatewayAi()) {
+        setMessagesByThreadId((prev) => ({
+          ...prev,
+          [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+        }))
+        setError(`${wantsPdf ? 'PDF' : 'Word'}-Export ist im Demo-Modus nicht verfügbar.`)
+        return
       }
 
       const userMetadataFinal = {
@@ -1298,6 +1394,70 @@ export function useChat(
         )
         return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       })
+
+      if (imageSearchQuery) {
+        if (!usesGatewayAi()) {
+          setError('Fotosuche ist im Demo-Modus nicht verfügbar.')
+          return
+        }
+        setSendPhase('image_search')
+        try {
+          const searchResult = await fetchUnsplashSearchResults(imageSearchQuery)
+          const { content: assistantContent, metadata: unsplashMeta } =
+            buildUnsplashSearchAssistantPayload(searchResult)
+          const storedAssistantMessage = await createChatMessage(
+            targetThreadId,
+            'assistant',
+            assistantContent,
+            unsplashMeta,
+          )
+          setMessagesByThreadId((prev) =>
+            upsertThreadMessages(prev, targetThreadId, storedAssistantMessage),
+          )
+          if (userOwnsThread) {
+            await touchChatThread(targetThreadId)
+          }
+          setThreads((prev) => {
+            const updated = prev.map((thread) =>
+              thread.id === targetThreadId
+                ? { ...thread, updatedAt: new Date().toISOString() }
+                : thread,
+            )
+            return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          })
+          if (shouldRename && userOwnsThread) {
+            void (async () => {
+              try {
+                const { title } = await generateChatTitleWithAi([
+                  ...nextMessages,
+                  {
+                    id: storedAssistantMessage.id,
+                    role: 'assistant',
+                    content: storedAssistantMessage.content,
+                    createdAt: storedAssistantMessage.createdAt,
+                  },
+                ])
+                if (!title || title === provisionalTitle) {
+                  return
+                }
+                await updateChatThreadTitle(targetThreadId, title)
+                setThreads((prev) => {
+                  const updated = prev.map((thread) =>
+                    thread.id === targetThreadId ? { ...thread, title } : thread,
+                  )
+                  return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                })
+              } catch {
+                /* Titel optional */
+              }
+            })()
+          }
+          void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Fotosuche ist fehlgeschlagen.')
+        }
+        return
+      }
 
       if (imageGenPrompt) {
         if (!usesGatewayAi()) {

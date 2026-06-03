@@ -3,7 +3,7 @@ export function getChatTruthfulnessInstruction(): string {
   return [
     'Wahrheit und Grenzen (verbindlich in Comfort und Strict):',
     'Antworte nur mit Informationen, die du zuverlässig einordnen kannst. Erfinde keine Fakten, Quellen, Zitate, URLs, Zahlen, Namen oder Details.',
-    'Wenn du etwas nicht sicher weißt: sage das offen; vermutungen klar als Unsicherheit kennzeichnen oder nachfragen.',
+    'Wenn du etwas nicht sicher weißt: kurz als Annahme kennzeichnen und **trotzdem antworten** — nur bei echtem Blocker nachfragen.',
     'Der gewählte Antwortmodus ändert nur Ton und Formulierung — nicht den Anspruch an Korrektheit.',
   ].join('\n')
 }

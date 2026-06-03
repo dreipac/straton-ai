@@ -1,5 +1,9 @@
 import type { ChatMessage, WordOutlineV1 } from '../types'
-import { expandWordOutlineTables, parseWordOutlineTableBlock } from './wordOutlineTables'
+import {
+  coalesceMarkdownTablesAcrossBlocks,
+  expandWordOutlineTables,
+  parseWordOutlineTableBlock,
+} from './wordOutlineTables'
 
 export type { WordOutlineV1 }
 
@@ -633,7 +637,8 @@ export function normalizeHeadingLevelsForWord(outline: WordOutlineV1): WordOutli
 function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
   const { title: _d, ...rest } = stripTitle
   const refined = refineWordOutlineBlocksForExport(rest.blocks)
-  return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks: refined })
+  const blocks = coalesceMarkdownTablesAcrossBlocks(refined)
+  return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks })
 }
 
 export function extractWordOutlineFromThread(messages: ChatMessage[]): WordOutlineV1 | null {
