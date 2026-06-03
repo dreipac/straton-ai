@@ -732,11 +732,41 @@
   line-height: 1.15;
 }
 
+.learn-shell .chat-thread-list > .chat-thread-row.is-entering {
+  animation: threadRowEnter 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learn-shell .chat-thread-list > .chat-thread-row.is-pending {
+  animation: threadRowEnter 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.learn-path-workspace-loader {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: min(52vh, 28rem);
+  padding: 2.5rem 1.25rem 3rem;
+}
+
+.learn-workspace-card:has(.learn-path-workspace-loader) .learn-workspace-header {
+  margin-bottom: 0.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learn-shell .chat-thread-list > .chat-thread-row.is-entering,
+  .learn-shell .chat-thread-list > .chat-thread-row.is-pending {
+    animation: none;
+  }
+}
+
 .learn-shell .chat-thread-item {
   justify-content: flex-start;
   text-align: left;
   min-width: 0;
   max-width: 100%;
+  width: 100%;
 }
 
 .learn-shell .chat-thread-title {

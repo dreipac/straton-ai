@@ -28,6 +28,7 @@ export const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: st
   { id: 'general', label: 'Allgemein' },
   { id: 'chat', label: 'Chat Einstellungen' },
   { id: 'invitations', label: 'Einladungen' },
+  { id: 'archived-chats', label: 'Archiv' },
   { id: 'personalize', label: 'Personalisieren' },
   { id: 'status', label: 'Status' },
   { id: 'feedback', label: 'Feedback' },

@@ -5,6 +5,7 @@ import {
   type InteractiveQuizPayload,
 } from '../../chat/utils/interactiveQuiz'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
+import { isLearningPathEmpty } from '../utils/learnPageHelpers'
 import { normalizeFlashcardSr } from '../utils/spacedRepetition'
 
 export type LearningPathSummary = {
@@ -13,6 +14,10 @@ export type LearningPathSummary = {
   title: string
   createdAt: string
   updatedAt: string
+  /** Client-only: optimistischer Eintrag bis die DB-Antwort da ist. */
+  isPending?: boolean
+  /** Stabile Sidebar-`key`-ID über Platzhalter → echter Pfad (kein Remount). */
+  sidebarListKey?: string
 }
 
 export type UploadedMaterial = {
@@ -1173,4 +1178,19 @@ export async function deleteLearningPathById(pathId: string): Promise<void> {
   if (error) {
     throw toReadableError(error)
   }
+}
+
+/** Entfernt unbearbeitete Lernpfade (Setup Schritt 1 ohne Inhalt). */
+export async function deleteEmptyLearningPathsByUserId(userId: string): Promise<number> {
+  const paths = await listLearningPathsByUserId(userId)
+  const emptyIds = paths.filter((path) => isLearningPathEmpty(path)).map((path) => path.id)
+  if (emptyIds.length === 0) {
+    return 0
+  }
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('learning_paths').delete().in('id', emptyIds)
+  if (error) {
+    throw toReadableError(error)
+  }
+  return emptyIds.length
 }

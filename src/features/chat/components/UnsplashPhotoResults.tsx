@@ -1,3 +1,4 @@
+import { UNSPLASH_SEARCH_MAX_PHOTOS } from '../services/unsplashSearch.service'
 import type { UnsplashPhotoResult } from '../types'
 
 type Props = {
@@ -6,7 +7,7 @@ type Props = {
 }
 
 export function UnsplashPhotoResults({ query, photos }: Props) {
-  const shown = photos.slice(0, 2)
+  const shown = photos.slice(0, UNSPLASH_SEARCH_MAX_PHOTOS)
   if (shown.length === 0) {
     return null
   }

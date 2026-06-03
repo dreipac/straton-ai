@@ -5,6 +5,7 @@ import {
   sanitizeForJsonbStorage,
 } from '../../../utils/sanitizeDatabaseText'
 import type { ChatMessage, ChatRole, ChatThread } from '../types'
+import { UNSPLASH_SEARCH_MAX_PHOTOS } from './unsplashSearch.service'
 
 type ChatThreadRow = {
   id: string
@@ -12,6 +13,7 @@ type ChatThreadRow = {
   title: string
   created_at: string
   updated_at: string
+  archived_at?: string | null
 }
 
 export type ChatMessageRow = {
@@ -30,6 +32,7 @@ function mapThread(row: ChatThreadRow): ChatThread {
     title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    archivedAt: row.archived_at ?? null,
   }
 }
 
@@ -159,7 +162,7 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
         downloadLocation: typeof p.downloadLocation === 'string' ? p.downloadLocation : '',
       }))
       .filter((p) => p.id && p.regularUrl && p.photoPageUrl)
-      .slice(0, 2)
+      .slice(0, UNSPLASH_SEARCH_MAX_PHOTOS)
     if (query && photos.length > 0) {
       out.unsplashSearch = { query, photos }
     }
@@ -204,16 +207,18 @@ export async function listChatThreads(userId: string): Promise<ChatThread[]> {
     .select(
       `
       role,
-      chat_threads (
+      chat_threads!inner (
         id,
         user_id,
         title,
         created_at,
-        updated_at
+        updated_at,
+        archived_at
       )
     `,
     )
     .eq('user_id', userId)
+    .is('chat_threads.archived_at', null)
 
   if (error) {
     throw error
@@ -355,6 +360,47 @@ export async function createChatMessage(
   return mapMessage(data as ChatMessageRow)
 }
 
+export async function archiveChatThread(threadId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase
+    .from('chat_threads')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', threadId)
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function unarchiveChatThread(threadId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('chat_threads').update({ archived_at: null }).eq('id', threadId)
+
+  if (error) {
+    throw error
+  }
+}
+
+/** Archivierte Chats des Owners (Einstellungen). */
+export async function listArchivedChatThreads(userId: string): Promise<ChatThread[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('chat_threads')
+    .select('id, user_id, title, created_at, updated_at, archived_at')
+    .eq('user_id', userId)
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((row) => ({
+    ...mapThread(row as ChatThreadRow),
+    membershipRole: 'owner' as const,
+  }))
+}
+
 export async function deleteChatThread(threadId: string): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.from('chat_threads').delete().eq('id', threadId)
@@ -385,6 +431,7 @@ export async function deleteEmptyChatThreadsByUserId(userId: string): Promise<nu
     .from('chat_threads')
     .select('id')
     .eq('user_id', userId)
+    .is('archived_at', null)
 
   if (threadsError) {
     throw threadsError

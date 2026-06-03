@@ -65,9 +65,11 @@ export function buildMainChatOpenAiModelChain(
   return [...openAiApiChainForTierModel(cfg.tier1ModelId)]
 }
 
-/** Fallback Thinking-Staffel (entspricht früherem festem GPT-5.4). */
+/** Fallback Thinking-Staffel: durchgängig gpt-5-mini. */
 export const DEFAULT_THINKING_OPENAI_TIER: ChatDailyOpenAiTierConfig = {
-  ...DEFAULT_CHAT_DAILY_OPENAI_TIER,
+  tier1ModelId: 'gpt-5-mini',
+  tier1TokenBudget: 50_000,
+  tier2ModelId: 'gpt-5-mini',
 }
 
 export function parseThinkingTierConfigFromPlan(plan: {

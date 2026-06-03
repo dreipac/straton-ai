@@ -61,6 +61,8 @@ export function ChatPage() {
       user ? getChatModelPolicyFromPlan(profile?.subscription_plans ?? null) : getChatModelPolicyFromPlan(null),
     [user, profile?.subscription_plans],
   )
+  /** Profil kommt nach Session — ohne Plan keine Modellauswahl-Flash für gesperrte Abos. */
+  const isChatModelPolicyReady = !user || profile !== null
   /** Tages-Staffel nur wenn Admin die Modellwahl sperrt; sonst gilt die Composer-Auswahl. */
   const applyMainChatDailyTier =
     Boolean(user) && profile?.subscription_plans?.chat_allow_model_choice === false
@@ -112,12 +114,14 @@ export function ChatPage() {
     isBootstrapping,
     error,
     submitMessage,
+    cancelSend,
     finalizeWordDocumentExport,
     wordFinalizeBusy,
     finalizePdfDocumentExport,
     pdfFinalizeBusy,
     createNewChat,
     renameChat,
+    archiveChat,
     deleteChat,
     leaveSharedChatAsMember,
     selectChat,
@@ -133,6 +137,7 @@ export function ChatPage() {
     thinkingCreditsRemaining,
     thinkingCreditsBlocked,
     liveInstantAnalyzeDebug,
+    liveThinkingAnalyzeDebug,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
@@ -474,6 +479,7 @@ export function ChatPage() {
       onGuestReplyModeChange={guestPrefs.handleGuestChatReplyMode}
       onReplyModeChange={setChatReplyMode}
       onRenameThread={pageMenus.openRenameModal}
+      onArchiveThread={archiveChat}
       onDeleteThread={deleteChat}
       onOpenLearningPathDraft={learnDraft.openLearningPathDraft}
       onShareChipClick={collaboration.handleShareChipClick}
@@ -647,7 +653,7 @@ export function ChatPage() {
           tokenLimitReached={tokenLimitReached}
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
-          showComposerModelPicker={!isChatModelLocked}
+          showComposerModelPicker={isChatModelPolicyReady && !isChatModelLocked}
           chatReplyMode={chatReplyMode}
           onChatReplyModeChange={setChatReplyMode}
           showReplyModePicker={!isChatToolbarMobile}
@@ -658,7 +664,9 @@ export function ChatPage() {
           onSubmitThinkingClarifyAnswer={(text) => void submitMessage(text)}
           showInstantAnalyzeDebug={isAdmin && instantAnalyzeDebugEnabled}
           liveInstantAnalyzeDebug={liveInstantAnalyzeDebug}
+          liveThinkingAnalyzeDebug={liveThinkingAnalyzeDebug}
           onSendMessage={submitMessage}
+          onCancelSend={cancelSend}
           onFinalizeWordDocument={finalizeWordDocumentExport}
           wordFinalizeBusy={wordFinalizeBusy}
           onFinalizePdfDocument={finalizePdfDocumentExport}
@@ -805,6 +813,7 @@ export function ChatPage() {
         onCloseFolderMenu={pageMenus.closeFolderActionMenu}
         onOpenFolderMove={pageMenus.openFolderMoveDialog}
         onOpenRenameThread={pageMenus.openRenameModal}
+        onArchiveThread={archiveChat}
         onDeleteThread={deleteChat}
         onLeaveSharedThread={async (id) => {
           await leaveSharedChatAsMember(id)

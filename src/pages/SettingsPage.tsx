@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import accountIcon from '../assets/icons/account.svg'
 import generalIcon from '../assets/icons/general.svg'
+import folderOutlinedIcon from '../assets/icons/folder-outlined.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import personalizeIcon from '../assets/icons/personalize.svg'
 import sendIcon from '../assets/icons/send.svg'
@@ -10,6 +11,7 @@ import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
 import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
+import { ArchivedChatsSettingsSection } from '../features/settings/components/ArchivedChatsSettingsSection'
 import { ChatInvitationsSection } from '../features/settings/components/ChatInvitationsSection'
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
 import { FeedbackSettingsSection } from '../features/settings/components/FeedbackSettingsSection'
@@ -74,6 +76,7 @@ export type SettingsSectionId =
   | 'straton'
   | 'chat'
   | 'invitations'
+  | 'archived-chats'
   | 'personalize'
   | 'status'
   | 'feedback'
@@ -362,6 +365,34 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                   ? 'Invitaciones al chat'
                   : 'Einladungen zu Chats',
       icon: newMessageIcon,
+    },
+    {
+      id: 'archived-chats',
+      label:
+        language === 'en'
+          ? 'Archive'
+          : language === 'hr'
+            ? 'Arhiva'
+            : language === 'it'
+              ? 'Archivio'
+              : language === 'sq'
+                ? 'Arkivi'
+                : language === 'es-PE'
+                  ? 'Archivo'
+                  : 'Archiv',
+      title:
+        language === 'en'
+          ? 'Archived chats'
+          : language === 'hr'
+            ? 'Arhivirani chatovi'
+            : language === 'it'
+              ? 'Chat archiviate'
+              : language === 'sq'
+                ? 'Chat të arkivuara'
+                : language === 'es-PE'
+                  ? 'Chats archivados'
+                  : 'Archivierte Chats',
+      icon: folderOutlinedIcon,
     },
     {
       id: 'personalize',
@@ -1047,6 +1078,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
           />
         ) : null}
         {activeSection === 'invitations' ? <ChatInvitationsSection userId={user?.id} /> : null}
+        {activeSection === 'archived-chats' ? <ArchivedChatsSettingsSection userId={user?.id} /> : null}
         {activeSection === 'status' ? (
           <ErrorStatusSettingsSection
             language={language}

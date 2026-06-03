@@ -54,10 +54,54 @@ export function userMessageHasUploadedImage(message: ThreadMessage): boolean {
   return content.includes('[BildData:') || content.includes('@chat-media:')
 }
 
+/** Frage nach Urheber/Ersteller (nicht «wer ist auf dem Bild»). */
+export function matchImageAttributionQuestion(raw: string): boolean {
+  const t = squeezeWs(raw)
+  if (!t || t.length > 520) {
+    return false
+  }
+  if (
+    /\bwer\s+hat\b/i.test(t) &&
+    /\b(?:gemacht|erstellt|generiert|gezeichnet|gemalt|produziert|geschossen|aufgenommen)\b/i.test(t) &&
+    /\b(?:bild|foto|bilder|fotos|screenshot)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\bwer\s+hat\s+(?:das|es|dieses)\s+gemacht\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:von\s+wem|wessen)\b/i.test(t) && /\b(?:bild|foto|stammt)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /\b(?:urheber|ersteller|fotograf|künstler|quelle)\b/i.test(t) &&
+    /\b(?:bild|foto|dieses|dem)\b/i.test(t) &&
+    /\b(?:wer|von\s+wem|wessen)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (
+    /\bwho\s+(?:made|created|generated|took|shot)\b/i.test(t) &&
+    /\b(?:picture|image|photo)\b/i.test(t)
+  ) {
+    return true
+  }
+  return false
+}
+
+export function threadHasStratonGeneratedImage(
+  priorMessages: ReadonlyArray<ThreadMessage>,
+): boolean {
+  return priorMessages.some((m) => assistantMessageHasGeneratedImage(m))
+}
+
 /** Nutzer bezieht sich auf ein früheres Bild (Frage zum Inhalt, nicht neue Generierung). */
 export function matchImageReferenceQuestion(raw: string): boolean {
+  if (matchImageAttributionQuestion(raw)) {
+    return false
+  }
   const t = squeezeWs(raw)
-  if (!t || t.length > 480) {
+  if (!t || t.length > 520) {
     return false
   }
   if (
@@ -86,13 +130,62 @@ export function matchImageReferenceQuestion(raw: string): boolean {
   if (/\b(?:mein(?:e)?|hochgeladene[ns]?)\s+(?:foto|bild)\b/i.test(t)) {
     return true
   }
-  if (/\b(?:das|dem)\s+foto\b/i.test(t)) {
+  if (/\b(?:das|dem|dein(?:em)?)\s+(?:foto|bild)\b/i.test(t)) {
     return true
   }
   if (/(?:nochmal|erneut|wieder)\s+(?:das\s+)?(?:foto|bild)\b/i.test(t)) {
     return true
   }
+  if (
+    /\b(wer|was|welche[rs]?|welchen)\s+(?:ist|sind|zeigt|steht|stehen)\b/i.test(t) &&
+    /\b(?:bild|foto|bilder)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\bwer\s+ist\s+(?:das|der|die|es)\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /^(?:ja|okay|ok|genau)[,!\s]+/i.test(t) &&
+    /\b(wer|was)\b/i.test(t) &&
+    /\b(?:bild|foto)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\b(?:generiert(?:es)?|erstellt(?:es)?|vorherig(?:es)?|letzt(?:es)?)\s+(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\bwho\s+is\s+(?:that|this)\b/i.test(t) && /\b(?:picture|image|photo)\b/i.test(t)) {
+    return true
+  }
   return false
+}
+
+/** Lädt Verlaufsbild für Vision, wenn Nutzer sich auf ein Chat-Bild bezieht. */
+export function shouldResolveReferencedImageVision(
+  raw: string,
+  priorMessages: ReadonlyArray<ThreadMessage>,
+): boolean {
+  if (matchImageAttributionQuestion(raw)) {
+    return false
+  }
+  if (matchImageReferenceQuestion(raw)) {
+    return true
+  }
+  const t = squeezeWs(raw)
+  if (!t || t.length > 520) {
+    return false
+  }
+  const hasImageInThread = priorMessages.some(
+    (m) => assistantMessageHasGeneratedImage(m) || userMessageHasUploadedImage(m),
+  )
+  if (!hasImageInThread) {
+    return false
+  }
+  if (!/\b(?:bild|foto|screenshot)\b/i.test(t)) {
+    return false
+  }
+  return /\b(wer|was|welch|beschreib|sieh|erkenn|person|figur|inhalt|text|darauf|darin|da\s+drauf|zeig)\b/i.test(t)
 }
 
 /**

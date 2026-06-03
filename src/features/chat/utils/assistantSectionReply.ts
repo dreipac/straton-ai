@@ -21,6 +21,29 @@ function stripBoldMarkers(line: string): string {
   return line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').trim()
 }
 
+/** `@chat-media:` / Data-URLs in Abschnitts-Zitaten — UI und KI-Kontext nur «Bild». */
+export function sanitizeSectionRefExcerpt(text: string): string {
+  let s = stripBoldMarkers(text)
+  if (!s.trim()) {
+    return ''
+  }
+  s = s.replace(/!?\[[^\]]*\]\(\s*@chat-media:[^)\s]+\s*\)/gi, 'Bild')
+  s = s.replace(/!?\[[^\]]*\]\(\s*data:image\/[^)]+\s*\)/gi, 'Bild')
+  s = s.replace(/@chat-media:[^\s)\]]+/gi, 'Bild')
+  s = s.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, 'Bild')
+  s = s.replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/gi, 'Bild')
+  const lines = s
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  if (lines.length > 0 && lines.every((line) => /^Bild$/i.test(line))) {
+    return 'Bild'
+  }
+  s = lines.join(' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.replace(/(?:Bild\s*){2,}/gi, 'Bild')
+}
+
 export function formatSectionRefBlock(ref: AssistantSectionReference): string {
   const payload: SectionRefPayload = {
     messageId: ref.messageId,
@@ -74,7 +97,9 @@ export function formatUserContentForGateway(content: string): string {
   if (!sectionRef) {
     return content
   }
-  const quote = sectionRef.excerpt.trim()
+  const quote =
+    sanitizeSectionRefExcerpt(sectionRef.excerpt) ||
+    (sectionRef.previewTitle?.trim() === 'Bild' ? 'Bild' : '')
   const parts = [
     '[Der Nutzer antwortet auf einen bestimmten Abschnitt aus deiner vorherigen Nachricht.]',
     quote ? `> ${quote.replace(/\n/g, '\n> ')}` : '',
@@ -128,7 +153,10 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
       return { excerpt: t, previewTitle: t.slice(0, 72) }
     }
     case 'p': {
-      const t = stripBoldMarkers(block.text)
+      const t = sanitizeSectionRefExcerpt(block.text)
+      if (t === 'Bild') {
+        return { excerpt: '', previewTitle: 'Bild' }
+      }
       return { excerpt: t.slice(0, 420), previewTitle: t.slice(0, 56) || 'Absatz' }
     }
     case 'ul':

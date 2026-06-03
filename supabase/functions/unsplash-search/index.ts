@@ -15,8 +15,8 @@ const corsHeaders = {
 }
 
 const MAX_QUERY_CHARS = 120
-const MAX_RESULTS = 2
-const FETCH_CANDIDATES = 20
+const MAX_RESULTS = 4
+const FETCH_CANDIDATES = 24
 const UNSPLASH_SEARCH_URL = 'https://api.unsplash.com/search/photos'
 
 const IRRELEVANT_RE =

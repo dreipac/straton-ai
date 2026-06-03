@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent as ReactMouseEvent } from 'react'
+import { useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useDocumentThemeVariant } from '../../../hooks/useDocumentThemeVariant'
 import settingsIcon from '../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../assets/icons/sidebar.svg'
@@ -19,9 +19,11 @@ export type LearnPageSidebarProps = {
   onToggleSidebar: () => void
   onCreateLearningPath: () => void
   isCreateLearningPathDisabled?: boolean
+  isCreateLearningPathBusy?: boolean
   onCreateLearningPathDisabledClick?: () => void
   onOpenSettings: () => void
   learningPaths: LearningPathSummary[]
+  enteringPathIds?: ReadonlySet<string>
   activePathId: string
   onSelectLearningPath: (pathId: string) => void
   onLearningPathContextMenu: (event: ReactMouseEvent, pathId: string) => void
@@ -38,9 +40,11 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     onToggleSidebar,
     onCreateLearningPath,
     isCreateLearningPathDisabled = false,
+    isCreateLearningPathBusy = false,
     onCreateLearningPathDisabledClick,
     onOpenSettings,
     learningPaths,
+    enteringPathIds,
     activePathId,
     onSelectLearningPath,
     onLearningPathContextMenu,
@@ -86,8 +90,11 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
         </div>
         <button
           type="button"
-          className={`learn-primary-sidebar-button${isCreateLearningPathDisabled ? ' is-disabled' : ''}`}
+          className={`learn-primary-sidebar-button${isCreateLearningPathDisabled ? ' is-disabled' : ''}${
+            isCreateLearningPathBusy ? ' is-busy' : ''
+          }`}
           aria-disabled={isCreateLearningPathDisabled}
+          aria-busy={isCreateLearningPathBusy || undefined}
           onClick={() => {
             if (isCreateLearningPathDisabled) {
               onCreateLearningPathDisabledClick?.()
@@ -109,18 +116,30 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
       {!isSidebarCollapsed ? (
         <div className="chat-thread-list">
           <p className="thread-list-info">Lernpfade</p>
-          {learningPaths.map((path) => (
-            <button
-              key={path.id}
-              type="button"
-              className={`chat-thread-item ${path.id === activePathId ? 'is-active' : ''}`}
-              onClick={() => {
-                void onSelectLearningPath(path.id)
-              }}
-              onContextMenu={(event) => onLearningPathContextMenu(event, path.id)}
+          {learningPaths.map((path, index) => (
+            <div
+              key={path.sidebarListKey ?? path.id}
+              style={{ '--chat-thread-enter-index': index } as CSSProperties}
+              className={[
+                'chat-thread-row',
+                path.id === activePathId ? 'is-active' : '',
+                enteringPathIds?.has(path.id) ? 'is-entering' : '',
+                path.isPending ? 'is-pending' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             >
-              <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
-            </button>
+              <button
+                type="button"
+                className={`chat-thread-item ${path.id === activePathId ? 'is-active' : ''}`}
+                onClick={() => {
+                  void onSelectLearningPath(path.id)
+                }}
+                onContextMenu={(event) => onLearningPathContextMenu(event, path.id)}
+              >
+                <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
+              </button>
+            </div>
           ))}
         </div>
       ) : null}

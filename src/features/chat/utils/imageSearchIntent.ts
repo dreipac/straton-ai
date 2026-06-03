@@ -12,7 +12,7 @@ function squeezeWs(s: string): string {
 }
 
 const IMAGE_SEARCH_PREFIX_RE =
-  /^\s*(?:bitte\s+)?(?:(?:zeige?|zeig)|(?:such(?:e)?)|(?:finde?)|(?:hol(?:e)?)|(?:gib(?:\s+mir)?)|(?:show(?:\s+me)?)|(?:find))\s+(?:mir\s+)?(?:(?:ein(?:e)?|ein)\s+)?(?:foto(?:s)?|bild(?:er)?)\s*(?:von|über|ueber|to|of|about)\s+(.+)$/is
+  /^\s*(?:bitte\s+)?(?:(?:zeige?|zeig)|(?:such(?:e)?)|(?:finde?)|(?:hol(?:e)?)|(?:gib(?:\s+mir)?)|(?:show(?:\s+me)?)|(?:find))\s+(?:mir\s+)?(?:(?:ein(?:e)?|ein)\s+)?(?:foto(?:s)?|bild(?:er)?)\s*(?:von|vom|über|ueber|to|of|about)\s+(.+)$/is
 
 const IMAGE_SEARCH_LOOSE_RE =
   /^\s*(?:bitte\s+)?(?:(?:zeige?|zeig)|(?:such(?:e)?)|(?:finde?))\s+(?:mir\s+)?(?:foto(?:s)?|bild(?:er)?)\s+(.+)$/is
@@ -136,7 +136,13 @@ export function matchImageSearchRequest(raw: string): { kind: 'none' } | { kind:
   }
 
   if (IMAGE_SEARCH_BILDER_RE.test(t)) {
-    return { kind: 'query', query: t.slice(0, 120) }
+    const subject = t.match(
+      /\b(?:foto(?:s)?|bild(?:er)?)\s*(?:von|vom|über|ueber|to|of|about)?\s*(.+)$/i,
+    )?.[1]
+    const query = subject ? squeezeWs(subject.replace(/\?+$/, '')) : t
+    if (query.length >= 2) {
+      return { kind: 'query', query: query.slice(0, 120) }
+    }
   }
 
   return { kind: 'none' }

@@ -1,4 +1,8 @@
 import { stripImageGenTilePromptPrefix } from '../constants/imageGenTile'
+import {
+  matchImageAttributionQuestion,
+  matchImageReferenceQuestion,
+} from './referencedImageVision'
 
 export type ImageGenerationIntentParse =
   | { kind: 'none' }
@@ -20,8 +24,10 @@ export function matchExplicitImageGenerationRequest(raw: string): ImageGeneratio
   }
 
   const deVerb =
-    '(?:generiere|generier|erstelle|erstellt|erzeug|erzeugt|mach|mache|macht|zeichne|zeichnet)'
-  const imageWordDe = '(?:ein|eine)\\s+bild'
+    '(?:generiere|generier|erstelle|erstellt|erzeug|erzeugt|mach|mache|macht|zeichne|zeichnet|male|malt)'
+  /** ein/eine/einen/… + Bild oder Foto */
+  const imageArticleDe = '(?:ein(?:e|en|em|er)?|eine(?:r|n|m)?)'
+  const imageWordDe = `(?:${imageArticleDe}\\s+)?(?:bild|foto)`
   const imageWordEn = '(?:an\\s+)?image'
 
   const withPromptDeVerb = new RegExp(
@@ -82,7 +88,7 @@ export function matchExplicitImageGenerationRequest(raw: string): ImageGeneratio
 
   const emptyMatchers: RegExp[] = [
     new RegExp(`^\\s*(?:bitte\\s+)?${deVerb}\\s+(?:mir\\s+)?${imageWordDe}\\s*\\.?\\s*$`, 'is'),
-    /^\s*(?:ich\s+möchte|ich\s+will)\s+(?:mir\s+)?(?:ein|eine)\s+bild\s*\.?\s*$/is,
+    /^\s*(?:ich\s+möchte|ich\s+will)\s+(?:mir\s+)?(?:ein(?:e|en)?|eine)\s+(?:bild|foto)\s*\.?\s*$/is,
     /^\s*(?:kannst\s+du|könntest\s+du)\s+(?:mir\s+)?(?:bitte\s+)?(?:ein|eine)\s+bild\s*\.?\s*$/is,
     new RegExp(`^\\s*(?:please\\s+)?(?:generate|create|draw|make)\\s+(?:me\\s+)?${imageWordEn}\\s*\\.?\\s*$`, 'is'),
     new RegExp(
@@ -133,8 +139,16 @@ export function matchFollowUpImageEditRequest(
     return { kind: 'none' }
   }
 
+  if (matchImageAttributionQuestion(t) || matchImageReferenceQuestion(t)) {
+    return { kind: 'none' }
+  }
+
   /** Klare Text-/Diskussionsfragen nicht zum Bildgenerator schicken */
-  if (/^(?:was|warum|wie\s+(?:funktioniert|geht)|erklär|beschreib\s+(?:mir\s+)?(?:nicht\s+)?(?:das\s+)?bild)/i.test(t)) {
+  if (
+    /^(?:was|wer|weshalb|warum|wie\s+(?:funktioniert|geht)|erklär|beschreib\s+(?:mir\s+)?(?:nicht\s+)?(?:das\s+)?bild)/i.test(
+      t,
+    )
+  ) {
     return { kind: 'none' }
   }
 
@@ -161,25 +175,36 @@ export function matchAttachedImageEditRequest(
     return { kind: 'prompt', prompt: t }
   }
 
+  if (matchImageAttributionQuestion(t) || matchImageReferenceQuestion(t)) {
+    return { kind: 'none' }
+  }
+
   const refersToAttachedImage =
     /\b(?:im|am|auf dem|in dem)\s+(?:angehängten\s+)?(?:bild|foto|screenshot|anhang)\b/i.test(t) ||
     /\b(?:meinem|meine[mrs]?)\s+(?:bild|foto)\b/i.test(t) ||
     /\b(?:dieses|das)\s+(?:bild|foto)\b/i.test(t)
 
-  const looksLikeVisualEdit =
-    refersToAttachedImage ||
-    (/^(?:bitte\s+)?(?:ändere|ändere|passe|pass|bearbeit|mach|mache|entfern|füge|ersetz|korrigier|mach)\b/i.test(
+  const hasVisualEditKeywords =
+    /\b(schriftzug|schrift|text|beschriftung|überschrift|farbe|farbig|farben|blau|rot|grün|gelb|orange|lila|violett|rosa|türkis|braun|schwarz|weiss|weiß|grau|gold|silber|grösser|größer|kleiner|heller|dunkler|hintergrund|vordergrund|kontrast|schatten|rahmen|zentrier|verschieb|person|objekt|element|logo|himmel|wolken)\b/i.test(
       t,
-    ) &&
-      /\b(schriftzug|schrift|text|beschriftung|überschrift|farbe|farbig|farben|blau|rot|grün|gelb|orange|lila|violett|rosa|türkis|braun|schwarz|weiss|weiß|grau|gold|silber|grösser|größer|kleiner|heller|dunkler|hintergrund|vordergrund|kontrast|schatten|rahmen|zentrier|verschieb|person|objekt|element|logo|himmel|wolken)\b/i.test(
-        t,
-      ))
+    )
+
+  const startsWithEditVerb =
+    /^(?:bitte\s+)?(?:ändere|ändere|passe|pass|bearbeit|mach|mache|entfern|füge|ersetz|korrigier)\b/i.test(t)
+
+  const looksLikeVisualEdit =
+    (startsWithEditVerb && (refersToAttachedImage || hasVisualEditKeywords)) ||
+    (refersToAttachedImage && hasVisualEditKeywords)
 
   if (!looksLikeVisualEdit) {
     return { kind: 'none' }
   }
 
-  if (/^(?:was|warum|wie\s+(?:funktioniert|geht)|erklär|beschreib\s+(?:mir\s+)?(?:nicht\s+)?(?:das\s+)?bild)/i.test(t)) {
+  if (
+    /^(?:was|wer|weshalb|warum|wie\s+(?:funktioniert|geht)|erklär|beschreib\s+(?:mir\s+)?(?:nicht\s+)?(?:das\s+)?bild)/i.test(
+      t,
+    )
+  ) {
     return { kind: 'none' }
   }
 

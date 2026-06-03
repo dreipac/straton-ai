@@ -28,6 +28,7 @@ import {
   createLearningPathByUserId,
   type ChapterBlueprint,
   type ChapterSession,
+  deleteEmptyLearningPathsByUserId,
   listLearningPathsByUserId,
   type EntryQuizResult,
   type LearnFlashcardSet,
@@ -107,7 +108,10 @@ import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheet
 import { LearnConversationSection } from '../features/learn/components/LearnConversationSection'
 import { LearnEntryQuizModal } from '../features/learn/components/LearnEntryQuizModal'
 import { LearnOverviewPanel } from '../features/learn/components/LearnOverviewPanel'
+import { ChatPendingReplyLoader } from '../features/chat/components/ChatPendingReplyLoader'
 import { LearnPageSidebar } from '../features/learn/components/LearnPageSidebar'
+import { useLearningPathListEnterAnimation } from '../features/learn/hooks/useLearningPathListEnterAnimation'
+import { isPendingLearningPathId } from '../features/learn/utils/learnPageHelpers'
 import { LearnEntryPrepPanel } from '../features/learn/components/LearnEntryPrepPanel'
 import { LearnSetupPanel } from '../features/learn/components/LearnSetupPanel'
 import { SettingsModal } from './SettingsPage'
@@ -176,6 +180,11 @@ export function LearnPage() {
   const [isAnalyzingSetupTopic, setIsAnalyzingSetupTopic] = useState(false)
   const [materials, setMaterials] = useState<UploadedMaterial[]>([])
   const [learningPaths, setLearningPaths] = useState<LearningPathSummary[]>([])
+  const skipLearnPathEnterAnimationIdsRef = useRef<Set<string>>(new Set())
+  const enteringLearningPathIds = useLearningPathListEnterAnimation(
+    learningPaths,
+    skipLearnPathEnterAnimationIdsRef,
+  )
   const [activePathId, setActivePathId] = useState<string>('')
   const [tutorMessages, setTutorMessages] = useState<TutorChatEntry[]>([])
   const [isChapterPreviewVisible, setIsChapterPreviewVisible] = useState(false)
@@ -582,7 +591,14 @@ export function LearnPage() {
     snapshot: editableSnapshot,
   })
 
-  const { handleCreateLearningPath, handleSelectLearningPath, handleDeleteLearningPath } = useLearningPathActions({
+  const autoRemoveEmptyLearningPaths = profile?.auto_remove_empty_chats ?? true
+
+  const {
+    handleCreateLearningPath,
+    handleSelectLearningPath,
+    handleDeleteLearningPath,
+    isLearningPathWorkspaceLoading,
+  } = useLearningPathActions({
     userId: user?.id,
     learningPaths,
     setLearningPaths,
@@ -595,6 +611,8 @@ export function LearnPage() {
     captureEditableState,
     persistActivePath,
     persistPathInBackground,
+    autoRemoveEmptyLearningPaths,
+    skipEnterPathIdsRef: skipLearnPathEnterAnimationIdsRef,
     closePathMenu: () => {
       setOpenPathMenuId(null)
       setPathMenuPosition(null)
@@ -786,6 +804,9 @@ export function LearnPage() {
       setError(null)
 
       try {
+        if (autoRemoveEmptyLearningPaths) {
+          await deleteEmptyLearningPathsByUserId(userId).catch(() => {})
+        }
         const loaded = await listLearningPathsByUserId(userId)
         const records =
           loaded.length > 0
@@ -826,7 +847,7 @@ export function LearnPage() {
     return () => {
       isMounted = false
     }
-  }, [user, applyPathToState])
+  }, [user, applyPathToState, autoRemoveEmptyLearningPaths])
 
   useEffect(() => {
     if (!user || !activePath) {
@@ -2158,6 +2179,9 @@ export function LearnPage() {
   function openLearningPathContextMenu(event: ReactMouseEvent, pathId: string) {
     event.preventDefault()
     event.stopPropagation()
+    if (isPendingLearningPathId(pathId)) {
+      return
+    }
     setOpenPathMenuId(pathId)
     setPathMenuPosition({
       x: event.clientX,
@@ -2586,10 +2610,15 @@ export function LearnPage() {
           setIsSidebarCollapsed((prev) => !prev)
         }}
         onCreateLearningPath={handleCreateLearningPath}
-        isCreateLearningPathDisabled={!learnPathCreateEnabled && profile?.is_superadmin !== true}
+        isCreateLearningPathDisabled={
+          isLearningPathWorkspaceLoading ||
+          (!learnPathCreateEnabled && profile?.is_superadmin !== true)
+        }
+        isCreateLearningPathBusy={isLearningPathWorkspaceLoading}
         onCreateLearningPathDisabledClick={() => setLearnFeatureInfoVisible(true)}
         onOpenSettings={openSettingsModal}
         learningPaths={learningPaths}
+        enteringPathIds={enteringLearningPathIds}
         activePathId={activePathId}
         onSelectLearningPath={(pathId) => {
           void handleSelectLearningPath(pathId)
@@ -2650,7 +2679,11 @@ export function LearnPage() {
             </header>
             {error ? <p className="error-text">{error}</p> : null}
 
-            {showSetupFlow ? (
+            {isLearningPathWorkspaceLoading ? (
+              <div className="learn-path-workspace-loader" aria-busy="true">
+                <ChatPendingReplyLoader statusLabel="Lernpfad wird vorbereitet …" />
+              </div>
+            ) : showSetupFlow ? (
               <LearnSetupPanel
                 setupStep={setupStep}
                 isAnalyzingSetupTopic={isAnalyzingSetupTopic}

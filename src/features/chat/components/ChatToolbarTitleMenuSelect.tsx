@@ -1,8 +1,10 @@
 export type ChatToolbarTitleMenuSelectProps = {
   title: string
   onSelectRename: () => void
+  onSelectArchive: () => void
   onSelectDelete: () => void
   renameDisabled?: boolean
+  archiveDisabled?: boolean
   deleteDisabled?: boolean
 }
 
@@ -12,8 +14,10 @@ export type ChatToolbarTitleMenuSelectProps = {
 export function ChatToolbarTitleMenuSelect({
   title,
   onSelectRename,
+  onSelectArchive,
   onSelectDelete,
   renameDisabled = false,
+  archiveDisabled = false,
   deleteDisabled = false,
 }: ChatToolbarTitleMenuSelectProps) {
   return (
@@ -29,6 +33,8 @@ export function ChatToolbarTitleMenuSelect({
           const action = event.target.value
           if (action === 'rename') {
             onSelectRename()
+          } else if (action === 'archive') {
+            onSelectArchive()
           } else if (action === 'delete') {
             onSelectDelete()
           }
@@ -41,6 +47,9 @@ export function ChatToolbarTitleMenuSelect({
         </option>
         <option value="rename" disabled={renameDisabled}>
           Umbenennen
+        </option>
+        <option value="archive" disabled={archiveDisabled}>
+          Archivieren
         </option>
         <option value="delete" disabled={deleteDisabled}>
           Löschen

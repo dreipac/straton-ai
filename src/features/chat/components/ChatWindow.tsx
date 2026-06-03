@@ -11,11 +11,12 @@ import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBot
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
 import duringIcon from '../../../assets/icons/during.svg'
 import sendIcon from '../../../assets/icons/send.svg'
-import type { ChatMessage, InstantAnalyzeDebugMeta } from '../types'
+import type { ChatMessage, InstantAnalyzeDebugMeta, ThinkingAnalyzeDebugMeta } from '../types'
 import type { AssistantRichContentOptions } from '../utils/renderAssistantRichContent'
 import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
 import { ChatContextUsageRing } from './ChatContextUsageRing'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
+import { ChatThinkingAnalyzeDebugPanel } from './ChatThinkingAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import { ChatEmptyGreetingTitle } from './ChatEmptyGreetingTitle'
 import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
@@ -58,6 +59,7 @@ type ChatWindowProps = {
   showInstantAnalyzeDebug?: boolean
   /** Laufende Einordnung (vor Speichern der User-Nachricht). */
   liveInstantAnalyzeDebug?: InstantAnalyzeDebugMeta | null
+  liveThinkingAnalyzeDebug?: ThinkingAnalyzeDebugMeta | null
   error: string | null
   greetingName: string
   tokenLimitReached?: boolean
@@ -104,6 +106,7 @@ export function ChatWindow({
   sendPhase = null,
   showInstantAnalyzeDebug = false,
   liveInstantAnalyzeDebug = null,
+  liveThinkingAnalyzeDebug = null,
   error,
   greetingName,
   tokenLimitReached = false,
@@ -404,7 +407,6 @@ export function ChatWindow({
       ariaLabel={composer.isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Anhang-Menü öffnen'}
       isMobile={composer.isMobileComposer}
       onMobileOpen={composer.openMobileAttachSheet}
-      onUploadImage={() => composer.openImageFilePicker()}
       onUploadFile={() => composer.openDocumentFilePicker()}
       replyMode={chatReplyMode}
       onReplyModeChange={onChatReplyModeChange}
@@ -628,6 +630,11 @@ export function ChatWindow({
         {showInstantAnalyzeDebug && liveInstantAnalyzeDebug && isSending ? (
           <div className="chat-composer-instant-debug">
             <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
+          </div>
+        ) : null}
+        {showInstantAnalyzeDebug && liveThinkingAnalyzeDebug && isSending && chatThinkingMode === 'thinking' ? (
+          <div className="chat-composer-instant-debug">
+            <ChatThinkingAnalyzeDebugPanel debug={liveThinkingAnalyzeDebug} compact />
           </div>
         ) : null}
         {composerAttachSheet}

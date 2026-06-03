@@ -1,5 +1,6 @@
 import type { InstantAnalyzeReplyMode, InstantAnalyzeResult } from './instantAnalyze'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
+import { stripImageGenTilePromptPrefix } from './imageGenTile'
 import {
   extractImageSearchQuery,
   matchImageSearchRequest,
@@ -10,7 +11,7 @@ import {
 export type InstantAnalyzeCategory = 'chat' | 'image' | 'document'
 
 export type InstantAnalyzeChatAction = 'answer' | 'short_answer' | 'clarify' | 'one_step'
-export type InstantAnalyzeImageAction = 'generate' | 'describe' | 'search'
+export type InstantAnalyzeImageAction = 'generate' | 'describe' | 'search' | 'reference'
 export type InstantAnalyzeDocumentAction = 'word_generate' | 'pdf_generate' | 'excel_generate'
 
 export type InstantAnalyzeAction =
@@ -19,7 +20,7 @@ export type InstantAnalyzeAction =
   | InstantAnalyzeDocumentAction
 
 const CHAT_ACTIONS: InstantAnalyzeChatAction[] = ['answer', 'short_answer', 'clarify', 'one_step']
-const IMAGE_ACTIONS: InstantAnalyzeImageAction[] = ['generate', 'describe', 'search']
+const IMAGE_ACTIONS: InstantAnalyzeImageAction[] = ['generate', 'describe', 'search', 'reference']
 const DOCUMENT_ACTIONS: InstantAnalyzeDocumentAction[] = [
   'word_generate',
   'pdf_generate',
@@ -149,6 +150,9 @@ const EXCEL_EXPORT_VERB_RE =
 const IMAGE_DESCRIBE_RE =
   /\b(?:was\s+siehst|was\s+steht|beschreib|erkläre|erklär|analysier|lies|lesen|erkenn|ocr|inhalt).{0,30}\b(?:bild|foto|screenshot|anhang)\b/i
 
+const IMAGE_DESCRIBE_WHO_WHAT_RE =
+  /\b(wer|was|welche[rs]?)\s+(?:ist|sind|zeigt|steht).{0,40}\b(?:bild|foto)\b/i
+
 /** 0 Token — erkennt Dokument-/Bild-Jobs ohne Composer-Tile. */
 export function detectRouteHeuristic(
   userMessage: string,
@@ -173,7 +177,7 @@ export function detectRouteHeuristic(
     return { category: 'image', action: 'generate' }
   }
 
-  if (hasVisionAttachment && IMAGE_DESCRIBE_RE.test(t)) {
+  if (hasVisionAttachment && (IMAGE_DESCRIBE_RE.test(t) || IMAGE_DESCRIBE_WHO_WHAT_RE.test(t))) {
     return { category: 'image', action: 'describe' }
   }
 
@@ -243,6 +247,8 @@ export type InstantRouteOverrides = {
   imageGenPrompt: string | null
   imageGenEmpty: boolean
   imageSearchQuery: string | null
+  /** Frage zum Bild im Verlauf — Vision aus Storage nachladen, dann Hauptchat. */
+  loadReferencedImageVision: boolean
 }
 
 /** Router nach Analyze — nur wenn kein Composer-Tile/Regex-Pfad aktiv (Regel A). */
@@ -258,6 +264,7 @@ export function resolveInstantRouteOverrides(
     imageGenPrompt: null,
     imageGenEmpty: false,
     imageSearchQuery: null,
+    loadReferencedImageVision: false,
   }
   if (options.composerRouteLocked) {
     return none
@@ -282,6 +289,14 @@ export function resolveInstantRouteOverrides(
     return { ...none, imageSearchQuery: query }
   }
 
+  if (category === 'image' && action === 'reference') {
+    return { ...none, loadReferencedImageVision: true }
+  }
+
+  if (category === 'image' && action === 'describe') {
+    return { ...none, loadReferencedImageVision: true }
+  }
+
   if (category === 'image' && action === 'generate') {
     const match = matchExplicitImageGenerationRequest(userMessage.trim())
     if (match.kind === 'empty') {
@@ -300,13 +315,29 @@ export function resolveInstantRouteOverrides(
   return none
 }
 
+/** Nur Fallback, wenn Instant-Analyze keine Bildgenerierung erkannt hat (0 Token vor Analyze). */
+export function resolveHeuristicImageGenFallback(userMessage: string): Pick<
+  InstantRouteOverrides,
+  'imageGenPrompt' | 'imageGenEmpty'
+> {
+  const none = { imageGenPrompt: null, imageGenEmpty: false }
+  const match = matchExplicitImageGenerationRequest(userMessage.trim())
+  if (match.kind === 'empty') {
+    return { ...none, imageGenEmpty: true }
+  }
+  if (match.kind === 'prompt') {
+    return { imageGenPrompt: stripImageGenTilePromptPrefix(match.prompt), imageGenEmpty: false }
+  }
+  return none
+}
+
 export function buildInstantAnalyzeRoutePromptSection(): string {
   return [
     'Routing (verbindlich):',
     '- category: "chat" | "image" | "document"',
     '- action (nur passend zur category):',
     '  - chat: "answer" | "short_answer" | "clarify" | "one_step"',
-    '  - image: "generate" | "describe" | "search"',
+    '  - image: "generate" | "describe" | "search" | "reference"',
     '  - document: "word_generate" | "pdf_generate" | "excel_generate"',
     '',
     'Zuordnung:',
@@ -314,6 +345,9 @@ export function buildInstantAnalyzeRoutePromptSection(): string {
     '- «zeige/such/finde Foto/Bild von …» (reale Person/Sache/Ort) → image.search — **nicht** generate.',
     '- «generiere/erstelle/zeichne/male … Bild» → image.generate.',
     '- Anhang + «was siehst du / beschreibe das Bild» ohne Neuerstellung → image.describe.',
+    '- **Verlauf:** Assistent hat zuvor ein Bild generiert/gezeigt; Nutzer fragt danach («wer ist das auf dem Bild», «was siehst du», «dein Bild») **ohne** neuen Anhang → image.reference (nicht generate, nicht search).',
+    '- **Herkunft:** «wer hat das Bild gemacht/erstellt/generiert» nach Straton-Generierung → chat.answer (short_answer): **Straton/KI** in diesem Chat — **kein** image.reference, keine Vision nach externem Fotografen.',
+    '- image.reference: App lädt das Verlaufsbild für Vision; du beschreibst den **sichtbaren** Inhalt — nie «ich kann keine Bilder sehen».',
     '- «Word/Docx erstellen/exportieren» → document.word_generate.',
     '- «PDF erstellen/exportieren» → document.pdf_generate.',
     '- «Excel/XLSX/Tabelle exportieren» → document.excel_generate.',

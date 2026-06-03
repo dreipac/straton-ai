@@ -2,6 +2,7 @@ import type { RefObject } from 'react'
 import fileIcon from '../../../../assets/icons/file.svg'
 import { ChatExportActionHint } from '../ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from '../ChatInstantAnalyzeDebugPanel'
+import { ChatThinkingAnalyzeDebugPanel } from '../ChatThinkingAnalyzeDebugPanel'
 import { ChatPendingReplyLoader } from '../ChatPendingReplyLoader'
 import { ChatMessageReplyQuotePreview } from '../ChatComposerReplyQuoteBar'
 import { ChatUserMessageMenuSelect } from '../ChatUserMessageMenuSelect'
@@ -164,6 +165,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !isWordAssistantTurn &&
             chatThinkingMode === 'thinking' &&
             Boolean(message.metadata?.liveStream) &&
+            message.metadata?.thinkingStreamKind === 'clarify' &&
             !messageContainsCompleteThinkingClarifyBlock(rawContent)
           /** Immer Clarify-JSON ausblenden, wenn der Block gültig ist — nicht an den aktuellen Composer-Modus koppeln (nach Reload oft «normal»). */
           const userSectionReplyParsed =
@@ -175,6 +177,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
             : userSectionReplyParsed
               ? stripAttachmentBlocksForDisplay(userSectionReplyParsed.userText)
               : stripAttachmentBlocksForDisplay(rawContent)
+          const thinkingFinalStreaming =
+            isAssistant &&
+            !isWordAssistantTurn &&
+            chatThinkingMode === 'thinking' &&
+            Boolean(message.metadata?.liveStream) &&
+            message.metadata?.thinkingStreamKind === 'final' &&
+            !String(displayContent ?? '').trim()
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
             message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
@@ -310,9 +319,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
               message.metadata?.instantAnalyzeDebug ? (
                 <ChatInstantAnalyzeDebugPanel debug={message.metadata.instantAnalyzeDebug} />
               ) : null}
+              {message.role === 'user' &&
+              showInstantAnalyzeDebug &&
+              message.metadata?.thinkingAnalyzeDebug ? (
+                <ChatThinkingAnalyzeDebugPanel debug={message.metadata.thinkingAnalyzeDebug} />
+              ) : null}
               {thinkingClarifyStreaming ? (
                 <p className="chat-thinking-stream-hint" role="status">
                   KI formuliert eine Rückfrage…
+                </p>
+              ) : thinkingFinalStreaming ? (
+                <p className="chat-thinking-stream-hint" role="status">
+                  Ausführliche Antwort wird erstellt…
                 </p>
               ) : displayContent ? (
                 isAssistant ? (

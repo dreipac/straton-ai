@@ -1,6 +1,19 @@
 export type ChatRole = 'user' | 'assistant'
 
 /** Admin-Debug: Ergebnis von Smart-Instant Schritt 1 (an User-Nachricht). */
+/** Admin-Debug: Thinking-Aufgabenanalyse (task_type = Kategorie für Generierung). */
+export type ThinkingAnalyzeDebugMeta = {
+  source: 'edge' | 'fallback'
+  task_type: string
+  complexity: string
+  intent: string
+  needs_clarification_from_ai: boolean
+  needs_clarification_final: boolean
+  clarify_rounds_planned_final: number
+  heuristic_applied: boolean
+  analysis_summary: string
+}
+
 export type InstantAnalyzeDebugMeta = {
   source: 'edge' | 'fallback'
   category: string
@@ -88,6 +101,10 @@ export type ChatMessage = {
     assistantAutoWebSearch?: boolean
     /** User-Nachricht: Smart-Instant Einordnung (nur wenn Admin-Debug aktiv). */
     instantAnalyzeDebug?: InstantAnalyzeDebugMeta
+    /** User-Nachricht: Thinking-Aufgabenanalyse (nur wenn Admin-Debug aktiv). */
+    thinkingAnalyzeDebug?: ThinkingAnalyzeDebugMeta
+    /** Assistant-Stream: Thinking Klärung vs. finale Antwort. */
+    thinkingStreamKind?: 'clarify' | 'final'
     /** User-Nachricht: gewähltes Quiz-Format vor Generierung (MC-Chat vs. interaktiv). */
     userQuizFormat?: 'markdown_mcq' | 'interactive'
     /** User-Nachricht: Foto in Storage (`chat-media`), Inhalt nur `@chat-media:`-Referenz. */
@@ -102,7 +119,7 @@ export type ChatMessage = {
       path: string
       imageId: string
     }
-    /** Assistant: Unsplash-Fotosuche (max. 2 Treffer). */
+    /** Assistant: Unsplash-Fotosuche (max. 4 Treffer). */
     unsplashSearch?: {
       query: string
       photos: UnsplashPhotoResult[]
@@ -116,6 +133,7 @@ export type ChatThread = {
   title: string
   createdAt: string
   updatedAt: string
+  archivedAt?: string | null
   isTemporary?: boolean
   isRemoving?: boolean
   /** gesetzt wenn Thread über Mitgliedschaft (nicht nur Ersteller-Zeile) geladen wurde */

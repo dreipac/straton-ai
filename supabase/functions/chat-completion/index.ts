@@ -75,6 +75,27 @@ function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[
   return [{ role: 'system', content: block.trim() }, ...messages]
 }
 
+/** Schweizer Orthografie — kein ß, immer ss (sichtbarer Text + deutsche JSON-Strings). */
+const SWISS_GERMAN_ORTHOGRAPHY_RULE = [
+  'Rechtschreibung — Schweizer Hochdeutsch (verbindlich):',
+  'Niemals «ß» (Eszett) — immer «ss» (z. B. Strasse, Grösse, ausser, gross).',
+  'Gilt auch für deutsche Texte in JSON-Feldern.',
+].join('\n')
+
+const SECRET_SAFETY_RULE = [
+  'Sicherheit — Geheimnisse im Output (höchste Priorität, strikt verbindlich):',
+  'Niemals echte Passwörter, API-Keys, Tokens, Private Keys oder Connection Strings im Klartext — auch nicht in Audits/Dokumentation/Code/JSON.',
+  'Secrets aus Nutzereingaben nie wiederholen; immer Platzhalter wie ********, [REDACTED] oder <API_KEY>.',
+  'Sichere Praktiken erklären ist erlaubt, konkrete Werte aus Eingabe/Kontext nie ausgeben.',
+].join('\n')
+
+const STANDARD_SYSTEM_SUFFIX = `${SWISS_GERMAN_ORTHOGRAPHY_RULE}\n\n${SECRET_SAFETY_RULE}`
+
+function withSwissOrthography(system: string): string {
+  const t = system.trim()
+  return t ? `${t}\n\n${STANDARD_SYSTEM_SUFFIX}` : STANDARD_SYSTEM_SUFFIX
+}
+
 /** OpenAI Prompt Caching (Routing + ggf. 24h-Retention auf unterstützten Modellen). */
 type OpenAiPromptCacheOptions = {
   key: string
@@ -120,7 +141,9 @@ function resolveOpenAiPromptCacheForRequest(
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
     instant_analyze: { key: 'straton-instant-analyze-v4', retention: '24h' },
-    thinking_analyze: { key: 'straton-thinking-analyze-v1', retention: '24h' },
+    thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
+    thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
+    thinking_review: { key: 'straton-thinking-review-v1', retention: '24h' },
     generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
     generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
     generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
@@ -457,6 +480,31 @@ function userAsksAboutPriorImage(content: string): boolean {
     return true
   }
   if (/(?:nochmal|erneut|wieder)\s+(?:das\s+)?(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /\b(wer|was|welche[rs]?|welchen)\s+(?:ist|sind|zeigt|steht|stehen)\b/i.test(t) &&
+    /\b(?:bild|foto|bilder)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\bwer\s+ist\s+(?:das|der|die|es)\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /^(?:ja|okay|ok|genau)[,!\s]+/i.test(t) &&
+    /\b(wer|was)\b/i.test(t) &&
+    /\b(?:bild|foto)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\b(?:generiert(?:es)?|erstellt(?:es)?|vorherig(?:es)?|letzt(?:es)?)\s+(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\bwho\s+is\s+(?:that|this)\b/i.test(t) && /\b(?:picture|image|photo)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:das|dem|dein(?:em)?)\s+(?:foto|bild)\b/i.test(t)) {
     return true
   }
   return false
@@ -1105,6 +1153,8 @@ function normalizeMode(
   | 'generate_title'
   | 'instant_analyze'
   | 'thinking_analyze'
+  | 'thinking_draft'
+  | 'thinking_review'
   | 'generate_topic_suggestions'
   | 'generate_flashcards'
   | 'generate_worksheet'
@@ -1133,6 +1183,12 @@ function normalizeMode(
   }
   if (v === 'thinking_analyze') {
     return 'thinking_analyze'
+  }
+  if (v === 'thinking_draft') {
+    return 'thinking_draft'
+  }
+  if (v === 'thinking_review') {
+    return 'thinking_review'
   }
   if (v === 'generate_topic_suggestions') {
     return 'generate_topic_suggestions'
@@ -1908,7 +1964,7 @@ async function callAnthropic(
   const max_tokens = options?.maxTokens ?? 4096
   const systemRaw =
     messages.find((message) => message.role === 'system')?.content?.trim() ??
-    'Du bist ein hilfreicher Assistent.'
+    withSwissOrthography('Du bist ein hilfreicher Assistent.')
   // Aggressiv: System-Prompt immer als cachebarer Block markieren.
   const system: Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> = [
     { type: 'text', text: systemRaw, cache_control: { type: 'ephemeral' } },
@@ -2095,13 +2151,15 @@ async function evaluateQuizWithAi(
   const evaluationMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Du bist ein strenger, aber fairer Prüfungs-Korrektor.',
-        'Bewerte semantisch, nicht nur exakt wortgleich.',
-        'Antworte ausschließlich als JSON Objekt ohne weiteren Text.',
-        'Schema: {"isCorrect": boolean, "feedback": string}',
-        'feedback kurz halten (max 220 Zeichen), auf Deutsch.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Du bist ein strenger, aber fairer Prüfungs-Korrektor.',
+          'Bewerte semantisch, nicht nur exakt wortgleich.',
+          'Antworte ausschließlich als JSON Objekt ohne weiteren Text.',
+          'Schema: {"isCorrect": boolean, "feedback": string}',
+          'feedback kurz halten (max 220 Zeichen), auf Deutsch.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -2151,6 +2209,7 @@ type InstantAnalyzeActionEdge =
   | 'generate'
   | 'describe'
   | 'search'
+  | 'reference'
   | 'word_generate'
   | 'pdf_generate'
   | 'excel_generate'
@@ -2160,7 +2219,7 @@ const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
   readonly InstantAnalyzeActionEdge[]
 > = {
   chat: ['answer', 'short_answer', 'clarify', 'one_step'],
-  image: ['generate', 'describe', 'search'],
+  image: ['generate', 'describe', 'search', 'reference'],
   document: ['word_generate', 'pdf_generate', 'excel_generate'],
 }
 
@@ -2330,9 +2389,11 @@ function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: st
   return { userMessage: userMessage.slice(0, 8000), contextBlock }
 }
 
-/** Thinking — Aufgabenanalyse (JSON) vor Klärungsrunden. */
+/** Thinking — Aufgabenanalyse (JSON). */
 const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 420
-const THINKING_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
+const THINKING_DRAFT_MAX_OUTPUT_TOKENS = 7200
+const THINKING_REVIEW_MAX_OUTPUT_TOKENS = 420
+const THINKING_PIPELINE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
 
 type ThinkingAnalyzePayloadEdge = {
   task_type:
@@ -2349,8 +2410,16 @@ type ThinkingAnalyzePayloadEdge = {
   assumptions: string[]
   risks: string[]
   missing_dimensions: Array<{ id: string; label: string; question_hint: string }>
+  needs_clarification: boolean
   clarify_rounds_planned: number
   analysis_summary: string
+}
+
+type ThinkingReviewPayloadEdge = {
+  fits_intent: boolean
+  gaps: string[]
+  rewrite_hints: string
+  summary: string
 }
 
 function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdge | null {
@@ -2401,21 +2470,92 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
         .filter((e) => e.id && e.label)
         .slice(0, 6)
     : []
+  let needs_clarification = o.needs_clarification === true
   let clarify_rounds_planned =
     typeof o.clarify_rounds_planned === 'number' && Number.isFinite(o.clarify_rounds_planned)
       ? Math.round(o.clarify_rounds_planned)
-      : 2
-  clarify_rounds_planned = Math.min(4, Math.max(1, clarify_rounds_planned))
+      : needs_clarification
+        ? 1
+        : 0
+  clarify_rounds_planned = Math.min(1, Math.max(0, clarify_rounds_planned))
   const analysis_summary = clipInstantAnalyzeText(o.analysis_summary, 280) || intent
+  let dims = missing_dimensions
+  if (!needs_clarification) {
+    dims = []
+    clarify_rounds_planned = 0
+  } else {
+    dims = dims.slice(0, 1)
+    clarify_rounds_planned = 1
+  }
   return {
     task_type,
     complexity,
     intent,
     assumptions,
     risks,
-    missing_dimensions,
+    missing_dimensions: dims,
+    needs_clarification,
     clarify_rounds_planned,
     analysis_summary,
+  }
+}
+
+function sanitizeThinkingReviewPayload(raw: unknown): ThinkingReviewPayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const fits_intent = o.fits_intent === true
+  const gaps = Array.isArray(o.gaps)
+    ? o.gaps
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 160))
+        .filter(Boolean)
+        .slice(0, 6)
+    : []
+  const rewrite_hints = clipInstantAnalyzeText(o.rewrite_hints, 600)
+  const summary =
+    clipInstantAnalyzeText(o.summary, 280) ||
+    (fits_intent ? 'Entwurf passt zur Anfrage.' : 'Entwurf braucht Nachbesserung.')
+  return { fits_intent, gaps, rewrite_hints, summary }
+}
+
+function sanitizeThinkingDraftRequestPayload(
+  value: unknown,
+): { userMessage: string; contextBlock: string; analyzeBriefing: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  if (!userMessage) {
+    return null
+  }
+  const contextBlock =
+    typeof payload.contextBlock === 'string' ? payload.contextBlock.trim().slice(0, 4000) : ''
+  const analyzeBriefing =
+    typeof payload.analyzeBriefing === 'string' ? payload.analyzeBriefing.trim().slice(0, 3000) : ''
+  return { userMessage: userMessage.slice(0, 8000), contextBlock, analyzeBriefing }
+}
+
+function sanitizeThinkingReviewRequestPayload(
+  value: unknown,
+): { userMessage: string; analyzeBriefing: string; draftText: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  const draftText = typeof payload.draftText === 'string' ? payload.draftText.trim() : ''
+  if (!userMessage || !draftText) {
+    return null
+  }
+  const analyzeBriefing =
+    typeof payload.analyzeBriefing === 'string' ? payload.analyzeBriefing.trim().slice(0, 3000) : ''
+  return {
+    userMessage: userMessage.slice(0, 8000),
+    analyzeBriefing,
+    draftText: draftText.slice(0, 16_000),
   }
 }
 
@@ -2440,29 +2580,106 @@ async function thinkingAnalyzeWithAi(
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
   const system = [
-    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (nicht nur Server).',
+    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (gpt-5-mini, nicht nur Server).',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
     'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
-    'missing_dimensions: 2-6 themenspezifische Infos die noch fehlen (id, label, question_hint) — immer zur konkreten Frage passend.',
-    'clarify_rounds_planned: 1-4 je nach complexity und offenen Dimensionen.',
+    'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
+    'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
   ].join('\n')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
   const messages: InputMessage[] = [
-    { role: 'system', content: system },
+    { role: 'system', content: withSwissOrthography(system) },
     { role: 'user', content: userParts.trim() },
   ]
   const usage = await callOpenAi(
     messages,
     apiKey,
-    [...THINKING_ANALYZE_OPENAI_MODELS],
+    [...THINKING_PIPELINE_OPENAI_MODELS],
     openAiPromptCache,
     THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
   )
   const analyze = parseThinkingAnalyzeResult(usage.text)
   return { analyze, usage }
+}
+
+async function thinkingDraftWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  analyzeBriefing: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ draft: string; usage: AiCallResult }> {
+  const system = [
+    'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
+    'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
+    'Kein Clarify-Block, keine Anpassungsfrage, kein Meta. Nur Entwurf-Markdown.',
+  ].join('\n')
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const messages: InputMessage[] = [
+    { role: 'system', content: withSwissOrthography(system) },
+    { role: 'user', content: userParts.trim() },
+  ]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    [...THINKING_PIPELINE_OPENAI_MODELS],
+    openAiPromptCache,
+    THINKING_DRAFT_MAX_OUTPUT_TOKENS,
+  )
+  return { draft: usage.text.trim(), usage }
+}
+
+function parseThinkingReviewResult(raw: string): ThinkingReviewPayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Thinking-Review konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeThinkingReviewPayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Thinking-Review enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+async function thinkingReviewWithAi(
+  apiKey: string,
+  userMessage: string,
+  analyzeBriefing: string,
+  draftText: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
+    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
+    'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+  ].join('\n')
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    `Nutzeranfrage:\n${userMessage}\n\n`,
+    `Entwurf:\n${draftText}`,
+  ].join('')
+  const messages: InputMessage[] = [
+    { role: 'system', content: withSwissOrthography(system) },
+    { role: 'user', content: userParts.trim() },
+  ]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    [...THINKING_PIPELINE_OPENAI_MODELS],
+    openAiPromptCache,
+    THINKING_REVIEW_MAX_OUTPUT_TOKENS,
+  )
+  const review = parseThinkingReviewResult(usage.text)
+  return { review, usage }
 }
 
 async function instantAnalyzeWithAi(
@@ -2478,11 +2695,13 @@ async function instantAnalyzeWithAi(
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
-    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search;',
+    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
     'document → word_generate|pdf_generate|excel_generate.',
     '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
     '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel exportieren → document.*.',
     'Anhang + beschreiben ohne Neuerstellung → image.describe.',
+    'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
+    'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
     'Bei reply_mode "ask_only" / chat.clarify: needs_live_web false. Bei document/image.generate/image.search: needs_live_web false.',
     'Kurze Folgenachricht mit Verlauf: chat.short_answer. Folgen «zeige Bilder», «von ihm», «ich meine den Schauspieler» nach Fotosuche: image.search — intent aus Verlauf (Name), nie «ihm» wörtlich.',
     'Aufgabe/lösen/Übung: chat.answer.',
@@ -2495,7 +2714,7 @@ async function instantAnalyzeWithAi(
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
   const messages: InputMessage[] = [
-    { role: 'system', content: system },
+    { role: 'system', content: withSwissOrthography(system) },
     { role: 'user', content: userParts.trim() },
   ]
   const usage = await callOpenAi(
@@ -2525,11 +2744,13 @@ async function generateTitleWithAi(
   const titleMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Erzeuge einen kurzen Chat-Titel auf Deutsch.',
-        'Maximal 6 Wörter und maximal 42 Zeichen.',
-        'Nur den Titel ausgeben, ohne Anführungszeichen und ohne Satzzeichen am Ende.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Erzeuge einen kurzen Chat-Titel auf Deutsch.',
+          'Maximal 6 Wörter und maximal 42 Zeichen.',
+          'Nur den Titel ausgeben, ohne Anführungszeichen und ohne Satzzeichen am Ende.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -2685,14 +2906,16 @@ async function generateFlashcardsWithAi(
   const flashcardMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Du erstellst Lernkarten (Karteikarten) für Berufsfachschule EFZ — kaufmännischer Bereich (KV-Lehre).',
-        'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
-        'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-        'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)"}]',
-        'Lege die Anzahl der Karten selbst fest (mindestens 6, höchstens 16) — nur zu den Schwachstellen/Lernlücken im Text, nicht den ganzen Stoff breit wiederholen.',
-        'Auf Deutsch, fachlich korrekt.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Du erstellst Lernkarten (Karteikarten) für Berufsfachschule EFZ — kaufmännischer Bereich (KV-Lehre).',
+          'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+          'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+          'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)"}]',
+          'Lege die Anzahl der Karten selbst fest (mindestens 6, höchstens 16) — nur zu den Schwachstellen/Lernlücken im Text, nicht den ganzen Stoff breit wiederholen.',
+          'Auf Deutsch, fachlich korrekt.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -2727,14 +2950,16 @@ async function generateWorksheetWithAi(
   const worksheetMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterlösung im JSON).',
-        'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
-        'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-        'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Sätzen"}]',
-        'Lege die Anzahl der Aufgaben selbst fest (mindestens 4, höchstens 12) — passend zum Umfang der Schwachstellen im Text.',
-        'Auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterlösung im JSON).',
+          'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+          'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+          'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Sätzen"}]',
+          'Lege die Anzahl der Aufgaben selbst fest (mindestens 4, höchstens 12) — passend zum Umfang der Schwachstellen im Text.',
+          'Auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -2764,11 +2989,13 @@ async function generateTopicSuggestionsWithAi(
   const suggestionMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Du erstellst konkrete Unterthemen für Lernen.',
-        'Antworte nur als JSON-Array mit Strings.',
-        'Liefere maximal 5 kurze, konkrete Unterthemen auf Deutsch.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Du erstellst konkrete Unterthemen für Lernen.',
+          'Antworte nur als JSON-Array mit Strings.',
+          'Liefere maximal 5 kurze, konkrete Unterthemen auf Deutsch.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -2893,16 +3120,18 @@ async function handleMergeAiChatMemory(
   const mergeMessages: InputMessage[] = [
     {
       role: 'system',
-      content: [
-        'Du pflegst eine kurze Merkliste über den Nutzer für einen persönlichen Chat-Assistenten.',
-        'Regeln:',
-        '- Ausgabe NUR als Stichpunkte auf Deutsch, Zeilen mit «- ».',
-        `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_TOKENS} Tokens haben (Schätzung: etwa 4 Zeichen pro Token).`,
-        '- Wenn das Limit erreicht wäre: zusammenfassen, Dubletten entfernen, weniger Relevantes / Altes streichen; wichtige und aktuelle Punkte behalten.',
-        '- KEINE Passwörter, API-Schlüssel, vollständigen Adressen oder sensible Gesundheitsdetails.',
-        '- Nur zuverlässige Infos aus dem Gespräch; nichts erfinden.',
-        '- Wenn nichts Neues hinzukommt, gib die bisherigen Notizen fast unverändert zurück.',
-      ].join('\n'),
+      content: withSwissOrthography(
+        [
+          'Du pflegst eine kurze Merkliste über den Nutzer für einen persönlichen Chat-Assistenten.',
+          'Regeln:',
+          '- Ausgabe NUR als Stichpunkte auf Deutsch, Zeilen mit «- ».',
+          `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_TOKENS} Tokens haben (Schätzung: etwa 4 Zeichen pro Token).`,
+          '- Wenn das Limit erreicht wäre: zusammenfassen, Dubletten entfernen, weniger Relevantes / Altes streichen; wichtige und aktuelle Punkte behalten.',
+          '- KEINE Passwörter, API-Schlüssel, vollständigen Adressen oder sensible Gesundheitsdetails.',
+          '- Nur zuverlässige Infos aus dem Gespräch; nichts erfinden.',
+          '- Wenn nichts Neues hinzukommt, gib die bisherigen Notizen fast unverändert zurück.',
+        ].join('\n'),
+      ),
     },
     {
       role: 'user',
@@ -3043,17 +3272,8 @@ serve(async (req) => {
       }
     }
 
-    if (
-      mode === 'chat' &&
-      provider === 'openai' &&
-      body.billingConsumeThinkingCredit === true &&
-      admin
-    ) {
-      const usedTodayThink = await fetchSubscriptionUsedTokensToday(admin, user.id)
-      if (usedTodayThink !== null) {
-        const thinkTier = planChatFields?.thinkingOpenAiTier ?? DEFAULT_PLAN_THINKING_OPENAI_TIER
-        openAiModels = mainChatOpenAiModelsForPlanDailyUsage(usedTodayThink, thinkTier)
-      }
+    if (mode === 'chat' && provider === 'openai' && body.billingConsumeThinkingCredit === true) {
+      openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
     }
 
     const apiKey = await getProviderApiKey(provider)
@@ -3221,6 +3441,50 @@ serve(async (req) => {
       )
       await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
       return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_draft') {
+      const draftPayload = sanitizeThinkingDraftRequestPayload(body.payload)
+      if (!draftPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_draft',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { draft, usage } = await thinkingDraftWithAi(
+        openAiKey,
+        draftPayload.userMessage,
+        draftPayload.contextBlock,
+        draftPayload.analyzeBriefing,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
+      return jsonResponse({ draft })
+    }
+
+    if (mode === 'thinking_review') {
+      const reviewPayload = sanitizeThinkingReviewRequestPayload(body.payload)
+      if (!reviewPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_review',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { review, usage } = await thinkingReviewWithAi(
+        openAiKey,
+        reviewPayload.userMessage,
+        reviewPayload.analyzeBriefing,
+        reviewPayload.draftText,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
+      return jsonResponse({ review })
     }
 
     const includeProfileMemory = body.includeProfileMemory === true

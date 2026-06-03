@@ -1,4 +1,5 @@
 import deleteIcon from '../../../../assets/icons/delete.svg'
+import folderOutlinedIcon from '../../../../assets/icons/folder-outlined.svg'
 import editIcon from '../../../../assets/icons/edit.svg'
 import fileIcon from '../../../../assets/icons/file.svg'
 import folderFilledIcon from '../../../../assets/icons/folder-filled.svg'
@@ -85,6 +86,7 @@ export type ChatPageOverlaysProps = {
   onCloseFolderMenu: () => void
   onOpenFolderMove: (threadId: string) => void
   onOpenRenameThread: (thread: ChatThread) => void
+  onArchiveThread: (threadId: string) => void | Promise<void>
   onDeleteThread: (threadId: string) => void | Promise<void>
   onLeaveSharedThread: (threadId: string) => void | Promise<void>
   onMoveThreadToFolder: (threadId: string, folderId: string | null) => void | Promise<void>
@@ -160,6 +162,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     onCloseFolderMenu,
     onOpenFolderMove,
     onOpenRenameThread,
+    onArchiveThread,
     onDeleteThread,
     onLeaveSharedThread,
     onMoveThreadToFolder,
@@ -317,6 +320,17 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
             ...(ownsThreadForMenu
               ? [
                   {
+                    id: 'archive',
+                    label: 'Archivieren',
+                    iconSrc: folderOutlinedIcon,
+                    onClick: async () => {
+                      const id = openMenuThreadId
+                      if (id) {
+                        await onArchiveThread(id)
+                      }
+                    },
+                  },
+                  {
                     id: 'delete',
                     label: 'Löschen',
                     iconSrc: deleteIcon,
@@ -382,6 +396,20 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
               }}
             >
               Bearbeiten
+            </MenuItem>
+          ) : null}
+          {ownsThreadForMenu ? (
+            <MenuItem
+              iconSrc={folderOutlinedIcon}
+              onClick={async () => {
+                const id = openMenuThreadId
+                onCloseThreadMenu()
+                if (id) {
+                  await onArchiveThread(id)
+                }
+              }}
+            >
+              Archivieren
             </MenuItem>
           ) : null}
           {ownsThreadForMenu ? (

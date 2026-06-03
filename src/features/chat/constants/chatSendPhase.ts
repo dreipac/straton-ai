@@ -5,6 +5,8 @@ export type ChatSendPhase =
   | 'generating'
   | 'thinking_analyze'
   | 'thinking_clarify'
+  | 'thinking_draft'
+  | 'thinking_review'
   | 'thinking'
   | 'image'
   | 'image_search'
@@ -26,6 +28,10 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'Aufgabe wird analysiert …'
     case 'thinking_clarify':
       return 'Rückfrage wird vorbereitet …'
+    case 'thinking_draft':
+      return 'Entwurf wird erstellt …'
+    case 'thinking_review':
+      return 'Antwort wird geprüft …'
     case 'thinking':
       return 'Anleitung wird erstellt …'
     case 'image':

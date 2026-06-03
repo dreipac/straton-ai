@@ -220,14 +220,14 @@ export function ChatSettingsSection({
       <div className="chat-setting-divider" />
       <div className="chat-setting-row">
         <div className="chat-setting-copy">
-          <h3>Auto löschen von leeren Chats</h3>
+          <h3>Auto löschen von leeren Chats und Lernpfaden</h3>
           <p>Leere neue Chats werden beim Wechsel automatisch entfernt.</p>
         </div>
         <button
           type="button"
           className={`ios-switch ${autoRemoveEmptyChats ? 'is-on' : ''}`}
           disabled={isUpdatingChatSetting}
-          aria-label="Auto Löschen bei leeren Chats umschalten"
+          aria-label="Auto-Löschen bei leeren Chats und Lernpfaden umschalten"
           aria-pressed={autoRemoveEmptyChats}
           onClick={() => {
             void onToggleAutoRemoveEmptyChats()

@@ -19,6 +19,18 @@ import {
   VISION_TABLE_EXERCISE_TURN_BRIEFING,
 } from '../constants/chatTableExerciseInstruction'
 import {
+  GENERATED_IMAGE_ATTRIBUTION_TURN_BRIEFING,
+  GENERATED_IMAGE_REFERENCE_TURN_BRIEFING,
+  UPLOADED_IMAGE_ATTRIBUTION_TURN_BRIEFING,
+  getAssistantVisionCapabilityInstruction,
+} from '../constants/chatVisionCapability'
+import {
+  matchImageAttributionQuestion,
+  matchImageReferenceQuestion,
+  threadHasStratonGeneratedImage,
+  userMessageHasUploadedImage,
+} from '../utils/referencedImageVision'
+import {
   applyInstantAnalyzeHeuristics,
   buildInstantAnalyzeBriefingInstruction,
   CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING,
@@ -67,8 +79,19 @@ import {
   fallbackThinkingAnalyzeResult,
   formatThinkingAnalyzeContextLines,
   sanitizeThinkingAnalyzeResult,
+  type ThinkingAnalyzeInvokeResult,
   type ThinkingAnalyzeResult,
 } from '../constants/thinkingAnalyze'
+import {
+  applyThinkingAnalyzeHeuristics,
+  buildThinkingPipelineBriefingForGateway,
+  THINKING_OPENAI_MODEL_CHAIN,
+} from '../constants/thinkingPipeline'
+import {
+  fallbackThinkingReviewResult,
+  sanitizeThinkingReviewResult,
+  type ThinkingReviewResult,
+} from '../constants/thinkingReview'
 import type { ThinkingIntakeSession } from '../utils/thinkingIntake'
 import { buildThinkingIntakeSummary, resolveThinkingConversationPhase } from '../utils/thinkingIntake'
 import {
@@ -77,6 +100,11 @@ import {
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
 import { getStratonProductContextInstruction } from '../constants/chatProductContext'
+import { getSwissGermanOrthographyInstruction } from '../constants/chatSwissOrthography'
+import {
+  getSecretSafetyInstruction,
+  redactSecretsInAiText,
+} from '../constants/chatSecretSafety'
 import { getChatCurrentDateContextInstruction } from '../constants/chatCurrentDateContext'
 import {
   getChatProfileIdentityInstruction,
@@ -160,7 +188,7 @@ export type SendMessageOptions = {
    */
   chatReplyMode?: ChatReplyMode
   /**
-   * Hauptchat: Thinking nutzt GPT-5.4, ausführliche Antworten, klärt per Rückfragen (max. 2 Runden), ohne Profil-Speicher.
+   * Hauptchat: Thinking nutzt gpt-5-mini (Analyze → Entwurf → Review → Generate), selten Klärung, ohne Profil-Speicher.
    */
   chatThinkingMode?: ChatThinkingMode
   /**
@@ -193,6 +221,10 @@ export type SendMessageOptions = {
   thinkingConversationPhase?: 'clarify' | 'final'
   /** Thinking: Fokus der aktuellen Klärungsrunde. */
   thinkingClarifyFocus?: { dimensionLabel: string; questionHint: string; round: number; roundsTotal: number }
+  /** Thinking: interner Entwurf vor der sichtbaren Antwort. */
+  thinkingDraft?: string
+  /** Thinking: Qualitätsprüfung des Entwurfs. */
+  thinkingReview?: ThinkingReviewResult
   /**
    * Hauptchat Vision: Foto-Data-URL direkt an die Edge (zuverlässiger als Storage auf iOS).
    * Wird nicht in der DB gespeichert.
@@ -205,6 +237,8 @@ export type SendMessageOptions = {
    * Im System-Prompt vor dem Datum — für Prompt-Cache und «Wer bin ich?».
    */
   profileIdentity?: ChatProfileIdentity | null
+  /** Laufende Anfrage abbrechen (During/Send-Button). */
+  signal?: AbortSignal
 }
 
 type EvaluateQuizAnswerInput = {
@@ -575,6 +609,28 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     !thinking &&
     lastUserMessage?.role === 'user' &&
+    matchImageAttributionQuestion(lastUserMessage.content)
+  ) {
+    if (threadHasStratonGeneratedImage(priorTurnsForFollowUp)) {
+      lastUserTurnContextBlocks.push(GENERATED_IMAGE_ATTRIBUTION_TURN_BRIEFING)
+    } else if (priorTurnsForFollowUp.some((m) => userMessageHasUploadedImage(m))) {
+      lastUserTurnContextBlocks.push(UPLOADED_IMAGE_ATTRIBUTION_TURN_BRIEFING)
+    }
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    options?.visionInlineDataUrl &&
+    matchImageReferenceQuestion(lastUserMessage.content) &&
+    !matchImageAttributionQuestion(lastUserMessage.content)
+  ) {
+    lastUserTurnContextBlocks.push(GENERATED_IMAGE_REFERENCE_TURN_BRIEFING)
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
     shouldApplyTableExerciseTurnBriefing(
       lastUserMessage.content,
       lastUserMessage.content,
@@ -627,6 +683,19 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   if (thinking && thinkingClarifyPhase === 'clarify' && options?.thinkingClarifyFocus) {
     thinkingIntakeBlocks.push(getChatThinkingIntakeClarifyFocusInstruction(options.thinkingClarifyFocus))
   }
+  if (
+    thinking &&
+    thinkingClarifyPhase === 'final' &&
+    options?.thinkingDraft?.trim() &&
+    options?.thinkingReview
+  ) {
+    thinkingIntakeBlocks.push(
+      buildThinkingPipelineBriefingForGateway({
+        draft: options.thinkingDraft,
+        review: options.thinkingReview,
+      }),
+    )
+  }
   const thinkingBlock = thinking
     ? [
         getChatThinkingWorkflowInstruction(),
@@ -648,6 +717,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         : ''
   const combinedSystemPrompt = [
     baseQuiz,
+    getSecretSafetyInstruction(),
+    getSwissGermanOrthographyInstruction(),
+    isMainChat ? getAssistantVisionCapabilityInstruction() : '',
     isMainChat ? getStratonProductContextInstruction() : '',
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
@@ -939,8 +1011,10 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
-const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v5'
-const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v1'
+const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
+const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
+const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
+const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v1'
 const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v4'
 
@@ -1009,7 +1083,7 @@ export async function generateExcelSpecWithSonnet(userRequest: string): Promise<
     AI_CACHE_TTL.excelSpec,
     async () => {
       try {
-        const specBlock = await requestExcelSpecViaProvider('anthropic', trimmed)
+        const specBlock = redactSecretsInAiText(await requestExcelSpecViaProvider('anthropic', trimmed))
         return { specBlock, modelLabel: 'Claude Sonnet' as const }
       } catch (err) {
         const primaryMessage = err instanceof Error ? err.message : String(err)
@@ -1017,7 +1091,7 @@ export async function generateExcelSpecWithSonnet(userRequest: string): Promise<
           throw err
         }
         try {
-          const specBlock = await requestExcelSpecViaProvider('openai', trimmed)
+          const specBlock = redactSecretsInAiText(await requestExcelSpecViaProvider('openai', trimmed))
           return { specBlock, modelLabel: 'OpenAI (Fallback)' as const }
         } catch {
           throw new Error(
@@ -1104,11 +1178,7 @@ function buildChatCompletionRequestBody(
   }
   if (meta.provider === 'openai') {
     if (!options?.useLearnPathModel && thinking) {
-      const usedToday =
-        typeof options?.mainChatUsedTokensToday === 'number' ? options.mainChatUsedTokensToday : 0
-      body.openAiModels = [
-        ...buildMainChatOpenAiModelChain(usedToday, options?.mainChatThinkingTierConfig ?? undefined),
-      ]
+      body.openAiModels = [...THINKING_OPENAI_MODEL_CHAIN]
     } else if (
       !options?.useLearnPathModel &&
       !thinking &&
@@ -1198,8 +1268,18 @@ function buildChatCompletionRequestBody(
 const SIMULATED_STREAM_MS = 14
 const SIMULATED_STREAM_STEP = 36
 
-function isAbortErrorLike(e: unknown): boolean {
+export function isAbortErrorLike(e: unknown): boolean {
   return e instanceof DOMException && e.name === 'AbortError'
+}
+
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+}
+
+function emitRedactedStreamDelta(onDelta: (accumulated: string) => void, accumulated: string): void {
+  onDelta(redactSecretsInAiText(accumulated))
 }
 
 async function simulateAssistantTextStream(
@@ -1207,36 +1287,38 @@ async function simulateAssistantTextStream(
   onDelta: (accumulated: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const text = fullText.trim()
+  const text = redactSecretsInAiText(fullText.trim())
   if (!text.length) {
-    onDelta('')
+    emitRedactedStreamDelta(onDelta, '')
     return
   }
   if (text.length <= SIMULATED_STREAM_STEP) {
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
-    onDelta(text)
+    emitRedactedStreamDelta(onDelta, text)
     return
   }
   for (let end = SIMULATED_STREAM_STEP; end < text.length; end += SIMULATED_STREAM_STEP) {
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
-    onDelta(text.slice(0, end))
+    emitRedactedStreamDelta(onDelta, text.slice(0, end))
     await new Promise((r) => setTimeout(r, SIMULATED_STREAM_MS))
   }
   if (signal?.aborted) {
     throw new DOMException('Aborted', 'AbortError')
   }
-  onDelta(text)
+  emitRedactedStreamDelta(onDelta, text)
 }
 
 async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {
+  throwIfAborted(options?.signal)
   if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: buildChatCompletionRequestBody(messages, options),
+      signal: options?.signal,
     })
 
     if (error) {
@@ -1248,17 +1330,17 @@ async function getAssistantReply(messages: ChatMessage[], options?: SendMessageO
       throw new Error('Der KI-Provider hat keine gültige Antwort geliefert.')
     }
 
-    return content
+    return redactSecretsInAiText(content)
   }
 
-  return getMockAssistantReply(messages)
+  return redactSecretsInAiText(await getMockAssistantReply(messages))
 }
 
 export async function sendMessage(
   messages: ChatMessage[],
   options?: SendMessageOptions,
 ): Promise<SendMessageResult> {
-  const content = await getAssistantReply(messages, options)
+  const content = redactSecretsInAiText(await getAssistantReply(messages, options))
   return {
     assistantMessage: createAssistantMessage(content),
   }
@@ -1392,7 +1474,7 @@ async function consumeChatCompletionSse(
           }
           if (payload.type === 'delta' && typeof payload.t === 'string' && payload.t.length > 0) {
             full += payload.t
-            onDelta(full)
+            emitRedactedStreamDelta(onDelta, full)
           } else if (payload.type === 'done' && import.meta.env.DEV && payload.visionDebug) {
             console.info('[chat-completion vision]', payload.visionDebug)
           } else if (payload.type === 'error') {
@@ -1408,7 +1490,7 @@ async function consumeChatCompletionSse(
   if (streamError) {
     throw new Error(streamError)
   }
-  const trimmed = full.trim()
+  const trimmed = redactSecretsInAiText(full.trim())
   if (!trimmed) {
     throw new Error('Der KI-Provider hat keine gültige Antwort geliefert.')
   }
@@ -1423,6 +1505,7 @@ export async function sendMessageStreaming(
   messages: ChatMessage[],
   options: SendMessageStreamingOptions,
 ): Promise<string> {
+  throwIfAborted(options.signal)
   const onDelta = options.onDelta
   const signal = options.signal
 
@@ -1436,13 +1519,13 @@ export async function sendMessageStreaming(
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
       }
-      onDelta(text.slice(0, i))
+      emitRedactedStreamDelta(onDelta, text.slice(0, i))
     }
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
-    onDelta(text)
-    return text.trim()
+    emitRedactedStreamDelta(onDelta, text)
+    return redactSecretsInAiText(text.trim())
   }
 
   if (options.useLearnPathModel) {
@@ -1453,8 +1536,9 @@ export async function sendMessageStreaming(
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
-    onDelta(content)
-    return content.trim()
+    const safe = redactSecretsInAiText(content)
+    emitRedactedStreamDelta(onDelta, safe)
+    return safe.trim()
   }
 
   const thinkingMain = !options.useLearnPathModel && options.chatThinkingMode === 'thinking'
@@ -1469,8 +1553,9 @@ export async function sendMessageStreaming(
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
-    await simulateAssistantTextStream(content, onDelta, signal)
-    return content.trim()
+    const safe = redactSecretsInAiText(content)
+    await simulateAssistantTextStream(safe, onDelta, signal)
+    return safe.trim()
   }
 
   const supabase = getSupabaseClient()
@@ -1588,7 +1673,9 @@ export async function instantAnalyzeUserMessage(params: {
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string; unsplashQuery?: string }>
   /** Aktueller Turn: Foto/Data-URL — auch ohne Nutzertext (Tabellenübung im Bild). */
   hasVisionAttachment?: boolean
+  signal?: AbortSignal
 }): Promise<InstantAnalyzeInvokeResult> {
+  throwIfAborted(params.signal)
   const trimmed = params.userMessage.trim()
   const hasVision = params.hasVisionAttachment === true
   if (!trimmed && !hasVision) {
@@ -1633,9 +1720,11 @@ export async function instantAnalyzeUserMessage(params: {
           contextBlock,
         },
       },
+      signal: params.signal,
     })
 
     if (error) {
+      throwIfAborted(params.signal)
       throw new Error(await messageFromFunctionsInvokeFailure(error, response))
     }
 
@@ -1665,18 +1754,27 @@ export async function instantAnalyzeUserMessage(params: {
   }
 }
 
-export type ThinkingAnalyzeInvokeResult = {
-  analyze: ThinkingAnalyzeResult
-  source: 'edge' | 'fallback'
-}
-
 export async function thinkingAnalyzeUserMessage(params: {
   userMessage: string
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+  isContinuationFollowUp?: boolean
+  hasVisionAttachment?: boolean
+  signal?: AbortSignal
 }): Promise<ThinkingAnalyzeInvokeResult> {
+  throwIfAborted(params.signal)
   const trimmed = params.userMessage.trim()
-  if (!trimmed) {
+  const hasVision = params.hasVisionAttachment === true
+  if (!trimmed && !hasVision) {
     return { analyze: fallbackThinkingAnalyzeResult(''), source: 'fallback' }
+  }
+  if (!trimmed && hasVision) {
+    const visionFallback = fallbackThinkingAnalyzeResult('Bildanhang auswerten')
+    return {
+      analyze: applyThinkingAnalyzeHeuristics('Bildanhang auswerten', visionFallback, {
+        hasVisionAttachment: true,
+      }),
+      source: 'fallback',
+    }
   }
   if (!usesGatewayAi()) {
     return { analyze: fallbackThinkingAnalyzeResult(trimmed), source: 'fallback' }
@@ -1699,21 +1797,155 @@ export async function thinkingAnalyzeUserMessage(params: {
           contextBlock,
         },
       },
+      signal: params.signal,
     })
 
     if (error) {
+      throwIfAborted(params.signal)
       throw new Error(await messageFromFunctionsInvokeFailure(error, response))
     }
 
     const parsed = sanitizeThinkingAnalyzeResult(data?.analyze)
     if (parsed) {
-      return { analyze: parsed, source: 'edge' }
+      const fromAi = { ...parsed }
+      const final = applyThinkingAnalyzeHeuristics(trimmed, parsed, {
+        isContinuationFollowUp: params.isContinuationFollowUp,
+        hasVisionAttachment: hasVision,
+      })
+      return {
+        analyze: final,
+        analyzeFromAi: fromAi,
+        source: 'edge',
+      }
     }
   } catch {
     /* Fallback */
   }
 
-  return { analyze: fallbackThinkingAnalyzeResult(trimmed), source: 'fallback' }
+  const fallback = fallbackThinkingAnalyzeResult(trimmed)
+  return {
+    analyze: applyThinkingAnalyzeHeuristics(trimmed, fallback, {
+      isContinuationFollowUp: params.isContinuationFollowUp,
+      hasVisionAttachment: hasVision,
+    }),
+    source: 'fallback',
+  }
+}
+
+export type ThinkingDraftInvokeResult = {
+  draft: string
+  source: 'edge' | 'fallback'
+}
+
+export async function thinkingDraftForTurn(params: {
+  userMessage: string
+  analyze: ThinkingAnalyzeResult
+  intakeSummary?: string
+  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+  signal?: AbortSignal
+}): Promise<ThinkingDraftInvokeResult> {
+  throwIfAborted(params.signal)
+  const trimmed = params.userMessage.trim()
+  if (!trimmed || !usesGatewayAi()) {
+    return { draft: '', source: 'fallback' }
+  }
+
+  const contextBlock = params.priorTurns?.length
+    ? formatThinkingAnalyzeContextLines(params.priorTurns)
+    : ''
+  const analyzeBriefing = buildThinkingAnalyzeBriefingForGateway(
+    params.analyze,
+    params.intakeSummary,
+  )
+
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+      body: {
+        mode: 'thinking_draft',
+        provider: providerForMainChat(),
+        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT,
+        promptCacheRetention: '24h',
+        payload: {
+          userMessage: trimmed,
+          contextBlock,
+          analyzeBriefing,
+        },
+      },
+      signal: params.signal,
+    })
+
+    if (error) {
+      throwIfAborted(params.signal)
+      throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+    }
+
+    const draft = typeof data?.draft === 'string' ? data.draft.trim() : ''
+    if (draft) {
+      return { draft, source: 'edge' }
+    }
+  } catch {
+    /* Fallback */
+  }
+
+  return { draft: '', source: 'fallback' }
+}
+
+export type ThinkingReviewInvokeResult = {
+  review: ThinkingReviewResult
+  source: 'edge' | 'fallback'
+}
+
+export async function thinkingReviewDraft(params: {
+  userMessage: string
+  analyze: ThinkingAnalyzeResult
+  draft: string
+  intakeSummary?: string
+  signal?: AbortSignal
+}): Promise<ThinkingReviewInvokeResult> {
+  throwIfAborted(params.signal)
+  const trimmed = params.userMessage.trim()
+  const draft = params.draft.trim()
+  if (!trimmed || !draft || !usesGatewayAi()) {
+    return { review: fallbackThinkingReviewResult(draft.length), source: 'fallback' }
+  }
+
+  const analyzeBriefing = buildThinkingAnalyzeBriefingForGateway(
+    params.analyze,
+    params.intakeSummary,
+  )
+
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+      body: {
+        mode: 'thinking_review',
+        provider: providerForMainChat(),
+        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW,
+        promptCacheRetention: '24h',
+        payload: {
+          userMessage: trimmed,
+          analyzeBriefing,
+          draftText: draft.slice(0, 16_000),
+        },
+      },
+      signal: params.signal,
+    })
+
+    if (error) {
+      throwIfAborted(params.signal)
+      throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+    }
+
+    const parsed = sanitizeThinkingReviewResult(data?.review)
+    if (parsed) {
+      return { review: parsed, source: 'edge' }
+    }
+  } catch {
+    /* Fallback */
+  }
+
+  return { review: fallbackThinkingReviewResult(draft.length), source: 'fallback' }
 }
 
 export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<GenerateTitleResult> {

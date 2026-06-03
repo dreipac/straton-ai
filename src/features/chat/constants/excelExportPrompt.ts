@@ -1,3 +1,6 @@
+import { getSwissGermanOrthographyInstruction } from './chatSwissOrthography'
+import { getSecretSafetyInstruction } from './chatSecretSafety'
+
 /**
  * Bei relevanten Änderungen an den Excel-Spez-Regeln erhöhen — invalidiert Client-Cache für Sonnet-Specs.
  */
@@ -101,9 +104,11 @@ export const EXCEL_EXPORT_INSTRUCTION = [
  */
 export function buildExcelSpecSonnetSystemPrompt(): string {
   return [
+    getSecretSafetyInstruction(),
+    getSwissGermanOrthographyInstruction(),
     'Du erzeugst ausschließlich die maschinenlesbare Excel-Spezifikation nach den folgenden Regeln.',
     'Wenn Diagramme gewünscht sind: halte dich eng an die feste Zwei-Blatt-Struktur (Daten + Diagramme mit sourceSheet) aus den Regeln — das verhindert beschädigte .xlsx.',
-    'Sprache der sichtbaren Zelltexte: Deutsch wo sinnvoll.',
+    'Sprache der sichtbaren Zelltexte: Deutsch (Schweiz) — niemals ß, immer ss.',
     'Optional ein sehr kurzer Satz davor, dann sofort der Block. Keine Code-Fences. Keine Wiederholung der Nutzerfrage als Fließtext.',
     EXCEL_EXPORT_INSTRUCTION,
   ].join('\n\n')

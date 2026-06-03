@@ -24,7 +24,7 @@ export function createThinkingIntakeSession(analyze: ThinkingAnalyzeResult): Thi
     analyze,
     answers: [],
     clarifyRoundsCompleted: 0,
-    readyForFinal: analyze.complexity === 'low' && analyze.missing_dimensions.length === 0,
+    readyForFinal: !analyze.needs_clarification,
   }
 }
 
@@ -69,19 +69,13 @@ export function recordThinkingIntakeAnswer(
 }
 
 function recomputeThinkingIntakeReady(session: ThinkingIntakeSession): ThinkingIntakeSession {
-  const open = getOpenThinkingDimensions(session)
-  const planned = Math.min(
-    THINKING_MAX_CLARIFY_ROUNDS,
-    Math.max(1, session.analyze.clarify_rounds_planned),
-  )
-  const minRounds =
-    session.analyze.complexity === 'high' ? Math.min(2, planned) : session.analyze.complexity === 'medium' ? 1 : 0
+  if (!session.analyze.needs_clarification) {
+    return { ...session, readyForFinal: true }
+  }
+  const planned = Math.min(THINKING_MAX_CLARIFY_ROUNDS, Math.max(1, session.analyze.clarify_rounds_planned))
   const maxRoundsReached = session.clarifyRoundsCompleted >= planned
-  const minRoundsMet = session.clarifyRoundsCompleted >= minRounds
-  const noOpenDimensions = open.length === 0
-
-  const readyForFinal =
-    noOpenDimensions && minRoundsMet ? true : maxRoundsReached ? true : false
+  const noOpenDimensions = getOpenThinkingDimensions(session).length === 0
+  const readyForFinal = maxRoundsReached || (noOpenDimensions && session.clarifyRoundsCompleted >= 1)
 
   return { ...session, readyForFinal }
 }
@@ -115,15 +109,15 @@ export function resolveThinkingConversationPhase(
   }
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'user') {
-    return 'clarify'
+    return 'final'
   }
   for (let i = messages.length - 2; i >= 0; i -= 1) {
     const m = messages[i]
     if (m?.role === 'assistant') {
-      return messageContainsCompleteThinkingClarifyBlock(m.content) ? 'final' : 'clarify'
+      return messageContainsCompleteThinkingClarifyBlock(m.content) ? 'final' : 'final'
     }
   }
-  return 'clarify'
+  return 'final'
 }
 
 export function extractDimensionFromLastClarify(messages: ChatMessage[]): {
@@ -155,10 +149,9 @@ export function getThinkingClarifyProgress(session: ThinkingIntakeSession): {
   round: number
   roundsTotal: number
 } {
-  const roundsTotal = Math.min(
-    THINKING_MAX_CLARIFY_ROUNDS,
-    Math.max(1, session.analyze.clarify_rounds_planned),
-  )
+  const roundsTotal = session.analyze.needs_clarification
+    ? Math.min(THINKING_MAX_CLARIFY_ROUNDS, Math.max(1, session.analyze.clarify_rounds_planned))
+    : 0
   const round = Math.min(roundsTotal, session.clarifyRoundsCompleted + 1)
   return { round, roundsTotal }
 }

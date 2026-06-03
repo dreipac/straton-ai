@@ -1,6 +1,8 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { UnsplashPhotoResult } from '../types'
 
+export const UNSPLASH_SEARCH_MAX_PHOTOS = 4
+
 export type UnsplashSearchResponse = {
   query: string
   photos: UnsplashPhotoResult[]
@@ -13,7 +15,7 @@ export async function fetchUnsplashSearchResults(query: string): Promise<Unsplas
   }
 
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase.functions.invoke<{
+  const { data, error, response } = await supabase.functions.invoke<{
     query?: string
     photos?: UnsplashPhotoResult[]
     error?: string
@@ -22,7 +24,21 @@ export async function fetchUnsplashSearchResults(query: string): Promise<Unsplas
   })
 
   if (error) {
-    throw new Error(error.message || 'Fotosuche ist fehlgeschlagen.')
+    let detail = error.message || 'Fotosuche ist fehlgeschlagen.'
+    if (response) {
+      try {
+        const text = (await response.text()).trim()
+        if (text) {
+          const parsed = JSON.parse(text) as { error?: unknown }
+          if (typeof parsed.error === 'string' && parsed.error.trim()) {
+            detail = parsed.error.trim()
+          }
+        }
+      } catch {
+        /* Body nicht lesbar */
+      }
+    }
+    throw new Error(detail)
   }
 
   if (data && typeof data === 'object' && typeof data.error === 'string' && data.error.trim()) {
@@ -36,12 +52,12 @@ export async function fetchUnsplashSearchResults(query: string): Promise<Unsplas
     throw new Error('Keine passenden Fotos gefunden.')
   }
 
-  return { query: q, photos: photos.slice(0, 2) }
+  return { query: q, photos: photos.slice(0, UNSPLASH_SEARCH_MAX_PHOTOS) }
 }
 
 function buildUnsplashIntroText(query: string, count: number): string {
-  const n = Math.min(2, Math.max(1, count))
-  const bilder = n === 1 ? 'ein passendes Stock-Foto' : 'zwei passende Stock-Fotos'
+  const n = Math.min(UNSPLASH_SEARCH_MAX_PHOTOS, Math.max(1, count))
+  const bilder = n === 1 ? 'ein passendes Stock-Foto' : `${n} passende Stock-Fotos`
   return [
     `Hier ${n === 1 ? 'ist' : 'sind'} ${bilder} von Unsplash zu **«${query}»**.`,
     'Die Bilder sind urheberrechtlich lizenziert — Quelle und Fotograf:in stehen unter jedem Foto.',

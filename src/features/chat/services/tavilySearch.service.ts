@@ -10,10 +10,16 @@ export type TavilySearchResult = {
  * Tavily-Websuche über Edge Function `tavily-search` (API-Key nur serverseitig).
  * Liefert formatierten Kontext für den Hauptchat.
  */
-export async function fetchTavilySearchContext(query: string): Promise<TavilySearchResult> {
+export async function fetchTavilySearchContext(
+  query: string,
+  signal?: AbortSignal,
+): Promise<TavilySearchResult> {
   const trimmed = query.trim()
   if (!trimmed.length) {
     throw new Error('Bitte eine Frage oder Suchanfrage eingeben.')
+  }
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
   }
 
   const supabase = getSupabaseClient()
@@ -24,6 +30,7 @@ export async function fetchTavilySearchContext(query: string): Promise<TavilySea
     message?: string
   }>('tavily-search', {
     body: { query: trimmed.slice(0, 500) },
+    signal,
   })
 
   if (error) {

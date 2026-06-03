@@ -16,7 +16,6 @@ export type ChatComposerAttachMenuProps = {
   isMobile: boolean
   onMobileOpen: () => void
   onUploadFile: () => void
-  onUploadImage: () => void
   replyMode: ChatReplyMode
   onReplyModeChange: (mode: ChatReplyMode) => void
   showReplyModeOption: boolean
@@ -29,7 +28,6 @@ export function ChatComposerAttachMenu({
   isMobile,
   onMobileOpen,
   onUploadFile,
-  onUploadImage,
   replyMode,
   onReplyModeChange,
   showReplyModeOption,
@@ -114,11 +112,6 @@ export function ChatComposerAttachMenu({
     closeMenus()
   }
 
-  function handleUploadImage() {
-    onUploadImage()
-    closeMenus()
-  }
-
   function handleReplyModePick(mode: ChatReplyMode) {
     onReplyModeChange(mode)
     closeMenus()
@@ -148,13 +141,6 @@ export function ChatComposerAttachMenu({
           aria-label="Anhang-Menü"
           onTransitionEnd={handleAttachMenuTransitionEnd}
         >
-          <MenuItem
-            iconSrc={attachmentIcon}
-            className="chat-composer-attach-menu-item"
-            onClick={handleUploadImage}
-          >
-            Foto anhängen
-          </MenuItem>
           <MenuItem
             iconSrc={attachmentIcon}
             className="chat-composer-attach-menu-item"

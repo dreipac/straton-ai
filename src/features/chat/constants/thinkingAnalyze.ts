@@ -16,6 +16,9 @@ export type ThinkingAnalyzeDimension = {
   question_hint: string
 }
 
+import type { ThinkingAnalyzeDebugMeta } from '../types'
+import { getSecretSafetyInstruction } from './chatSecretSafety'
+
 export type ThinkingAnalyzeResult = {
   task_type: ThinkingTaskType
   complexity: ThinkingComplexity
@@ -23,6 +26,8 @@ export type ThinkingAnalyzeResult = {
   assumptions: string[]
   risks: string[]
   missing_dimensions: ThinkingAnalyzeDimension[]
+  /** Nur bei echtem Blocker — sonst sofort Entwurf + finale Antwort. */
+  needs_clarification: boolean
   clarify_rounds_planned: number
   analysis_summary: string
 }
@@ -40,7 +45,7 @@ const TASK_TYPES: ThinkingTaskType[] = [
 
 const COMPLEXITY_VALUES: ThinkingComplexity[] = ['low', 'medium', 'high']
 
-const MAX_CLARIFY_ROUNDS = 4
+const MAX_CLARIFY_ROUNDS = 1
 
 function clipText(value: unknown, max: number): string {
   if (typeof value !== 'string') {
@@ -111,20 +116,26 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
   const assumptions = asStringArray(o.assumptions, 4, 100)
   const risks = asStringArray(o.risks, 5, 100)
   let missing_dimensions = sanitizeDimensions(o.missing_dimensions)
+  let needs_clarification = o.needs_clarification === true
   let clarify_rounds_planned =
     typeof o.clarify_rounds_planned === 'number' && Number.isFinite(o.clarify_rounds_planned)
       ? Math.round(o.clarify_rounds_planned)
-      : 2
-  clarify_rounds_planned = Math.min(MAX_CLARIFY_ROUNDS, Math.max(1, clarify_rounds_planned))
+      : needs_clarification
+        ? 1
+        : 0
+  clarify_rounds_planned = Math.min(MAX_CLARIFY_ROUNDS, Math.max(0, clarify_rounds_planned))
   const analysis_summary = clipText(o.analysis_summary, 280) || intent
 
-  if (missing_dimensions.length === 0 && complexity !== 'low') {
-    missing_dimensions = defaultDimensionsForTask(task_type)
-  }
-  if (complexity === 'low') {
-    clarify_rounds_planned = Math.min(clarify_rounds_planned, 1)
-  } else if (complexity === 'high') {
-    clarify_rounds_planned = Math.max(clarify_rounds_planned, Math.min(3, missing_dimensions.length || 2))
+  if (!needs_clarification) {
+    missing_dimensions = []
+    clarify_rounds_planned = 0
+  } else {
+    if (missing_dimensions.length === 0) {
+      missing_dimensions = defaultDimensionsForTask(task_type).slice(0, 1)
+    } else {
+      missing_dimensions = missing_dimensions.slice(0, 1)
+    }
+    clarify_rounds_planned = Math.max(1, Math.min(1, clarify_rounds_planned))
   }
 
   return {
@@ -134,6 +145,7 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
     assumptions,
     risks,
     missing_dimensions,
+    needs_clarification,
     clarify_rounds_planned,
     analysis_summary,
   }
@@ -228,13 +240,8 @@ export function fallbackThinkingAnalyzeResult(userMessage: string): ThinkingAnal
   const trimmed = userMessage.trim()
   const task_type = classifyThinkingTaskType(trimmed.toLowerCase())
   const complexity = estimateThinkingComplexity(trimmed, task_type)
-  const missing_dimensions =
-    complexity === 'low'
-      ? defaultDimensionsForTask(task_type).slice(0, 1)
-      : defaultDimensionsForTask(task_type)
-
-  const planned =
-    complexity === 'low' ? 1 : complexity === 'high' ? Math.min(4, missing_dimensions.length) : 2
+  const vague = trimmed.length < 18 && !/\[Datei:/i.test(trimmed)
+  const needs_clarification = vague
 
   return sanitizeThinkingAnalyzeResult({
     task_type,
@@ -242,33 +249,37 @@ export function fallbackThinkingAnalyzeResult(userMessage: string): ThinkingAnal
     intent: trimmed.slice(0, 160) || 'Aufgabe bearbeiten',
     assumptions: [],
     risks: [],
-    missing_dimensions,
-    clarify_rounds_planned: planned,
-    analysis_summary: `Aufgabe (${task_type}) — zuerst ${planned} Klärungsrunde(n), dann ausführliche Antwort.`,
+    missing_dimensions: needs_clarification ? defaultDimensionsForTask(task_type).slice(0, 1) : [],
+    needs_clarification,
+    clarify_rounds_planned: needs_clarification ? 1 : 0,
+    analysis_summary: needs_clarification
+      ? `Aufgabe (${task_type}) — eine Klärungsfrage, dann ausführliche Antwort.`
+      : `Aufgabe (${task_type}) — direkt ausführliche Antwort mit Annahmen.`,
   })!
 }
 
 export function buildThinkingAnalyzeSystemPrompt(): string {
   return [
+    getSecretSafetyInstruction(),
     'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus — nicht nur Server/Linux.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
     '',
     'Felder:',
     '- task_type: "server_setup" | "software_setup" | "troubleshooting" | "document_summary" | "process_howto" | "decision_planning" | "general_howto" | "other"',
     '- complexity: "low" | "medium" | "high"',
-    '- intent, assumptions[], risks[], missing_dimensions[{id,label,question_hint}], clarify_rounds_planned (1–4), analysis_summary',
+    '- intent, assumptions[], risks[], needs_clarification (boolean), missing_dimensions[{id,label,question_hint}], clarify_rounds_planned (0 oder 1), analysis_summary',
     '',
-    'Wichtig — missing_dimensions:',
-    '- Immer themenspezifisch zur konkreten Nutzerfrage ableiten (2–6 Dimensionen), nicht generisch kopieren.',
-    '- Beispiele (nur als Muster — immer anpassen):',
-    '  • Server/Webhosting: hosting, stack, domain_ssl, access',
-    '  • Excel-Report automatisieren: excel_version, data_source, output_format',
-    '  • Umzug WLAN: apartment_size, router_model, isp',
-    '  • Bewerbung schreiben: role, experience_level, language_tone',
-    '  • Rezept: servings, diet, equipment',
-    '- complexity "low": eine enge Frage, 1 Klärungsrunde reicht oft.',
-    '- complexity "high": mehrdeutig, viele Abhängigkeiten → 2–4 Runden.',
-    '- clarify_rounds_planned ≤ Anzahl sinnvoller offener Dimensionen.',
+    'needs_clarification — sehr selten true:',
+    '- true NUR bei echtem Blocker: Produktion/Datenverlust ohne Kontext, zwei gleich wertige Wege, oder Anfrage völlig unklar (<15 Zeichen ohne Material).',
+    '- false in den allermeisten Fällen: auch bei Server-Setup, How-tos, Dokumenten mit Anhang — dann Annahmen nutzen.',
+    '- Bei needs_clarification false: missing_dimensions [] und clarify_rounds_planned 0.',
+    '- Bei needs_clarification true: genau 1 Dimension in missing_dimensions, clarify_rounds_planned 1.',
+    '',
+    'Medien (Intent, getrennt vom task_type):',
+    '- Bild-Anhang + «beschreibe / was siehst du / lies / OCR» → document_summary, needs_clarification false.',
+    '- [Datei: …] im Text → document_summary, needs_clarification false.',
+    '- «Word/PDF/Excel erstellen/exportieren» werden clientseitig separat geroutet — hier nur inhaltliche Aufgaben.',
+    '- «Foto/Bild suchen/zeigen von …» und «Bild generieren/zeichnen» werden separat geroutet.',
   ].join('\n')
 }
 
@@ -279,8 +290,10 @@ export function buildThinkingAnalyzeBriefingForGateway(
   const lines = [
     'Thinking — Aufgabenanalyse (verbindlich):',
     `Zusammenfassung: ${analyze.analysis_summary}`,
-    `Typ: ${analyze.task_type} | Komplexität: ${analyze.complexity}`,
+    `Kategorie (task_type): ${analyze.task_type} — steuert Entwurf, Review und finale Struktur.`,
+    `Komplexität: ${analyze.complexity}`,
     `Absicht: ${analyze.intent}`,
+    `Klärung vor Lieferung: ${analyze.needs_clarification ? 'ja (max. 1 Runde)' : 'nein — direkt liefern'}`,
   ]
   if (analyze.assumptions.length > 0) {
     lines.push(`Annahmen (falls Nutzer schweigt): ${analyze.assumptions.join('; ')}`)
@@ -316,3 +329,35 @@ export function formatThinkingAnalyzeContextLines(
 }
 
 export const THINKING_MAX_CLARIFY_ROUNDS = MAX_CLARIFY_ROUNDS
+
+export type ThinkingAnalyzeInvokeResult = {
+  analyze: ThinkingAnalyzeResult
+  source: 'edge' | 'fallback'
+  analyzeFromAi?: ThinkingAnalyzeResult
+}
+
+export function buildThinkingAnalyzeDebugMeta(params: {
+  invoke: ThinkingAnalyzeInvokeResult
+}): ThinkingAnalyzeDebugMeta {
+  const { invoke } = params
+  const fromAi = invoke.analyzeFromAi ?? invoke.analyze
+  const final = invoke.analyze
+  const heuristicApplied =
+    invoke.source === 'edge' &&
+    Boolean(invoke.analyzeFromAi) &&
+    (invoke.analyzeFromAi!.needs_clarification !== final.needs_clarification ||
+      invoke.analyzeFromAi!.clarify_rounds_planned !== final.clarify_rounds_planned ||
+      invoke.analyzeFromAi!.task_type !== final.task_type)
+
+  return {
+    source: invoke.source,
+    task_type: final.task_type,
+    complexity: final.complexity,
+    intent: final.intent,
+    needs_clarification_from_ai: fromAi.needs_clarification,
+    needs_clarification_final: final.needs_clarification,
+    clarify_rounds_planned_final: final.clarify_rounds_planned,
+    heuristic_applied: heuristicApplied,
+    analysis_summary: final.analysis_summary,
+  }
+}

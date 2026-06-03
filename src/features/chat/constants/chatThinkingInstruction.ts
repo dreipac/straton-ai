@@ -1,18 +1,19 @@
 import type { ThinkingTaskType } from './thinkingAnalyze'
+import { getSecretSafetyInstruction } from './chatSecretSafety'
 
-/** Systemblock nur im Hauptchat, wenn Thinking aktiv (Routing: GPT-5.4, kein Profil-Speicher). */
+/** Systemblock nur im Hauptchat, wenn Thinking aktiv (gpt-5-mini, kein Profil-Speicher). */
 export function getChatThinkingWorkflowInstruction(): string {
   return [
-    'Thinking-Modus (GPT-5.4, Aufgaben & gründliche Bearbeitung):',
+    getSecretSafetyInstruction(),
+    'Thinking-Modus (gpt-5-mini, Aufgaben & gründliche Bearbeitung):',
     'Persönlicher Nutzer-Speicher ist ausgeschaltet — nutze nur den sichtbaren Chatverlauf in dieser Unterhaltung.',
     '',
-    'Drei-Phasen-Ablauf (verbindlich pro Nutzerauftrag):',
-    '0) Aufgabenanalyse liegt im Kontext unter «Thinking — Aufgabenanalyse» — nutze sie.',
-    '1) Klärung: pro Runde genau EINE Rückfrage als Clarify-Block — noch keine ausführliche Lösung.',
-    '   Dimension = das wichtigste noch fehlende Stück Info für DIESE Aufgabe (aus Analyse-Kontext).',
-    '   Nach jeder Nutzerantwort: nächste offene Dimension, bis alles Nötige da ist oder max. Runden erreicht.',
-    '2) Ausführliche Antwort: vollständige, umsetzbare Anleitung (Formatregeln) — kein Clarify-Block.',
-    'Jede neue Nutzeraufgabe startet wieder bei Analyse + Klärung.',
+    'Ablauf (verbindlich):',
+    '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse».',
+    '1) Klärung nur bei needs_clarification im Analyse-Kontext — selten, max. eine Rückfrage als Clarify-Block.',
+    '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung».',
+    '3) Diese sichtbare Antwort: finale, ausführliche Bearbeitung (Formatregeln) — kein Clarify-Block.',
+    'Kurze Folgenachrichten: direkt weiterbearbeiten, nicht erneut interviewen.',
     '',
     'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
     '',
@@ -42,16 +43,17 @@ export function getChatThinkingMandatoryClarifyTurnInstruction(): string {
   ].join('\n')
 }
 
-/** Phase 2 — nach Klärung; task_type steuert Zusatzstruktur (nicht nur Server). */
+/** Finale sichtbare Antwort (nach Entwurf/Review); task_type steuert Zusatzstruktur. */
 export function getChatThinkingFinalAnswerTurnInstruction(taskType?: ThinkingTaskType): string {
   const blocks = [
-    'Thinking — Phase 2 (diese Antwort — finale Bearbeitung):',
-    'Der Kontext ist geklärt (oder max. Runden erreicht). Jetzt vollständig und umsetzbar antworten.',
-    'KEIN Clarify-Block. NICHT die Umfangsregeln des Instant-Modus.',
+    'Thinking — Finale Antwort (diese Nachricht — sichtbar für den Nutzer):',
+    'Nutze den internen Entwurf und die Qualitätsprüfung: Lücken schließen, Form und Tiefe verbessern.',
+    'KEIN Clarify-Block. NICHT die Kürze des Instant-Modus.',
     'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
     'Glossare/Begriffe nur als Tabelle; bei Dokumenten alles Wesentliche aus dem Material.',
-    'Offene Punkte: unter «Annahmen» knapp nennen, trotzdem liefern.',
+    '## Annahmen am Anfang (1–3 Sätze), dann vollständig liefern.',
     getChatThinkingGenericDeliverableInstruction(),
+    getChatThinkingMandatoryFollowUpInstruction(),
   ]
   if (taskType === 'server_setup' || taskType === 'software_setup') {
     blocks.push(getChatThinkingSetupGuideInstruction())
@@ -61,6 +63,17 @@ export function getChatThinkingFinalAnswerTurnInstruction(taskType?: ThinkingTas
     blocks.push(getChatThinkingDecisionGuideInstruction())
   }
   return blocks.join('\n\n')
+}
+
+/** Schluss wie Instant: Verbesserungen + eine konkrete Anpassungsfrage. */
+export function getChatThinkingMandatoryFollowUpInstruction(): string {
+  return [
+    'Thinking — Schluss (nach der Hauptlösung):',
+    '- Optional `### Verbesserungen`: 1–4 kurze Punkte, was an deiner Antwort noch schärfer wäre.',
+    '- Danach **eine** gezielte Anpassungsfrage mit 2–3 konkreten Stellschrauben (nicht «Was möchtest du?»).',
+    '- Bei sehr kurzen Mini-Antworten: Schlussblock weglassen.',
+    '- **Verboten:** Schluss **vor** der vollständigen Hauptlösung; **verboten:** Interview vor der Lieferung.',
+  ].join('\n')
 }
 
 export function getChatThinkingGenericDeliverableInstruction(): string {
@@ -188,7 +201,7 @@ export function getChatThinkingEmojiStyleInstruction(): string {
   ].join('\n')
 }
 
-/** Thinking + /Word: Word-Konvention, Tabellen, ausführlicher Dokumentinhalt (GPT-5.4). */
+/** Thinking + /Word: Word-Konvention, Tabellen, ausführlicher Dokumentinhalt. */
 export function getChatThinkingWordDocumentInstruction(): string {
   return [
     'Thinking — Word-Dokument (/Word, Vorschau für späteres .docx):',

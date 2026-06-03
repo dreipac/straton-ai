@@ -4,7 +4,9 @@ import type {
   ChapterSession,
   ChapterStep,
   ChapterStepWithoutId,
+  LearnFlashcardSet,
   LearnWorksheetItem,
+  LearningPathSummary,
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
@@ -16,6 +18,91 @@ import {
 export function getDisplayPathTitle(title: string) {
   const trimmed = title.trim()
   return trimmed ? trimmed : 'Neuer Lernpfad'
+}
+
+export const PENDING_LEARNING_PATH_ID_PREFIX = 'pending-'
+
+export function isPendingLearningPathId(pathId: string): boolean {
+  return pathId.startsWith(PENDING_LEARNING_PATH_ID_PREFIX)
+}
+
+export function createPendingLearningPathSummary(userId: string): LearningPathSummary {
+  const now = new Date().toISOString()
+  const sidebarListKey = `learn-path-slot-${crypto.randomUUID()}`
+  return {
+    id: `${PENDING_LEARNING_PATH_ID_PREFIX}${crypto.randomUUID()}`,
+    userId,
+    title: 'Neuer Lernpfad',
+    createdAt: now,
+    updatedAt: now,
+    isPending: true,
+    sidebarListKey,
+  }
+}
+
+/** Unbearbeiteter Lernpfad (nur Setup-Schritt 1, kein Inhalt) — darf auto-entfernt werden. */
+export type LearningPathEmptyCheckInput = {
+  topic: string
+  selectedTopic: string
+  aiGuidance?: string
+  proficiencyLevel?: '' | 'low' | 'medium' | 'high'
+  topicSuggestions?: readonly string[]
+  isSetupComplete: boolean
+  setupStep: 1 | 2 | 3 | 4
+  materials: readonly unknown[]
+  tutorMessages: readonly unknown[]
+  entryQuiz: unknown | null
+  entryQuizResult: unknown | null
+  chapterBlueprints: readonly unknown[]
+  learningChapters: readonly string[]
+  learnFlashcardSets?: readonly LearnFlashcardSet[]
+  learnWorksheets: readonly unknown[]
+}
+
+export function isLearningPathEmpty(input: LearningPathEmptyCheckInput): boolean {
+  if (input.isSetupComplete) {
+    return false
+  }
+  if (input.setupStep !== 1) {
+    return false
+  }
+  if (input.topic.trim() || input.selectedTopic.trim()) {
+    return false
+  }
+  if ((input.aiGuidance ?? '').trim()) {
+    return false
+  }
+  if (input.proficiencyLevel) {
+    return false
+  }
+  if ((input.topicSuggestions ?? []).some((s) => s.trim())) {
+    return false
+  }
+  if (input.materials.length > 0) {
+    return false
+  }
+  if (input.tutorMessages.length > 0) {
+    return false
+  }
+  if (input.entryQuiz) {
+    return false
+  }
+  if (input.entryQuizResult) {
+    return false
+  }
+  if (input.chapterBlueprints.length > 0) {
+    return false
+  }
+  if (input.learningChapters.some((chapter) => chapter.trim())) {
+    return false
+  }
+  if (input.learnWorksheets.length > 0) {
+    return false
+  }
+  if ((input.learnFlashcardSets ?? []).some((set) => set.cards.length > 0)) {
+    return false
+  }
+  return true
 }
 
 /** Max. Aufgaben pro KI-Lernblatt (Anzahl wählt die KI bis zu diesem Limit). */

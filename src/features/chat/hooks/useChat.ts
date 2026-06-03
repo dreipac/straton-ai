@@ -43,9 +43,14 @@ import {
   sendMessage,
   sendMessageStreaming,
   thinkingAnalyzeUserMessage,
+  thinkingDraftForTurn,
+  thinkingReviewDraft,
+  isAbortErrorLike,
   usesGatewayAi,
 } from '../services/chat.service'
 import type { ThinkingAnalyzeResult } from '../constants/thinkingAnalyze'
+import { isThinkingContinuationFollowUp } from '../constants/thinkingPipeline'
+import type { ThinkingReviewResult } from '../constants/thinkingReview'
 import {
   buildThinkingIntakeSummary,
   createThinkingIntakeSession,
@@ -69,18 +74,22 @@ import {
   type ImageSearchPriorTurn,
 } from '../utils/imageSearchIntent'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import { stripSectionRefBlock } from '../utils/assistantSectionReply'
 import {
   loadChatMediaPathAsVisionDataUrl,
-  matchImageReferenceQuestion,
   resolveReferencedImageStoragePath,
+  shouldResolveReferencedImageVision,
 } from '../utils/referencedImageVision'
 import {
   matchAttachedImageEditRequest,
-  matchExplicitImageGenerationRequest,
   matchFollowUpImageEditRequest,
   shouldUseAttachedImageEdit,
 } from '../utils/imageGenerationIntent'
-import { stripImageGenTilePromptPrefix } from '../constants/imageGenTile'
+import { isComposerImageGenRequest } from '../constants/imageGenTile'
+import {
+  resolveHeuristicImageGenFallback,
+  resolveInstantRouteOverrides,
+} from '../constants/instantAnalyzeRoute'
 import { errorMessageFromUnknown } from '../../../utils/errorMessage'
 import {
   parseThinkingClarifyContent,
@@ -88,6 +97,7 @@ import {
 } from '../utils/thinkingClarify'
 import {
   createChatMessage,
+  archiveChatThread,
   createChatThread,
   deleteChatThread,
   leaveSharedChatThreadMembership,
@@ -104,7 +114,11 @@ import {
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
-import { resolveInstantRouteOverrides } from '../constants/instantAnalyzeRoute'
+import { buildThinkingAnalyzeDebugMeta } from '../constants/thinkingAnalyze'
+import {
+  resolveThinkingMediaRouteFromHeuristics,
+  resolveThinkingMediaRouteFromInstantAnalyze,
+} from '../constants/thinkingMediaRoute'
 import {
   persistGeneratedImageInAssistantMessage,
   persistInlineVisionImagesInContent,
@@ -118,6 +132,7 @@ import {
 import { normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
+import type { ThinkingAnalyzeDebugMeta } from '../types'
 import type { ChatProfileIdentity } from '../constants/chatProfileIdentityContext'
 import type { InstantAnalyzeDebugMeta } from '../types'
 import type { ChatMessage, ChatThread } from '../types'
@@ -341,6 +356,8 @@ export function useChat(
   const [sendPhase, setSendPhase] = useState<ChatSendPhaseState>(null)
   const [liveInstantAnalyzeDebug, setLiveInstantAnalyzeDebug] =
     useState<InstantAnalyzeDebugMeta | null>(null)
+  const [liveThinkingAnalyzeDebug, setLiveThinkingAnalyzeDebug] =
+    useState<ThinkingAnalyzeDebugMeta | null>(null)
   const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
   const [pdfFinalizeBusy, setPdfFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
@@ -364,6 +381,11 @@ export function useChat(
     null,
   )
   const thinkingIntakeByThreadRef = useRef<Record<string, ThinkingIntakeSession>>({})
+  const sendAbortControllerRef = useRef<AbortController | null>(null)
+  const sendCancelCleanupRef = useRef<{
+    threadId: string
+    streamAssistantId: string | null
+  } | null>(null)
   /** Lokal gepflegt (Profil + optimistisch nach Thinking-Anfrage); Superadmin: null = unbegrenzt. */
   const [thinkingCreditsRemaining, setThinkingCreditsRemaining] = useState<number | null>(() =>
     options?.isSuperadmin === true ? null : (options?.thinkingCreditBalance ?? 0),
@@ -436,6 +458,22 @@ export function useChat(
       return
     }
     setThinkingCreditsRemaining((prev) => Math.max(0, (prev ?? 0) - 1))
+  }
+
+  function cancelSend() {
+    sendAbortControllerRef.current?.abort()
+    const cleanup = sendCancelCleanupRef.current
+    if (cleanup?.threadId && cleanup.streamAssistantId) {
+      setMessagesByThreadId((prev) => ({
+        ...prev,
+        [cleanup.threadId]: (prev[cleanup.threadId] ?? []).filter(
+          (m) => m.id !== cleanup.streamAssistantId,
+        ),
+      }))
+    }
+    setSendPhase(null)
+    setLiveInstantAnalyzeDebug(null)
+    setLiveThinkingAnalyzeDebug(null)
   }
 
   function markThinkingCreditsDepletedLocally() {
@@ -802,6 +840,90 @@ export function useChat(
     }
   }
 
+  async function archiveChat(
+    threadId: string,
+    options?: { animateRemoval?: boolean; optimisticListRemoval?: boolean },
+  ) {
+    const targetThread = threads.find((thread) => thread.id === threadId)
+    if (targetThread?.isTemporary) {
+      removeTemporaryThread(threadId)
+      return
+    }
+
+    const animateRemoval = options?.animateRemoval !== false
+    const optimisticListRemoval = options?.optimisticListRemoval === true
+
+    setError(null)
+    clearRemoveTimer(threadId)
+
+    if (!animateRemoval) {
+      setActiveThreadId((currentId) => (currentId === threadId ? null : currentId))
+
+      const removeFromListState = () => {
+        setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+      }
+
+      if (optimisticListRemoval) {
+        removeFromListState()
+        try {
+          await archiveChatThread(threadId)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Chat konnte nicht archiviert werden.')
+        }
+        return
+      }
+
+      try {
+        await archiveChatThread(threadId)
+        removeFromListState()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Chat konnte nicht archiviert werden.')
+      }
+      return
+    }
+
+    setThreads((prev) =>
+      prev.map((thread) =>
+        thread.id === threadId
+          ? {
+              ...thread,
+              isRemoving: true,
+            }
+          : thread,
+      ),
+    )
+
+    setActiveThreadId((currentId) => (currentId === threadId ? null : currentId))
+
+    try {
+      await Promise.all([
+        archiveChatThread(threadId),
+        new Promise<void>((resolve) => {
+          removeTimersRef.current[threadId] = window.setTimeout(() => {
+            resolve()
+          }, THREAD_REMOVE_ANIMATION_MS)
+        }),
+      ])
+
+      setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+
+      delete removeTimersRef.current[threadId]
+    } catch (err) {
+      clearRemoveTimer(threadId)
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                isRemoving: false,
+              }
+            : thread,
+        ),
+      )
+      setError(err instanceof Error ? err.message : 'Chat konnte nicht archiviert werden.')
+    }
+  }
+
   async function leaveSharedChatAsMember(threadId: string) {
     if (!userId) {
       return
@@ -974,22 +1096,75 @@ export function useChat(
     let trimmed = stripExcelCommandMarker(content)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
+    /** Nutzer-Text ohne Abschnitts-Zitat — Zitat kann `@chat-media:` enthalten, ist kein Anhang. */
+    const routingText = stripSectionRefBlock(trimmed)
 
     if (!canSend) {
       return
     }
-    if (!wantsWord && !wantsPdf && !trimmed && !messageHasVisionPayload(content)) {
+    if (!wantsWord && !wantsPdf && !routingText && !messageHasVisionPayload(routingText)) {
       return
     }
 
-    const imageCmd = wantsWord || wantsPdf ? null : matchExplicitImageGenerationRequest(trimmed)
-    const wantsThinkingTurn =
+    const hasVisionEarly =
+      messageHasVisionPayload(routingText) || Boolean(sendOpts?.visionInlineDataUrl)
+    const priorTurnsEarly: ImageSearchPriorTurn[] = (activeThreadId
+      ? messagesByThreadId[activeThreadId] ?? []
+      : []
+    )
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        ...(m.metadata?.unsplashSearch?.query
+          ? { unsplashQuery: m.metadata.unsplashSearch.query }
+          : {}),
+      }))
+
+    let imageGenPrompt: string | null = null
+    let imageSearchQuery: string | null = null
+
+    if (chatThinkingMode === 'thinking') {
+      const composerRouteLockedEarly =
+        wantsWord || wantsPdf || wantsExcel || isComposerImageGenRequest(routingText)
+      const thinkingMediaEarly = resolveThinkingMediaRouteFromHeuristics(routingText, {
+        hasVisionAttachment: hasVisionEarly,
+        priorTurns: priorTurnsEarly,
+        composerRouteLocked: composerRouteLockedEarly,
+      })
+      if (thinkingMediaEarly.imageGenEmpty) {
+        setError(
+          'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
+        )
+        return
+      }
+      if (thinkingMediaEarly.wantsWord) {
+        wantsWord = true
+        wantsPdf = false
+        wantsExcel = false
+      } else if (thinkingMediaEarly.wantsPdf) {
+        wantsPdf = true
+        wantsWord = false
+        wantsExcel = false
+      } else if (thinkingMediaEarly.wantsExcel) {
+        wantsExcel = true
+        wantsWord = false
+        wantsPdf = false
+      }
+      if (thinkingMediaEarly.imageSearchQuery) {
+        imageSearchQuery = thinkingMediaEarly.imageSearchQuery
+        imageGenPrompt = null
+      }
+    }
+
+    let wantsThinkingTurn =
       usesGatewayAi() &&
       chatThinkingMode === 'thinking' &&
       !wantsExcel &&
       !wantsWord &&
       !wantsPdf &&
-      imageCmd?.kind !== 'prompt'
+      !imageGenPrompt &&
+      !imageSearchQuery
 
     if (wantsThinkingTurn && options?.isSuperadmin !== true && (thinkingCreditsRemaining ?? 0) < 1) {
       setError(
@@ -997,16 +1172,10 @@ export function useChat(
       )
       return
     }
-    if (imageCmd?.kind === 'empty') {
-      setError(
-        'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
-      )
-      return
-    }
-
     setThinkingClarifyDialog(null)
     setError(null)
     setLiveInstantAnalyzeDebug(null)
+    setLiveThinkingAnalyzeDebug(null)
     let threadId = activeThreadId
 
     if ((wantsWord || wantsPdf) && !usesGatewayAi()) {
@@ -1015,6 +1184,10 @@ export function useChat(
     }
 
     setIsSending(true)
+    sendAbortControllerRef.current?.abort()
+    const sendAbort = new AbortController()
+    sendAbortControllerRef.current = sendAbort
+    const signal = sendAbort.signal
 
     try {
       let activeThread = threadId ? threads.find((thread) => thread.id === threadId) : undefined
@@ -1080,16 +1253,15 @@ export function useChat(
       }
 
       const targetThreadId = threadId
+      sendCancelCleanupRef.current = { threadId: targetThreadId, streamAssistantId: null }
       const aclThread =
         threads.find((t) => t.id === targetThreadId) ??
         (activeThread?.id === targetThreadId ? activeThread : undefined)
       const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
 
       const hasAttachedVisionEarly =
-        messageHasVisionPayload(content) || Boolean(sendOpts?.visionInlineDataUrl)
+        messageHasVisionPayload(routingText) || Boolean(sendOpts?.visionInlineDataUrl)
 
-      let imageGenPrompt =
-        imageCmd && imageCmd.kind === 'prompt' ? stripImageGenTilePromptPrefix(imageCmd.prompt) : null
       const priorTurnsForContext: ImageSearchPriorTurn[] = (messagesByThreadId[targetThreadId] ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({
@@ -1100,22 +1272,25 @@ export function useChat(
             : {}),
         }))
 
-      let imageSearchQuery: string | null =
-        !imageGenPrompt &&
-        !wantsWord &&
-        !wantsPdf &&
-        (isImageSearchTurnMessage(trimmed) || matchImageTopicClarification(trimmed, priorTurnsForContext))
-          ? extractImageSearchQuery(trimmed, undefined, priorTurnsForContext) || null
-          : null
+      if (chatThinkingMode !== 'thinking') {
+        imageSearchQuery =
+          !imageGenPrompt &&
+          !wantsWord &&
+          !wantsPdf &&
+          (isImageSearchTurnMessage(routingText) ||
+            matchImageTopicClarification(routingText, priorTurnsForContext))
+            ? extractImageSearchQuery(routingText, undefined, priorTurnsForContext) || null
+            : null
+      }
       if (!imageGenPrompt && !wantsWord && !wantsPdf && hasAttachedVisionEarly) {
-        const attachedEdit = matchAttachedImageEditRequest(trimmed, true)
+        const attachedEdit = matchAttachedImageEditRequest(routingText, true)
         if (attachedEdit.kind === 'prompt') {
           imageGenPrompt = attachedEdit.prompt
         }
       }
       if (!imageGenPrompt && !wantsWord && !wantsPdf) {
         const prior = messagesByThreadId[targetThreadId] ?? []
-        const follow = matchFollowUpImageEditRequest(trimmed, prior)
+        const follow = matchFollowUpImageEditRequest(routingText, prior)
         if (follow.kind === 'prompt') {
           imageGenPrompt = follow.prompt
         }
@@ -1137,35 +1312,17 @@ export function useChat(
         content,
       )
 
-      if (
-        !visionInlineDataUrl &&
-        !imageGenPrompt &&
-        !imageSearchQuery &&
-        usesGatewayAi() &&
-        userId
-      ) {
-        const priorForVision = messagesByThreadId[targetThreadId] ?? []
-        if (matchImageReferenceQuestion(trimmed)) {
-          const refPath = resolveReferencedImageStoragePath(priorForVision)
-          if (refPath) {
-            const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
-            if (loaded) {
-              visionInlineDataUrl = loaded
-            }
-          }
-        }
-      }
+      const priorForVision = messagesByThreadId[targetThreadId] ?? []
 
-      const wantsSmartInstant =
+      const wantsInstantAnalyze =
         usesGatewayAi() &&
         chatThinkingMode !== 'thinking' &&
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
-        !imageGenPrompt &&
-        !imageSearchQuery &&
-        !messageHasVisionPayload(content) &&
-        !visionInlineDataUrl
+        Boolean(routingText) &&
+        !hasAttachedVisionEarly &&
+        !messageHasVisionPayload(routingText)
 
       if (userId && messageHasVisionPayload(userContent)) {
         try {
@@ -1206,7 +1363,7 @@ export function useChat(
         return { ...prev, [targetThreadId]: nextMessages }
       })
 
-      if (wantsSmartInstant && trimmed) {
+      if (wantsInstantAnalyze) {
         setSendPhase('analyzing')
       }
 
@@ -1219,11 +1376,12 @@ export function useChat(
         options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
 
       try {
-        if (wantsSmartInstant && trimmed) {
+        if (wantsInstantAnalyze) {
           const invokeResult = await instantAnalyzeUserMessage({
-            userMessage: trimmed,
+            userMessage: routingText,
             priorTurns,
             hasVisionAttachment: hasAttachedVisionEarly,
+            signal,
           })
           instantAnalyze = invokeResult.analyze
 
@@ -1231,8 +1389,8 @@ export function useChat(
             wantsWord ||
             wantsPdf ||
             wantsExcel ||
-            imageCmd?.kind === 'prompt'
-          const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, trimmed, {
+            isComposerImageGenRequest(routingText)
+          const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, routingText, {
             composerRouteLocked,
             priorTurns: priorTurnsForContext,
           })
@@ -1265,6 +1423,36 @@ export function useChat(
           } else if (routeOverrides.imageGenPrompt) {
             imageGenPrompt = routeOverrides.imageGenPrompt
             imageSearchQuery = null
+          }
+          if (
+            routeOverrides.loadReferencedImageVision &&
+            !hasAttachedVisionEarly &&
+            !visionInlineDataUrl &&
+            userId
+          ) {
+            const refPath = resolveReferencedImageStoragePath(priorForVision)
+            if (refPath) {
+              const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
+              if (loaded) {
+                visionInlineDataUrl = loaded
+              }
+            }
+          }
+          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel) {
+            const genFallback = resolveHeuristicImageGenFallback(routingText)
+            if (genFallback.imageGenEmpty) {
+              setMessagesByThreadId((prev) => ({
+                ...prev,
+                [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+              }))
+              setError(
+                'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
+              )
+              return
+            }
+            if (genFallback.imageGenPrompt) {
+              imageGenPrompt = genFallback.imageGenPrompt
+            }
           }
           if (wantsWord) {
             userMetadataBase.userWordCommand = true
@@ -1302,11 +1490,14 @@ export function useChat(
             } else {
               setSendPhase('web_search')
               try {
-                const ws = await fetchTavilySearchContext(instantAnalyze.web_query.trim())
+                const ws = await fetchTavilySearchContext(instantAnalyze.web_query.trim(), signal)
                 webSearchContext = ws.contextText
                 usedAutoWebSearch = true
                 void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
               } catch (wsErr) {
+                if (isAbortErrorLike(wsErr)) {
+                  throw wsErr
+                }
                 const message =
                   wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
                 setError(message)
@@ -1329,6 +1520,124 @@ export function useChat(
           [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
         }))
         throw analyzeErr
+      }
+
+      const wantsThinkingMediaAnalyze =
+        chatThinkingMode === 'thinking' &&
+        usesGatewayAi() &&
+        !wantsWord &&
+        !wantsPdf &&
+        !wantsExcel &&
+        !imageGenPrompt &&
+        !imageSearchQuery &&
+        Boolean(routingText)
+
+      if (wantsThinkingMediaAnalyze) {
+        setSendPhase('analyzing')
+        try {
+          const invokeResult = await instantAnalyzeUserMessage({
+            userMessage: routingText,
+            priorTurns,
+            hasVisionAttachment: hasAttachedVisionEarly,
+            signal,
+          })
+          const routeOverrides = resolveThinkingMediaRouteFromInstantAnalyze(
+            invokeResult.analyze,
+            routingText,
+            { priorTurns: priorTurnsForContext },
+          )
+          if (routeOverrides.imageGenEmpty) {
+            setMessagesByThreadId((prev) => ({
+              ...prev,
+              [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+            }))
+            setError(
+              'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
+            )
+            return
+          }
+          if (routeOverrides.wantsWord) {
+            wantsWord = true
+            wantsPdf = false
+            wantsExcel = false
+          } else if (routeOverrides.wantsPdf) {
+            wantsPdf = true
+            wantsWord = false
+            wantsExcel = false
+          } else if (routeOverrides.wantsExcel) {
+            wantsExcel = true
+            wantsWord = false
+            wantsPdf = false
+          }
+          if (routeOverrides.imageSearchQuery) {
+            imageSearchQuery = routeOverrides.imageSearchQuery
+            imageGenPrompt = null
+          } else if (routeOverrides.imageGenPrompt) {
+            imageGenPrompt = routeOverrides.imageGenPrompt
+            imageSearchQuery = null
+          }
+          if (
+            routeOverrides.loadReferencedImageVision &&
+            !hasAttachedVisionEarly &&
+            !visionInlineDataUrl &&
+            userId
+          ) {
+            const refPath = resolveReferencedImageStoragePath(priorForVision)
+            if (refPath) {
+              const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
+              if (loaded) {
+                visionInlineDataUrl = loaded
+              }
+            }
+          }
+          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel) {
+            const genFallback = resolveHeuristicImageGenFallback(routingText)
+            if (genFallback.imageGenEmpty) {
+              setMessagesByThreadId((prev) => ({
+                ...prev,
+                [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+              }))
+              setError(
+                'Bitte konkret beschreiben, was auf dem Bild sein soll (z. B. «Erstelle ein Bild: eine Katze im Wald»).',
+              )
+              return
+            }
+            if (genFallback.imageGenPrompt) {
+              imageGenPrompt = genFallback.imageGenPrompt
+            }
+          }
+          wantsThinkingTurn =
+            usesGatewayAi() &&
+            chatThinkingMode === 'thinking' &&
+            !wantsExcel &&
+            !wantsWord &&
+            !wantsPdf &&
+            !imageGenPrompt &&
+            !imageSearchQuery
+        } catch (thinkingRouteErr) {
+          setMessagesByThreadId((prev) => ({
+            ...prev,
+            [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+          }))
+          throw thinkingRouteErr
+        }
+      }
+
+      if (
+        !visionInlineDataUrl &&
+        !imageGenPrompt &&
+        !imageSearchQuery &&
+        usesGatewayAi() &&
+        userId &&
+        shouldResolveReferencedImageVision(routingText, priorForVision)
+      ) {
+        const refPath = resolveReferencedImageStoragePath(priorForVision)
+        if (refPath) {
+          const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
+          if (loaded) {
+            visionInlineDataUrl = loaded
+          }
+        }
       }
 
       if ((wantsWord || wantsPdf) && !usesGatewayAi()) {
@@ -1454,6 +1763,9 @@ export function useChat(
           }
           void options?.onProfileMemoryUpdated?.()?.catch(() => {})
         } catch (err) {
+          if (isAbortErrorLike(err)) {
+            throw err
+          }
           setError(err instanceof Error ? err.message : 'Fotosuche ist fehlgeschlagen.')
         }
         return
@@ -1553,6 +1865,9 @@ export function useChat(
             /* Profil-Refresh nicht auf Sende-Pfad blockieren */
           })
         } catch (err) {
+          if (isAbortErrorLike(err)) {
+            throw err
+          }
           const message =
             err instanceof Error ? err.message : 'Bildgenerierung ist fehlgeschlagen.'
           setError(message)
@@ -1566,6 +1881,7 @@ export function useChat(
 
       let thinkingIntake: ThinkingIntakeSession | null = null
       let thinkingAnalyzeResult: ThinkingAnalyzeResult | undefined
+      let thinkingAnalyzeDebug: ThinkingAnalyzeDebugMeta | undefined
       let thinkingConversationPhase: 'clarify' | 'final' | undefined
       let thinkingClarifyFocus:
         | {
@@ -1575,7 +1891,50 @@ export function useChat(
             roundsTotal: number
           }
         | undefined
-      let outboundSendPhase: ChatSendPhaseState = wantsThinkingTurn ? 'thinking' : 'generating'
+      let thinkingDraft: string | undefined
+      let thinkingReview: ThinkingReviewResult | undefined
+      let outboundSendPhase: ChatSendPhaseState = wantsThinkingTurn ? 'thinking_analyze' : 'generating'
+
+      if (
+        wantsThinkingTurn &&
+        routingText &&
+        !visionInlineDataUrl &&
+        !hasAttachedVisionEarly &&
+        userId &&
+        usesGatewayAi()
+      ) {
+        try {
+          const routeInvoke = await instantAnalyzeUserMessage({
+            userMessage: routingText,
+            priorTurns: nextMessages
+              .slice(0, -1)
+              .filter((m) => m.role === 'user' || m.role === 'assistant')
+              .map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+                ...(m.metadata?.unsplashSearch?.query
+                  ? { unsplashQuery: m.metadata.unsplashSearch.query }
+                  : {}),
+              })),
+            signal,
+          })
+          const routeOverrides = resolveInstantRouteOverrides(routeInvoke.analyze, routingText, {
+            composerRouteLocked: false,
+            priorTurns: priorTurnsForContext,
+          })
+          if (routeOverrides.loadReferencedImageVision) {
+            const refPath = resolveReferencedImageStoragePath(priorForVision)
+            if (refPath) {
+              const loaded = await loadChatMediaPathAsVisionDataUrl(refPath)
+              if (loaded) {
+                visionInlineDataUrl = loaded
+              }
+            }
+          }
+        } catch {
+          /* Thinking: Intent optional — Keyword-Fallback oben */
+        }
+      }
 
       if (wantsThinkingTurn && !wantsWord && !wantsPdf && !wantsExcel && trimmed) {
         const clarifyFollowUp = isThinkingClarifyFollowUp(nextMessages)
@@ -1594,11 +1953,18 @@ export function useChat(
                 role: m.role as 'user' | 'assistant',
                 content: m.content,
               }))
-            const { analyze } = await thinkingAnalyzeUserMessage({
+            const thinkInvoke = await thinkingAnalyzeUserMessage({
               userMessage: userAnswer,
               priorTurns,
+              isContinuationFollowUp: false,
+              hasVisionAttachment: hasAttachedVisionEarly,
+              signal,
             })
-            session = createThinkingIntakeSession(analyze)
+            if (persistInstantAnalyzeDebug) {
+              thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({ invoke: thinkInvoke })
+              setLiveThinkingAnalyzeDebug(thinkingAnalyzeDebug)
+            }
+            session = createThinkingIntakeSession(thinkInvoke.analyze)
           }
           if (session && userAnswer) {
             session = recordThinkingIntakeAnswer(
@@ -1630,20 +1996,39 @@ export function useChat(
               role: m.role as 'user' | 'assistant',
               content: m.content,
             }))
-          const { analyze } = await thinkingAnalyzeUserMessage({
+          const thinkInvoke = await thinkingAnalyzeUserMessage({
             userMessage: trimmed,
             priorTurns,
+            isContinuationFollowUp: isThinkingContinuationFollowUp(trimmed, nextMessages),
+            hasVisionAttachment: hasAttachedVisionEarly,
+            signal,
           })
-          session = createThinkingIntakeSession(analyze)
+          if (persistInstantAnalyzeDebug) {
+            thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({ invoke: thinkInvoke })
+            setLiveInstantAnalyzeDebug(null)
+            setLiveThinkingAnalyzeDebug(thinkingAnalyzeDebug)
+          }
+          session = createThinkingIntakeSession(thinkInvoke.analyze)
           thinkingIntakeByThreadRef.current[targetThreadId] = session
-          thinkingAnalyzeResult = analyze
+          thinkingAnalyzeResult = thinkInvoke.analyze
           thinkingIntake = session
+        }
+
+        if (thinkingAnalyzeDebug && storedUserMessage) {
+          setMessagesByThreadId((prev) => ({
+            ...prev,
+            [targetThreadId]: (prev[targetThreadId] ?? []).map((m) =>
+              m.id === storedUserMessage.id
+                ? { ...m, metadata: { ...m.metadata, thinkingAnalyzeDebug } }
+                : m,
+            ),
+          }))
         }
 
         thinkingConversationPhase = resolveThinkingConversationPhase(nextMessages, thinkingIntake)
         const focusDim = thinkingIntake ? getNextThinkingFocusDimension(thinkingIntake) : null
         const progress = thinkingIntake ? getThinkingClarifyProgress(thinkingIntake) : null
-        if (thinkingConversationPhase === 'clarify' && focusDim && progress) {
+        if (thinkingConversationPhase === 'clarify' && focusDim && progress && progress.roundsTotal > 0) {
           outboundSendPhase = 'thinking_clarify'
           setSendPhase(outboundSendPhase)
           thinkingClarifyFocus = {
@@ -1652,8 +2037,35 @@ export function useChat(
             round: progress.round,
             roundsTotal: progress.roundsTotal,
           }
-        } else if (thinkingConversationPhase === 'final') {
-          outboundSendPhase = 'thinking'
+        } else if (thinkingConversationPhase === 'final' && thinkingAnalyzeResult) {
+          const pipelinePriorTurns = nextMessages
+            .slice(0, -1)
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            }))
+          const intakeSummary = thinkingIntake ? buildThinkingIntakeSummary(thinkingIntake) : ''
+          setSendPhase('thinking_draft')
+          const { draft } = await thinkingDraftForTurn({
+            userMessage: trimmed,
+            analyze: thinkingAnalyzeResult,
+            intakeSummary,
+            priorTurns: pipelinePriorTurns,
+            signal,
+          })
+          setSendPhase('thinking_review')
+          const { review } = await thinkingReviewDraft({
+            userMessage: trimmed,
+            analyze: thinkingAnalyzeResult,
+            draft,
+            intakeSummary,
+            signal,
+          })
+          thinkingDraft = draft
+          thinkingReview = review
+          thinkingConversationPhase = 'final'
+          outboundSendPhase = 'generating'
           setSendPhase(outboundSendPhase)
         }
       }
@@ -1668,11 +2080,15 @@ export function useChat(
           role: 'assistant',
           content: '',
           createdAt: streamCreatedAt,
-          metadata: { liveStream: true },
+          metadata: {
+            liveStream: true,
+            thinkingStreamKind: thinkingConversationPhase === 'clarify' ? 'clarify' : 'final',
+          },
         }
         setMessagesByThreadId((prev) =>
           upsertThreadMessages(prev, targetThreadId, streamingPlaceholder),
         )
+        sendCancelCleanupRef.current = { threadId: targetThreadId, streamAssistantId: streamingMessageId }
 
         try {
           finalAssistantContent = await sendMessageStreaming(
@@ -1703,9 +2119,12 @@ export function useChat(
             thinkingIntake,
             thinkingConversationPhase,
             thinkingClarifyFocus,
+            thinkingDraft,
+            thinkingReview,
             visionInlineDataUrl,
             mainChatThreadId: targetThreadId,
             profileIdentity: options?.profileIdentity ?? null,
+            signal,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
                 ...prev,
@@ -1721,6 +2140,7 @@ export function useChat(
             [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== streamingMessageId),
           }))
           if (
+            !isAbortErrorLike(streamErr) &&
             wantsThinkingTurn &&
             streamErr instanceof Error &&
             streamErr.message.includes('Thinking-Guthaben')
@@ -1729,11 +2149,11 @@ export function useChat(
           }
           throw streamErr
         }
-        if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+        if (!signal.aborted && wantsThinkingTurn && options?.isSuperadmin !== true) {
           markThinkingCreditConsumedLocally()
         }
       } else {
-        setSendPhase(wantsThinkingTurn ? 'thinking' : 'generating')
+        setSendPhase(outboundSendPhase)
         const { assistantMessage } = await sendMessage(
           applyVisionInlineToChatMessagesForGateway(
             nextMessages,
@@ -1762,12 +2182,15 @@ export function useChat(
           thinkingIntake,
           thinkingConversationPhase,
           thinkingClarifyFocus,
+          thinkingDraft,
+          thinkingReview,
           visionInlineDataUrl,
           mainChatThreadId: targetThreadId,
           profileIdentity: options?.profileIdentity ?? null,
+          signal,
         })
         finalAssistantContent = assistantMessage.content
-        if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+        if (!signal.aborted && wantsThinkingTurn && options?.isSuperadmin !== true) {
           markThinkingCreditConsumedLocally()
         }
       }
@@ -1965,6 +2388,9 @@ export function useChat(
         })()
       }
     } catch (err) {
+      if (isAbortErrorLike(err)) {
+        return
+      }
       if (
         wantsThinkingTurn &&
         err instanceof Error &&
@@ -1974,11 +2400,15 @@ export function useChat(
       }
       setError(errorMessageFromUnknown(err))
     } finally {
-      if (wantsThinkingTurn && options?.isSuperadmin !== true) {
+      const aborted = sendAbortControllerRef.current?.signal.aborted ?? false
+      sendAbortControllerRef.current = null
+      sendCancelCleanupRef.current = null
+      if (!aborted && wantsThinkingTurn && options?.isSuperadmin !== true) {
         await options?.onThinkingCreditsConsumed?.()?.catch(() => {})
       }
       setSendPhase(null)
       setLiveInstantAnalyzeDebug(null)
+      setLiveThinkingAnalyzeDebug(null)
       setIsSending(false)
     }
   }
@@ -1993,9 +2423,14 @@ export function useChat(
       options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
         ? liveInstantAnalyzeDebug
         : null,
+    liveThinkingAnalyzeDebug:
+      options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
+        ? liveThinkingAnalyzeDebug
+        : null,
     isBootstrapping,
     error,
     submitMessage,
+    cancelSend,
     finalizeWordDocumentExport,
     wordFinalizeBusy,
     finalizePdfDocumentExport,
@@ -2003,6 +2438,7 @@ export function useChat(
     createNewChat,
     renameChat,
     deleteChat,
+    archiveChat,
     leaveSharedChatAsMember,
     selectChat,
     canSend,

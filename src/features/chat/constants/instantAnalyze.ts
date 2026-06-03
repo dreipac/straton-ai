@@ -19,6 +19,13 @@ import {
   matchImageTopicClarification,
   type ImageSearchPriorTurn,
 } from '../utils/imageSearchIntent'
+import { getSecretSafetyInstruction } from './chatSecretSafety'
+import {
+  assistantMessageHasGeneratedImage,
+  matchImageAttributionQuestion,
+  shouldResolveReferencedImageVision,
+  userMessageHasUploadedImage,
+} from '../utils/referencedImageVision'
 
 export type { InstantAnalyzeAction, InstantAnalyzeCategory } from './instantAnalyzeRoute'
 
@@ -68,6 +75,7 @@ function asStringArray(value: unknown, maxItems: number, maxLen: number): string
 
 export function buildInstantAnalyzeSystemPrompt(): string {
   return [
+    getSecretSafetyInstruction(),
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
     '',
@@ -90,6 +98,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
     '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only.',
     '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
+    '- Verlauf mit «[Straton hat zuvor ein Bild generiert]» oder Assistenten-Bild: Nutzer bezieht sich darauf («wer/was ist das auf dem Bild», «was siehst du», «dein Bild») → category "image", action "reference" (nicht generate).',
+    '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
     '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
     '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
@@ -437,7 +447,122 @@ export function applyInstantAnalyzeHeuristics(
     result,
     options?.priorTurns as ImageSearchPriorTurn[] | undefined,
   )
+  result = applyGeneratedImageReferenceHeuristic(
+    userMessage,
+    result,
+    options?.priorTurns,
+    options?.hasVisionAttachment === true,
+  )
+  result = applyGeneratedImageAttributionHeuristic(
+    userMessage,
+    result,
+    options?.priorTurns,
+    options?.hasVisionAttachment === true,
+  )
   return result
+}
+
+/** «Wer hat das Bild gemacht?» — Verlaufswissen, keine Vision nach externem Urheber. */
+export function applyGeneratedImageAttributionHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
+  hasNewVisionAttachment = false,
+): InstantAnalyzeResult {
+  if (!matchImageAttributionQuestion(userMessage) || hasNewVisionAttachment) {
+    return analyze
+  }
+  const prior = priorTurns ?? []
+  const hasGen = prior.some((m) => assistantMessageHasGeneratedImage(m))
+  const hasUpload = prior.some((m) => userMessageHasUploadedImage(m))
+  if (!hasGen && !hasUpload) {
+    return analyze
+  }
+
+  return syncReplyModeWithRoute({
+    ...analyze,
+    category: 'chat',
+    action: 'answer',
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    intent:
+      analyze.intent.trim() ||
+      (hasGen ? 'Herkunft des Straton-generierten Bilds' : 'Herkunft des hochgeladenen Bilds'),
+    reply_mode: 'short_answer',
+  })
+}
+
+/** Nach KI-Einordnung: Bezug auf generiertes/hochgeladenes Bild im Verlauf (mit Kontext). */
+export function applyGeneratedImageReferenceHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
+  hasNewVisionAttachment = false,
+): InstantAnalyzeResult {
+  const prior = priorTurns ?? []
+  if (
+    /\b(?:generier|erstell|zeichne|male|draw|create|generate)\b/i.test(userMessage) &&
+    /\b(?:bild|foto|image)\b/i.test(userMessage)
+  ) {
+    return analyze
+  }
+  const hasImageInThread = prior.some(
+    (m) =>
+      (m.role === 'assistant' && assistantMessageHasGeneratedImage(m)) ||
+      (m.role === 'user' &&
+        typeof m.content === 'string' &&
+        (m.content.includes('[BildData:') || m.content.includes('@chat-media:'))),
+  )
+  if (!hasImageInThread) {
+    return analyze
+  }
+
+  if (analyze.category === 'image' && analyze.action === 'reference') {
+    return syncReplyModeWithRoute({
+      ...analyze,
+      clarity: 'clear',
+      missing: [],
+      needs_live_web: false,
+      web_query: '',
+      intent: analyze.intent.trim() || 'Bezug auf Bild im Chatverlauf',
+    })
+  }
+
+  if (hasNewVisionAttachment) {
+    return analyze
+  }
+
+  if (matchImageAttributionQuestion(userMessage)) {
+    return analyze
+  }
+
+  if (analyze.category === 'image' && (analyze.action === 'generate' || analyze.action === 'search')) {
+    return analyze
+  }
+
+  const shouldReference =
+    shouldResolveReferencedImageVision(userMessage, prior) ||
+    (analyze.category === 'image' && analyze.action === 'describe') ||
+    (analyze.category === 'chat' &&
+      /\b(?:bild|foto)\b/i.test(userMessage) &&
+      prior.some((m) => m.role === 'assistant' && assistantMessageHasGeneratedImage(m)))
+
+  if (!shouldReference) {
+    return analyze
+  }
+
+  return syncReplyModeWithRoute({
+    ...analyze,
+    category: 'image',
+    action: 'reference',
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    intent: analyze.intent.trim() || 'Bezug auf Bild im Chatverlauf',
+  })
 }
 
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {
@@ -462,7 +587,11 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     lines.push('Kompakte **fertige** Antwort — direkt liefern, nicht nachfragen.')
   } else if (analyze.category === 'image' && analyze.action === 'search') {
     lines.push(
-      'Unsplash-Fotosuche — die App zeigt bis zu 2 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',
+      'Unsplash-Fotosuche — die App zeigt bis zu 4 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',
+    )
+  } else if (analyze.category === 'image' && analyze.action === 'reference') {
+    lines.push(
+      'Bezug auf ein Bild aus dem Chatverlauf — dir wird das Bild als Vision mitgeschickt: Inhalt beschreiben/auswerten; **nicht** behaupten, du könntest keine Bilder sehen.',
     )
   } else if (analyze.action === 'answer' || analyze.reply_mode === 'normal') {
     lines.push(
@@ -534,7 +663,11 @@ export function formatInstantAnalyzeContextLines(
         t.unsplashQuery?.trim() && t.role === 'assistant'
           ? ` [Thema Fotosuche: «${t.unsplashQuery.trim()}»]`
           : ''
-      return `${label}${topic}: ${clipped}`
+      const generated =
+        t.role === 'assistant' && assistantMessageHasGeneratedImage(t)
+          ? ' [Straton hat zuvor ein Bild generiert — Nutzer kann sich darauf beziehen]'
+          : ''
+      return `${label}${topic}${generated}: ${clipped}`
     })
     .join('\n')
 }

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AssistantSectionReference } from '../utils/assistantSectionReply'
+import {
+  sanitizeSectionRefExcerpt,
+  type AssistantSectionReference,
+} from '../utils/assistantSectionReply'
 
 const REPLY_QUOTE_DISMISS_MS = 300
 /** Muss zu `grid-template-rows` in chat.css passen (0.32s). */
@@ -104,9 +107,21 @@ export function ChatComposerReplyQuoteSlot({
   )
 }
 
+function displaySectionRef(reference: AssistantSectionReference): {
+  title: string
+  excerpt: string
+} {
+  const excerptRaw = sanitizeSectionRefExcerpt(reference.excerpt)
+  const title =
+    excerptRaw === 'Bild' || reference.previewTitle?.trim() === 'Bild'
+      ? 'Bild'
+      : reference.previewTitle?.trim() || 'Abschnitt'
+  const excerpt = !excerptRaw || excerptRaw === title ? '' : excerptRaw
+  return { title, excerpt }
+}
+
 export function ChatComposerReplyQuoteBar({ reference, onDismiss }: ChatComposerReplyQuoteBarProps) {
-  const title = reference.previewTitle?.trim() || 'Abschnitt'
-  const excerpt = reference.excerpt.trim()
+  const { title, excerpt } = displaySectionRef(reference)
 
   return (
     <div className="chat-composer-reply-quote" role="region" aria-label="Antwort auf Abschnitt">
@@ -132,8 +147,7 @@ export function ChatMessageReplyQuotePreview({
 }: {
   reference: AssistantSectionReference
 }) {
-  const title = reference.previewTitle?.trim() || 'Abschnitt'
-  const excerpt = reference.excerpt.trim()
+  const { title, excerpt } = displaySectionRef(reference)
 
   return (
     <div className="chat-message-reply-quote" aria-label="Bezug auf KI-Abschnitt">

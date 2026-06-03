@@ -29,6 +29,7 @@ type ChatPageMobileTopBarProps = {
   onGuestReplyModeChange: (mode: ChatReplyMode) => void
   onReplyModeChange: (mode: ChatReplyMode) => void
   onRenameThread: (thread: ChatThread) => void
+  onArchiveThread: (threadId: string) => void
   onDeleteThread: (threadId: string) => void
   onOpenLearningPathDraft: () => void
   onShareChipClick: () => void
@@ -57,6 +58,7 @@ export function ChatPageMobileTopBar({
   onGuestReplyModeChange,
   onReplyModeChange,
   onRenameThread,
+  onArchiveThread,
   onDeleteThread,
   onOpenLearningPathDraft,
   onShareChipClick,
@@ -92,6 +94,11 @@ export function ChatPageMobileTopBar({
               <ChatToolbarTitleMenuSelect
                 title={mobileToolbarChatTitle}
                 onSelectRename={() => onRenameThread(activeThread)}
+                onSelectArchive={async () => {
+                  if (activeThread.id) {
+                    await onArchiveThread(activeThread.id)
+                  }
+                }}
                 onSelectDelete={async () => {
                   if (activeThread.id) {
                     await onDeleteThread(activeThread.id)
