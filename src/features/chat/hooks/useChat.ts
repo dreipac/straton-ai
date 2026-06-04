@@ -76,6 +76,10 @@ import {
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import { stripSectionRefBlock } from '../utils/assistantSectionReply'
 import {
+  messageHasDocumentFileAttachment,
+  stripComposerAttachmentBlocksForRouting,
+} from '../utils/chatRoutingText'
+import {
   loadChatMediaPathAsVisionDataUrl,
   resolveReferencedImageStoragePath,
   shouldResolveReferencedImageVision,
@@ -1096,13 +1100,20 @@ export function useChat(
     let trimmed = stripExcelCommandMarker(content)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
-    /** Nutzer-Text ohne Abschnitts-Zitat — Zitat kann `@chat-media:` enthalten, ist kein Anhang. */
-    const routingText = stripSectionRefBlock(trimmed)
+    /** Routing ohne Anhang-Blöcke/Dateinamen — verhindert fälschliches pdf_generate. */
+    const routingText = stripComposerAttachmentBlocksForRouting(stripSectionRefBlock(trimmed))
+    const hasDocumentFileAttachment = messageHasDocumentFileAttachment(content)
 
     if (!canSend) {
       return
     }
-    if (!wantsWord && !wantsPdf && !routingText && !messageHasVisionPayload(routingText)) {
+    if (
+      !wantsWord &&
+      !wantsPdf &&
+      !routingText &&
+      !messageHasVisionPayload(routingText) &&
+      !hasDocumentFileAttachment
+    ) {
       return
     }
 
@@ -1129,6 +1140,7 @@ export function useChat(
         wantsWord || wantsPdf || wantsExcel || isComposerImageGenRequest(routingText)
       const thinkingMediaEarly = resolveThinkingMediaRouteFromHeuristics(routingText, {
         hasVisionAttachment: hasVisionEarly,
+        hasDocumentFileAttachment,
         priorTurns: priorTurnsEarly,
         composerRouteLocked: composerRouteLockedEarly,
       })
@@ -1381,6 +1393,7 @@ export function useChat(
             userMessage: routingText,
             priorTurns,
             hasVisionAttachment: hasAttachedVisionEarly,
+            hasDocumentFileAttachment,
             signal,
           })
           instantAnalyze = invokeResult.analyze
@@ -1393,6 +1406,7 @@ export function useChat(
           const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, routingText, {
             composerRouteLocked,
             priorTurns: priorTurnsForContext,
+            hasDocumentFileAttachment,
           })
           if (routeOverrides.imageGenEmpty) {
             setMessagesByThreadId((prev) => ({
@@ -1539,12 +1553,13 @@ export function useChat(
             userMessage: routingText,
             priorTurns,
             hasVisionAttachment: hasAttachedVisionEarly,
+            hasDocumentFileAttachment,
             signal,
           })
           const routeOverrides = resolveThinkingMediaRouteFromInstantAnalyze(
             invokeResult.analyze,
             routingText,
-            { priorTurns: priorTurnsForContext },
+            { priorTurns: priorTurnsForContext, hasDocumentFileAttachment },
           )
           if (routeOverrides.imageGenEmpty) {
             setMessagesByThreadId((prev) => ({
@@ -1921,6 +1936,7 @@ export function useChat(
           const routeOverrides = resolveInstantRouteOverrides(routeInvoke.analyze, routingText, {
             composerRouteLocked: false,
             priorTurns: priorTurnsForContext,
+            hasDocumentFileAttachment,
           })
           if (routeOverrides.loadReferencedImageVision) {
             const refPath = resolveReferencedImageStoragePath(priorForVision)

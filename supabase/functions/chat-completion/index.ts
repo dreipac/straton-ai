@@ -304,10 +304,7 @@ function stripBildDataBlocksFromContent(content: string): string {
     }
     cursor = closeIdx + closeTag.length
   }
-  return result
-    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '')
-    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '')
-    .trim()
+  return result.replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '').trim()
 }
 
 function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
@@ -348,12 +345,12 @@ function extractUserVisionFromContent(content: string): { text: string; imageDat
   return { text: stripBildDataBlocksFromContent(content), imageDataUrls: imageDataUrls.slice(0, 1) }
 }
 
+/** Entfernt nur Bild-Marker; `[Datei:…]`-Text bleibt für PDF/Word-Anhänge erhalten. */
 function stripVisionAttachmentsFromContent(content: string): string {
   return content
     .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild im Chatverlauf]')
     .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s_-]+/gi, '[Bild im Chatverlauf]')
     .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '[Bild im Chatverlauf]')
-    .replace(/\[Datei:[^\]]*\][\s\S]*?\[\/Datei\]/g, '[Datei-Anhang]')
     .trim()
 }
 
@@ -1417,7 +1414,7 @@ function openAiChatRequestBody(
         const stripped = stripVisionAttachmentsFromContent(message.content)
         return {
           role: message.role,
-          content: stripped || '[Bild im Chatverlauf]',
+          content: stripped || message.content,
         }
       }
       if (!visionIndices.has(idx)) {

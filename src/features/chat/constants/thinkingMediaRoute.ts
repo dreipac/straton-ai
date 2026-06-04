@@ -15,6 +15,7 @@ export function resolveThinkingMediaRouteFromHeuristics(
   userMessage: string,
   options: {
     hasVisionAttachment?: boolean
+    hasDocumentFileAttachment?: boolean
     priorTurns?: ReadonlyArray<ImageSearchPriorTurn>
     composerRouteLocked?: boolean
   },
@@ -37,6 +38,7 @@ export function resolveThinkingMediaRouteFromHeuristics(
     trimmed,
     options.hasVisionAttachment === true,
     options.priorTurns,
+    options.hasDocumentFileAttachment === true,
   )
   if (!detected) {
     return none
@@ -49,12 +51,14 @@ export function resolveThinkingMediaRouteFromHeuristics(
   })
   const analyze = applyRouteHeuristics(trimmed, base, {
     hasVisionAttachment: options.hasVisionAttachment,
+    hasDocumentFileAttachment: options.hasDocumentFileAttachment,
     priorTurns: options.priorTurns,
   })
 
   return resolveInstantRouteOverrides(analyze, trimmed, {
     composerRouteLocked: false,
     priorTurns: options.priorTurns,
+    hasDocumentFileAttachment: options.hasDocumentFileAttachment,
   })
 }
 
@@ -64,11 +68,13 @@ export function resolveThinkingMediaRouteFromInstantAnalyze(
   options: {
     composerRouteLocked?: boolean
     priorTurns?: ReadonlyArray<ImageSearchPriorTurn>
+    hasDocumentFileAttachment?: boolean
   },
 ): InstantRouteOverrides {
   return resolveInstantRouteOverrides(analyze, userMessage, {
     composerRouteLocked: options.composerRouteLocked === true,
     priorTurns: options.priorTurns,
+    hasDocumentFileAttachment: options.hasDocumentFileAttachment,
   })
 }
 

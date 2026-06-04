@@ -419,6 +419,7 @@ export function fallbackInstantAnalyzeResult(
   const prior = priorTurns as ImageSearchPriorTurn[] | undefined
   result = applyRouteHeuristics(trimmed, syncReplyModeWithRoute({ ...result, ...routeFromReplyMode(result.reply_mode) }), {
     hasVisionAttachment: false,
+    hasDocumentFileAttachment: false,
     priorTurns: prior,
   })
   result = applyImageSearchContextHeuristic(trimmed, result, prior)
@@ -431,6 +432,7 @@ export function applyInstantAnalyzeHeuristics(
   options?: {
     priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>
     hasVisionAttachment?: boolean
+    hasDocumentFileAttachment?: boolean
   },
 ): InstantAnalyzeResult {
   let result = applyLiveWebHeuristic(userMessage, analyze)
@@ -439,6 +441,7 @@ export function applyInstantAnalyzeHeuristics(
   result = applyConversationalFollowUpHeuristic(userMessage, options?.priorTurns, result)
   result = applyRouteHeuristics(userMessage, result, {
     hasVisionAttachment: options?.hasVisionAttachment === true,
+    hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
     priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
   })
   result = applyTaskSolveHeuristic(userMessage, result, options?.hasVisionAttachment === true)

@@ -1673,20 +1673,31 @@ export async function instantAnalyzeUserMessage(params: {
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string; unsplashQuery?: string }>
   /** Aktueller Turn: Foto/Data-URL — auch ohne Nutzertext (Tabellenübung im Bild). */
   hasVisionAttachment?: boolean
+  /** Aktueller Turn: `[Datei:…]`-Dokument (PDF/Word/…) — kein Export ohne explizite Bitte. */
+  hasDocumentFileAttachment?: boolean
   signal?: AbortSignal
 }): Promise<InstantAnalyzeInvokeResult> {
   throwIfAborted(params.signal)
   const trimmed = params.userMessage.trim()
   const hasVision = params.hasVisionAttachment === true
-  if (!trimmed && !hasVision) {
+  const hasDocFile = params.hasDocumentFileAttachment === true
+  const heuristicOpts = {
+    priorTurns: params.priorTurns,
+    hasVisionAttachment: hasVision,
+    hasDocumentFileAttachment: hasDocFile,
+  }
+  if (!trimmed && !hasVision && !hasDocFile) {
     return { analyze: fallbackInstantAnalyzeResult('', params.priorTurns), source: 'fallback' }
   }
   if (!usesGatewayAi()) {
     return {
       analyze: applyInstantAnalyzeHeuristics(
         trimmed,
-        fallbackInstantAnalyzeResult(trimmed || (hasVision ? 'Bildanhang' : ''), params.priorTurns),
-        { priorTurns: params.priorTurns, hasVisionAttachment: hasVision },
+        fallbackInstantAnalyzeResult(
+          trimmed || (hasVision ? 'Bildanhang' : hasDocFile ? 'Dokumentanhang' : ''),
+          params.priorTurns,
+        ),
+        heuristicOpts,
       ),
       source: 'fallback',
     }
@@ -1697,7 +1708,7 @@ export async function instantAnalyzeUserMessage(params: {
       analyze: applyInstantAnalyzeHeuristics(
         '',
         fallbackInstantAnalyzeResult('Bildanhang', params.priorTurns),
-        { priorTurns: params.priorTurns, hasVisionAttachment: true },
+        { ...heuristicOpts, hasVisionAttachment: true },
       ),
       source: 'fallback',
     }
@@ -1730,10 +1741,7 @@ export async function instantAnalyzeUserMessage(params: {
 
     const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
     if (parsed) {
-      const withHeuristics = applyInstantAnalyzeHeuristics(trimmed, parsed, {
-        priorTurns: params.priorTurns,
-        hasVisionAttachment: hasVision,
-      })
+      const withHeuristics = applyInstantAnalyzeHeuristics(trimmed, parsed, heuristicOpts)
       return {
         analyze: withHeuristics,
         source: 'edge',
@@ -1747,8 +1755,11 @@ export async function instantAnalyzeUserMessage(params: {
   return {
     analyze: applyInstantAnalyzeHeuristics(
       trimmed,
-      fallbackInstantAnalyzeResult(trimmed || (hasVision ? 'Bildanhang' : ''), params.priorTurns),
-      { priorTurns: params.priorTurns, hasVisionAttachment: hasVision },
+      fallbackInstantAnalyzeResult(
+        trimmed || (hasVision ? 'Bildanhang' : hasDocFile ? 'Dokumentanhang' : ''),
+        params.priorTurns,
+      ),
+      heuristicOpts,
     ),
     source: 'fallback',
   }

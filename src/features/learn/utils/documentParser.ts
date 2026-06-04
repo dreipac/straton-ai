@@ -1,11 +1,14 @@
 import mammoth from 'mammoth'
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import * as XLSX from 'xlsx'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const MAX_EXCERPT_LENGTH = 2500
+/** OCR-Fallback: max. Seiten (Performance im Browser). */
+const PDF_OCR_MAX_PAGES = 12
+const PDF_OCR_RENDER_SCALE = 2
 
 /** Ergebnis von `file.text()` auf einer PDF — kein lesbarer Dokumenttext. */
 function looksLikeRawPdfPayload(text: string): boolean {
@@ -53,9 +56,23 @@ function getExtension(filename: string): string {
   return filename.slice(dotIndex + 1).toLowerCase()
 }
 
-async function parsePdf(file: File): Promise<string> {
+function isPdfFile(file: File, ext: string): boolean {
+  return ext === 'pdf' || file.type === 'application/pdf'
+}
+
+function isDocxFile(file: File, ext: string): boolean {
+  return (
+    ext === 'docx' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  )
+}
+
+async function loadPdfFromFile(file: File): Promise<PDFDocumentProxy> {
   const buffer = await file.arrayBuffer()
-  const pdf = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise
+  return getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise
+}
+
+async function extractPdfTextLayer(pdf: PDFDocumentProxy): Promise<string> {
   const pages: string[] = []
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo)
@@ -65,17 +82,83 @@ async function parsePdf(file: File): Promise<string> {
       .filter((entry): entry is string => Boolean(entry))
     pages.push(chunks.join(' '))
   }
-  const joined = pages.join('\n').trim()
+  return pages.join('\n').trim()
+}
+
+async function ocrPdfPages(pdf: PDFDocumentProxy): Promise<string> {
+  if (typeof document === 'undefined') {
+    return ''
+  }
+
+  const { createWorker } = await import('tesseract.js')
+  const worker = await createWorker(['deu', 'eng'], 1, {})
+  const pageTexts: string[] = []
+  const maxPages = Math.min(pdf.numPages, PDF_OCR_MAX_PAGES)
+
+  try {
+    for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
+      const page = await pdf.getPage(pageNo)
+      const viewport = page.getViewport({ scale: PDF_OCR_RENDER_SCALE })
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')
+      if (!context) {
+        continue
+      }
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      await page.render({ canvasContext: context, viewport, canvas }).promise
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9)
+      })
+      if (!blob) {
+        continue
+      }
+
+      const {
+        data: { text },
+      } = await worker.recognize(blob)
+      const trimmed = typeof text === 'string' ? text.trim() : ''
+      if (trimmed) {
+        pageTexts.push(trimmed)
+      }
+    }
+  } finally {
+    await worker.terminate()
+  }
+
+  const joined = pageTexts.join('\n\n').trim()
   if (!joined || looksLikeRawPdfPayload(joined)) {
     return ''
   }
   return joined
 }
 
+async function parsePdf(file: File): Promise<string> {
+  const pdf = await loadPdfFromFile(file)
+  const textLayer = await extractPdfTextLayer(pdf)
+  if (textLayer && !looksLikeRawPdfPayload(textLayer)) {
+    return textLayer
+  }
+  return ocrPdfPages(pdf)
+}
+
 async function parseDocx(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
   const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-  return result.value ?? ''
+  const raw = (result.value ?? '').trim()
+  if (raw) {
+    return raw
+  }
+  /** Leerer Fliesstext: manche DOCX liefern nur über HTML-Extraktion Text. */
+  const htmlResult = await mammoth.convertToHtml({ arrayBuffer: buffer })
+  const plain = (htmlResult.value ?? '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain
 }
 
 async function parseSpreadsheet(file: File): Promise<string> {
@@ -128,10 +211,10 @@ async function parseImageWithOcr(file: File): Promise<string> {
 export async function extractLearningMaterialText(file: File): Promise<string> {
   const ext = getExtension(file.name)
   try {
-    if (ext === 'pdf') {
+    if (isPdfFile(file, ext)) {
       return normalizeExtractedText(await parsePdf(file))
     }
-    if (ext === 'docx') {
+    if (isDocxFile(file, ext)) {
       return normalizeExtractedText(await parseDocx(file))
     }
     if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
@@ -142,8 +225,23 @@ export async function extractLearningMaterialText(file: File): Promise<string> {
     }
     return normalizeExtractedText(await file.text())
   } catch {
-    if (isRasterImageFile(file, ext) || ext === 'pdf') {
+    if (isRasterImageFile(file, ext)) {
       return ''
+    }
+    if (isPdfFile(file, ext)) {
+      try {
+        const pdf = await loadPdfFromFile(file)
+        return normalizeExtractedText(await ocrPdfPages(pdf))
+      } catch {
+        return ''
+      }
+    }
+    if (isDocxFile(file, ext)) {
+      try {
+        return normalizeExtractedText(await parseDocx(file))
+      } catch {
+        return ''
+      }
     }
     const fallback = await file.text().catch(() => '')
     if (looksLikeRawPdfPayload(fallback)) {

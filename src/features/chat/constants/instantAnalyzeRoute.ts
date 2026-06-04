@@ -153,15 +153,39 @@ const IMAGE_DESCRIBE_RE =
 const IMAGE_DESCRIBE_WHO_WHAT_RE =
   /\b(wer|was|welche[rs]?)\s+(?:ist|sind|zeigt|steht).{0,40}\b(?:bild|foto)\b/i
 
+/** Frage zum Inhalt eines `[Datei:…]`-Anhangs — kein PDF/Word-Export. */
+const DOCUMENT_ATTACHMENT_READ_RE =
+  /\b(?:was\s+siehst|was\s+steht|was\s+ist|was\s+bedeutet|beschreib|erkläre|erklär|analysier|lies|lesen|fass(?:e)?\s+zusammen|zusammenfass(?:ung)?|inhalt|überblick|ueberblick|auswert|fragen?\s+zum|zum\s+(?:dokument|anhang|pdf))\b/i
+
+export function userRequestsDocumentExport(userMessage: string): boolean {
+  const t = userMessage.trim()
+  if (!t) {
+    return false
+  }
+  return (
+    PDF_EXPORT_TEXT_RE.test(t) ||
+    PDF_EXPORT_VERB_RE.test(t) ||
+    WORD_EXPORT_TEXT_RE.test(t) ||
+    WORD_EXPORT_VERB_RE.test(t) ||
+    EXCEL_EXPORT_TEXT_RE.test(t) ||
+    EXCEL_EXPORT_VERB_RE.test(t)
+  )
+}
+
 /** 0 Token — erkennt Dokument-/Bild-Jobs ohne Composer-Tile. */
 export function detectRouteHeuristic(
   userMessage: string,
   hasVisionAttachment: boolean,
   priorTurns?: ReadonlyArray<ImageSearchPriorTurn>,
+  hasDocumentFileAttachment = false,
 ): { category: InstantAnalyzeCategory; action: InstantAnalyzeAction } | null {
   const t = userMessage.trim()
-  if (!t) {
+  if (!t && !hasDocumentFileAttachment) {
     return null
+  }
+
+  if (hasDocumentFileAttachment && DOCUMENT_ATTACHMENT_READ_RE.test(t)) {
+    return { category: 'chat', action: 'answer' }
   }
 
   if (matchImageTopicClarification(t, priorTurns)) {
@@ -181,6 +205,10 @@ export function detectRouteHeuristic(
     return { category: 'image', action: 'describe' }
   }
 
+  if (hasDocumentFileAttachment && !userRequestsDocumentExport(t)) {
+    return { category: 'chat', action: 'answer' }
+  }
+
   if (WORD_EXPORT_TEXT_RE.test(t) || WORD_EXPORT_VERB_RE.test(t)) {
     return { category: 'document', action: 'word_generate' }
   }
@@ -197,13 +225,28 @@ export function detectRouteHeuristic(
 export function applyRouteHeuristics(
   userMessage: string,
   analyze: InstantAnalyzeResult,
-  options?: { hasVisionAttachment?: boolean; priorTurns?: ReadonlyArray<ImageSearchPriorTurn> },
+  options?: {
+    hasVisionAttachment?: boolean
+    hasDocumentFileAttachment?: boolean
+    priorTurns?: ReadonlyArray<ImageSearchPriorTurn>
+  },
 ): InstantAnalyzeResult {
   const hasVision = options?.hasVisionAttachment === true
+  const hasDocFile = options?.hasDocumentFileAttachment === true
   let category = analyze.category
   let action = analyze.action
 
-  const detected = detectRouteHeuristic(userMessage, hasVision, options?.priorTurns)
+  if (hasDocFile && category === 'document' && !userRequestsDocumentExport(userMessage)) {
+    category = 'chat'
+    action = 'answer'
+  }
+
+  const detected = detectRouteHeuristic(
+    userMessage,
+    hasVision,
+    options?.priorTurns,
+    hasDocFile,
+  )
   if (detected) {
     const documentFromAi = category === 'document'
     const imageGenerateFromAi = category === 'image' && action === 'generate'
@@ -255,7 +298,11 @@ export type InstantRouteOverrides = {
 export function resolveInstantRouteOverrides(
   analyze: InstantAnalyzeResult,
   userMessage: string,
-  options: { composerRouteLocked: boolean; priorTurns?: ReadonlyArray<ImageSearchPriorTurn> },
+  options: {
+    composerRouteLocked: boolean
+    priorTurns?: ReadonlyArray<ImageSearchPriorTurn>
+    hasDocumentFileAttachment?: boolean
+  },
 ): InstantRouteOverrides {
   const none: InstantRouteOverrides = {
     wantsWord: false,
@@ -271,6 +318,14 @@ export function resolveInstantRouteOverrides(
   }
 
   const { category, action } = analyze
+
+  if (
+    options.hasDocumentFileAttachment &&
+    category === 'document' &&
+    !userRequestsDocumentExport(userMessage)
+  ) {
+    return none
+  }
 
   if (category === 'document') {
     return {
@@ -350,6 +405,7 @@ export function buildInstantAnalyzeRoutePromptSection(): string {
     '- image.reference: App lädt das Verlaufsbild für Vision; du beschreibst den **sichtbaren** Inhalt — nie «ich kann keine Bilder sehen».',
     '- «Word/Docx erstellen/exportieren» → document.word_generate.',
     '- «PDF erstellen/exportieren» → document.pdf_generate.',
+    '- `[Datei:…]`-Anhang + Frage zum Inhalt («was siehst du», «fasse zusammen», «was steht drin») → chat.answer — **nicht** pdf_generate (Dateiname allein zählt nicht).',
     '- «Excel/XLSX/Tabelle exportieren» → document.excel_generate.',
     '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild-Aufgabe → chat.answer (direkt lösen, nicht clarify).',
     '- Unklar: chat.answer mit Annahme — chat.clarify nur wenn wirklich nicht lösbar.',
