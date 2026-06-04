@@ -1313,6 +1313,26 @@
   line-height: 1.55;
 }
 
+.excel-spec-preview__meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.excel-spec-preview__file {
+  font-weight: 600;
+  color: #334155;
+}
+
+.excel-spec-preview__truncated {
+  margin: 0.65rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
 /* Titel oberhalb der Karte (Chat-Hintergrund), nicht im weissen Papier */
 .word-outline-banner-title {
   margin: 0.2rem 0 0.5rem;
@@ -3336,6 +3356,52 @@
   color: #f87171;
 }
 
+.chat-compose-mode-badge--chart {
+  background: rgba(124, 58, 237, 0.38);
+  color: #4c1d95;
+}
+
+.chat-compose-mode-badge--chart:hover:enabled {
+  background: rgba(124, 58, 237, 0.48);
+}
+
+:root[data-theme='dark'] .chat-compose-mode-badge--chart {
+  background: rgba(76, 29, 149, 0.52);
+  color: #e9d5ff;
+}
+
+.chart-spec-preview {
+  margin-top: 0.65rem;
+  padding: 0.85rem 1rem 1rem;
+  border-radius: 12px;
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.92));
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
+  max-width: 100%;
+}
+
+.chart-spec-preview canvas {
+  max-height: 320px;
+}
+
+.chart-spec-preview--building {
+  min-height: 4.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-quick-tile--chart .chat-quick-tile-icon-wrap {
+  background: rgba(124, 58, 237, 0.14);
+}
+
+.chat-quick-tile--chart .chat-quick-tile-letter-mark {
+  color: #7c3aed;
+}
+
+.chat-quick-tile--chart.is-active .chat-quick-tile-icon-wrap {
+  background: rgba(124, 58, 237, 0.22);
+}
+
 .chat-compose-mode-badge--websearch {
   background: rgba(29, 78, 216, 0.38);
   color: #1e3a8a;
@@ -4196,6 +4262,7 @@
 }
 
 .chat-quick-tiles-row--bottom {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   transition: grid-template-columns 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 

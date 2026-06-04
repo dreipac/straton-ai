@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { UserProfile } from '../../auth/services/auth.service'
 import { getAppFeatureFlags } from '../../auth/services/appFeatureFlags.service'
+import {
+  clearGeminiInstantEnabledCache,
+  setGeminiInstantEnabledFromSupabase,
+} from '../services/geminiInstantFlag'
 
 type UseChatPageFeatureFlagsArgs = {
   user: { id: string } | null
@@ -17,6 +21,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
 
   useEffect(() => {
     if (!user) {
+      clearGeminiInstantEnabledCache()
       setShowBetaNoticeOnFirstLogin(true)
       return
     }
@@ -33,6 +38,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
         setLearnPathCreateEnabled(flags.learn_path_create_enabled)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersFeatureEnabled(flags.chat_folders_enabled)
+        setGeminiInstantEnabledFromSupabase(flags.gemini_instant_enabled)
       } catch {
         if (!isMounted) {
           return
@@ -41,6 +47,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
         setLearnPathsEnabled(true)
         setLearnPathCreateEnabled(true)
         setChatFoldersFeatureEnabled(true)
+        setGeminiInstantEnabledFromSupabase(false)
       }
     })()
 

@@ -5,11 +5,7 @@ import {
   CHAT_THREADS_REFRESH_EVENT,
   type ChatThreadsRefreshDetail,
 } from '../constants/events'
-import {
-  hasExcelSpecMarkers,
-  normalizeExcelSpecForExport,
-  parseExcelSpecFromContent,
-} from '../excel/excelSpec'
+import { stripChartCommandMarker, userWantsChartExport } from '../constants/chartExportPrompt'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
 import { stripPdfCommandMarker, userWantsPdfExport } from '../constants/pdfExportPrompt'
@@ -35,10 +31,10 @@ import {
   generateChatImageFromPrompt,
   generateChatTitleWithAi,
   generateExcelFromSpec,
-  generateExcelSpecWithSonnet,
   generateWordFromOutline,
   generatePdfFromOutline,
   mergePersistedAiChatMemoryAfterTurn,
+  extractChatDocumentsOnServer,
   instantAnalyzeUserMessage,
   sendMessage,
   sendMessageStreaming,
@@ -75,9 +71,17 @@ import {
 } from '../utils/imageSearchIntent'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import { stripSectionRefBlock } from '../utils/assistantSectionReply'
+import type { ChatSendMessageOptions } from '../types/chatSendOptions'
+import { uploadChatDocumentAttachment } from '../services/chat.documentStorage'
+import {
+  clearGeminiInstantEnabledCache,
+  setGeminiInstantEnabledFromSupabase,
+} from '../services/geminiInstantFlag'
+import { getAppFeatureFlags } from '../../auth/services/appFeatureFlags.service'
 import {
   messageHasDocumentFileAttachment,
   stripComposerAttachmentBlocksForRouting,
+  stripEmptyDateiPlaceholders,
 } from '../utils/chatRoutingText'
 import {
   loadChatMediaPathAsVisionDataUrl,
@@ -91,6 +95,7 @@ import {
 } from '../utils/imageGenerationIntent'
 import { isComposerImageGenRequest } from '../constants/imageGenTile'
 import {
+  detectRouteHeuristic,
   resolveHeuristicImageGenFallback,
   resolveInstantRouteOverrides,
 } from '../constants/instantAnalyzeRoute'
@@ -113,6 +118,13 @@ import {
   type ChatMessageRow,
 } from '../services/chat.persistence'
 import { canFinalizeWordExportFromThread, extractWordOutlineFromThread } from '../utils/wordOutline'
+import {
+  canFinalizeExcelExportFromThread,
+  hasExcelSpecMarkers,
+  normalizeExcelSpecForExport,
+  parseExcelSpecFromContent,
+} from '../excel/excelSpec'
+import { parseChartSpecFromContent } from '../chart/chartSpec'
 import {
   canFinalizePdfExportFromThread,
   extractPdfOutlineFromThread,
@@ -364,6 +376,7 @@ export function useChat(
     useState<ThinkingAnalyzeDebugMeta | null>(null)
   const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
   const [pdfFinalizeBusy, setPdfFinalizeBusy] = useState(false)
+  const [excelFinalizeBusy, setExcelFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [composerModelId, setComposerModelId] = useState<ChatComposerModelId>(() =>
@@ -558,10 +571,33 @@ export function useChat(
 
   useEffect(() => {
     if (!userId) {
+      clearGeminiInstantEnabledCache()
       setThreads([])
       setMessagesByThreadId({})
       setActiveThreadId(null)
       setIsBootstrapping(false)
+      return
+    }
+
+    let flagsMounted = true
+    void getAppFeatureFlags()
+      .then((flags) => {
+        if (flagsMounted) {
+          setGeminiInstantEnabledFromSupabase(flags.gemini_instant_enabled)
+        }
+      })
+      .catch(() => {
+        if (flagsMounted) {
+          setGeminiInstantEnabledFromSupabase(false)
+        }
+      })
+    return () => {
+      flagsMounted = false
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) {
       return
     }
 
@@ -1018,6 +1054,65 @@ export function useChat(
     }
   }
 
+  async function finalizeExcelDocumentExport() {
+    if (!activeThreadId) {
+      return
+    }
+    if (!usesGatewayAi()) {
+      setError('Excel-Export ist im Demo-Modus nicht verfügbar.')
+      return
+    }
+    const list = messagesByThreadId[activeThreadId] ?? []
+    if (!canFinalizeExcelExportFromThread(list)) {
+      setError(
+        'Es gibt noch keine exportierbare Excel-Vorgabe. Bitte mit /Excel eine Vorschau mit JSON erzeugen.',
+      )
+      return
+    }
+    const last = list[list.length - 1]
+    if (!last || last.role !== 'assistant') {
+      return
+    }
+    const parsed = parseExcelSpecFromContent(last.content)
+    if (!parsed.spec) {
+      return
+    }
+    const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.excelExport)
+    if (!targetAssistant) {
+      return
+    }
+    setExcelFinalizeBusy(true)
+    setError(null)
+    try {
+      const excelResult = await generateExcelFromSpec({
+        messageId: targetAssistant.id,
+        threadId: activeThreadId,
+        spec: normalizeExcelSpecForExport(parsed.spec),
+      })
+      const meta = { ...(targetAssistant.metadata ?? {}) }
+      delete meta.liveStream
+      const updated: ChatMessage = {
+        ...targetAssistant,
+        content: excelResult.displayContent,
+        metadata: {
+          ...meta,
+          excelExport: excelResult.excelExport,
+        },
+      }
+      setMessagesByThreadId((prev) => ({
+        ...prev,
+        [activeThreadId]: (prev[activeThreadId] ?? []).map((m) =>
+          m.id === targetAssistant.id ? updated : m,
+        ),
+      }))
+      void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Excel-Export ist fehlgeschlagen.')
+    } finally {
+      setExcelFinalizeBusy(false)
+    }
+  }
+
   async function finalizePdfDocumentExport() {
     if (!activeThreadId) {
       return
@@ -1086,23 +1181,22 @@ export function useChat(
     setError(null)
   }
 
-  async function submitMessage(
-    content: string,
-    sendOpts?: {
-      quizFormat?: 'markdown_mcq' | 'interactive'
-      /** JPEG-Data-URL aus Composer-Vorschau — zuverlässiger als erneutes Parsen aus `content`. */
-      visionInlineDataUrl?: string
-    },
-  ) {
+  async function submitMessage(content: string, sendOpts?: ChatSendMessageOptions) {
     let wantsWord = userWantsWordExport(content)
     let wantsPdf = !wantsWord && userWantsPdfExport(content)
     let wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
-    let trimmed = stripExcelCommandMarker(content)
+    let wantsChart = !wantsWord && !wantsPdf && !wantsExcel && userWantsChartExport(content)
+    let trimmed = stripChartCommandMarker(content)
+    trimmed = stripExcelCommandMarker(trimmed)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
     /** Routing ohne Anhang-Blöcke/Dateinamen — verhindert fälschliches pdf_generate. */
     const routingText = stripComposerAttachmentBlocksForRouting(stripSectionRefBlock(trimmed))
-    const hasDocumentFileAttachment = messageHasDocumentFileAttachment(content)
+    const hasPendingServerDocuments =
+      (sendOpts?.documentAttachments?.length ?? 0) > 0 ||
+      (sendOpts?.pendingDocumentFiles?.length ?? 0) > 0
+    const hasDocumentFileAttachment =
+      hasPendingServerDocuments || messageHasDocumentFileAttachment(content)
 
     if (!canSend) {
       return
@@ -1132,12 +1226,24 @@ export function useChat(
           : {}),
       }))
 
+    if (!wantsChart && routingText) {
+      const chartRoute = detectRouteHeuristic(
+        routingText,
+        hasVisionEarly,
+        priorTurnsEarly,
+        hasDocumentFileAttachment,
+      )
+      if (chartRoute?.category === 'chart') {
+        wantsChart = true
+      }
+    }
+
     let imageGenPrompt: string | null = null
     let imageSearchQuery: string | null = null
 
     if (chatThinkingMode === 'thinking') {
       const composerRouteLockedEarly =
-        wantsWord || wantsPdf || wantsExcel || isComposerImageGenRequest(routingText)
+        wantsWord || wantsPdf || wantsExcel || wantsChart || isComposerImageGenRequest(routingText)
       const thinkingMediaEarly = resolveThinkingMediaRouteFromHeuristics(routingText, {
         hasVisionAttachment: hasVisionEarly,
         hasDocumentFileAttachment,
@@ -1154,14 +1260,22 @@ export function useChat(
         wantsWord = true
         wantsPdf = false
         wantsExcel = false
+        wantsChart = false
       } else if (thinkingMediaEarly.wantsPdf) {
         wantsPdf = true
         wantsWord = false
         wantsExcel = false
+        wantsChart = false
       } else if (thinkingMediaEarly.wantsExcel) {
         wantsExcel = true
         wantsWord = false
         wantsPdf = false
+        wantsChart = false
+      } else if (thinkingMediaEarly.wantsChart) {
+        wantsChart = true
+        wantsWord = false
+        wantsPdf = false
+        wantsExcel = false
       }
       if (thinkingMediaEarly.imageSearchQuery) {
         imageSearchQuery = thinkingMediaEarly.imageSearchQuery
@@ -1173,6 +1287,7 @@ export function useChat(
       usesGatewayAi() &&
       chatThinkingMode === 'thinking' &&
       !wantsExcel &&
+      !wantsChart &&
       !wantsWord &&
       !wantsPdf &&
       !imageGenPrompt &&
@@ -1311,10 +1426,69 @@ export function useChat(
       let userContent =
         trimmed ||
         (wantsWord ? 'Word-Dokument vorbereiten' : wantsPdf ? 'PDF-Dokument vorbereiten' : trimmed)
+
+      let documentAttachments = [...(sendOpts?.documentAttachments ?? [])]
+      const pendingDocFiles = sendOpts?.pendingDocumentFiles ?? []
+      if (pendingDocFiles.length > 0) {
+        if (!userId) {
+          setError('Kein Nutzer aktiv. Bitte neu anmelden.')
+          return
+        }
+        for (const pending of pendingDocFiles) {
+          try {
+            const uploaded = await uploadChatDocumentAttachment(
+              userId,
+              targetThreadId,
+              pending.file,
+              pending.id,
+            )
+            documentAttachments.push({
+              id: pending.id,
+              name: pending.name,
+              bucket: uploaded.bucket,
+              path: uploaded.path,
+              mimeType: uploaded.mimeType,
+            })
+          } catch (uploadErr) {
+            setError(
+              uploadErr instanceof Error
+                ? uploadErr.message
+                : 'Dokument konnte nicht hochgeladen werden.',
+            )
+            return
+          }
+        }
+      }
+
+      if (documentAttachments.length > 0) {
+        setSendPhase('document_processing')
+        try {
+          const { fileBlocks } = await extractChatDocumentsOnServer({
+            attachments: documentAttachments,
+            signal,
+          })
+          userContent = stripEmptyDateiPlaceholders(userContent)
+          userContent = [userContent, fileBlocks].filter(Boolean).join('\n\n')
+          if (!userContent.trim()) {
+            userContent = 'Bitte werte das angehängte Dokument aus.'
+          }
+        } catch (extractErr) {
+          if (!isAbortErrorLike(extractErr)) {
+            setError(
+              extractErr instanceof Error
+                ? extractErr.message
+                : 'Dokument konnte nicht analysiert werden.',
+            )
+          }
+          return
+        }
+      }
+
       const userMetadataBase: NonNullable<ChatMessage['metadata']> = {
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
+        ...(wantsChart ? { userChartCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
 
@@ -1332,7 +1506,8 @@ export function useChat(
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
-        Boolean(routingText) &&
+        !wantsChart &&
+        (Boolean(routingText) || hasDocumentFileAttachment) &&
         !hasAttachedVisionEarly &&
         !messageHasVisionPayload(routingText)
 
@@ -1402,6 +1577,7 @@ export function useChat(
             wantsWord ||
             wantsPdf ||
             wantsExcel ||
+            wantsChart ||
             isComposerImageGenRequest(routingText)
           const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, routingText, {
             composerRouteLocked,
@@ -1422,14 +1598,22 @@ export function useChat(
             wantsWord = true
             wantsPdf = false
             wantsExcel = false
+            wantsChart = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
+            wantsChart = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
+            wantsChart = false
+          } else if (routeOverrides.wantsChart) {
+            wantsChart = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
           }
           if (routeOverrides.imageSearchQuery) {
             imageSearchQuery = routeOverrides.imageSearchQuery
@@ -1452,7 +1636,7 @@ export function useChat(
               }
             }
           }
-          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel) {
+          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart) {
             const genFallback = resolveHeuristicImageGenFallback(routingText)
             if (genFallback.imageGenEmpty) {
               setMessagesByThreadId((prev) => ({
@@ -1486,6 +1670,15 @@ export function useChat(
             userMetadataBase.userExcelCommand = true
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userChartCommand
+          } else if (wantsChart) {
+            userMetadataBase.userChartCommand = true
+            delete userMetadataBase.userWordCommand
+            delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userExcelCommand
+            if (!trimmed) {
+              userContent = 'Diagramm erstellen'
+            }
           }
 
           const shouldAutoWeb =
@@ -1536,12 +1729,31 @@ export function useChat(
         throw analyzeErr
       }
 
+      if (Object.keys(userMetadataBase).length > 0 || userContent !== optimisticUserMessage.content) {
+        setMessagesByThreadId((prev) => {
+          const list = prev[targetThreadId] ?? []
+          const idx = list.findIndex((m) => m.id === optimisticUserId)
+          if (idx === -1) {
+            return prev
+          }
+          const next = [...list]
+          next[idx] = {
+            ...next[idx],
+            content: userContent,
+            metadata:
+              Object.keys(userMetadataBase).length > 0 ? { ...userMetadataBase } : next[idx].metadata,
+          }
+          return { ...prev, [targetThreadId]: next }
+        })
+      }
+
       const wantsThinkingMediaAnalyze =
         chatThinkingMode === 'thinking' &&
         usesGatewayAi() &&
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
+        !wantsChart &&
         !imageGenPrompt &&
         !imageSearchQuery &&
         Boolean(routingText)
@@ -1575,14 +1787,22 @@ export function useChat(
             wantsWord = true
             wantsPdf = false
             wantsExcel = false
+            wantsChart = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
+            wantsChart = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
+            wantsChart = false
+          } else if (routeOverrides.wantsChart) {
+            wantsChart = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
           }
           if (routeOverrides.imageSearchQuery) {
             imageSearchQuery = routeOverrides.imageSearchQuery
@@ -1605,7 +1825,7 @@ export function useChat(
               }
             }
           }
-          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel) {
+          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart) {
             const genFallback = resolveHeuristicImageGenFallback(routingText)
             if (genFallback.imageGenEmpty) {
               setMessagesByThreadId((prev) => ({
@@ -1625,6 +1845,7 @@ export function useChat(
             usesGatewayAi() &&
             chatThinkingMode === 'thinking' &&
             !wantsExcel &&
+            !wantsChart &&
             !wantsWord &&
             !wantsPdf &&
             !imageGenPrompt &&
@@ -1892,7 +2113,6 @@ export function useChat(
 
       let streamAssistantId: string | null = null
       let finalAssistantContent: string
-      let excelSpecModelLabel: 'Claude Sonnet' | 'OpenAI (Fallback)' | null = null
 
       let thinkingIntake: ThinkingIntakeSession | null = null
       let thinkingAnalyzeResult: ThinkingAnalyzeResult | undefined
@@ -1952,7 +2172,7 @@ export function useChat(
         }
       }
 
-      if (wantsThinkingTurn && !wantsWord && !wantsPdf && !wantsExcel && trimmed) {
+      if (wantsThinkingTurn && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart && trimmed) {
         const clarifyFollowUp = isThinkingClarifyFollowUp(nextMessages)
         let session = thinkingIntakeByThreadRef.current[targetThreadId] ?? null
 
@@ -2118,6 +2338,7 @@ export function useChat(
             userRequestedExcel: wantsExcel,
             userRequestedWord: wantsWord,
             userRequestedPdf: wantsPdf,
+            userRequestedChart: wantsChart,
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
@@ -2181,6 +2402,7 @@ export function useChat(
           userRequestedExcel: wantsExcel,
           userRequestedWord: wantsWord,
           userRequestedPdf: wantsPdf,
+          userRequestedChart: wantsChart,
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
@@ -2210,21 +2432,6 @@ export function useChat(
           markThinkingCreditConsumedLocally()
         }
       }
-      if (usesGatewayAi() && wantsExcel) {
-        setSendPhase('excel')
-        try {
-          const specResult = await generateExcelSpecWithSonnet(trimmed)
-          excelSpecModelLabel = specResult.modelLabel
-          finalAssistantContent = `${finalAssistantContent.trim()}\n\n${specResult.specBlock.trim()}`
-        } catch (specErr) {
-          setError(
-            specErr instanceof Error
-              ? specErr.message
-              : 'Excel-Spezifikation (Claude) ist fehlgeschlagen.',
-          )
-        }
-      }
-
       const storedAssistantMessage = await createChatMessage(
         targetThreadId,
         'assistant',
@@ -2232,39 +2439,21 @@ export function useChat(
         usedAutoWebSearch ? { assistantAutoWebSearch: true as const } : undefined,
       )
 
-      let mergedAssistantMessage = storedAssistantMessage
-      const excelSpecParsed = parseExcelSpecFromContent(finalAssistantContent)
-      const excelSpecUnreadable =
+      const mergedAssistantMessage = storedAssistantMessage
+      if (
         usesGatewayAi() &&
         wantsExcel &&
         hasExcelSpecMarkers(finalAssistantContent) &&
-        !excelSpecParsed.spec
-
-      if (excelSpecUnreadable) {
+        !parseExcelSpecFromContent(finalAssistantContent).spec
+      ) {
         setError(
-          'Die Excel-Vorgabe in der Antwort konnte nicht gelesen werden (Schema/JSON). Bitte erneut versuchen oder eine kuerzere Tabelle anfragen.',
+          'Die Excel-Vorgabe in der Antwort konnte nicht gelesen werden (Schema/JSON). Bitte erneut versuchen oder eine kürzere Tabelle anfragen.',
         )
       }
-
-      if (excelSpecParsed.spec && usesGatewayAi()) {
-        try {
-          const excelResult = await generateExcelFromSpec({
-            messageId: storedAssistantMessage.id,
-            threadId: targetThreadId,
-            spec: normalizeExcelSpecForExport(excelSpecParsed.spec),
-          })
-          mergedAssistantMessage = {
-            ...storedAssistantMessage,
-            content: excelSpecModelLabel
-              ? `${excelResult.displayContent}\n\n_Modell für Excel-Spezifikation: ${excelSpecModelLabel}_`
-              : excelResult.displayContent,
-            metadata: { excelExport: excelResult.excelExport },
-          }
-        } catch (excelErr) {
-          setError(
-            excelErr instanceof Error ? excelErr.message : 'Excel-Datei konnte nicht erzeugt werden.',
-          )
-        }
+      if (usesGatewayAi() && wantsChart && !parseChartSpecFromContent(finalAssistantContent).spec) {
+        setError(
+          'Das Diagramm konnte nicht dargestellt werden — die KI hat kein gültiges Chart-JSON geliefert. Bitte erneut versuchen.',
+        )
       }
 
       setMessagesByThreadId((prev) => {
@@ -2287,7 +2476,14 @@ export function useChat(
         return upsertThreadMessages(prev, targetThreadId, mergedAssistantMessage)
       })
 
-      if (usesGatewayAi() && chatThinkingMode === 'thinking' && !wantsExcel && !wantsWord && !wantsPdf) {
+      if (
+        usesGatewayAi() &&
+        chatThinkingMode === 'thinking' &&
+        !wantsExcel &&
+        !wantsChart &&
+        !wantsWord &&
+        !wantsPdf
+      ) {
         const rawAssistant = mergedAssistantMessage.content
         if (!hasExcelSpecMarkers(rawAssistant)) {
           const clarify = parseThinkingClarifyContent(rawAssistant)
@@ -2451,6 +2647,8 @@ export function useChat(
     wordFinalizeBusy,
     finalizePdfDocumentExport,
     pdfFinalizeBusy,
+    finalizeExcelDocumentExport,
+    excelFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,

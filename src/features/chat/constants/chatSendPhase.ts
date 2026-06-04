@@ -1,5 +1,6 @@
 /** Fortschritt während `submitMessage` — für Status neben dem Loader. */
 export type ChatSendPhase =
+  | 'document_processing'
   | 'analyzing'
   | 'web_search'
   | 'generating'
@@ -13,11 +14,14 @@ export type ChatSendPhase =
   | 'excel'
   | 'word'
   | 'pdf'
+  | 'chart'
 
 export type ChatSendPhaseState = ChatSendPhase | null
 
 export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): string | undefined {
   switch (phase) {
+    case 'document_processing':
+      return 'Dokument wird analysiert'
     case 'analyzing':
       return 'Wird eingeordnet …'
     case 'web_search':
@@ -44,6 +48,8 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'Word wird vorbereitet …'
     case 'pdf':
       return 'PDF wird vorbereitet …'
+    case 'chart':
+      return 'Diagramm wird erstellt …'
     default:
       return undefined
   }

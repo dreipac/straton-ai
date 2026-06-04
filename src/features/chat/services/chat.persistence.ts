@@ -55,6 +55,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userPdfCommand = true
   }
 
+  if (o.userChartCommand === true) {
+    out.userChartCommand = true
+  }
+
   if (o.userWebSearchCommand === true) {
     out.userWebSearchCommand = true
   }

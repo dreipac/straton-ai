@@ -119,6 +119,8 @@ export function ChatPage() {
     wordFinalizeBusy,
     finalizePdfDocumentExport,
     pdfFinalizeBusy,
+    finalizeExcelDocumentExport,
+    excelFinalizeBusy,
     createNewChat,
     renameChat,
     archiveChat,
@@ -645,6 +647,7 @@ export function ChatPage() {
         ) : null}
         <ChatWindow
           threadKey={activeThreadId}
+          composerUserId={user?.id ?? null}
           messages={messages}
           isSending={isSending}
           sendPhase={sendPhase}
@@ -671,6 +674,8 @@ export function ChatPage() {
           wordFinalizeBusy={wordFinalizeBusy}
           onFinalizePdfDocument={finalizePdfDocumentExport}
           pdfFinalizeBusy={pdfFinalizeBusy}
+          onFinalizeExcelDocument={finalizeExcelDocumentExport}
+          excelFinalizeBusy={excelFinalizeBusy}
           thinkingCreditsRemaining={
             profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
           }

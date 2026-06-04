@@ -55,17 +55,20 @@ export function ChatComposerForm({
     handleSelectExcelSlashCommand,
     handleSelectWordSlashCommand,
     handleSelectPdfSlashCommand,
+    handleSelectChartSlashCommand,
     handleSelectImageSlashCommand,
     buildComposerInputRowClass,
     imageGenCommandSelected,
     excelCommandSelected,
     wordCommandSelected,
     pdfCommandSelected,
+    chartCommandSelected,
     pendingAttachments,
     setImageGenCommandSelected,
     setExcelCommandSelected,
     setWordCommandSelected,
     setPdfCommandSelected,
+    setChartCommandSelected,
     removeAttachment,
   } = composer
 
@@ -111,11 +114,13 @@ export function ChatComposerForm({
           excelCommandSelected={excelCommandSelected}
           wordCommandSelected={wordCommandSelected}
           pdfCommandSelected={pdfCommandSelected}
+          chartCommandSelected={chartCommandSelected}
           pendingAttachments={pendingAttachments}
           onClearImageGen={() => setImageGenCommandSelected(false)}
           onClearExcel={() => setExcelCommandSelected(false)}
           onClearWord={() => setWordCommandSelected(false)}
           onClearPdf={() => setPdfCommandSelected(false)}
+          onClearChart={() => setChartCommandSelected(false)}
           onRemoveAttachment={removeAttachment}
           onPreviewImage={onPreviewImage}
         />
@@ -150,6 +155,7 @@ export function ChatComposerForm({
                   onSelectExcel={handleSelectExcelSlashCommand}
                   onSelectWord={handleSelectWordSlashCommand}
                   onSelectPdf={handleSelectPdfSlashCommand}
+                  onSelectChart={handleSelectChartSlashCommand}
                   onSelectImage={handleSelectImageSlashCommand}
                 />
               ) : null}

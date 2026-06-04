@@ -5,19 +5,7 @@
  */
 export const WORD_EXPORT_COMMAND_MARKER = '[[STRATON_WORD_COMMAND]]'
 
-/**
- * System-Zusatz für den Hauptchat (OpenAI), wenn der Nutzer /Word gewählt hat.
- * Ziel: fertiger Dokumenttext — keine Didaktik oder „Meta-Anleitung“.
- */
-export const WORD_CHAT_DOCUMENT_BODY_HINT = [
-  'Word-/Dokumentmodus: Du lieferst den Text so, als käme er direkt in die Word-Vorlage (Endversion für Leser).',
-  'VERBOTEN: Einleitungen über das Dokument; Erklärungen, was ein Kapitel «beschreiben soll» oder «hier steht»; Formulierungen wie «In diesem Abschnitt wird…», «Dieses Kapitel dient dazu…», «Beschreiben Sie…», «Hier wird erklärt…».',
-  'VERBOTEN: Absätze, die nur Leitfragen oder Platzhalterlisten sind (z. B. nur «Warum? Wer? Was?» ohne konkrete Antworttexte). Schreibe stattdessen klare, vollständige Sätze mit realem Inhalt zum Thema.',
-  'VERBOTEN: Extra-Abschnitte wie «Direkt nutzbare Vorlage», Metatabellen oder Trenner mit Platzhaltern nur zur Struktur — schreibe den echten Kapitelinhalt.',
-  'Erlaubt: nummerierte Überschriften und Unterpunkte mit #### / ##### / ###### gemäß App-Konvention; darunter Fließtext mit konkretem Fachinhalt (Definitionen, Schritte, Hinweise), nicht nur Stichworte.',
-  'WICHTIG für die Word-Vorlage: `##### Titel` = Kapitel (Formatvorlage «1. Überschrift»), `###### Untertitel` = Unterkapitel (Formatvorlage «1.1 …»), `####` = normaler Fließtext. Keine «Kapitel 1:»-Präfixe und keine manuelle «1.»-Nummerierung in Überschriften — die Vorlage nummeriert selbst. Alternativ WordOutline-JSON mit `"type":"heading","level":1|2`.',
-  'Tabellen: GFM-Pipe (`| Spalte |` + Trennzeile `| --- |`) oder im WordOutline-JSON `{"type":"table","header":true,"rows":[["A","B"]]}`.',
-].join('\n')
+export { WORD_CHAT_DOCUMENT_JSON_HINT as WORD_CHAT_DOCUMENT_BODY_HINT } from './documentExportIntent'
 
 export function userWantsWordExport(text: string): boolean {
   return text.includes(WORD_EXPORT_COMMAND_MARKER)

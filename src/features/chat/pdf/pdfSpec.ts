@@ -1,5 +1,9 @@
 import type { WordOutlineV1 } from '../types'
 import {
+  PDF_SPEC_JSON_END,
+  PDF_SPEC_JSON_START,
+} from '../constants/documentExportIntent'
+import {
   parseWordOutlineFromAssistantContent,
   parseWordOutlineV1,
   tryParseWordOutlineJson,
@@ -8,8 +12,7 @@ import {
 /** PDF-Gliederung v1 — gleiches Block-Schema wie Word (`heading`, `paragraph`, `table`). */
 export type PdfOutlineV1 = WordOutlineV1
 
-export const PDF_SPEC_JSON_START = '<<<STRATON_PDF_SPEC_JSON>>>'
-export const PDF_SPEC_JSON_END = '<<<END_STRATON_PDF_SPEC_JSON>>>'
+export { PDF_SPEC_JSON_END, PDF_SPEC_JSON_START }
 
 export function parsePdfOutlineV1(raw: unknown): PdfOutlineV1 | null {
   return parseWordOutlineV1(raw)

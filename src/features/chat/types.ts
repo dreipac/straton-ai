@@ -93,6 +93,8 @@ export type ChatMessage = {
     userWordCommand?: boolean
     /** User-Nachricht: PDF-Export-Befehl (Marker entfernt). */
     userPdfCommand?: boolean
+    /** User-Nachricht: Diagramm/Chart-Befehl (Marker entfernt). */
+    userChartCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */
     userWebSearchCommand?: boolean
     /** User-Nachricht: automatische Tavily-Websuche (Smart Instant). */

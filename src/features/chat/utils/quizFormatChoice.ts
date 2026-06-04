@@ -65,6 +65,7 @@ export type QuizFormatPromptContext = {
   wantsWord: boolean
   wantsPdf?: boolean
   wantsExcel: boolean
+  wantsChart?: boolean
   wantsImageGen: boolean
   thinkingMode: boolean
 }
@@ -77,6 +78,7 @@ export function shouldPromptQuizFormatChoice(
     context.wantsWord ||
     context.wantsPdf ||
     context.wantsExcel ||
+    context.wantsChart ||
     context.wantsImageGen ||
     context.thinkingMode
   ) {

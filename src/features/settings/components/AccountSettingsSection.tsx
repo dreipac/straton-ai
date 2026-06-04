@@ -17,6 +17,7 @@ type AccountSettingsSectionProps = {
   subscriptionPlan: {
     name: string
     max_tokens: number | null
+    instant_token_balance_max?: number | null
     max_images: number | null
     max_files: number | null
     image_generation_model?: string | null
@@ -244,7 +245,7 @@ export function AccountSettingsSection({
         {subscriptionPlan ? (
           <>
             <p className="account-subscription">
-              Tokens (heute verbraucht): {subscriptionUsage?.used_tokens ?? 0}
+              Smart Instant (heute verbraucht): {subscriptionUsage?.used_tokens ?? 0}
               {subscriptionPlan.max_tokens != null ? (
                 <>
                   {' '}
@@ -253,7 +254,11 @@ export function AccountSettingsSection({
                   <br />
                   <small>
                     Guthaben {subscriptionUsage?.token_balance ?? 0} (max.{' '}
-                    {MAX_TOKEN_BALANCE.toLocaleString('de-CH')}) + Tageszuschlag {subscriptionPlan.max_tokens}
+                    {(
+                      subscriptionPlan.instant_token_balance_max ?? MAX_TOKEN_BALANCE
+                    ).toLocaleString('de-CH')}
+                    ) + {subscriptionPlan.max_tokens.toLocaleString('de-CH')} Tokens/Tag — Rest des Tages wird
+                    gutgeschrieben
                   </small>
                 </>
               ) : (

@@ -62,6 +62,20 @@ function anthropicRates(model: string): Rates | null {
   return null
 }
 
+function geminiRates(model: string): Rates | null {
+  const m = model.toLowerCase()
+  if (m.includes('2.5-flash') && !m.includes('lite')) {
+    return { inPerM: 0.3, outPerM: 2.5 }
+  }
+  if (m.includes('flash-lite') || m.includes('3.1-flash-lite')) {
+    return { inPerM: 0.25, outPerM: 1.5 }
+  }
+  if (m.includes('flash')) {
+    return { inPerM: 0.3, outPerM: 2.5 }
+  }
+  return { inPerM: 0.25, outPerM: 1.5 }
+}
+
 export function estimateAiTokenCostsUsd(
   provider: string,
   model: string,
@@ -74,6 +88,8 @@ export function estimateAiTokenCostsUsd(
     rates = openAiRates(model)
   } else if (p === 'anthropic') {
     rates = anthropicRates(model)
+  } else if (p === 'gemini') {
+    rates = geminiRates(model)
   }
 
   if (!rates) {

@@ -59,6 +59,24 @@ export function stripExcelSpecBlock(content: string): string {
 }
 
 /** Anzeige-Text: Spez-Block ausblenden (z. B. wenn Export fehlgeschlagen ist). */
+/** Excel-Datei noch nicht erzeugt, Spec parsebar, /Excel im Thread. */
+export function canFinalizeExcelExportFromThread(messages: ChatMessage[]): boolean {
+  if (messages.length < 2) {
+    return false
+  }
+  const last = messages[messages.length - 1]
+  if (last?.role !== 'assistant' || last.metadata?.excelExport) {
+    return false
+  }
+  if (last.metadata?.liveStream) {
+    return false
+  }
+  if (!messages.some((m) => m.role === 'user' && m.metadata?.userExcelCommand === true)) {
+    return false
+  }
+  return parseExcelSpecFromContent(last.content).spec !== null
+}
+
 export function getAssistantMessageDisplayContent(message: ChatMessage): string {
   if (message.role !== 'assistant') {
     return message.content

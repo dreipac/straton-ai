@@ -2,6 +2,27 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 // @ts-expect-error - Deno URL import is resolved at function runtime.
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8'
+import { handleDocumentExtract } from './documentExtractRoute.ts'
+import { buildInstantAnalyzeChartGenerateSection } from './chartExportPrompts.ts'
+import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportPrompts.ts'
+import {
+  geminiChatCompletion,
+  GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
+} from './geminiChat.ts'
+import { geminiGenerateText } from './geminiClient.ts'
+import {
+  GEMINI_CONTEXT_CACHE_INTENT,
+  GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+  GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
+  GEMINI_CONTEXT_CACHE_THINKING_REPLY,
+  GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+  GEMINI_DEFAULT_CHAT_MODEL,
+  GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_LITE,
+  fetchGeminiInstantEnabled,
+  isGeminiInstantEnabled,
+  setRequestGeminiInstantEnabled,
+} from './geminiModels.ts'
 
 declare const Deno: {
   env: {
@@ -9,7 +30,7 @@ declare const Deno: {
   }
 }
 
-type Provider = 'openai' | 'anthropic'
+type Provider = 'openai' | 'anthropic' | 'gemini'
 type LearnModelId =
   | 'gpt-5.4'
   | 'gpt-5.4-mini'
@@ -927,13 +948,32 @@ function anthropicRatesForEstimate(model: string): UsdRates | null {
   return null
 }
 
+function geminiRatesForEstimate(model: string): UsdRates | null {
+  const m = model.toLowerCase()
+  if (m.includes('2.5-flash') && !m.includes('lite')) {
+    return { inPerM: 0.3, outPerM: 2.5 }
+  }
+  if (m.includes('flash-lite') || m.includes('3.1-flash-lite')) {
+    return { inPerM: 0.25, outPerM: 1.5 }
+  }
+  if (m.includes('flash')) {
+    return { inPerM: 0.3, outPerM: 2.5 }
+  }
+  return { inPerM: 0.25, outPerM: 1.5 }
+}
+
 function estimateAiUsageUsd(
   provider: Provider,
   model: string,
   inputTokens: number,
   outputTokens: number,
 ): number {
-  const rates = provider === 'anthropic' ? anthropicRatesForEstimate(model) : openAiRatesForEstimate(model)
+  const rates =
+    provider === 'anthropic'
+      ? anthropicRatesForEstimate(model)
+      : provider === 'gemini'
+        ? geminiRatesForEstimate(model)
+        : openAiRatesForEstimate(model)
   if (!rates) {
     return 0
   }
@@ -1103,7 +1143,13 @@ function jsonResponse(payload: unknown, status = 200) {
 }
 
 function normalizeProvider(value: unknown): Provider {
-  return value === 'anthropic' ? 'anthropic' : 'openai'
+  if (value === 'anthropic') {
+    return 'anthropic'
+  }
+  if (value === 'gemini') {
+    return 'gemini'
+  }
+  return 'openai'
 }
 
 /** Optional: Modellreihenfolge für OpenAI-Chat (Client sendet für Lernpfad z. B. `gpt-5.4` zuerst). */
@@ -1148,6 +1194,7 @@ function normalizeMode(
   | 'learn_tutor'
   | 'evaluate_quiz'
   | 'generate_title'
+  | 'document_extract'
   | 'instant_analyze'
   | 'thinking_analyze'
   | 'thinking_draft'
@@ -1174,6 +1221,9 @@ function normalizeMode(
   }
   if (v === 'generate_title') {
     return 'generate_title'
+  }
+  if (v === 'document_extract') {
+    return 'document_extract'
   }
   if (v === 'instant_analyze') {
     return 'instant_analyze'
@@ -1259,7 +1309,12 @@ function parseQuizEvaluationResult(raw: string): QuizEvaluationResult {
 async function getProviderApiKey(
   provider: Provider,
 ): Promise<string> {
-  const envKeyName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+  const envKeyName =
+    provider === 'anthropic'
+      ? 'ANTHROPIC_API_KEY'
+      : provider === 'gemini'
+        ? 'GEMINI_API_KEY'
+        : 'OPENAI_API_KEY'
   const apiKey = String(Deno.env.get(envKeyName) ?? '').trim()
   if (!apiKey) {
     throw new Error(`API Key für Provider "${provider}" ist nicht als Supabase Secret gesetzt.`)
@@ -1309,7 +1364,9 @@ async function tryLogTokenUsage(
     console.error('[chat-completion] ai_token_usage insert failed', error.message)
   }
   if (cachedInputTokens > 0) {
-    console.log(`[chat-completion] OpenAI prompt cache: ${cachedInputTokens} cached input tokens (${mode})`)
+    console.log(
+      `[chat-completion] ${provider} context cache: ${cachedInputTokens} cached input tokens (${mode})`,
+    )
   }
 }
 
@@ -2197,7 +2254,7 @@ const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as 
 const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
 const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
-type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document'
+type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart'
 type InstantAnalyzeActionEdge =
   | 'answer'
   | 'short_answer'
@@ -2210,6 +2267,7 @@ type InstantAnalyzeActionEdge =
   | 'word_generate'
   | 'pdf_generate'
   | 'excel_generate'
+  | 'chart_generate'
 
 const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
   InstantAnalyzeCategoryEdge,
@@ -2218,13 +2276,14 @@ const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
   chat: ['answer', 'short_answer', 'clarify', 'one_step'],
   image: ['generate', 'describe', 'search', 'reference'],
   document: ['word_generate', 'pdf_generate', 'excel_generate'],
+  chart: ['chart_generate'],
 }
 
 function isAllowedInstantCategoryAction(
   category: string,
   action: string,
 ): category is InstantAnalyzeCategoryEdge {
-  if (category !== 'chat' && category !== 'image' && category !== 'document') {
+  if (category !== 'chat' && category !== 'image' && category !== 'document' && category !== 'chart') {
     return false
   }
   return (INSTANT_ANALYZE_ACTIONS_BY_CATEGORY[category] as readonly string[]).includes(action)
@@ -2268,6 +2327,8 @@ type InstantAnalyzePayloadEdge = {
   needs_live_web: boolean
   web_query: string
   web_reason: string
+  escalate_model?: boolean
+  escalate_reason?: string
 }
 
 function clipInstantAnalyzeText(value: unknown, max: number): string {
@@ -2345,6 +2406,15 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
     needs_live_web = false
     web_query = ''
   }
+  let escalate_model = o.escalate_model === true
+  let escalate_reason = clipInstantAnalyzeText(o.escalate_reason, 80)
+  if (escalate_model && !/\b(multi|mehrere|vergleich|quervergleich|sheets?|tabellen|merge|zwei\s+pdf|2\s+pdf)\b/i.test(escalate_reason)) {
+    escalate_model = false
+    escalate_reason = ''
+  }
+  if (!escalate_model) {
+    escalate_reason = ''
+  }
   return {
     category,
     action,
@@ -2355,6 +2425,7 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
     needs_live_web,
     web_query,
     web_reason,
+    ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   }
 }
 
@@ -2574,12 +2645,131 @@ function parseThinkingAnalyzeResult(raw: string): ThinkingAnalyzePayloadEdge {
   return parsed
 }
 
+async function thinkingAnalyzeWithGemini(
+  userMessage: string,
+  contextBlock: string,
+): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (Gemini 3.1 Flash Lite, nicht nur Server).',
+    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
+    'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
+    'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
+    'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
+    'Bei [Datei:…]-Anhang mit Text: task_type document_summary; analysis_summary = inhaltlicher Kern (Fakten/Themen aus dem Anhang), nicht nur «Nutzer will PDF zusammenfassen».',
+    'assumptions[] bei document_summary: nur echte Lücken im Material, kein Kapitelverzeichnis.',
+  ].join('\n')
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
+    model: GEMINI_MODEL_FLASH_LITE,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+    maxOutputTokens: THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
+    temperature: 0.15,
+  })
+  const analyze = parseThinkingAnalyzeResult(text)
+  return {
+    analyze,
+    usage: {
+      text,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function thinkingDraftWithGemini(
+  userMessage: string,
+  contextBlock: string,
+  analyzeBriefing: string,
+): Promise<{ draft: string; usage: AiCallResult }> {
+  const system = [
+    'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking (Gemini 3.1 Flash Lite).',
+    'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
+    'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
+    'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
+    'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
+  ].join('\n')
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
+    model: GEMINI_MODEL_FLASH_LITE,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
+    maxOutputTokens: THINKING_DRAFT_MAX_OUTPUT_TOKENS,
+    temperature: 0.35,
+  })
+  return {
+    draft: text.trim(),
+    usage: {
+      text,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function thinkingReviewWithGemini(
+  userMessage: string,
+  analyzeBriefing: string,
+  draftText: string,
+): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse (Gemini 3.1 Flash Lite).',
+    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
+    'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
+  ].join('\n')
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    `Nutzeranfrage:\n${userMessage}\n\n`,
+    `Entwurf:\n${draftText}`,
+  ].join('')
+  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
+    model: GEMINI_MODEL_FLASH_LITE,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+    maxOutputTokens: THINKING_REVIEW_MAX_OUTPUT_TOKENS,
+    temperature: 0.15,
+  })
+  const review = parseThinkingReviewResult(text)
+  return {
+    review,
+    usage: {
+      text,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
 async function thinkingAnalyzeWithAi(
   apiKey: string,
   userMessage: string,
   contextBlock: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
+  if (isGeminiInstantEnabled()) {
+    await getProviderApiKey('gemini')
+    return thinkingAnalyzeWithGemini(userMessage, contextBlock)
+  }
   const system = [
     'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (gpt-5-mini, nicht nur Server).',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
@@ -2615,6 +2805,10 @@ async function thinkingDraftWithAi(
   analyzeBriefing: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ draft: string; usage: AiCallResult }> {
+  if (isGeminiInstantEnabled()) {
+    await getProviderApiKey('gemini')
+    return thinkingDraftWithGemini(userMessage, contextBlock, analyzeBriefing)
+  }
   const system = [
     'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
     'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
@@ -2662,6 +2856,10 @@ async function thinkingReviewWithAi(
   draftText: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
+  if (isGeminiInstantEnabled()) {
+    await getProviderApiKey('gemini')
+    return thinkingReviewWithGemini(userMessage, analyzeBriefing, draftText)
+  }
   const system = [
     'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
     'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
@@ -2688,23 +2886,85 @@ async function thinkingReviewWithAi(
   return { review, usage }
 }
 
+function sanitizeGeminiModelOverride(value: unknown): GeminiModelId {
+  const m = typeof value === 'string' ? value.trim() : ''
+  if (m === GEMINI_MODEL_FLASH) {
+    return GEMINI_MODEL_FLASH
+  }
+  return GEMINI_MODEL_FLASH_LITE
+}
+
+async function instantAnalyzeWithGemini(
+  userMessage: string,
+  contextBlock: string,
+): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  const system = [
+    'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
+    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
+    'Felder: category ("chat"|"image"|"document"|"chart"), action (passend zur category),',
+    'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
+    'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
+    'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web),',
+    'escalate_model (boolean, fast immer false), escalate_reason (max 80, nur wenn escalate_model).',
+    'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
+    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
+    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
+    '',
+    buildInstantAnalyzeDocumentGenerateSection(),
+    '',
+    buildInstantAnalyzeChartGenerateSection(),
+    '',
+    '[Datei:…]-Anhang + nur Lesen/Zusammenfassen → chat.answer, nicht document.*.',
+    '«zeige/such/finde Foto/Bild von …» → image.search. «generiere/erstelle Bild» → image.generate.',
+    'Rechtschreibung Schweizer Hochdeutsch (ss statt ß).',
+  ].join('\n')
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
+    model: GEMINI_MODEL_FLASH_LITE,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey: GEMINI_CONTEXT_CACHE_INTENT,
+    maxOutputTokens: INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
+    temperature: 0.15,
+  })
+  const analyze = parseInstantAnalyzeResult(text)
+  return {
+    analyze,
+    usage: {
+      text,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
 async function instantAnalyzeWithAi(
   apiKey: string,
   userMessage: string,
   contextBlock: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  if (isGeminiInstantEnabled()) {
+    return instantAnalyzeWithGemini(userMessage, contextBlock)
+  }
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: category ("chat"|"image"|"document"), action (passend zur category),',
+    'Felder: category ("chat"|"image"|"document"|"chart"), action (passend zur category),',
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate.',
+    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
     '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
-    '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel exportieren → document.*.',
+    '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel → document.*.',
+    '«Erstelle Diagramm», Prozentverteilung, «als Balkendiagramm» → chart.chart_generate (nicht chat.answer).',
     'Anhang + beschreiben ohne Neuerstellung → image.describe.',
     'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
     'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
@@ -2713,7 +2973,7 @@ async function instantAnalyzeWithAi(
     'Aufgabe/lösen/Übung: chat.answer.',
     'Vage Anfrage: chat.answer mit Annahme — clarify nur wenn gar nicht lösbar.',
     'needs_live_web true bei Aktienkurs, News, «aktuell», Gesetzeslage mit Zeitbezug.',
-    'needs_live_web false bei Coding, Mathe, document.*, image.generate, image.search.',
+    'needs_live_web false bei Coding, Mathe, document.*, chart.*, image.generate, image.search.',
   ].join('\n')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
@@ -3214,6 +3474,9 @@ serve(async (req) => {
   const planChatFields = await fetchSubscriptionPlanChatFields(admin, user.id)
 
   try {
+    const geminiInstantOn = await fetchGeminiInstantEnabled(admin)
+    setRequestGeminiInstantEnabled(geminiInstantOn)
+
     const body = (await req.json()) as {
       mode?: unknown
       provider?: unknown
@@ -3237,6 +3500,9 @@ serve(async (req) => {
       billingConsumeThinkingCredit?: unknown
       /** Client: Foto-Data-URL für Vision (nicht in DB; iOS-Pfad). */
       visionInlineDataUrl?: unknown
+      /** Gemini Instant: `gemini-3.1-flash-lite` oder `gemini-2.5-flash`. */
+      geminiModel?: unknown
+      geminiPromptCacheKey?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
@@ -3278,7 +3544,12 @@ serve(async (req) => {
       }
     }
 
-    if (mode === 'chat' && provider === 'openai' && body.billingConsumeThinkingCredit === true) {
+    if (
+      mode === 'chat' &&
+      provider === 'openai' &&
+      body.billingConsumeThinkingCredit === true &&
+      !isGeminiInstantEnabled()
+    ) {
       openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
     }
 
@@ -3365,6 +3636,119 @@ serve(async (req) => {
       return jsonResponse({ worksheetItems: prompts })
     }
 
+    /** Payload-only — kein `body.messages` (z. B. Dokument-Extraktion vor dem Chat-Send). */
+    if (mode === 'document_extract') {
+      try {
+        const { documents, fileBlocks } = await handleDocumentExtract(
+          userClient,
+          user.id,
+          body.payload,
+        )
+        if (admin) {
+          const totalChars = documents.reduce((sum, d) => sum + d.charCount, 0)
+          console.info('[chat-completion] document_extract', {
+            userId: user.id,
+            files: documents.length,
+            totalChars,
+            methods: documents.map((d) => d.extractionMethod),
+            geminiInstantEnabled: isGeminiInstantEnabled(),
+          })
+        }
+        return jsonResponse({ documents, fileBlocks })
+      } catch (extractErr) {
+        const msg = extractErr instanceof Error ? extractErr.message : String(extractErr)
+        return jsonResponse({ error: msg }, 400)
+      }
+    }
+
+    if (mode === 'instant_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Instant-Einordnung.' }, 400)
+      }
+      const useGemini = isGeminiInstantEnabled() || provider === 'gemini'
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'instant_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { analyze, usage } = useGemini
+        ? await instantAnalyzeWithGemini(analyzePayload.userMessage, analyzePayload.contextBlock)
+        : await instantAnalyzeWithAi(
+            await getProviderApiKey('openai'),
+            analyzePayload.userMessage,
+            analyzePayload.contextBlock,
+            openAiPc,
+          )
+      await tryLogTokenUsage(admin, user.id, useGemini ? 'gemini' : 'openai', mode, usage)
+      return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { analyze, usage } = await thinkingAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_draft') {
+      const draftPayload = sanitizeThinkingDraftRequestPayload(body.payload)
+      if (!draftPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_draft',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { draft, usage } = await thinkingDraftWithAi(
+        openAiKey,
+        draftPayload.userMessage,
+        draftPayload.contextBlock,
+        draftPayload.analyzeBriefing,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      return jsonResponse({ draft })
+    }
+
+    if (mode === 'thinking_review') {
+      const reviewPayload = sanitizeThinkingReviewRequestPayload(body.payload)
+      if (!reviewPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
+      }
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_review',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { review, usage } = await thinkingReviewWithAi(
+        openAiKey,
+        reviewPayload.userMessage,
+        reviewPayload.analyzeBriefing,
+        reviewPayload.draftText,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      return jsonResponse({ review })
+    }
+
     const inputMessages =
       mode === 'generate_title'
         ? Array.isArray((body.payload as { messages?: unknown } | undefined)?.messages)
@@ -3405,92 +3789,6 @@ serve(async (req) => {
       const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels, openAiPc)
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
       return jsonResponse({ title })
-    }
-
-    if (mode === 'instant_analyze') {
-      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
-      if (!analyzePayload) {
-        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Instant-Einordnung.' }, 400)
-      }
-      const openAiKey = await getProviderApiKey('openai')
-      const openAiPc = resolveOpenAiPromptCacheForRequest(
-        'instant_analyze',
-        clientPromptCacheKey,
-        clientPromptCacheRetention,
-      )
-      const { analyze, usage } = await instantAnalyzeWithAi(
-        openAiKey,
-        analyzePayload.userMessage,
-        analyzePayload.contextBlock,
-        openAiPc,
-      )
-      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
-      return jsonResponse({ analyze })
-    }
-
-    if (mode === 'thinking_analyze') {
-      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
-      if (!analyzePayload) {
-        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
-      }
-      const openAiKey = await getProviderApiKey('openai')
-      const openAiPc = resolveOpenAiPromptCacheForRequest(
-        'thinking_analyze',
-        clientPromptCacheKey,
-        clientPromptCacheRetention,
-      )
-      const { analyze, usage } = await thinkingAnalyzeWithAi(
-        openAiKey,
-        analyzePayload.userMessage,
-        analyzePayload.contextBlock,
-        openAiPc,
-      )
-      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
-      return jsonResponse({ analyze })
-    }
-
-    if (mode === 'thinking_draft') {
-      const draftPayload = sanitizeThinkingDraftRequestPayload(body.payload)
-      if (!draftPayload) {
-        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
-      }
-      const openAiKey = await getProviderApiKey('openai')
-      const openAiPc = resolveOpenAiPromptCacheForRequest(
-        'thinking_draft',
-        clientPromptCacheKey,
-        clientPromptCacheRetention,
-      )
-      const { draft, usage } = await thinkingDraftWithAi(
-        openAiKey,
-        draftPayload.userMessage,
-        draftPayload.contextBlock,
-        draftPayload.analyzeBriefing,
-        openAiPc,
-      )
-      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
-      return jsonResponse({ draft })
-    }
-
-    if (mode === 'thinking_review') {
-      const reviewPayload = sanitizeThinkingReviewRequestPayload(body.payload)
-      if (!reviewPayload) {
-        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
-      }
-      const openAiKey = await getProviderApiKey('openai')
-      const openAiPc = resolveOpenAiPromptCacheForRequest(
-        'thinking_review',
-        clientPromptCacheKey,
-        clientPromptCacheRetention,
-      )
-      const { review, usage } = await thinkingReviewWithAi(
-        openAiKey,
-        reviewPayload.userMessage,
-        reviewPayload.analyzeBriefing,
-        reviewPayload.draftText,
-        openAiPc,
-      )
-      await tryLogTokenUsage(admin, user.id, 'openai', mode, usage)
-      return jsonResponse({ review })
     }
 
     const includeProfileMemory = body.includeProfileMemory === true
@@ -3578,6 +3876,75 @@ serve(async (req) => {
         /** Nur echte Vision-Modelle — GPT-5.x antwortet sonst oft «ich sehe kein Bild». */
         openAiModels = ['gpt-4o', 'gpt-4o-mini']
       }
+    }
+
+    const geminiModelOverride = sanitizeGeminiModelOverride(body.geminiModel)
+    const geminiPromptCacheKey = sanitizePromptCacheKey(body.geminiPromptCacheKey)
+    const useGeminiThinkingChat =
+      mode === 'chat' &&
+      body.billingConsumeThinkingCredit === true &&
+      isGeminiInstantEnabled() &&
+      !chatHasVision
+
+    if (useGeminiThinkingChat) {
+      await getProviderApiKey('gemini')
+      const thinkingCacheKey =
+        geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_THINKING_REPLY
+          ? GEMINI_CONTEXT_CACHE_THINKING_REPLY
+          : geminiPromptCacheKey ?? GEMINI_CONTEXT_CACHE_THINKING_REPLY
+      const geminiResult = await geminiChatCompletion(chatMessages, {
+        model: geminiModelOverride,
+        maxOutputTokens: chatMaxTokens,
+        contextCacheKey: thinkingCacheKey,
+      })
+      await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+        text: geminiResult.text,
+        model: geminiResult.model,
+        inputTokens: geminiResult.inputTokens,
+        outputTokens: geminiResult.outputTokens,
+        ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+          ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+          : {}),
+      })
+      return jsonResponse({
+        assistantMessage: {
+          role: 'assistant',
+          content: geminiResult.text,
+        },
+      })
+    }
+
+    const useGeminiMainChat =
+      mode === 'chat' &&
+      provider !== 'anthropic' &&
+      body.billingConsumeThinkingCredit !== true &&
+      (provider === 'gemini' || (isGeminiInstantEnabled() && provider === 'openai'))
+
+    if (useGeminiMainChat && !chatHasVision) {
+      await getProviderApiKey('gemini')
+      const geminiResult = await geminiChatCompletion(chatMessages, {
+        model: geminiModelOverride,
+        maxOutputTokens: chatMaxTokens,
+        contextCacheKey:
+          geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            : geminiPromptCacheKey ?? undefined,
+      })
+      await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+        text: geminiResult.text,
+        model: geminiResult.model,
+        inputTokens: geminiResult.inputTokens,
+        outputTokens: geminiResult.outputTokens,
+        ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+          ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+          : {}),
+      })
+      return jsonResponse({
+        assistantMessage: {
+          role: 'assistant',
+          content: geminiResult.text,
+        },
+      })
     }
 
     if (body.stream === true && mode === 'chat' && provider === 'openai') {

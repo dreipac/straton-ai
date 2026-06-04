@@ -1,5 +1,11 @@
 import type { ChatMessage, WordOutlineV1 } from '../types'
 import {
+  PDF_SPEC_JSON_END,
+  PDF_SPEC_JSON_START,
+  WORD_SPEC_JSON_END,
+  WORD_SPEC_JSON_START,
+} from '../constants/documentExportIntent'
+import {
   coalesceMarkdownTablesAcrossBlocks,
   expandWordOutlineTables,
   parseWordOutlineTableBlock,
@@ -84,6 +90,12 @@ export function tryParseWordOutlineJson(text: string): WordOutlineV1 | null {
   }
   try {
     const j = JSON.parse(t) as unknown
+    if (j && typeof j === 'object' && !Array.isArray(j)) {
+      const o = j as Record<string, unknown>
+      if (o.version === undefined && Array.isArray(o.blocks)) {
+        return parseWordOutlineV1({ ...o, version: 1 })
+      }
+    }
     return parseWordOutlineV1(j)
   } catch {
     return null
@@ -124,10 +136,19 @@ export function isLikelyDocumentOutlinePayload(content: string): boolean {
   if (!t) {
     return false
   }
+  if (
+    t.includes(WORD_SPEC_JSON_START) ||
+    t.includes(PDF_SPEC_JSON_START)
+  ) {
+    return true
+  }
   if (/```(?:json)?/i.test(t)) {
     return true
   }
   if (t.startsWith('{') && /"version"\s*:\s*1/.test(t) && /"blocks"\s*:/.test(t)) {
+    return true
+  }
+  if (t.startsWith('{') && /"blocks"\s*:/.test(t)) {
     return true
   }
   return false
@@ -165,16 +186,79 @@ export function tryParseBareWordOutlineFromContent(content: string): {
   return null
 }
 
+function splitContentAroundOutlineMarkerBlock(
+  content: string,
+  startMarker: string,
+  endMarker: string,
+): {
+  outline: WordOutlineV1
+  before: string
+  after: string
+} | null {
+  const i = content.indexOf(startMarker)
+  const j = content.indexOf(endMarker)
+  if (i === -1 || j === -1 || j <= i) {
+    return null
+  }
+  const inner = content.slice(i + startMarker.length, j).trim()
+  const parsed = tryParseWordOutlineJson(inner)
+  if (!parsed) {
+    return null
+  }
+  return {
+    outline: parsed,
+    before: content.slice(0, i).trimEnd(),
+    after: content.slice(j + endMarker.length).trimStart(),
+  }
+}
+
 export function resolveWordOutlinePresentation(content: string): {
   outline: WordOutlineV1
   before: string
   after: string
 } | null {
-  return splitContentAroundFirstWordOutlineFence(content) ?? tryParseBareWordOutlineFromContent(content)
+  return (
+    splitContentAroundOutlineMarkerBlock(content, WORD_SPEC_JSON_START, WORD_SPEC_JSON_END) ??
+    splitContentAroundOutlineMarkerBlock(content, PDF_SPEC_JSON_START, PDF_SPEC_JSON_END) ??
+    splitContentAroundFirstWordOutlineFence(content) ??
+    tryParseBareWordOutlineFromContent(content)
+  )
+}
+
+export function stripWordSpecMarkerBlock(content: string): string {
+  const i = content.indexOf(WORD_SPEC_JSON_START)
+  const j = content.indexOf(WORD_SPEC_JSON_END)
+  if (i === -1 || j === -1 || j < i) {
+    return content
+  }
+  return `${content.slice(0, i).trimEnd()}\n\n${content.slice(j + WORD_SPEC_JSON_END.length).trimStart()}`.trim()
+}
+
+function parseWordOutlineFromMarkerBlock(content: string): WordOutlineV1 | null {
+  for (const [start, end] of [
+    [WORD_SPEC_JSON_START, WORD_SPEC_JSON_END],
+    [PDF_SPEC_JSON_START, PDF_SPEC_JSON_END],
+  ] as const) {
+    const i = content.indexOf(start)
+    const j = content.indexOf(end)
+    if (i === -1 || j === -1 || j <= i) {
+      continue
+    }
+    const inner = content.slice(i + start.length, j).trim()
+    const parsed = tryParseWordOutlineJson(inner)
+    if (parsed) {
+      return parsed
+    }
+  }
+  return null
 }
 
 /** Letzter ```json-Block im Text (KI-Antwort). */
 export function parseWordOutlineFromAssistantContent(content: string): WordOutlineV1 | null {
+  const fromMarkers = parseWordOutlineFromMarkerBlock(content)
+  if (fromMarkers) {
+    return fromMarkers
+  }
   const re = /```(?:json)?\s*([\s\S]*?)```/gi
   let match: RegExpExecArray | null
   let lastFence: string | null = null

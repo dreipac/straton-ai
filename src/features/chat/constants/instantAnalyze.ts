@@ -4,9 +4,12 @@ export type InstantAnalyzeReplyMode = 'ask_only' | 'one_step' | 'short_answer' |
 
 import type { InstantAnalyzeDebugMeta } from '../types'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
+import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
+import { buildInstantAnalyzeDocumentExportBriefing } from './documentExportIntent'
 import {
   applyRouteHeuristics,
   buildInstantAnalyzeRoutePromptSection,
+  detectRouteHeuristic,
   parseCategoryActionFields,
   routeFromReplyMode,
   syncReplyModeWithRoute,
@@ -46,6 +49,9 @@ export type InstantAnalyzeResult = {
   needs_live_web: boolean
   web_query: string
   web_reason: string
+  /** Nur true bei Whitelist (Multi-Dokument-Vergleich, komplexe Tabellen-Merge) → Gemini 2.5 Flash. */
+  escalate_model?: boolean
+  escalate_reason?: string
 }
 
 const REPLY_MODES: InstantAnalyzeReplyMode[] = ['ask_only', 'one_step', 'short_answer', 'normal']
@@ -96,7 +102,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Bei clarity "vague": bevorzugt reply_mode "normal" (action "answer") mit sinnvoller Annahme — nicht reflexartig ask_only.',
     '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild mit Aufgabe: reply_mode "normal", action "answer", clarity "clear".',
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
-    '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only.',
+    '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only — **ausser** Diagramm-Umstellung («als Balkendiagramm») → chart.chart_generate.',
+    '- «Erstelle (ein) Diagramm» mit Prozent-/Zahlenwerten → category "chart", action "chart_generate", clarity "clear", reply_mode "normal".',
     '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
     '- Verlauf mit «[Straton hat zuvor ein Bild generiert]» oder Assistenten-Bild: Nutzer bezieht sich darauf («wer/was ist das auf dem Bild», «was siehst du», «dein Bild») → category "image", action "reference" (nicht generate).',
     '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
@@ -108,6 +115,10 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Beispiel: «aktueller Kurs von Sherritt (S.TO)» → needs_live_web true, web_query «Sherritt S.TO Aktienkurs heute».',
     '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
     '- web_query präzise formulieren (Thema + Land/Sprache wenn erkennbar), nicht den Rohtext 1:1 kopieren.',
+    '',
+    '- escalate_model: boolean — **fast immer false**. Nur true bei: ≥2 grosse Anhänge + expliziter Quervergleich, oder mehrere Excel-Sheets mit Vergleichsaufgabe.',
+    '- escalate_reason: string (max. 80 Zeichen) nur wenn escalate_model true, sonst "".',
+    '- «ausführlich», «detailliert», «Zusammenfassung», «Prüfung», einzelnes PDF/DOCX → escalate_model **false** (Antwortmodell bleibt Lite).',
     '',
     buildInstantAnalyzeRoutePromptSection(),
   ].join('\n')
@@ -147,6 +158,16 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
 
   const { category, action } = parseCategoryActionFields(o, reply_mode)
 
+  let escalate_model = o.escalate_model === true
+  let escalate_reason = clipText(o.escalate_reason, 80)
+  if (escalate_model && !isAllowedEscalateReason(escalate_reason)) {
+    escalate_model = false
+    escalate_reason = ''
+  }
+  if (!escalate_model) {
+    escalate_reason = ''
+  }
+
   return syncReplyModeWithRoute({
     category,
     action,
@@ -157,7 +178,18 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     needs_live_web,
     web_query,
     web_reason,
+    ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   })
+}
+
+const ESCALATE_REASON_WHITELIST_RE =
+  /\b(multi|mehrere|vergleich|quervergleich|sheets?|tabellen|merge|zwei\s+pdf|2\s+pdf)\b/i
+
+function isAllowedEscalateReason(reason: string): boolean {
+  if (!reason.trim()) {
+    return false
+  }
+  return ESCALATE_REASON_WHITELIST_RE.test(reason)
 }
 
 /** Zeit-/Aktualitäts-Signale: aktuell, aktuelle, derzeitige, heutige, … */
@@ -274,6 +306,10 @@ export function applyConversationalFollowUpHeuristic(
   priorTurns: ReadonlyArray<{ role: string; content?: string | null }> | undefined,
   analyze: InstantAnalyzeResult,
 ): InstantAnalyzeResult {
+  const chartRoute = detectRouteHeuristic(userMessage, false, priorTurns as ImageSearchPriorTurn[] | undefined, false)
+  if (chartRoute?.category === 'chart') {
+    return analyze
+  }
   if (!priorTurns?.length || !isConversationalFollowUp(userMessage, priorTurns)) {
     return analyze
   }
@@ -299,6 +335,9 @@ export function applyTaskSolveHeuristic(
   analyze: InstantAnalyzeResult,
   hasVisionAttachment = false,
 ): InstantAnalyzeResult {
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   const t = userMessage.trim()
   if (!t && !hasVisionAttachment) {
     return analyze
@@ -439,11 +478,6 @@ export function applyInstantAnalyzeHeuristics(
   result = applyIdentityQuestionHeuristic(userMessage, result)
   result = applyTableExerciseHeuristic(userMessage, result, options?.hasVisionAttachment === true)
   result = applyConversationalFollowUpHeuristic(userMessage, options?.priorTurns, result)
-  result = applyRouteHeuristics(userMessage, result, {
-    hasVisionAttachment: options?.hasVisionAttachment === true,
-    hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
-    priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
-  })
   result = applyTaskSolveHeuristic(userMessage, result, options?.hasVisionAttachment === true)
   result = applyImageSearchContextHeuristic(
     userMessage,
@@ -462,6 +496,12 @@ export function applyInstantAnalyzeHeuristics(
     options?.priorTurns,
     options?.hasVisionAttachment === true,
   )
+  /** Zuletzt: Regex-Routing (Diagramm/Word/PDF/Excel/Bild) schlägt Mini-Einordnung + Folgenachrichten. */
+  result = applyRouteHeuristics(userMessage, result, {
+    hasVisionAttachment: options?.hasVisionAttachment === true,
+    hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
+    priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
+  })
   return result
 }
 
@@ -596,7 +636,10 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     lines.push(
       'Bezug auf ein Bild aus dem Chatverlauf — dir wird das Bild als Vision mitgeschickt: Inhalt beschreiben/auswerten; **nicht** behaupten, du könntest keine Bilder sehen.',
     )
-  } else if (analyze.action === 'answer' || analyze.reply_mode === 'normal') {
+  } else if (
+    analyze.category === 'chat' &&
+    (analyze.action === 'answer' || analyze.reply_mode === 'normal')
+  ) {
     lines.push(
       '**Zuerst** vollständige Lösung mit Annahme (Plan, Text, Tabelle …). **Danach** optional «Verbesserungen» + **eine** konkrete Anpassungsfrage (z. B. «Soll ich … auf X/Y anpassen?») — **nicht** vorher fragen.',
     )
@@ -604,7 +647,22 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
   if (analyze.web_reason && analyze.needs_live_web) {
     lines.push(`Web-Kontext-Grund: ${analyze.web_reason}`)
   }
-  if (/zuordnung|tabelle|einnahme|ausgabe|bild/i.test(analyze.intent)) {
+  if (analyze.category === 'document') {
+    const docAction =
+      analyze.action === 'word_generate' ||
+      analyze.action === 'pdf_generate' ||
+      analyze.action === 'excel_generate'
+        ? analyze.action
+        : 'word_generate'
+    lines.push(buildInstantAnalyzeDocumentExportBriefing(docAction))
+  }
+  if (analyze.category === 'chart') {
+    lines.push(buildInstantAnalyzeChartBriefing())
+  }
+  if (
+    analyze.category === 'chat' &&
+    /zuordnung|tabelle|einnahme|ausgabe|bild/i.test(analyze.intent)
+  ) {
     lines.push(
       'Lösung als Markdown-Tabelle (Struktur wie Aufgabe), ✓ in den richtigen Spalten — keine Bullet-Liste. Ton: definitive Lösung, nicht «mögliche Zuordnung».',
     )

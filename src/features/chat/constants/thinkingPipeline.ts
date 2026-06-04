@@ -5,6 +5,7 @@ import type { ThinkingAnalyzeResult } from './thinkingAnalyze'
 import { buildThinkingReviewBriefingForGateway, type ThinkingReviewResult } from './thinkingReview'
 
 /** OpenAI-Kette für alle Thinking-Schritte (Analyze, Entwurf, Review, Generate). */
+/** Fallback, wenn Gemini Instant global aus ist. */
 export const THINKING_OPENAI_MODEL_CHAIN = ['gpt-5-mini', 'gpt-4o-mini'] as const
 
 const FILE_BLOCK_RE = /\[Datei:\s*[^\]]+\]/i
@@ -112,7 +113,7 @@ export function buildThinkingPipelineBriefingForGateway(params: {
 
 export function buildThinkingDraftSystemPrompt(): string {
   return [
-    'Du erstellst einen INTERNEN ausführlichen Entwurf für den Straton-Thinking-Modus (gpt-5-mini).',
+    'Du erstellst einen INTERNEN ausführlichen Entwurf für den Straton-Thinking-Modus (Gemini 3.1 Flash Lite).',
     'Der Nutzer sieht diesen Text nicht direkt — er wird später formatiert und veröffentlicht.',
     'Nutze die Aufgabenanalyse: vollständige inhaltliche Lösung, alle wichtigen Schritte/Fakten, passend zu task_type.',
     'Struktur grob mit ##-Überschriften; zwischen Hauptteilen `---`.',

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
+import { parseChartSpecFromContent } from '../chart/chartSpec'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
@@ -111,20 +112,50 @@ export function useChatMessageList({
     lastPdfUserIndex >= 0 &&
     !assistantHasPdfExportAfterLastPdfUser
 
+  const lastChartUserIndex = (() => {
+    for (let i = messageList.length - 1; i >= 0; i -= 1) {
+      if (messageList[i].role === 'user' && messageList[i].metadata?.userChartCommand) {
+        return i
+      }
+    }
+    return -1
+  })()
+  const assistantHasChartSpecAfterLastChartUser =
+    lastChartUserIndex >= 0 &&
+    messageList
+      .slice(lastChartUserIndex + 1)
+      .some(
+        (m) =>
+          m.role === 'assistant' &&
+          !m.metadata?.liveStream &&
+          Boolean(parseChartSpecFromContent(m.content).spec),
+      )
+  const pendingChartGeneration =
+    isSending &&
+    !pendingImageGeneration &&
+    !pendingImageSearch &&
+    !pendingExcelGeneration &&
+    !pendingWordGeneration &&
+    !pendingPdfGeneration &&
+    lastChartUserIndex >= 0 &&
+    !assistantHasChartSpecAfterLastChartUser
+
   const showPendingTextOrbitRow =
     showAssistantPendingLoader &&
     !pendingImageGeneration &&
     !pendingImageSearch &&
     !pendingExcelGeneration &&
     !pendingWordGeneration &&
-    !pendingPdfGeneration
+    !pendingPdfGeneration &&
+    !pendingChartGeneration
   const showPendingAssistantRow =
     showPendingTextOrbitRow ||
     pendingImageSearch ||
     pendingImageGeneration ||
     pendingExcelGeneration ||
     pendingWordGeneration ||
-    pendingPdfGeneration
+    pendingPdfGeneration ||
+    pendingChartGeneration
   const pendingStatusLabel =
     getChatSendPhaseLabel(sendPhase) ??
     (isSending && showPendingTextOrbitRow ? 'Denkt nach …' : undefined)
@@ -507,6 +538,7 @@ export function useChatMessageList({
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,
+    pendingChartGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,

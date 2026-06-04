@@ -48,16 +48,8 @@ import {
   type SubscriptionImageGenerationModelId,
 } from '../features/auth/constants/subscriptionImageGenerationModels'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
-import {
-  parseChatDailyTierOpenAiModelId,
-  parseThinkingTierConfigFromPlan,
-} from '../features/chat/constants/chatDailyOpenAiTier'
-import {
-  CHAT_DAILY_TIER_OPENAI_MODELS,
-  getChatDailyTierOpenAiModelLabel,
-  type ChatDailyTierOpenAiModelId,
-  getComposerApiModelIdsForAdminFilter,
-} from '../features/chat/constants/chatComposerModels'
+import { getComposerApiModelIdsForAdminFilter } from '../features/chat/constants/chatComposerModels'
+import { MAX_TOKEN_BALANCE } from '../features/auth/constants/tokenBalance'
 import {
   adminDeployLearnAiModelDraft,
   adminDeployLearnAiProviderDraft,
@@ -69,6 +61,7 @@ import {
   adminSetDeployedAppVersion,
   adminSetLearnAreaBanner,
   adminSetInstantAnalyzeDebugEnabled,
+  adminSetGeminiInstantEnabled,
   adminSetChatFoldersEnabled,
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
@@ -91,23 +84,18 @@ import {
   type AppWordTemplateMeta,
 } from '../features/chat/services/wordTemplate.service'
 
-function formatSubscriptionPlanDailyTierSummary(plan: SubscriptionPlanRow): string {
-  const t1 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier1_openai_model_id ?? null)
-  const t2 = parseChatDailyTierOpenAiModelId(plan.chat_daily_tier2_openai_model_id ?? null)
-  const b =
-    typeof plan.chat_daily_tier1_token_budget === 'number' && Number.isFinite(plan.chat_daily_tier1_token_budget)
-      ? Math.max(0, Math.floor(plan.chat_daily_tier1_token_budget))
-      : 50_000
-  const l1 = getChatDailyTierOpenAiModelLabel(t1)
-  const l2 = getChatDailyTierOpenAiModelLabel(t2)
-  return `OpenAI Tages-Staffel: erste ${b.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
-}
-
-function formatSubscriptionPlanThinkingTierSummary(plan: SubscriptionPlanRow): string {
-  const cfg = parseThinkingTierConfigFromPlan(plan)
-  const l1 = getChatDailyTierOpenAiModelLabel(cfg.tier1ModelId)
-  const l2 = getChatDailyTierOpenAiModelLabel(cfg.tier2ModelId)
-  return `Thinking OpenAI-Staffel: erste ${cfg.tier1TokenBudget.toLocaleString('de-DE')} Nutzungs-Tokens → ${l1}, danach → ${l2}`
+function formatSubscriptionPlanSmartInstantSummary(plan: SubscriptionPlanRow): string {
+  const daily =
+    plan.max_tokens != null ? `${plan.max_tokens.toLocaleString('de-DE')}/Tag` : 'unbegrenzt'
+  const start =
+    typeof plan.instant_token_start_balance === 'number'
+      ? plan.instant_token_start_balance.toLocaleString('de-DE')
+      : '0'
+  const cap =
+    typeof plan.instant_token_balance_max === 'number'
+      ? plan.instant_token_balance_max.toLocaleString('de-DE')
+      : MAX_TOKEN_BALANCE.toLocaleString('de-DE')
+  return `Smart Instant: ${daily}, Start-Guthaben ${start}, Guthaben-Limit ${cap} (Rest des Tages → Guthaben)`
 }
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -227,19 +215,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanChatContextMaxTokens, setNewPlanChatContextMaxTokens] = useState(
     String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS),
   )
-  const [newPlanAllowModelChoice, setNewPlanAllowModelChoice] = useState(true)
+  const [newPlanInstantTokenStartBalance, setNewPlanInstantTokenStartBalance] = useState('0')
+  const [newPlanInstantTokenBalanceMax, setNewPlanInstantTokenBalanceMax] = useState(
+    String(MAX_TOKEN_BALANCE),
+  )
   const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
     useState<SubscriptionImageGenerationModelId>('gpt_image_1')
-  const [newPlanTier1OpenAiModelId, setNewPlanTier1OpenAiModelId] =
-    useState<ChatDailyTierOpenAiModelId>('gpt-5.4')
-  const [newPlanTier1TokenBudget, setNewPlanTier1TokenBudget] = useState('50000')
-  const [newPlanTier2OpenAiModelId, setNewPlanTier2OpenAiModelId] =
-    useState<ChatDailyTierOpenAiModelId>('gpt-5.4-mini')
-  const [newPlanThinkingTier1OpenAiModelId, setNewPlanThinkingTier1OpenAiModelId] =
-    useState<ChatDailyTierOpenAiModelId>('gpt-5.4')
-  const [newPlanThinkingTier1TokenBudget, setNewPlanThinkingTier1TokenBudget] = useState('50000')
-  const [newPlanThinkingTier2OpenAiModelId, setNewPlanThinkingTier2OpenAiModelId] =
-    useState<ChatDailyTierOpenAiModelId>('gpt-5.4-mini')
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [editPlanDraft, setEditPlanDraft] = useState<{
@@ -249,10 +230,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     maxImages: string
     maxFiles: string
     imageGenerationModel: SubscriptionImageGenerationModelId
-    allowModelChoice: boolean
-    tier1OpenAiModelId: ChatDailyTierOpenAiModelId
-    tier1TokenBudget: string
-    tier2OpenAiModelId: ChatDailyTierOpenAiModelId
     chatContextMaxTokens: string
     webSearchDailyGrant: string
     imageStartBalance: string
@@ -260,9 +237,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     thinkingStartBalance: string
     thinkingDailyGrant: string
     thinkingCreditMax: string
-    thinkingTier1OpenAiModelId: ChatDailyTierOpenAiModelId
-    thinkingTier1TokenBudget: string
-    thinkingTier2OpenAiModelId: ChatDailyTierOpenAiModelId
+    instantTokenStartBalance: string
+    instantTokenBalanceMax: string
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -297,6 +273,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [chatFoldersEnabled, setChatFoldersEnabled] = useState(true)
   const [isLoadingChatFoldersToggle, setIsLoadingChatFoldersToggle] = useState(false)
   const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
+  const [geminiInstantEnabled, setGeminiInstantEnabled] = useState(false)
+  const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
+  const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
   const [learnAiModelActive, setLearnAiModelActive] = useState<
@@ -525,6 +504,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersEnabled(flags.chat_folders_enabled)
+        setGeminiInstantEnabled(flags.gemini_instant_enabled)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -851,6 +831,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  function parseOptionalInstantTokenBalance(raw: string): number | null {
+    const n = parseOptionalNonNegativeInt(raw)
+    if (n === null) {
+      return null
+    }
+    if (n > 10_000_000) {
+      return null
+    }
+    return n
+  }
+
   function parseOptionalNonNegativeInt(raw: string): number | null {
     const t = raw.trim()
     if (!t) {
@@ -913,7 +904,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     const maxFiles = parseOptionalNonNegativeInt(newPlanMaxFiles)
 
     if (newPlanMaxTokens.trim() && maxTokens === null) {
-      setSubscriptionPlansError('Max Tokens muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      setSubscriptionPlansError(
+        'Smart Instant: Max. Tokens pro Tag muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).',
+      )
+      return
+    }
+    const instantTokenStartBalance = parseOptionalInstantTokenBalance(newPlanInstantTokenStartBalance)
+    if (newPlanInstantTokenStartBalance.trim() && instantTokenStartBalance === null) {
+      setSubscriptionPlansError('Smart Instant Start-Guthaben: ganze Zahl 0–10 000 000.')
+      return
+    }
+    const instantTokenBalanceMax = parseOptionalInstantTokenBalance(newPlanInstantTokenBalanceMax)
+    if (newPlanInstantTokenBalanceMax.trim() && instantTokenBalanceMax === null) {
+      setSubscriptionPlansError('Smart Instant Guthaben-Limit: ganze Zahl 0–10 000 000.')
       return
     }
     if (newPlanMaxImages.trim() && maxImages === null) {
@@ -953,44 +956,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
     const thinkingStartBalance = parseOptionalPlanCreditField(newPlanThinkingStartBalance)
     if (newPlanThinkingStartBalance.trim() && thinkingStartBalance === null) {
-      setSubscriptionPlansError('Thinking Start-Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Start Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const thinkingDailyGrant = parseOptionalPlanCreditField(newPlanThinkingDailyGrant)
     if (newPlanThinkingDailyGrant.trim() && thinkingDailyGrant === null) {
-      setSubscriptionPlansError('Thinking pro Tag: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Tokens Limit pro Tag: ganze Zahl 0–10 000.')
       return
     }
     const thinkingCreditMax = parseOptionalPlanCreditField(newPlanThinkingCreditMax)
     if (newPlanThinkingCreditMax.trim() && thinkingCreditMax === null) {
-      setSubscriptionPlansError('Thinking max. Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Guthaben Limit: ganze Zahl 0–10 000.')
       return
-    }
-
-    let tier1Budget = 50_000
-    if (!newPlanAllowModelChoice) {
-      if (newPlanTier1TokenBudget.trim()) {
-        const tb = parseOptionalNonNegativeInt(newPlanTier1TokenBudget)
-        if (tb === null) {
-          setSubscriptionPlansError(
-            'Tier-1 Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
-          )
-          return
-        }
-        tier1Budget = tb
-      }
-    }
-
-    let thinkingTier1Budget = 50_000
-    if (newPlanThinkingTier1TokenBudget.trim()) {
-      const tbThink = parseOptionalNonNegativeInt(newPlanThinkingTier1TokenBudget)
-      if (tbThink === null) {
-        setSubscriptionPlansError(
-          'Thinking Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
-        )
-        return
-      }
-      thinkingTier1Budget = tbThink
     }
 
     setSubscriptionPlansError(null)
@@ -1002,10 +979,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxImages,
         maxFiles,
         imageGenerationModel: newPlanImageGenerationModel,
-        chatAllowModelChoice: newPlanAllowModelChoice,
-        chatDailyTier1OpenAiModelId: newPlanTier1OpenAiModelId,
-        chatDailyTier1TokenBudget: tier1Budget,
-        chatDailyTier2OpenAiModelId: newPlanTier2OpenAiModelId,
         chatContextMaxTokens,
         webSearchDailyGrant,
         imageStartBalance: imageStartBalance ?? 0,
@@ -1013,9 +986,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingStartBalance: thinkingStartBalance ?? 0,
         thinkingDailyGrant: thinkingDailyGrant ?? 0,
         thinkingCreditMax: thinkingCreditMax ?? 10,
-        thinkingTier1OpenAiModelId: newPlanThinkingTier1OpenAiModelId,
-        thinkingTier1TokenBudget: thinkingTier1Budget,
-        thinkingTier2OpenAiModelId: newPlanThinkingTier2OpenAiModelId,
+        instantTokenStartBalance: instantTokenStartBalance ?? 0,
+        instantTokenBalanceMax: instantTokenBalanceMax ?? MAX_TOKEN_BALANCE,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -1031,14 +1003,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanThinkingDailyGrant('3')
       setNewPlanThinkingCreditMax('10')
       setNewPlanChatContextMaxTokens(String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS))
-      setNewPlanAllowModelChoice(true)
+      setNewPlanInstantTokenStartBalance('0')
+      setNewPlanInstantTokenBalanceMax(String(MAX_TOKEN_BALANCE))
       setNewPlanImageGenerationModel('gpt_image_1')
-      setNewPlanTier1OpenAiModelId('gpt-5.4')
-      setNewPlanTier1TokenBudget('50000')
-      setNewPlanTier2OpenAiModelId('gpt-5.4-mini')
-      setNewPlanThinkingTier1OpenAiModelId('gpt-5.4')
-      setNewPlanThinkingTier1TokenBudget('50000')
-      setNewPlanThinkingTier2OpenAiModelId('gpt-5.4-mini')
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
     } finally {
@@ -1060,7 +1027,21 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     const maxFiles = parseOptionalNonNegativeInt(editPlanDraft.maxFiles)
 
     if (editPlanDraft.maxTokens.trim() && maxTokens === null) {
-      setSubscriptionPlansError('Max Tokens muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      setSubscriptionPlansError(
+        'Smart Instant: Max. Tokens pro Tag muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).',
+      )
+      return
+    }
+    const instantTokenStartBalance = parseOptionalInstantTokenBalance(
+      editPlanDraft.instantTokenStartBalance,
+    )
+    if (editPlanDraft.instantTokenStartBalance.trim() && instantTokenStartBalance === null) {
+      setSubscriptionPlansError('Smart Instant Start-Guthaben: ganze Zahl 0–10 000 000.')
+      return
+    }
+    const instantTokenBalanceMax = parseOptionalInstantTokenBalance(editPlanDraft.instantTokenBalanceMax)
+    if (editPlanDraft.instantTokenBalanceMax.trim() && instantTokenBalanceMax === null) {
+      setSubscriptionPlansError('Smart Instant Guthaben-Limit: ganze Zahl 0–10 000 000.')
       return
     }
     if (editPlanDraft.maxImages.trim() && maxImages === null) {
@@ -1100,44 +1081,18 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
     const thinkingStartBalance = parseOptionalPlanCreditField(editPlanDraft.thinkingStartBalance)
     if (editPlanDraft.thinkingStartBalance.trim() && thinkingStartBalance === null) {
-      setSubscriptionPlansError('Thinking Start-Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Start Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const thinkingDailyGrant = parseOptionalPlanCreditField(editPlanDraft.thinkingDailyGrant)
     if (editPlanDraft.thinkingDailyGrant.trim() && thinkingDailyGrant === null) {
-      setSubscriptionPlansError('Thinking pro Tag: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Tokens Limit pro Tag: ganze Zahl 0–10 000.')
       return
     }
     const thinkingCreditMax = parseOptionalPlanCreditField(editPlanDraft.thinkingCreditMax)
     if (editPlanDraft.thinkingCreditMax.trim() && thinkingCreditMax === null) {
-      setSubscriptionPlansError('Thinking max. Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Guthaben Limit: ganze Zahl 0–10 000.')
       return
-    }
-
-    let tier1Budget = 50_000
-    if (!editPlanDraft.allowModelChoice) {
-      if (editPlanDraft.tier1TokenBudget.trim()) {
-        const tb = parseOptionalNonNegativeInt(editPlanDraft.tier1TokenBudget)
-        if (tb === null) {
-          setSubscriptionPlansError(
-            'Tier-1 Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
-          )
-          return
-        }
-        tier1Budget = tb
-      }
-    }
-
-    let thinkingTier1Budget = 50_000
-    if (editPlanDraft.thinkingTier1TokenBudget.trim()) {
-      const tbThink = parseOptionalNonNegativeInt(editPlanDraft.thinkingTier1TokenBudget)
-      if (tbThink === null) {
-        setSubscriptionPlansError(
-          'Thinking Token-Budget: ganze Zahl ≥ 0 (Nutzungs-Tokens laut Zähler pro Tag).',
-        )
-        return
-      }
-      thinkingTier1Budget = tbThink
     }
 
     setSubscriptionPlansError(null)
@@ -1150,10 +1105,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         maxImages,
         maxFiles,
         imageGenerationModel: editPlanDraft.imageGenerationModel,
-        chatAllowModelChoice: editPlanDraft.allowModelChoice,
-        chatDailyTier1OpenAiModelId: editPlanDraft.tier1OpenAiModelId,
-        chatDailyTier1TokenBudget: tier1Budget,
-        chatDailyTier2OpenAiModelId: editPlanDraft.tier2OpenAiModelId,
         chatContextMaxTokens,
         webSearchDailyGrant,
         imageStartBalance: imageStartBalance ?? 0,
@@ -1161,9 +1112,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingStartBalance: thinkingStartBalance ?? 0,
         thinkingDailyGrant: thinkingDailyGrant ?? 0,
         thinkingCreditMax: thinkingCreditMax ?? 10,
-        thinkingTier1OpenAiModelId: editPlanDraft.thinkingTier1OpenAiModelId,
-        thinkingTier1TokenBudget: thinkingTier1Budget,
-        thinkingTier2OpenAiModelId: editPlanDraft.thinkingTier2OpenAiModelId,
+        instantTokenStartBalance: instantTokenStartBalance ?? 0,
+        instantTokenBalanceMax: instantTokenBalanceMax ?? MAX_TOKEN_BALANCE,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -1496,6 +1446,27 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setSubscriptionPlansError(getErrorMessage(err, 'Lernbereich-Hinweis konnte nicht umgeschaltet werden.'))
     } finally {
       setIsLoadingLearnAreaBannerToggle(false)
+    }
+  }
+
+  async function handleToggleGeminiInstantEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setGeminiInstantInfo(null)
+    setIsLoadingGeminiInstantToggle(true)
+    try {
+      await adminSetGeminiInstantEnabled(nextEnabled)
+      setGeminiInstantEnabled(nextEnabled)
+      setGeminiInstantInfo(
+        nextEnabled
+          ? 'Smart Instant nutzt Gemini (Intent + Antwort) für alle Nutzer.'
+          : 'Smart Instant nutzt wieder OpenAI (Composer-Modell).',
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Gemini Instant konnte nicht umgeschaltet werden.'),
+      )
+    } finally {
+      setIsLoadingGeminiInstantToggle(false)
     }
   }
 
@@ -1910,6 +1881,31 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               </div>
               <div className="chat-setting-row chat-setting-row--stacked">
                 <div className="chat-setting-copy">
+                  <h3>Smart Instant: Gemini</h3>
+                  <p>
+                    Schaltet Intent und Hauptchat-Antworten auf Gemini (3.1 Flash Lite). Gilt für alle Nutzer nach
+                    Reload; Edge liest dieselbe Einstellung aus der Datenbank. Secret GEMINI_API_KEY bleibt nötig.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${geminiInstantEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={geminiInstantEnabled}
+                  aria-label="Gemini Instant aktivieren"
+                  disabled={isLoadingGeminiInstantToggle}
+                  onClick={() => {
+                    void handleToggleGeminiInstantEnabled(!geminiInstantEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              {geminiInstantInfo ? <p className="learn-muted">{geminiInstantInfo}</p> : null}
+              <div className="chat-setting-row chat-setting-row--stacked">
+                <div className="chat-setting-copy">
                   <h3>Instant-Analyse-Debug (Chat)</h3>
                   <p>
                     Zeigt Superadmins unter eigenen Chat-Nachrichten die Einordnung (Schritt 1): Web ja/nein,
@@ -2218,10 +2214,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             <div className="admin-users-panel">
               <p className="admin-users-warning">
                 Daten stammen aus der Tabelle <code>ai_token_usage</code> (von der Edge Function{' '}
-                <strong>chat-completion</strong> geschrieben).                 Oben: jüngste Zeile pro Nutzer <strong>ohne</strong> Modus{' '}
-                <code>generate_title</code> (sonst überschreibt die OpenAI-Titel-Zeile den Chat mit Claude/OpenAI).
-                Unten: <strong>kumulierte</strong> Token nach Nutzer und
-                Modell. Geschätzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewähr). Voraussetzung:
+                <strong>chat-completion</strong> geschrieben).                 Oben: nur die <strong>jüngste</strong> Zeile pro Nutzer (kein vollständiges Protokoll), ohne Modus{' '}
+                <code>generate_title</code>. Darunter: <strong>Anfragen-Protokoll</strong> mit jeder einzelnen Anfrage
+                (Modus, Provider, Modell) — Nutzer aufklappen. Provider <code>gemini</code> seit Migration{' '}
+                <code>20260602130000_ai_token_usage_gemini_provider</code>. Kumulierte Token nach Nutzer/Modell.
+                Geschätzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewähr). Voraussetzung:
                 Migrationen inkl. <code>ai_token_usage</code> und Secret{' '}
                 <code>SUPABASE_SERVICE_ROLE_KEY</code> für die Function.
               </p>
@@ -2747,7 +2744,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       <div className="admin-subscriptions-info">
                         <span className="admin-subscriptions-name">{plan.name}</span>
                         <p className="admin-subscriptions-meta">
-                          Tokens: {plan.max_tokens ?? 'unbegrenzt'} · Bilder:{' '}
+                          {formatSubscriptionPlanSmartInstantSummary(plan)}
+                          <br />
+                          Bilder:{' '}
                           {plan.max_images != null
                             ? `Start ${plan.image_start_balance ?? 0}, +${plan.max_images}/Tag, max. ${plan.image_credit_max ?? 60}`
                             : 'unbegrenzt'}{' '}
@@ -2764,23 +2763,13 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             ? `+${plan.web_search_daily_grant}/Tag (Guthaben max. 50)`
                             : 'keine tägliche Aufladung'}
                           <br />
-                          Thinking: Start {plan.thinking_start_balance ?? 0}, +
-                          {plan.thinking_daily_grant ?? 0}/Tag, max. {plan.thinking_credit_max ?? 10}
-                          <br />
-                          {formatSubscriptionPlanThinkingTierSummary(plan)}
+                          Thinking: Start Guthaben {plan.thinking_start_balance ?? 0}, Tokens/Tag{' '}
+                          {plan.thinking_daily_grant ?? 0}, Guthaben-Limit {plan.thinking_credit_max ?? 10}
                           <br />
                           Bildgenerator:{' '}
                           {labelForSubscriptionImageGenerationModel(
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
                           )}
-                          <br />
-                          Modellwahl: {plan.chat_allow_model_choice !== false ? 'Nutzer wählt' : 'gesperrt (Tages-Staffel)'}
-                          {plan.chat_allow_model_choice === false ? (
-                            <>
-                              <br />
-                              {formatSubscriptionPlanDailyTierSummary(plan)}
-                            </>
-                          ) : null}
                         </p>
                       </div>
                       <div className="admin-subscriptions-row-actions">
@@ -2797,17 +2786,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                               maxImages: plan.max_images != null ? String(plan.max_images) : '',
                               maxFiles: plan.max_files != null ? String(plan.max_files) : '',
                               imageGenerationModel: parseSubscriptionImageGenerationModelId(plan.image_generation_model),
-                              allowModelChoice: plan.chat_allow_model_choice !== false,
-                              tier1OpenAiModelId: parseChatDailyTierOpenAiModelId(
-                                plan.chat_daily_tier1_openai_model_id ?? null,
-                              ),
-                              tier1TokenBudget:
-                                plan.chat_daily_tier1_token_budget != null
-                                  ? String(plan.chat_daily_tier1_token_budget)
-                                  : '50000',
-                              tier2OpenAiModelId: parseChatDailyTierOpenAiModelId(
-                                plan.chat_daily_tier2_openai_model_id ?? null,
-                              ),
                               chatContextMaxTokens:
                                 typeof plan.chat_context_max_tokens === 'number'
                                   ? String(plan.chat_context_max_tokens)
@@ -2836,16 +2814,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 typeof plan.thinking_credit_max === 'number'
                                   ? String(plan.thinking_credit_max)
                                   : '10',
-                              thinkingTier1OpenAiModelId: parseChatDailyTierOpenAiModelId(
-                                plan.thinking_tier1_openai_model_id ?? null,
-                              ),
-                              thinkingTier1TokenBudget:
-                                plan.thinking_tier1_token_budget != null
-                                  ? String(plan.thinking_tier1_token_budget)
-                                  : '50000',
-                              thinkingTier2OpenAiModelId: parseChatDailyTierOpenAiModelId(
-                                plan.thinking_tier2_openai_model_id ?? null,
-                              ),
+                              instantTokenStartBalance:
+                                typeof plan.instant_token_start_balance === 'number'
+                                  ? String(plan.instant_token_start_balance)
+                                  : '0',
+                              instantTokenBalanceMax:
+                                typeof plan.instant_token_balance_max === 'number'
+                                  ? String(plan.instant_token_balance_max)
+                                  : String(MAX_TOKEN_BALANCE),
                             })
                           }}
                         >
@@ -3110,6 +3086,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <strong>OPENAI_API_KEY</strong> — Hauptchat (z. B. GPT-5 mini)
                   </li>
                   <li>
+                    <strong>GEMINI_API_KEY</strong> — Dokument-Extraktion (PDF/DOCX/XLSX) und künftig Smart Instant (
+                    <code>gemini-3.1-flash-lite</code>, sparsam <code>gemini-2.5-flash</code>)
+                  </li>
+                  <li>
+                    <strong>GEMINI_INSTANT_ENABLED</strong> — optional Edge-Fallback; primär: Admin «Smart Instant:
+                    Gemini» (DB <code>gemini_instant_enabled</code>)
+                  </li>
+                  <li>
                     <strong>ANTHROPIC_API_KEY</strong> — nur falls im Lernbereich ein Claude-Modell gewählt wird
                   </li>
                   <li>
@@ -3188,10 +3172,11 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           {activeSection === 'wordTemplate' ? (
             <div className="admin-word-template-panel">
               <p className="admin-users-warning">
-                Eine .docx-Datei mit euren Formatvorlagen (Überschriften, Fließtext). Im Body den Platzhalter{' '}
-                <code>[[STRATON_WORD_BODY]]</code> einfügen — der KI-Chat füllt dort die Gliederung ein. Fehlt der
-                Platzhalter, wird der Inhalt vor dem Ende des Dokumentkörpers eingefügt. Es werden die
-                Word-Standardstile <code>Heading1</code>–<code>Heading6</code> und normaler Fließtext referenziert.
+                Eine .docx-Datei mit euren Formatvorlagen. Im Body den Platzhalter{' '}
+                <code>[[STRATON_WORD_BODY]]</code> als eigener Absatz einfügen (nicht mitten im Fliesstext) — der
+                KI-Chat ersetzt diesen Absatz durch den Inhalt. Verwendet werden nur Absatzstile aus der Vorlage, z. B.{' '}
+                <strong>Überschrift 1</strong>, <strong>Überschrift 2</strong> und <strong>Text</strong> (keine
+                eigene Schriftgrösse/Farbe im Code).
               </p>
               {wordTemplateError ? <p className="error-text">{wordTemplateError}</p> : null}
               {wordTemplateLoading ? <p>Status wird geladen…</p> : null}
@@ -3456,7 +3441,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanName(event.target.value)}
                     />
 
-                    <label htmlFor="admin-new-subscription-max-tokens">Max Tokens</label>
+                    <label htmlFor="admin-new-subscription-max-tokens">Smart Instant: Max. Tokens pro Tag</label>
                     <input
                       id="admin-new-subscription-max-tokens"
                       type="number"
@@ -3466,6 +3451,34 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       placeholder="leer = unbegrenzt"
                       value={newPlanMaxTokens}
                       onChange={(event) => setNewPlanMaxTokens(event.target.value)}
+                    />
+                    <p className="admin-users-hint">
+                      Verfügbar pro UTC-Tag: Guthaben + dieser Wert. Ungenutzte Tokens des Tages werden ins
+                      Guthaben übernommen (gecappt mit Guthaben-Limit).
+                    </p>
+
+                    <label htmlFor="admin-new-instant-token-start">Smart Instant: Start-Guthaben</label>
+                    <input
+                      id="admin-new-instant-token-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10_000_000}
+                      step={1}
+                      value={newPlanInstantTokenStartBalance}
+                      onChange={(event) => setNewPlanInstantTokenStartBalance(event.target.value)}
+                    />
+
+                    <label htmlFor="admin-new-instant-token-max">Smart Instant: Guthaben-Limit</label>
+                    <input
+                      id="admin-new-instant-token-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10_000_000}
+                      step={1}
+                      value={newPlanInstantTokenBalanceMax}
+                      onChange={(event) => setNewPlanInstantTokenBalanceMax(event.target.value)}
                     />
 
                     <label htmlFor="admin-new-subscription-max-images">Bilder: Aufladung pro Tag (+/Tag)</label>
@@ -3507,7 +3520,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanImageCreditMax(event.target.value)}
                     />
 
-                    <label htmlFor="admin-new-subscription-thinking-start">Thinking: Start-Guthaben</label>
+                    <label htmlFor="admin-new-subscription-thinking-start">Thinking Start Guthaben</label>
                     <input
                       id="admin-new-subscription-thinking-start"
                       type="number"
@@ -3519,7 +3532,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanThinkingStartBalance(event.target.value)}
                     />
 
-                    <label htmlFor="admin-new-subscription-thinking-daily">Thinking: Anfragen pro Tag (+/Tag)</label>
+                    <label htmlFor="admin-new-subscription-thinking-daily">Thinking Tokens Limit pro Tag</label>
                     <input
                       id="admin-new-subscription-thinking-daily"
                       type="number"
@@ -3531,7 +3544,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanThinkingDailyGrant(event.target.value)}
                     />
 
-                    <label htmlFor="admin-new-subscription-thinking-max">Thinking: max. Guthaben (Deckel)</label>
+                    <label htmlFor="admin-new-subscription-thinking-max">Thinking Guthaben Limit</label>
                     <input
                       id="admin-new-subscription-thinking-max"
                       type="number"
@@ -3543,56 +3556,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       onChange={(event) => setNewPlanThinkingCreditMax(event.target.value)}
                     />
                     <p className="admin-users-hint">
-                      Eine Thinking-Anfrage = ein Senden im Thinking-Modus (Start bei Abo-Zuweisung).
+                      Täglich (UTC) wird Tokens Limit pro Tag zum Guthaben addiert (Deckel: Guthaben Limit). Ein
+                      Thinking-Senden verbraucht 1 Guthaben. Start Guthaben bei Abo-Zuweisung.
                     </p>
-
-                    <p className="admin-users-hint subscription-plan-tier-intro">
-                      Thinking-Modus (OpenAI): nach Verbrauch in{' '}
-                      <code>subscription_usages.used_tokens</code> pro Tag — erstes Modell bis zum Budget, danach
-                      zweites Modell.
-                    </p>
-                    <label htmlFor="admin-new-thinking-tier1-openai-model">Thinking: erstes OpenAI-Modell</label>
-                    <select
-                      id="admin-new-thinking-tier1-openai-model"
-                      className="admin-user-subscription-select"
-                      value={newPlanThinkingTier1OpenAiModelId}
-                      onChange={(event) =>
-                        setNewPlanThinkingTier1OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
-                      }
-                    >
-                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label htmlFor="admin-new-thinking-tier1-token-budget">Thinking: Token-Budget (Tier 1)</label>
-                    <input
-                      id="admin-new-thinking-tier1-token-budget"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      value={newPlanThinkingTier1TokenBudget}
-                      onChange={(event) => setNewPlanThinkingTier1TokenBudget(event.target.value)}
-                    />
-
-                    <label htmlFor="admin-new-thinking-tier2-openai-model">Thinking: zweites OpenAI-Modell</label>
-                    <select
-                      id="admin-new-thinking-tier2-openai-model"
-                      className="admin-user-subscription-select"
-                      value={newPlanThinkingTier2OpenAiModelId}
-                      onChange={(event) =>
-                        setNewPlanThinkingTier2OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
-                      }
-                    >
-                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
 
                     <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
                     <select
@@ -3655,73 +3621,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     </p>
                   </div>
 
-                  <div className="subscription-plan-modal-col">
-                    <label className="admin-subscriptions-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={newPlanAllowModelChoice}
-                        onChange={(event) => setNewPlanAllowModelChoice(event.target.checked)}
-                      />{' '}
-                      Nutzer dürfen das Chat-KI-Modell selbst wählen
-                    </label>
-
-                    {newPlanAllowModelChoice ? (
-                      <p className="admin-users-hint subscription-plan-tier-intro">
-                        OpenAI-Tages-Staffel (Tier 1 / 2) ist ausgeblendet — im Chat gilt die gewählte Modell-Pille
-                        (GPT oder Claude).
-                      </p>
-                    ) : (
-                      <>
-                        <p className="admin-users-hint subscription-plan-tier-intro">
-                          OpenAI-Hauptchat (pro Kalendertag): nach Verbrauch in{' '}
-                          <code>subscription_usages.used_tokens</code> — erstes Modell bis zum Budget, danach zweites
-                          Modell. Keine freie Modellwahl im Chat.
-                        </p>
-                        <label htmlFor="admin-new-tier1-openai-model">Erstes OpenAI-Modell (bis Token-Budget)</label>
-                        <select
-                          id="admin-new-tier1-openai-model"
-                          className="admin-user-subscription-select"
-                          value={newPlanTier1OpenAiModelId}
-                          onChange={(event) =>
-                            setNewPlanTier1OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
-                          }
-                        >
-                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </select>
-
-                        <label htmlFor="admin-new-tier1-token-budget">Token-Budget Tier 1 (pro Tag)</label>
-                        <input
-                          id="admin-new-tier1-token-budget"
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          step={1}
-                          value={newPlanTier1TokenBudget}
-                          onChange={(event) => setNewPlanTier1TokenBudget(event.target.value)}
-                        />
-
-                        <label htmlFor="admin-new-tier2-openai-model">Zweites OpenAI-Modell (ab Budget)</label>
-                        <select
-                          id="admin-new-tier2-openai-model"
-                          className="admin-user-subscription-select"
-                          value={newPlanTier2OpenAiModelId}
-                          onChange={(event) =>
-                            setNewPlanTier2OpenAiModelId(event.target.value as ChatDailyTierOpenAiModelId)
-                          }
-                        >
-                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </select>
-                      </>
-                    )}
-                  </div>
+                  <div className="subscription-plan-modal-col" />
                 </div>
 
                 <div className="rename-actions subscription-plan-modal-actions">
@@ -3789,7 +3689,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
 
-                    <label htmlFor="admin-edit-subscription-max-tokens">Max Tokens</label>
+                    <label htmlFor="admin-edit-subscription-max-tokens">Smart Instant: Max. Tokens pro Tag</label>
                     <input
                       id="admin-edit-subscription-max-tokens"
                       type="number"
@@ -3800,6 +3700,41 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       value={editPlanDraft.maxTokens}
                       onChange={(event) =>
                         setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
+                      }
+                    />
+                    <p className="admin-users-hint">
+                      Verfügbar pro UTC-Tag: Guthaben + dieser Wert. Rest des Tages → Guthaben (Limit siehe unten).
+                    </p>
+
+                    <label htmlFor="admin-edit-instant-token-start">Smart Instant: Start-Guthaben</label>
+                    <input
+                      id="admin-edit-instant-token-start"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10_000_000}
+                      step={1}
+                      value={editPlanDraft.instantTokenStartBalance}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, instantTokenStartBalance: event.target.value } : null,
+                        )
+                      }
+                    />
+
+                    <label htmlFor="admin-edit-instant-token-max">Smart Instant: Guthaben-Limit</label>
+                    <input
+                      id="admin-edit-instant-token-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10_000_000}
+                      step={1}
+                      value={editPlanDraft.instantTokenBalanceMax}
+                      onChange={(event) =>
+                        setEditPlanDraft((prev) =>
+                          prev ? { ...prev, instantTokenBalanceMax: event.target.value } : null,
+                        )
                       }
                     />
 
@@ -3852,7 +3787,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
 
-                    <label htmlFor="admin-edit-subscription-thinking-start">Thinking: Start-Guthaben</label>
+                    <label htmlFor="admin-edit-subscription-thinking-start">Thinking Start Guthaben</label>
                     <input
                       id="admin-edit-subscription-thinking-start"
                       type="number"
@@ -3868,7 +3803,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
 
-                    <label htmlFor="admin-edit-subscription-thinking-daily">Thinking: Anfragen pro Tag (+/Tag)</label>
+                    <label htmlFor="admin-edit-subscription-thinking-daily">Thinking Tokens Limit pro Tag</label>
                     <input
                       id="admin-edit-subscription-thinking-daily"
                       type="number"
@@ -3884,7 +3819,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
 
-                    <label htmlFor="admin-edit-subscription-thinking-max">Thinking: max. Guthaben (Deckel)</label>
+                    <label htmlFor="admin-edit-subscription-thinking-max">Thinking Guthaben Limit</label>
                     <input
                       id="admin-edit-subscription-thinking-max"
                       type="number"
@@ -3900,74 +3835,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                       }
                     />
                     <p className="admin-users-hint">
-                      Eine Thinking-Anfrage = ein Senden im Thinking-Modus. Start-Guthaben gilt bei neuer Abo-Zuweisung.
+                      Täglich (UTC) Tokens Limit pro Tag → Guthaben (max. Guthaben Limit). Ein Thinking-Senden = 1
+                      Guthaben. Start Guthaben bei neuer Abo-Zuweisung.
                     </p>
-
-                    <p className="admin-users-hint subscription-plan-tier-intro">
-                      Thinking-Modus (OpenAI): nach Verbrauch in{' '}
-                      <code>subscription_usages.used_tokens</code> pro Tag — erstes Modell bis zum Budget, danach
-                      zweites Modell.
-                    </p>
-                    <label htmlFor="admin-edit-thinking-tier1-openai-model">Thinking: erstes OpenAI-Modell</label>
-                    <select
-                      id="admin-edit-thinking-tier1-openai-model"
-                      className="admin-user-subscription-select"
-                      value={editPlanDraft.thinkingTier1OpenAiModelId}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                thinkingTier1OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
-                              }
-                            : null,
-                        )
-                      }
-                    >
-                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label htmlFor="admin-edit-thinking-tier1-token-budget">Thinking: Token-Budget (Tier 1)</label>
-                    <input
-                      id="admin-edit-thinking-tier1-token-budget"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      value={editPlanDraft.thinkingTier1TokenBudget}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, thinkingTier1TokenBudget: event.target.value } : null,
-                        )
-                      }
-                    />
-
-                    <label htmlFor="admin-edit-thinking-tier2-openai-model">Thinking: zweites OpenAI-Modell</label>
-                    <select
-                      id="admin-edit-thinking-tier2-openai-model"
-                      className="admin-user-subscription-select"
-                      value={editPlanDraft.thinkingTier2OpenAiModelId}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                thinkingTier2OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
-                              }
-                            : null,
-                        )
-                      }
-                    >
-                      {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
 
                     <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
                     <select
@@ -4047,95 +3917,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     </p>
                   </div>
 
-                  <div className="subscription-plan-modal-col">
-                    <label className="admin-subscriptions-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={editPlanDraft.allowModelChoice}
-                        onChange={(event) =>
-                          setEditPlanDraft((prev) =>
-                            prev ? { ...prev, allowModelChoice: event.target.checked } : null,
-                          )
-                        }
-                      />{' '}
-                      Nutzer dürfen das Chat-KI-Modell selbst wählen
-                    </label>
-
-                    {editPlanDraft.allowModelChoice ? (
-                      <p className="admin-users-hint subscription-plan-tier-intro">
-                        OpenAI-Tages-Staffel (Tier 1 / 2) ist ausgeblendet — im Chat gilt die gewählte Modell-Pille
-                        (GPT oder Claude).
-                      </p>
-                    ) : (
-                      <>
-                        <p className="admin-users-hint subscription-plan-tier-intro">
-                          OpenAI-Hauptchat (pro Kalendertag): nach Verbrauch in{' '}
-                          <code>subscription_usages.used_tokens</code> — erstes Modell bis zum Budget, danach zweites
-                          Modell. Keine freie Modellwahl im Chat.
-                        </p>
-                        <label htmlFor="admin-edit-tier1-openai-model">Erstes OpenAI-Modell (bis Token-Budget)</label>
-                        <select
-                          id="admin-edit-tier1-openai-model"
-                          className="admin-user-subscription-select"
-                          value={editPlanDraft.tier1OpenAiModelId}
-                          onChange={(event) =>
-                            setEditPlanDraft((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    tier1OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
-                                  }
-                                : null,
-                            )
-                          }
-                        >
-                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </select>
-
-                        <label htmlFor="admin-edit-tier1-token-budget">Token-Budget Tier 1 (pro Tag)</label>
-                        <input
-                          id="admin-edit-tier1-token-budget"
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          step={1}
-                          value={editPlanDraft.tier1TokenBudget}
-                          onChange={(event) =>
-                            setEditPlanDraft((prev) =>
-                              prev ? { ...prev, tier1TokenBudget: event.target.value } : null,
-                            )
-                          }
-                        />
-
-                        <label htmlFor="admin-edit-tier2-openai-model">Zweites OpenAI-Modell (ab Budget)</label>
-                        <select
-                          id="admin-edit-tier2-openai-model"
-                          className="admin-user-subscription-select"
-                          value={editPlanDraft.tier2OpenAiModelId}
-                          onChange={(event) =>
-                            setEditPlanDraft((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    tier2OpenAiModelId: event.target.value as ChatDailyTierOpenAiModelId,
-                                  }
-                                : null,
-                            )
-                          }
-                        >
-                          {CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </select>
-                      </>
-                    )}
-                  </div>
+                  <div className="subscription-plan-modal-col" />
                 </div>
 
                 <div className="rename-actions subscription-plan-modal-actions">

@@ -24,6 +24,7 @@ export function resolveThinkingMediaRouteFromHeuristics(
     wantsWord: false,
     wantsPdf: false,
     wantsExcel: false,
+    wantsChart: false,
     imageGenPrompt: null,
     imageGenEmpty: false,
     imageSearchQuery: null,
@@ -83,6 +84,7 @@ export function thinkingMediaRouteOverridesActive(route: InstantRouteOverrides):
     route.wantsWord ||
     route.wantsPdf ||
     route.wantsExcel ||
+    route.wantsChart ||
     route.imageGenEmpty ||
     Boolean(route.imageGenPrompt) ||
     Boolean(route.imageSearchQuery)

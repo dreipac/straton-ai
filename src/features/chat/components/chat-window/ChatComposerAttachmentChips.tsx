@@ -6,11 +6,13 @@ type ChatComposerAttachmentChipsProps = {
   excelCommandSelected: boolean
   wordCommandSelected: boolean
   pdfCommandSelected: boolean
+  chartCommandSelected: boolean
   pendingAttachments: ChatWindowPendingAttachment[]
   onClearImageGen: () => void
   onClearExcel: () => void
   onClearWord: () => void
   onClearPdf: () => void
+  onClearChart: () => void
   onRemoveAttachment: (id: string) => void
   onPreviewImage: (src: string) => void
 }
@@ -20,11 +22,13 @@ export function ChatComposerAttachmentChips({
   excelCommandSelected,
   wordCommandSelected,
   pdfCommandSelected,
+  chartCommandSelected,
   pendingAttachments,
   onClearImageGen,
   onClearExcel,
   onClearWord,
   onClearPdf,
+  onClearChart,
   onRemoveAttachment,
   onPreviewImage,
 }: ChatComposerAttachmentChipsProps) {
@@ -33,7 +37,8 @@ export function ChatComposerAttachmentChips({
     imageGenCommandSelected ||
     excelCommandSelected ||
     wordCommandSelected ||
-    pdfCommandSelected
+    pdfCommandSelected ||
+    chartCommandSelected
 
   if (!visible) {
     return null
@@ -77,6 +82,16 @@ export function ChatComposerAttachmentChips({
             <span className="chat-compose-mode-badge-label">PDF</span>
           </span>
           <button type="button" className="chat-attachment-chip-remove" aria-label="PDF-Befehl entfernen" onClick={onClearPdf}>
+            ×
+          </button>
+        </span>
+      ) : null}
+      {chartCommandSelected ? (
+        <span className="chat-attach-removable">
+          <span className="chat-compose-mode-badge chat-compose-mode-badge--chart" title="Diagramm aktiv">
+            <span className="chat-compose-mode-badge-label">Diagramm</span>
+          </span>
+          <button type="button" className="chat-attachment-chip-remove" aria-label="Diagramm-Befehl entfernen" onClick={onClearChart}>
             ×
           </button>
         </span>

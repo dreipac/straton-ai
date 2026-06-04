@@ -10,7 +10,20 @@ import { ChatAssistantMessageCopyButton } from './ChatAssistantMessageCopyButton
 import { extractAssistantMessageCopyText } from '../../utils/chatMessageCopy'
 import { WordOutlinePaper, WordOutlinePaperBuilding } from '../WordOutlinePaper'
 import { UnsplashPhotoResults } from '../UnsplashPhotoResults'
-import { stripExcelSpecBlock } from '../../excel/excelSpec'
+import {
+  canFinalizeExcelExportFromThread,
+  hasExcelSpecMarkers,
+  parseExcelSpecFromContent,
+  stripExcelSpecBlock,
+} from '../../excel/excelSpec'
+import { userMessageRequestsChart } from '../../constants/instantAnalyzeRoute'
+import { ChartSpecPreview, ChartSpecPreviewBuilding } from '../ChartSpecPreview'
+import { ExcelSpecPreview, ExcelSpecPreviewBuilding } from '../ExcelSpecPreview'
+import {
+  hasChartSpecMarkers,
+  parseChartSpecFromContent,
+  stripChartSpecBlock,
+} from '../../chart/chartSpec'
 import type { ChatMessage } from '../../types'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
 import { renderAssistantRichContent } from '../../utils/renderAssistantRichContent'
@@ -66,6 +79,7 @@ export type ChatMessageListProps = {
   pendingExcelGeneration: boolean
   pendingWordGeneration: boolean
   pendingPdfGeneration: boolean
+  pendingChartGeneration: boolean
   pendingStatusLabel: string | undefined
   showLatestAssistantOrbitLoader: boolean
   streamingStatusLabel: string
@@ -85,6 +99,8 @@ export type ChatMessageListProps = {
   wordFinalizeBusy: boolean
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy: boolean
+  onFinalizeExcelDocument?: () => void | Promise<void>
+  excelFinalizeBusy: boolean
   onCopyUserMessage: (text: string) => boolean | Promise<boolean>
 }
 
@@ -105,6 +121,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,
+    pendingChartGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,
@@ -124,6 +141,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
     wordFinalizeBusy,
     onFinalizePdfDocument,
     pdfFinalizeBusy,
+    onFinalizeExcelDocument,
+    excelFinalizeBusy,
     onCopyUserMessage,
   } = props
 
@@ -146,20 +165,38 @@ export function ChatMessageList(props: ChatMessageListProps) {
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userWordCommand)
           const isPdfAssistantTurn =
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userPdfCommand)
+          const isExcelAssistantTurn =
+            isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userExcelCommand)
+          const isChartAssistantTurn =
+            isAssistant &&
+            Boolean(
+              precedingUserForWordPaper &&
+                userMessageRequestsChart(
+                  precedingUserForWordPaper.content,
+                  precedingUserForWordPaper.metadata,
+                ),
+            )
           /** Papier-Karte nur nach explizitem /Word oder /PDF — nicht bei zufälligen ####-Zeilen im Normalchat. */
           const showWordPaperLayout = isWordAssistantTurn || isPdfAssistantTurn
+          const excelSpecForPreview =
+            isExcelAssistantTurn && !message.metadata?.excelExport
+              ? parseExcelSpecFromContent(rawContent).spec
+              : null
+          const chartSpecForPreview = isChartAssistantTurn
+            ? parseChartSpecFromContent(rawContent).spec
+            : null
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
-            ? stripExcelSpecBlock(rawContent)
+            ? stripChartSpecBlock(stripExcelSpecBlock(rawContent))
             : message.metadata?.excelExport || message.metadata?.wordExport || message.metadata?.pdfExport
               ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
-          /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor <<<STRATON_EXCEL_SPEC_JSON>>>. */
-          const assistantAfterExcel = stripExcelSpecBlock(rawAssistantDisplay)
+          /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor den Spec-Markern. */
+          const assistantAfterExcel = stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))
           const thinkingClarifyStreaming =
             isAssistant &&
             !isWordAssistantTurn &&
@@ -171,7 +208,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const userSectionReplyParsed =
             message.role === 'user' ? parseSectionRefFromUserContent(rawContent) : null
           const displayContent = isAssistant
-            ? isWordAssistantTurn
+            ? isWordAssistantTurn || isPdfAssistantTurn
               ? assistantAfterExcel
               : stripThinkingClarifyMarkersForDisplay(assistantAfterExcel)
             : userSectionReplyParsed
@@ -221,6 +258,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
             Boolean(onFinalizePdfDocument) &&
             canFinalizePdfExportFromThread(messages) &&
             !message.metadata?.pdfExport
+          const showExcelFinalizeHint =
+            isAssistant &&
+            isLatestMessage &&
+            !isSending &&
+            Boolean(onFinalizeExcelDocument) &&
+            canFinalizeExcelExportFromThread(messages) &&
+            !message.metadata?.excelExport
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
@@ -229,6 +273,24 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !message.metadata?.pdfExport &&
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
+          const showExcelSpecPreviewBuilding =
+            isExcelAssistantTurn &&
+            !message.metadata?.excelExport &&
+            !excelSpecForPreview &&
+            (isStreamingAssistant ||
+              Boolean(message.metadata?.liveStream) ||
+              hasExcelSpecMarkers(rawContent))
+          const showChartSpecPreviewBuilding =
+            isChartAssistantTurn &&
+            !chartSpecForPreview &&
+            (isStreamingAssistant ||
+              Boolean(message.metadata?.liveStream) ||
+              hasChartSpecMarkers(rawContent))
+          const showChartSpecMissingHint =
+            isChartAssistantTurn &&
+            !chartSpecForPreview &&
+            !showChartSpecPreviewBuilding &&
+            !isSending
           const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
           const assistantCopySource = hasInteractiveQuiz ? parsed?.cleanText || '' : rawContent
           const assistantCopyText = isAssistant
@@ -526,6 +588,32 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   }}
                 />
               ) : null}
+              {excelSpecForPreview ? (
+                <ExcelSpecPreview spec={excelSpecForPreview} />
+              ) : showExcelSpecPreviewBuilding ? (
+                <ExcelSpecPreviewBuilding />
+              ) : null}
+              {chartSpecForPreview ? (
+                <ChartSpecPreview spec={chartSpecForPreview} />
+              ) : showChartSpecPreviewBuilding ? (
+                <ChartSpecPreviewBuilding />
+              ) : showChartSpecMissingHint ? (
+                <p className="chat-message-body chat-excel-fallback-text">
+                  Das Diagramm konnte nicht geladen werden — die KI hat kein gültiges Chart-JSON geliefert.
+                  Bitte die Anfrage erneut senden.
+                </p>
+              ) : null}
+              {showExcelFinalizeHint ? (
+                <ChatExportActionHint
+                  label={
+                    excelFinalizeBusy ? 'Excel wird erstellt…' : 'Excel generieren'
+                  }
+                  busy={excelFinalizeBusy}
+                  onAction={() => {
+                    void onFinalizeExcelDocument?.()
+                  }}
+                />
+              ) : null}
               {isMobileComposer && message.metadata?.excelExport && !showExcelFallbackText ? (
                 <ChatExportActionHint
                   label={
@@ -726,7 +814,10 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   </div>
                   <p className="chat-pending-status">{getChatSendPhaseLabel('image')}</p>
                 </div>
-              ) : pendingExcelGeneration || pendingWordGeneration || pendingPdfGeneration ? (
+              ) : pendingExcelGeneration ||
+                pendingWordGeneration ||
+                pendingPdfGeneration ||
+                pendingChartGeneration ? (
                 <>
                 <strong className="chat-message-author">Straton AI</strong>
                 <div className="chat-pending-orbit-wrap chat-pending-special-loader">
@@ -735,10 +826,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   role="status"
                   aria-label={
                     pendingWordGeneration
-                      ? 'Word wird erstellt'
+                      ? 'Word-Vorschau wird erstellt'
                       : pendingPdfGeneration
-                        ? 'PDF wird erstellt'
-                        : 'Excel wird erstellt'
+                        ? 'PDF-Vorschau wird erstellt'
+                        : pendingChartGeneration
+                          ? 'Diagramm wird erstellt'
+                          : 'Excel-Vorschau wird erstellt'
                   }
                 >
                   <div
@@ -760,7 +853,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 </div>
                 <p className="chat-pending-status">
                   {getChatSendPhaseLabel(
-                    pendingWordGeneration ? 'word' : pendingPdfGeneration ? 'pdf' : 'excel',
+                    pendingWordGeneration
+                      ? 'word'
+                      : pendingPdfGeneration
+                        ? 'pdf'
+                        : pendingChartGeneration
+                          ? 'chart'
+                          : 'excel',
                   )}
                 </p>
                 </div>

@@ -1,13 +1,7 @@
 /** Slash-Befehl `/PDF` — analog zu Word/Excel. */
 export const PDF_EXPORT_COMMAND_MARKER = '[[STRATON_PDF_COMMAND]]'
 
-export const PDF_CHAT_DOCUMENT_BODY_HINT = [
-  'PDF-/Dokumentmodus: Du lieferst Inhalt für ein druckbares PDF (Endversion für Leser).',
-  'Bevorzugt: nummerierte Überschriften und Absätze mit #### / ##### / ###### (App-Konvention) — kein sichtbares JSON im Chat.',
-  'Alternativ: gültiges PdfOutline-JSON in ```json … ``` (`version`: 1, `blocks`: heading mit `level` 1–6, paragraph, table).',
-  'Tabellen (Pflicht bei Tabellendaten): GFM mit `|` am Zeilenanfang und -ende, Trennzeile `| --- | --- |`, dann Datenzeilen; oder JSON `{"type":"table","header":true,"rows":[["Tag","Übung"],["Montag","Kniebeugen"]]}`. Keine Tabellenzeilen als normaler Fliesstext.',
-  'VERBOTEN: Meta-Erklärungen («In diesem Abschnitt…») — nur konkreter Dokumenttext.',
-].join('\n')
+export { PDF_CHAT_DOCUMENT_JSON_HINT as PDF_CHAT_DOCUMENT_BODY_HINT } from './documentExportIntent'
 
 export function userWantsPdfExport(text: string): boolean {
   return text.includes(PDF_EXPORT_COMMAND_MARKER)

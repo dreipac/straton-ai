@@ -4,6 +4,7 @@ type ChatComposerSlashMenuProps = {
   onSelectExcel: () => void
   onSelectWord: () => void
   onSelectPdf: () => void
+  onSelectChart: () => void
   onSelectImage: () => void
 }
 
@@ -13,6 +14,7 @@ export function ChatComposerSlashMenu({
   onSelectExcel,
   onSelectWord,
   onSelectPdf,
+  onSelectChart,
   onSelectImage,
 }: ChatComposerSlashMenuProps) {
   return (
@@ -55,12 +57,24 @@ export function ChatComposerSlashMenu({
       </button>
       <button
         type="button"
-        className={`thread-menu-item thread-menu-item--slash-image${highlightIndex === 3 ? ' is-selected' : ''}`}
+        className={`thread-menu-item${highlightIndex === 3 ? ' is-selected' : ''}`}
         role="menuitem"
         onMouseDown={(event) => {
           event.preventDefault()
         }}
         onMouseEnter={() => onHighlightIndex(3)}
+        onClick={onSelectChart}
+      >
+        Diagramm
+      </button>
+      <button
+        type="button"
+        className={`thread-menu-item thread-menu-item--slash-image${highlightIndex === 4 ? ' is-selected' : ''}`}
+        role="menuitem"
+        onMouseDown={(event) => {
+          event.preventDefault()
+        }}
+        onMouseEnter={() => onHighlightIndex(4)}
         onClick={onSelectImage}
       >
         Bilder

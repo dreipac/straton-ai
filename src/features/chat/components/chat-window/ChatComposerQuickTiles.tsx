@@ -8,14 +8,17 @@ type ChatComposerQuickTilesProps = {
   excelCommandSelected: boolean
   wordCommandSelected: boolean
   pdfCommandSelected: boolean
+  chartCommandSelected: boolean
   onSelectImage: () => void
   onSelectExcel: () => void
   onSelectWord: () => void
   onSelectPdf: () => void
+  onSelectChart: () => void
   onClearImageGen: () => void
   onClearExcel: () => void
   onClearWord: () => void
   onClearPdf: () => void
+  onClearChart: () => void
 }
 
 export function ChatComposerQuickTiles({
@@ -24,14 +27,17 @@ export function ChatComposerQuickTiles({
   excelCommandSelected,
   wordCommandSelected,
   pdfCommandSelected,
+  chartCommandSelected,
   onSelectImage,
   onSelectExcel,
   onSelectWord,
   onSelectPdf,
+  onSelectChart,
   onClearImageGen,
   onClearExcel,
   onClearWord,
   onClearPdf,
+  onClearChart,
 }: ChatComposerQuickTilesProps) {
   return (
     <div
@@ -102,6 +108,21 @@ export function ChatComposerQuickTiles({
                 <span className="chat-quick-tile-sub">PDF generieren</span>
               </span>
             </ChatMobileQuickTile>
+            <ChatMobileQuickTile
+              active={chartCommandSelected}
+              tileClassName={`chat-quick-tile chat-quick-tile--chart${chartCommandSelected ? ' is-active' : ''}`}
+              onActivate={onSelectChart}
+              onDeactivate={onClearChart}
+              deactivateAriaLabel="Diagramm-Befehl entfernen"
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <span className="chat-quick-tile-letter-mark">D</span>
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Diagramm</span>
+                <span className="chat-quick-tile-sub">Chart im Chat</span>
+              </span>
+            </ChatMobileQuickTile>
           </div>
         </div>
       ) : (
@@ -149,6 +170,20 @@ export function ChatComposerQuickTiles({
               <span className="chat-quick-tile-text">
                 <span className="chat-quick-tile-title">PDF</span>
                 <span className="chat-quick-tile-sub">PDF generieren</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`chat-quick-tile chat-quick-tile--chart${chartCommandSelected ? ' is-active' : ''}`}
+              onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+              onClick={onSelectChart}
+            >
+              <span className="chat-quick-tile-icon-wrap" aria-hidden>
+                <span className="chat-quick-tile-letter-mark">D</span>
+              </span>
+              <span className="chat-quick-tile-text">
+                <span className="chat-quick-tile-title">Diagramm</span>
+                <span className="chat-quick-tile-sub">Chart im Chat</span>
               </span>
             </button>
             <button

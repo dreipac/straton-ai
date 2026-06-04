@@ -2,13 +2,19 @@ import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type
 import { useToast } from '../../../components/toast/ToastProvider'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import { useMobileComposerCompact } from '../../../hooks/useMobileComposerCompact'
+import { CHART_EXPORT_COMMAND_MARKER } from '../constants/chartExportPrompt'
 import { EXCEL_EXPORT_COMMAND_MARKER } from '../constants/excelExportPrompt'
 import { WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
 import { PDF_EXPORT_COMMAND_MARKER } from '../constants/pdfExportPrompt'
 import { IMAGE_GEN_TILE_PROMPT_PREFIX } from '../constants/imageGenTile'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import { buildUserMessageWithSectionRef, type AssistantSectionReference } from '../utils/assistantSectionReply'
-import { extractLearningMaterialText, isChatVisionImageFile } from '../../learn/utils/documentParser'
+import { isChatVisionImageFile } from '../../learn/utils/documentParser'
+import type { ChatDocumentAttachmentRef, ChatPendingDocumentFile } from '../types/chatSendOptions'
+import {
+  isServerExtractedDocumentFile,
+  uploadChatDocumentAttachment,
+} from '../services/chat.documentStorage'
 import { hapticLightImpact } from '../../../utils/haptics'
 import {
   detectExplicitQuizFormatInText,
@@ -29,19 +35,26 @@ const MAX_INPUT_HEIGHT_PX = 220
 
 export type UseChatComposerArgs = {
   threadKey: string | null
+  composerUserId?: string | null
   isSending: boolean
   tokenLimitReached: boolean
   thinkingCreditsBlocked: boolean
   chatThinkingMode: ChatThinkingMode
   onSendMessage: (
     content: string,
-    opts?: { quizFormat?: QuizFormatChoice; visionInlineDataUrl?: string },
+    opts?: {
+      quizFormat?: QuizFormatChoice
+      visionInlineDataUrl?: string
+      documentAttachments?: ChatDocumentAttachmentRef[]
+      pendingDocumentFiles?: ChatPendingDocumentFile[]
+    },
   ) => Promise<void>
   onClearSectionReplyEmbed?: () => void
 }
 
 export function useChatComposer({
   threadKey,
+  composerUserId,
   isSending,
   tokenLimitReached,
   thinkingCreditsBlocked,
@@ -65,6 +78,7 @@ export function useChatComposer({
   const [excelCommandSelected, setExcelCommandSelected] = useState(false)
   const [wordCommandSelected, setWordCommandSelected] = useState(false)
   const [pdfCommandSelected, setPdfCommandSelected] = useState(false)
+  const [chartCommandSelected, setChartCommandSelected] = useState(false)
   const [imageGenCommandSelected, setImageGenCommandSelected] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<ChatWindowPendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
@@ -84,12 +98,14 @@ export function useChatComposer({
     imageGenCommandSelected ||
     excelCommandSelected ||
     wordCommandSelected ||
-    pdfCommandSelected
+    pdfCommandSelected ||
+    chartCommandSelected
 
   useEffect(() => {
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setAttachComposerSheetOpen(false)
@@ -118,18 +134,51 @@ export function useChatComposer({
 
   function buildAttachmentMessageBlocks(items: ChatWindowPendingAttachment[]): string {
     return items
-      .map((item) =>
-        item.kind === 'pasted-image'
-          ? item.previewDataUrl
-            ? `[BildData:${item.id}]\n${item.previewDataUrl}\n[/BildData]`
-            : item.content.trim()
-              ? `[Bild:${item.id}:${item.name}]\n${item.content}\n[/Bild]`
-              : ''
-          : item.content.trim()
-            ? `[Datei: ${item.name}]\n${item.content}\n[/Datei]`
-            : `[Datei: ${item.name}] (Kein auslesbarer Text gefunden)\n[/Datei]`,
-      )
+      .map((item) => {
+        if (item.kind === 'pasted-image') {
+          if (item.previewDataUrl) {
+            return `[BildData:${item.id}]\n${item.previewDataUrl}\n[/BildData]`
+          }
+          if (item.content.trim()) {
+            return `[Bild:${item.id}:${item.name}]\n${item.content}\n[/Bild]`
+          }
+          return ''
+        }
+        if (item.documentStorage || item.pendingFile) {
+          return `[Datei: ${item.name}]\n[/Datei]`
+        }
+        if (item.content.trim()) {
+          return `[Datei: ${item.name}]\n${item.content}\n[/Datei]`
+        }
+        return `[Datei: ${item.name}] (Kein auslesbarer Text gefunden)\n[/Datei]`
+      })
+      .filter(Boolean)
       .join('\n\n')
+  }
+
+  function collectDocumentSendRefs(items: ChatWindowPendingAttachment[]): {
+    documentAttachments: ChatDocumentAttachmentRef[]
+    pendingDocumentFiles: ChatPendingDocumentFile[]
+  } {
+    const documentAttachments: ChatDocumentAttachmentRef[] = []
+    const pendingDocumentFiles: ChatPendingDocumentFile[] = []
+    for (const item of items) {
+      if (item.kind !== 'file') {
+        continue
+      }
+      if (item.documentStorage) {
+        documentAttachments.push({
+          id: item.id,
+          name: item.name,
+          bucket: item.documentStorage.bucket,
+          path: item.documentStorage.path,
+          mimeType: item.documentStorage.mimeType,
+        })
+      } else if (item.pendingFile) {
+        pendingDocumentFiles.push({ id: item.id, name: item.name, file: item.pendingFile })
+      }
+    }
+    return { documentAttachments, pendingDocumentFiles }
   }
 
   async function deliverComposerMessage(
@@ -156,6 +205,7 @@ export function useChatComposer({
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
     setImageGenCommandSelected(false)
+    const { documentAttachments, pendingDocumentFiles } = collectDocumentSendRefs(pendingAttachments)
     setPendingAttachments([])
     setQuizFormatPending(null)
     const payload = buildUserMessageWithSectionRef(content, composerSectionReply)
@@ -163,6 +213,8 @@ export function useChatComposer({
     await onSendMessage(payload, {
       ...(sendOpts?.quizFormat ? { quizFormat: sendOpts.quizFormat } : {}),
       ...(visionInlineDataUrl ? { visionInlineDataUrl } : {}),
+      ...(documentAttachments.length > 0 ? { documentAttachments } : {}),
+      ...(pendingDocumentFiles.length > 0 ? { pendingDocumentFiles } : {}),
     })
   }
 
@@ -191,12 +243,15 @@ export function useChatComposer({
         ? `${PDF_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
         : excelCommandSelected
           ? `${EXCEL_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
-          : baseContent
+          : chartCommandSelected
+            ? `${CHART_EXPORT_COMMAND_MARKER}\n${baseContent}`.trim()
+            : baseContent
     if (
       shouldPromptQuizFormatChoice(textPart, {
         wantsWord: wordCommandSelected,
         wantsPdf: pdfCommandSelected,
         wantsExcel: excelCommandSelected,
+        wantsChart: chartCommandSelected,
         wantsImageGen: imageGenCommandSelected,
         thinkingMode: chatThinkingMode === 'thinking',
       })
@@ -222,7 +277,13 @@ export function useChatComposer({
 
   function handleDraftChange(nextValue: string) {
     setDraft(nextValue)
-    if (excelCommandSelected || imageGenCommandSelected || wordCommandSelected || pdfCommandSelected) {
+    if (
+      excelCommandSelected ||
+      chartCommandSelected ||
+      imageGenCommandSelected ||
+      wordCommandSelected ||
+      pdfCommandSelected
+    ) {
       setShowSlashMenu(false)
       return
     }
@@ -234,10 +295,22 @@ export function useChatComposer({
     }
   }
 
+  function handleSelectChartSlashCommand() {
+    setChartCommandSelected(true)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setPdfCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    setDraft((prev) => prev.replace('/', '').trimStart())
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
   function handleSelectExcelSlashCommand() {
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
@@ -248,6 +321,7 @@ export function useChatComposer({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
@@ -258,6 +332,7 @@ export function useChatComposer({
     setPdfCommandSelected(true)
     setWordCommandSelected(false)
     setExcelCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
@@ -269,15 +344,29 @@ export function useChatComposer({
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setShowSlashMenu(false)
     setDraft((prev) => prev.replace('/', '').trimStart())
     inputRef.current?.focus({ preventScroll: true })
+  }
+
+  function handleSelectChartQuickTile() {
+    setChartCommandSelected(true)
+    setExcelCommandSelected(false)
+    setWordCommandSelected(false)
+    setPdfCommandSelected(false)
+    setImageGenCommandSelected(false)
+    setShowSlashMenu(false)
+    if (!isMobileComposer) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
   }
 
   function handleSelectExcelQuickTile() {
     setExcelCommandSelected(true)
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
@@ -289,6 +378,7 @@ export function useChatComposer({
     setWordCommandSelected(true)
     setExcelCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
@@ -300,6 +390,7 @@ export function useChatComposer({
     setPdfCommandSelected(true)
     setWordCommandSelected(false)
     setExcelCommandSelected(false)
+    setChartCommandSelected(false)
     setImageGenCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
@@ -312,6 +403,7 @@ export function useChatComposer({
     setExcelCommandSelected(false)
     setWordCommandSelected(false)
     setPdfCommandSelected(false)
+    setChartCommandSelected(false)
     setShowSlashMenu(false)
     if (!isMobileComposer) {
       inputRef.current?.focus({ preventScroll: true })
@@ -357,6 +449,8 @@ export function useChatComposer({
           handleSelectWordSlashCommand()
         } else if (slashMenuHighlightIndex === 2) {
           handleSelectPdfSlashCommand()
+        } else if (slashMenuHighlightIndex === 3) {
+          handleSelectChartSlashCommand()
         } else {
           handleSelectImageSlashCommand()
         }
@@ -411,14 +505,39 @@ export function useChatComposer({
             )
           }
         } else {
-          const text = await extractLearningMaterialText(file)
-          const excerpt = text.trim().slice(0, 1400)
-          nextAttachments.push({
-            id: crypto.randomUUID(),
-            name: file.name,
-            content: excerpt,
-            kind: 'file',
-          })
+          const id = crypto.randomUUID()
+          if (isServerExtractedDocumentFile(file)) {
+            let documentStorage: ChatWindowPendingAttachment['documentStorage']
+            if (composerUserId && threadKey) {
+              try {
+                documentStorage = await uploadChatDocumentAttachment(
+                  composerUserId,
+                  threadKey,
+                  file,
+                  id,
+                )
+              } catch {
+                pushToast('Dokument konnte nicht hochgeladen werden. Bitte erneut versuchen.')
+                continue
+              }
+            }
+            nextAttachments.push({
+              id,
+              name: file.name,
+              content: '',
+              kind: 'file',
+              documentStorage,
+              pendingFile: documentStorage ? undefined : file,
+            })
+          } else {
+            nextAttachments.push({
+              id,
+              name: file.name,
+              content: '',
+              kind: 'file',
+              pendingFile: file,
+            })
+          }
         }
       }
 
@@ -501,6 +620,8 @@ export function useChatComposer({
     setWordCommandSelected,
     pdfCommandSelected,
     setPdfCommandSelected,
+    chartCommandSelected,
+    setChartCommandSelected,
     imageGenCommandSelected,
     setImageGenCommandSelected,
     pendingAttachments,
@@ -517,7 +638,9 @@ export function useChatComposer({
     handleSelectExcelSlashCommand,
     handleSelectWordSlashCommand,
     handleSelectPdfSlashCommand,
+    handleSelectChartSlashCommand,
     handleSelectImageSlashCommand,
+    handleSelectChartQuickTile,
     handleSelectExcelQuickTile,
     handleSelectWordQuickTile,
     handleSelectPdfQuickTile,

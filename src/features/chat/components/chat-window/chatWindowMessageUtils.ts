@@ -5,9 +5,18 @@ import { isChatVisionImageFile } from '../../../learn/utils/documentParser'
 export type ChatWindowPendingAttachment = {
   id: string
   name: string
+  /** Leer bei serverseitiger Dokument-Extraktion. */
   content: string
   kind: 'file' | 'pasted-image'
   previewDataUrl?: string
+  /** Nach Upload in `chat-media` — Extraktion beim Senden auf der Edge. */
+  documentStorage?: {
+    bucket: string
+    path: string
+    mimeType: string
+  }
+  /** Bis Thread existiert: Datei erst beim Senden hochladen. */
+  pendingFile?: File
 }
 
 /** PostgREST / Zwischenzustände: content nie undefined bei .length */

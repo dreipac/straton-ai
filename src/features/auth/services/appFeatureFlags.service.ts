@@ -13,6 +13,7 @@ export type AppFeatureFlags = {
   learn_area_banner_text: string
   instant_analyze_debug_enabled: boolean
   chat_folders_enabled: boolean
+  gemini_instant_enabled: boolean
 }
 
 function parseLearnAiModel(raw: unknown): AppFeatureFlags['learn_ai_model_active'] {
@@ -52,6 +53,17 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
       typeof row?.learn_area_banner_text === 'string' ? row.learn_area_banner_text.trim().slice(0, 500) : '',
     instant_analyze_debug_enabled: row?.instant_analyze_debug_enabled === true,
     chat_folders_enabled: row?.chat_folders_enabled !== false,
+    gemini_instant_enabled: row?.gemini_instant_enabled === true,
+  }
+}
+
+export async function adminSetGeminiInstantEnabled(enabled: boolean): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_gemini_instant_enabled', {
+    p_enabled: enabled,
+  })
+  if (error) {
+    throw error
   }
 }
 

@@ -174,24 +174,26 @@ function sanitizeHeadingTextForTemplate(text: string): string {
 }
 
 /**
- * Kapitel = Ebene 1 → Vorlage «1. Überschrift», Unterkapitel = Ebene 2 → «1.1 …».
- * Nummerierte Vorlagen haben Vorrang vor «Titel» / «Überschrift 1».
+ * Absatzstile aus der Vorlage: «Überschrift 1/2» und «Text» (keine eigene w:sz/w:b).
+ * Ebenen 3–6 → Überschrift 2; nummerierte Stile nur als Fallback.
  */
+/** Vorlagen mit «Überschrift 1/2» + «Text»: höhere Ebenen auf Überschrift 2 abbilden. */
+function effectiveHeadingLevelForTemplate(level: HeadingLevel): HeadingLevel {
+  return level <= 2 ? level : 2
+}
+
 function pickHeadingStyleId(
   existing: Set<string>,
   displayNameToId: Map<string, string>,
   level: HeadingLevel,
   numberedByDepth: Map<number, string>,
 ): string {
-  const fromNumbered = numberedByDepth.get(level)
-  if (fromNumbered && existing.has(fromNumbered)) {
-    return fromNumbered
-  }
+  const templateLevel = effectiveHeadingLevelForTemplate(level)
   const displayCandidates = [
-    `überschrift ${level}`,
-    `ueberschrift ${level}`,
-    `heading ${level}`,
-    `heading${level}`,
+    `überschrift ${templateLevel}`,
+    `ueberschrift ${templateLevel}`,
+    `heading ${templateLevel}`,
+    `heading${templateLevel}`,
   ]
   for (const d of displayCandidates) {
     const id = displayNameToId.get(d)
@@ -199,14 +201,18 @@ function pickHeadingStyleId(
       return id
     }
   }
+  const fromNumbered = numberedByDepth.get(templateLevel)
+  if (fromNumbered && existing.has(fromNumbered)) {
+    return fromNumbered
+  }
   const candidates: string[] = [
-    `Heading${level}`,
-    `heading${level}`,
-    `Heading_${level}`,
-    `berschrift${level}`,
-    `Ueberschrift${level}`,
-    `Absatz-Überschrift${level}`,
-    `Absatz-Ueberschrift${level}`,
+    `Heading${templateLevel}`,
+    `heading${templateLevel}`,
+    `Heading_${templateLevel}`,
+    `berschrift${templateLevel}`,
+    `Ueberschrift${templateLevel}`,
+    `Absatz-Überschrift${templateLevel}`,
+    `Absatz-Ueberschrift${templateLevel}`,
   ]
   for (const c of candidates) {
     if (existing.has(c)) {
@@ -215,7 +221,7 @@ function pickHeadingStyleId(
   }
   for (const id of existing) {
     const m = id.match(/(\d+)\s*$/)
-    if (!m || Number(m[1]) !== level) {
+    if (!m || Number(m[1]) !== templateLevel) {
       continue
     }
     const lower = id.toLowerCase()
@@ -228,7 +234,7 @@ function pickHeadingStyleId(
       return id
     }
   }
-  if (level === 1) {
+  if (templateLevel === 1) {
     for (const d of ['titel', 'title']) {
       const id = displayNameToId.get(d)
       if (id && existing.has(id)) {
@@ -241,18 +247,27 @@ function pickHeadingStyleId(
       }
     }
   }
-  return defaultHeadingStyleId(level)
+  return defaultHeadingStyleId(templateLevel)
 }
 
 function pickBodyParagraphStyleId(existing: Set<string>, displayNameToId: Map<string, string>): string {
-  const displayCandidates = ['standard', 'normal', 'fließtext', 'fliesstext', 'body text', 'textkörper', 'textkoerper']
+  const displayCandidates = [
+    'text',
+    'standard',
+    'normal',
+    'fließtext',
+    'fliesstext',
+    'body text',
+    'textkörper',
+    'textkoerper',
+  ]
   for (const d of displayCandidates) {
     const id = displayNameToId.get(d)
     if (id && existing.has(id)) {
       return id
     }
   }
-  const candidates = ['Normal', 'Standard', 'BodyText', 'Flietext', 'Fliesstext', 'Textkörper', 'Textkoerper']
+  const candidates = ['Text', 'Normal', 'Standard', 'BodyText', 'Flietext', 'Fliesstext', 'Textkörper', 'Textkoerper']
   for (const c of candidates) {
     if (existing.has(c)) {
       return c
@@ -276,10 +291,11 @@ function buildStylePickers(zip: PizZip): StylePickers {
   let bodyId: string | null = null
   return {
     heading(level: HeadingLevel) {
-      let id = headingCache.get(level)
+      const key = effectiveHeadingLevelForTemplate(level)
+      let id = headingCache.get(key)
       if (!id) {
         id = pickHeadingStyleId(catalog.ids, catalog.displayNameToId, level, numberedByDepth)
-        headingCache.set(level, id)
+        headingCache.set(key, id)
       }
       return id
     },
@@ -310,27 +326,21 @@ function tableToWordMl(table: { rows: string[][]; header?: boolean }, styles: St
   const bodySid = escapeXmlAttr(styles.body())
   const parts: string[] = [
     '<w:tbl>',
-    '<w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>',
-    '<w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '<w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>',
-    '</w:tblBorders></w:tblPr>',
+    '<w:tblPr><w:tblW w:w="5000" w:type="pct"/></w:tblPr>',
     `<w:tblGrid>${grid}</w:tblGrid>`,
   ]
   rows.forEach((row, rowIndex) => {
+    const cellStyle =
+      table.header === true && rowIndex === 0
+        ? escapeXmlAttr(styles.heading(1))
+        : bodySid
     parts.push('<w:tr>')
     for (let c = 0; c < colCount; c += 1) {
       const text = escapeXmlText(String(row[c] ?? '').trim())
-      const bold =
-        table.header === true && rowIndex === 0 ? '<w:b/>' : ''
       parts.push(
         `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/></w:tcPr>` +
-          `<w:p><w:pPr><w:pStyle w:val="${bodySid}"/></w:pPr>` +
-          `<w:r><w:rPr>${bold}</w:rPr>` +
-          `<w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:tc>`,
+          `<w:p><w:pPr><w:pStyle w:val="${cellStyle}"/></w:pPr>` +
+          `<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:tc>`,
       )
     }
     parts.push('</w:tr>')
@@ -354,10 +364,42 @@ function blocksToWordMl(blocks: WordBlock[], styles: StylePickers): string {
         parts.push(styledParagraphXml(styles.heading(b.level), headingText))
       }
     } else if (b.type === 'paragraph') {
-      parts.push(styledParagraphXml(styles.body(), b.text))
+      const bodyText = b.text.trim()
+      if (bodyText) {
+        parts.push(styledParagraphXml(styles.body(), bodyText))
+      }
     }
   }
   return parts.join('')
+}
+
+/**
+ * Platzhalter steht oft in <w:t>[[STRATON_WORD_BODY]]</w:t> — einfaches Ersetzen
+ * würde ungültiges OOXML erzeugen (leeres Word-Dokument). Ganzen Absatz ersetzen.
+ */
+function injectBodyIntoDocumentXml(docXml: string, bodyXml: string): string {
+  if (!bodyXml.trim()) {
+    return docXml
+  }
+  if (docXml.includes(PLACEHOLDER_TOKEN)) {
+    const tokenIdx = docXml.indexOf(PLACEHOLDER_TOKEN)
+    const paraStart = docXml.lastIndexOf('<w:p', tokenIdx)
+    const paraEndTag = '</w:p>'
+    const paraEndIdx = docXml.indexOf(paraEndTag, tokenIdx)
+    if (paraStart !== -1 && paraEndIdx !== -1) {
+      const paraEnd = paraEndIdx + paraEndTag.length
+      return `${docXml.slice(0, paraStart)}${bodyXml}${docXml.slice(paraEnd)}`
+    }
+    return docXml.split(PLACEHOLDER_TOKEN).join(bodyXml)
+  }
+  const closeBody = '</w:body>'
+  const idx = docXml.lastIndexOf(closeBody)
+  if (idx === -1) {
+    throw new Error(
+      'Vorlage ohne Platzhalter: bitte [[STRATON_WORD_BODY]] im Dokument einfügen oder gültige word/document.xml.',
+    )
+  }
+  return `${docXml.slice(0, idx)}${bodyXml}${docXml.slice(idx)}`
 }
 
 function sanitizeDocxFileName(raw: unknown): string {
@@ -376,7 +418,8 @@ function parseOutline(raw: unknown): WordOutlineV1 | null {
     return null
   }
   const o = raw as Record<string, unknown>
-  if (o.version !== 1) {
+  const version = o.version === undefined ? 1 : o.version
+  if (version !== 1) {
     return null
   }
   if (!Array.isArray(o.blocks)) {
@@ -675,22 +718,21 @@ serve(async (req) => {
     const stylePickers = buildStylePickers(zip)
     /** Kein separater Dokumenttitel aus `outline.title` — nur `blocks` (z. B. nur «Kapitel»-Überschriften). */
     const bodyXml = blocksToWordMl(outline.blocks, stylePickers)
+    if (!bodyXml.trim()) {
+      return jsonResponse(
+        {
+          error:
+            'Kein exportierbarer Text in der Gliederung (leere Überschriften nach Bereinigung?). Bitte Vorschau prüfen und erneut generieren.',
+        },
+        400,
+      )
+    }
 
-    if (docXml.includes(PLACEHOLDER_TOKEN)) {
-      docXml = docXml.split(PLACEHOLDER_TOKEN).join(bodyXml)
-    } else {
-      const closeBody = '</w:body>'
-      const idx = docXml.lastIndexOf(closeBody)
-      if (idx === -1) {
-        return jsonResponse(
-          {
-            error:
-              'Vorlage ohne Platzhalter: bitte [[STRATON_WORD_BODY]] im Dokument einfügen oder gültige word/document.xml.',
-          },
-          400,
-        )
-      }
-      docXml = `${docXml.slice(0, idx)}${bodyXml}${docXml.slice(idx)}`
+    try {
+      docXml = injectBodyIntoDocumentXml(docXml, bodyXml)
+    } catch (injectErr) {
+      const message = injectErr instanceof Error ? injectErr.message : 'Vorlage ungültig.'
+      return jsonResponse({ error: message }, 400)
     }
 
     zip.file('word/document.xml', docXml)

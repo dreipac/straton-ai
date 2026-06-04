@@ -41,14 +41,28 @@ import {
   type InstantAnalyzeInvokeResult,
   type InstantAnalyzeResult,
 } from '../constants/instantAnalyze'
+import type { ChatDocumentAttachmentRef } from '../types/chatSendOptions'
+import {
+  GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
+  GEMINI_CONTEXT_CACHE_INTENT,
+  GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+  GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
+  GEMINI_CONTEXT_CACHE_THINKING_REPLY,
+  GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+  GEMINI_DEFAULT_CHAT_MODEL,
+  resolveGeminiModelForInstantReply,
+} from '../constants/geminiModels'
+import { ensureGeminiInstantFlagLoaded, isGeminiInstantEnabled } from './geminiInstantFlag'
 import { env } from '../../../config/env'
 import { errorMessageFromUnknown, parseApiErrorField } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
+import { CHART_CHAT_DOCUMENT_JSON_HINT } from '../constants/chartExportPrompt'
+import { buildInstantAnalyzeChartBriefing } from '../constants/chartExportIntent'
+import { EXCEL_CHAT_DOCUMENT_JSON_HINT } from '../constants/documentExportIntent'
 import {
   buildExcelSpecSonnetSystemPrompt,
-  EXCEL_CHAT_SHORT_REPLY_HINT,
   EXCEL_SPEC_CACHE_EPOCH,
 } from '../constants/excelExportPrompt'
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
@@ -165,15 +179,14 @@ export type SendMessageOptions = {
   useLearnPathModel?: boolean
   /** Audit-Label für Admin-Protokoll (z. B. `learn_entry_quiz`, `learn_setup_topic`). */
   learnTelemetryMode?: 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
-  /**
-   * Nutzer hat Excel/XLSX angefragt: OpenAI bekommt kurzen Hinweis, kein Excel-JSON.
-   * Spezifikation läuft separat über {@link generateExcelSpecWithSonnet}.
-   */
+  /** Nutzer hat Excel/XLSX angefragt: Modell liefert Spec-JSON (Vorschau); Datei erst nach «Excel generieren». */
   userRequestedExcel?: boolean
   /** Nutzer hat /Word gewählt: Dokumenttext ohne Meta-Erklärungen; schaltet Kürze-Hinweis ab. */
   userRequestedWord?: boolean
   /** Nutzer hat /PDF gewählt: druckbares PDF-Gliederungs-JSON; schaltet Kürze-Hinweis ab. */
   userRequestedPdf?: boolean
+  /** Nutzer hat Diagramm/Chart angefragt: Chart-Spec-JSON für Vorschau im Chat. */
+  userRequestedChart?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -520,9 +533,10 @@ function prependMainChatTurnContextToUserContent(userContent: string, contextBlo
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
-  const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_SHORT_REPLY_HINT : ''
+  const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
   const wordChatHint = options?.userRequestedWord ? WORD_CHAT_DOCUMENT_BODY_HINT : ''
   const pdfChatHint = options?.userRequestedPdf ? PDF_CHAT_DOCUMENT_BODY_HINT : ''
+  const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
@@ -544,7 +558,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const thinkingDoc =
     thinking && (Boolean(options?.userRequestedWord) || Boolean(options?.userRequestedPdf))
   const mainChatInstantPrompts =
-    isMainChat && !options?.userRequestedWord && !options?.userRequestedPdf && !thinking
+    isMainChat &&
+    !options?.userRequestedWord &&
+    !options?.userRequestedPdf &&
+    !options?.userRequestedChart &&
+    !thinking
   const mainChatBrevity = mainChatInstantPrompts ? getAssistantMainChatBrevityInstruction() : ''
   const mainChatGuidedDiagnosis = mainChatInstantPrompts
     ? getAssistantMainChatGuidedDiagnosisInstruction()
@@ -604,6 +622,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   }
   if (isMainChat && !thinking && instantAnalyze) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
+  }
+  if (isMainChat && !thinking && options?.userRequestedChart) {
+    lastUserTurnContextBlocks.push(buildInstantAnalyzeChartBriefing())
   }
   if (
     isMainChat &&
@@ -725,6 +746,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     excelChatHint,
     wordChatHint,
     pdfChatHint,
+    chartChatHint,
     mainChatWebGrounding,
     mainChatSolveDirectly,
     mainChatBrevity,
@@ -1103,7 +1125,25 @@ export async function generateExcelSpecWithSonnet(userRequest: string): Promise<
   )
 }
 
-function providerForMainChat(): 'openai' {
+/** Hauptchat Instant (nicht Thinking/Lernpfad). */
+function providerForMainChat(options: { hasVision?: boolean }): 'openai' | 'gemini' {
+  if (options.hasVision && isGeminiInstantEnabled()) {
+    return 'openai'
+  }
+  if (isGeminiInstantEnabled()) {
+    return 'gemini'
+  }
+  return 'openai'
+}
+
+/** Thinking-Pipeline: Gemini 3.1 Flash Lite wenn Smart Instant Gemini aktiv; Vision → OpenAI. */
+function providerForThinking(options: { hasVision?: boolean }): 'openai' | 'gemini' {
+  if (options.hasVision) {
+    return 'openai'
+  }
+  if (isGeminiInstantEnabled()) {
+    return 'gemini'
+  }
   return 'openai'
 }
 
@@ -1167,14 +1207,34 @@ function buildChatCompletionRequestBody(
   }
 
   const thinking = isMainChatThinking(options)
-  const meta = thinking
-    ? { provider: 'openai' as const, openAiModels: [] as string[] }
-    : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+  const gatewayHasVisionEarly =
+    gatewayMessages.some(
+      (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
+    ) ||
+    (typeof options?.visionInlineDataUrl === 'string' &&
+      options.visionInlineDataUrl.trim().startsWith('data:image/'))
+  const mainProvider = thinking
+    ? providerForThinking({ hasVision: gatewayHasVisionEarly })
+    : providerForMainChat({ hasVision: gatewayHasVisionEarly })
+  const meta =
+    mainProvider === 'gemini'
+      ? { provider: 'gemini' as const }
+      : thinking
+        ? { provider: 'openai' as const, openAiModels: [] as string[] }
+        : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     mode: 'chat',
     provider: meta.provider,
     messages: gatewayMessages,
     includeProfileMemory: thinking ? false : true,
+  }
+  if (mainProvider === 'gemini') {
+    body.geminiModel = thinking
+      ? GEMINI_DEFAULT_CHAT_MODEL
+      : resolveGeminiModelForInstantReply(options?.instantAnalyze)
+    body.geminiPromptCacheKey = thinking
+      ? GEMINI_CONTEXT_CACHE_THINKING_REPLY
+      : GEMINI_CONTEXT_CACHE_INSTANT_REPLY
   }
   if (meta.provider === 'openai') {
     if (!options?.useLearnPathModel && thinking) {
@@ -1258,8 +1318,13 @@ function buildChatCompletionRequestBody(
     ) ||
     (typeof options?.visionInlineDataUrl === 'string' &&
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
-  if (!options?.useLearnPathModel && body.provider === 'openai' && gatewayHasVision) {
-    body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
+  if (!options?.useLearnPathModel && gatewayHasVision) {
+    if (body.provider === 'openai' || isGeminiInstantEnabled()) {
+      body.provider = 'openai'
+      body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
+      delete body.geminiModel
+      delete body.geminiPromptCacheKey
+    }
   }
 
   return body
@@ -1314,6 +1379,9 @@ async function simulateAssistantTextStream(
 
 async function getAssistantReply(messages: ChatMessage[], options?: SendMessageOptions) {
   throwIfAborted(options?.signal)
+  if (usesGatewayAi() && !options?.useLearnPathModel) {
+    await ensureGeminiInstantFlagLoaded()
+  }
   if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
@@ -1497,6 +1565,25 @@ async function consumeChatCompletionSse(
   return trimmed
 }
 
+function parseAssistantContentFromCompletionJson(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('{')) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      assistantMessage?: { content?: unknown }
+    }
+    const content = parsed.assistantMessage?.content
+    if (typeof content === 'string' && content.trim()) {
+      return content.trim()
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 /**
  * Hauptchat: echtes SSE-Streaming (OpenAI) über die Edge Function.
  * Lernpfad (`useLearnPathModel`) fällt auf nicht-streaming JSON zurück.
@@ -1508,6 +1595,10 @@ export async function sendMessageStreaming(
   throwIfAborted(options.signal)
   const onDelta = options.onDelta
   const signal = options.signal
+
+  if (usesGatewayAi() && !options?.useLearnPathModel) {
+    await ensureGeminiInstantFlagLoaded()
+  }
 
   if (!usesGatewayAi()) {
     const text = await getMockAssistantReply(messages)
@@ -1541,11 +1632,10 @@ export async function sendMessageStreaming(
     return safe.trim()
   }
 
-  const thinkingMain = !options.useLearnPathModel && options.chatThinkingMode === 'thinking'
-  const streamMeta = thinkingMain
-    ? { provider: 'openai' as const }
-    : getChatComposerModelMeta(options.mainChatModelId ?? 'gpt-5.4-mini')
-  if (streamMeta.provider === 'anthropic') {
+  const streamBody = buildChatCompletionRequestBody(messages, options)
+  const streamProvider =
+    typeof streamBody.provider === 'string' ? streamBody.provider : 'openai'
+  if (streamProvider === 'gemini' || streamProvider === 'anthropic') {
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError')
     }
@@ -1622,6 +1712,12 @@ export async function sendMessageStreaming(
 
   if (!ct.includes('text/event-stream')) {
     const t = await res.text()
+    const assistantFromJson = parseAssistantContentFromCompletionJson(t)
+    if (assistantFromJson) {
+      const safe = redactSecretsInAiText(assistantFromJson)
+      await simulateAssistantTextStream(safe, onDelta, signal)
+      return safe.trim()
+    }
     let fromJson = ''
     try {
       const j = JSON.parse(t) as { error?: unknown }
@@ -1666,6 +1762,65 @@ function shortenContentForChatTitleApi(content: string | undefined | null): stri
     return ''
   }
   return content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/g, '[Generiertes Bild]')
+}
+
+export type ServerExtractedChatDocument = {
+  fileName: string
+  text: string
+  charCount: number
+  extractionMethod: string
+  warnings?: string[]
+}
+
+export async function extractChatDocumentsOnServer(params: {
+  attachments: ChatDocumentAttachmentRef[]
+  signal?: AbortSignal
+}): Promise<{ fileBlocks: string; documents: ServerExtractedChatDocument[] }> {
+  throwIfAborted(params.signal)
+  if (params.attachments.length === 0) {
+    return { fileBlocks: '', documents: [] }
+  }
+  if (!usesGatewayAi()) {
+    throw new Error('Dokument-Analyse ist im Demo-Modus nicht verfügbar.')
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('chat-completion', {
+    body: {
+      mode: 'document_extract',
+      payload: {
+        attachments: params.attachments.map((a) => ({
+          bucket: a.bucket,
+          path: a.path,
+          name: a.name,
+          mimeType: a.mimeType,
+        })),
+      },
+    },
+    signal: params.signal,
+  })
+
+  if (error) {
+    throwIfAborted(params.signal)
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const fileBlocks = typeof data?.fileBlocks === 'string' ? data.fileBlocks.trim() : ''
+  const rawDocs = Array.isArray(data?.documents) ? data.documents : []
+  const documents: ServerExtractedChatDocument[] = rawDocs
+    .filter((d: unknown): d is Record<string, unknown> => Boolean(d && typeof d === 'object'))
+    .map((d: Record<string, unknown>) => ({
+      fileName: typeof d.fileName === 'string' ? d.fileName : 'Dokument',
+      text: typeof d.text === 'string' ? d.text : '',
+      charCount: typeof d.charCount === 'number' ? d.charCount : 0,
+      extractionMethod:
+        typeof d.extractionMethod === 'string' ? d.extractionMethod : 'plain',
+      warnings: Array.isArray(d.warnings)
+        ? d.warnings.filter((w: unknown): w is string => typeof w === 'string')
+        : undefined,
+    }))
+
+  return { fileBlocks, documents }
 }
 
 export async function instantAnalyzeUserMessage(params: {
@@ -1720,12 +1875,17 @@ export async function instantAnalyzeUserMessage(params: {
 
   try {
     const supabase = getSupabaseClient()
+    const instantProvider = providerForMainChat({})
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'instant_analyze',
-        provider: providerForMainChat(),
-        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE,
-        promptCacheRetention: '24h',
+        provider: instantProvider,
+        ...(instantProvider === 'openai'
+          ? {
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE,
+              promptCacheRetention: '24h',
+            }
+          : { geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_INTENT }),
         payload: {
           userMessage: trimmed,
           contextBlock,
@@ -1796,13 +1956,22 @@ export async function thinkingAnalyzeUserMessage(params: {
     : ''
 
   try {
+    await ensureGeminiInstantFlagLoaded()
+    const useGemini = isGeminiInstantEnabled()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'thinking_analyze',
-        provider: providerForMainChat(),
-        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE,
-        promptCacheRetention: '24h',
+        provider: useGemini ? 'gemini' : 'openai',
+        ...(useGemini
+          ? {
+              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
+              geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+            }
+          : {
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE,
+              promptCacheRetention: '24h',
+            }),
         payload: {
           userMessage: trimmed,
           contextBlock,
@@ -1870,13 +2039,22 @@ export async function thinkingDraftForTurn(params: {
   )
 
   try {
+    await ensureGeminiInstantFlagLoaded()
+    const useGemini = isGeminiInstantEnabled()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'thinking_draft',
-        provider: providerForMainChat(),
-        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT,
-        promptCacheRetention: '24h',
+        provider: useGemini ? 'gemini' : 'openai',
+        ...(useGemini
+          ? {
+              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
+              geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
+            }
+          : {
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT,
+              promptCacheRetention: '24h',
+            }),
         payload: {
           userMessage: trimmed,
           contextBlock,
@@ -1927,13 +2105,22 @@ export async function thinkingReviewDraft(params: {
   )
 
   try {
+    await ensureGeminiInstantFlagLoaded()
+    const useGemini = isGeminiInstantEnabled()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'thinking_review',
-        provider: providerForMainChat(),
-        promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW,
-        promptCacheRetention: '24h',
+        provider: useGemini ? 'gemini' : 'openai',
+        ...(useGemini
+          ? {
+              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
+              geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+            }
+          : {
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW,
+              promptCacheRetention: '24h',
+            }),
         payload: {
           userMessage: trimmed,
           analyzeBriefing,
@@ -1980,7 +2167,7 @@ export async function generateChatTitleWithAi(messages: ChatMessage[]): Promise<
       const { data, error, response } = await supabase.functions.invoke('chat-completion', {
         body: {
           mode: 'generate_title',
-          provider: providerForMainChat(),
+          provider: 'openai',
           openAiModels: ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'],
           payload: {
             messages: messages.map((message) => ({

@@ -1,11 +1,11 @@
 import type { ThinkingTaskType } from './thinkingAnalyze'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 
-/** Systemblock nur im Hauptchat, wenn Thinking aktiv (gpt-5-mini, kein Profil-Speicher). */
+/** Systemblock nur im Hauptchat, wenn Thinking aktiv (Gemini 3.1 Flash Lite, kein Profil-Speicher). */
 export function getChatThinkingWorkflowInstruction(): string {
   return [
     getSecretSafetyInstruction(),
-    'Thinking-Modus (gpt-5-mini, Aufgaben & gründliche Bearbeitung):',
+    'Thinking-Modus (Gemini 3.1 Flash Lite, Aufgaben & gründliche Bearbeitung):',
     'Persönlicher Nutzer-Speicher ist ausgeschaltet — nutze nur den sichtbaren Chatverlauf in dieser Unterhaltung.',
     '',
     'Ablauf (verbindlich):',

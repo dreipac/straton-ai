@@ -12,3 +12,11 @@ export function stripComposerAttachmentBlocksForRouting(content: string): string
 export function messageHasDocumentFileAttachment(content: string): boolean {
   return /\[Datei:\s*[^\]]+\]/i.test(content)
 }
+
+/** Platzhalter `[Datei:…]\n[/Datei]` vor serverseitiger Extraktion entfernen. */
+export function stripEmptyDateiPlaceholders(content: string): string {
+  return content
+    .replace(/\[Datei:[^\]]+\]\s*\n?\s*\[\/Datei\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}

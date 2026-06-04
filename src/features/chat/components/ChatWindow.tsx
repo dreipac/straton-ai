@@ -33,7 +33,6 @@ import { copyTextToClipboard } from '../../../utils/copyTextToClipboard'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
 import { QuizFormatChoiceModal } from './QuizFormatChoiceModal'
-import type { QuizFormatChoice } from '../utils/quizFormatChoice'
 import { getChatSendPhaseLabel, type ChatSendPhaseState } from '../constants/chatSendPhase'
 import { CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS } from './chat-window/chatWindowConstants'
 import { ChatMessageList } from './chat-window/ChatMessageList'
@@ -77,9 +76,10 @@ type ChatWindowProps = {
   thinkingClarifyDialog?: ThinkingClarifyDialogState | null
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
+  composerUserId?: string | null
   onSendMessage: (
     content: string,
-    opts?: { quizFormat?: QuizFormatChoice; visionInlineDataUrl?: string },
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions,
   ) => Promise<void>
   /** Thinking-Modus: verbleibendes Guthaben (Superadmin: auslassen). */
   thinkingCreditsRemaining?: number
@@ -95,6 +95,9 @@ type ChatWindowProps = {
   /** Nach /PDF: PDF-Datei erzeugen, wenn die Papier-Vorschau passt. */
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy?: boolean
+  /** Nach /Excel: .xlsx erzeugen, wenn die Tabellen-Vorschau passt. */
+  onFinalizeExcelDocument?: () => void | Promise<void>
+  excelFinalizeBusy?: boolean
   /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
   mainChatContextMaxTokens?: number | null
 }
@@ -121,6 +124,7 @@ export function ChatWindow({
   thinkingClarifyDialog = null,
   onDismissThinkingClarify = () => {},
   onSubmitThinkingClarifyAnswer = async () => {},
+  composerUserId = null,
   onSendMessage,
   thinkingCreditsRemaining,
   thinkingCreditMax,
@@ -131,6 +135,8 @@ export function ChatWindow({
   wordFinalizeBusy = false,
   onFinalizePdfDocument,
   pdfFinalizeBusy = false,
+  onFinalizeExcelDocument,
+  excelFinalizeBusy = false,
   mainChatContextMaxTokens = null,
 }: ChatWindowProps) {
   const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
@@ -149,6 +155,7 @@ export function ChatWindow({
     pendingExcelGeneration,
     pendingWordGeneration,
     pendingPdfGeneration,
+    pendingChartGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,
@@ -171,6 +178,7 @@ export function ChatWindow({
 
   const composer = useChatComposer({
     threadKey,
+    composerUserId,
     isSending,
     tokenLimitReached,
     thinkingCreditsBlocked,
@@ -378,14 +386,17 @@ export function ChatWindow({
       excelCommandSelected={composer.excelCommandSelected}
       wordCommandSelected={composer.wordCommandSelected}
       pdfCommandSelected={composer.pdfCommandSelected}
+      chartCommandSelected={composer.chartCommandSelected}
       onSelectImage={composer.handleSelectImageQuickTile}
       onSelectExcel={composer.handleSelectExcelQuickTile}
       onSelectWord={composer.handleSelectWordQuickTile}
       onSelectPdf={composer.handleSelectPdfQuickTile}
+      onSelectChart={composer.handleSelectChartQuickTile}
       onClearImageGen={() => composer.setImageGenCommandSelected(false)}
       onClearExcel={() => composer.setExcelCommandSelected(false)}
       onClearWord={() => composer.setWordCommandSelected(false)}
       onClearPdf={() => composer.setPdfCommandSelected(false)}
+      onClearChart={() => composer.setChartCommandSelected(false)}
     />
   )
 
@@ -599,6 +610,7 @@ export function ChatWindow({
         pendingExcelGeneration={pendingExcelGeneration}
         pendingWordGeneration={pendingWordGeneration}
         pendingPdfGeneration={pendingPdfGeneration}
+        pendingChartGeneration={pendingChartGeneration}
         pendingStatusLabel={pendingStatusLabel}
         showLatestAssistantOrbitLoader={showLatestAssistantOrbitLoader}
         streamingStatusLabel={streamingStatusLabel}
@@ -618,6 +630,8 @@ export function ChatWindow({
         wordFinalizeBusy={wordFinalizeBusy}
         onFinalizePdfDocument={onFinalizePdfDocument}
         pdfFinalizeBusy={pdfFinalizeBusy}
+        onFinalizeExcelDocument={onFinalizeExcelDocument}
+        excelFinalizeBusy={excelFinalizeBusy}
         onCopyUserMessage={handleCopyUserMessageText}
       />
       {error ? <p className="error-text">{error}</p> : null}
