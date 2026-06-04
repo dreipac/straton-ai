@@ -61,6 +61,8 @@ export function getChatThinkingFinalAnswerTurnInstruction(taskType?: ThinkingTas
     blocks.push(getChatThinkingTroubleshootingGuideInstruction())
   } else if (taskType === 'decision_planning') {
     blocks.push(getChatThinkingDecisionGuideInstruction())
+  } else if (taskType === 'document_summary') {
+    blocks.push(getChatThinkingDocumentSummaryInstruction())
   }
   return blocks.join('\n\n')
 }
@@ -82,7 +84,26 @@ export function getChatThinkingGenericDeliverableInstruction(): string {
     '- Antwort muss zur geklärten Nutzerabsicht passen — nicht ein generisches Server-Tutorial.',
     '- Schrittfolge nur wenn es eine How-to-/Setup-/Prozess-Aufgabe ist.',
     '- Bei Entscheidungen: Optionen vergleichen, Empfehlung mit Begründung.',
-    '- Bei Zusammenfassungen: strukturiertes Dokument, keine Rückfragen.',
+    '- Bei Zusammenfassungen: **Inhalt** des Anhangs in eigenen Worten — keine Meta-Liste der Kapitel.',
+  ].join('\n')
+}
+
+/** Inhaltliche Dokument-Zusammenfassung (nicht «was das PDF enthält»). */
+export function getChatThinkingDocumentSummaryInstruction(): string {
+  return [
+    'Thinking — document_summary (Pflicht bei [Datei:…]-Anhang / Zusammenfassungswunsch):',
+    'Lies den vollständigen [Datei:…]…[/Datei]-Block in der Nutzernachricht. Fasse **den Inhalt** zusammen: Fakten, Lernziele, Aufgaben, Materialien, historische Punkte, Begriffe — in **eigenen Worten**.',
+    '',
+    'VERBOTEN als Hauptteil der Antwort:',
+    '- «Das Dossier/Blatt/Material/PDF thematisiert/deckt/enthält/listet/beschreibt…» ohne inhaltliche Ausarbeitung.',
+    '- Kapitel, die nur **Themenfelder aufzählen** (z. B. nur «Lernziele, Aufgaben, Mythen» unter **Deckt:**).',
+    '- Das Analyse-JSON (assumptions/risks) als Inhaltsverzeichnis wiedergeben.',
+    '',
+    'Pflicht:',
+    '- `## Zusammenfassung` + Themennamen; danach nummerierte `## 1. …`-Kapitel mit **ausgearbeitetem** Inhalt je Thema.',
+    '- Pro Kapitel: 1–3 Fließtext-Sätze mit konkretem Wissen aus dem Anhang, dann optional **Kernpunkte:** mit faktenbasierten Stichpunkten.',
+    '- Glossar/Begriffe aus dem Material als Tabelle | Begriff | Erklärung |.',
+    '- `## Annahmen` (falls nötig): höchstens 1–3 Sätze zu **fehlenden** Infos im Anhang — kein Kapitelverzeichnis.',
   ].join('\n')
 }
 
@@ -160,7 +181,7 @@ export function getChatThinkingMixedLayoutInstruction(): string {
     '— Jeder nummerierte Hauptabschnitt braucht mindestens einen Fließtext-Satz; Stichpunkte nur als Ergänzung, nicht als Ersatz.',
     '— Zwischen Hauptabschnitten `---` setzen (visuelle Trennung).',
     '— Unterkapitel mit `###` wenn das Thema es braucht.',
-    '— Vor Listen gern ein **fettes Label** mit Doppelpunkt (z. B. **Deckt:**, **Ziel:**, **Ablauf:**).',
+    '— Vor Listen gern ein **fettes Label** mit Doppelpunkt (z. B. **Kernpunkte:**, **Ziel:**, **Ablauf:**) — Stichpunkte mit **konkreten Fakten**, nicht nur Themenüberschriften.',
     '— Vergleiche und Typen-Übersichten als Markdown-Tabelle (| Spalte | Spalte |) mit `| --- | --- |`.',
     '— Prozessabläufe auch als Kurzsatz mit Pfeilen (z. B. «Prämien → Versicherer → Leistungen»).',
     '',
@@ -173,8 +194,9 @@ export function getChatThinkingMixedLayoutInstruction(): string {
     'VERBOTEN in Phase 2:',
     '— Das gesamte Dokument nur aus `-`-Listen ohne Fließtext-Absätze.',
     '— Drei gleiche Blöcke «nur 3 Bullets unter Überschrift» hintereinander — variiere: Satz + Bullets, Tabelle, zwei Sätze, ###-Unterkapitel.',
-    '— Leere Platzhalter oder Meta-Sätze («In diesem Abschnitt…»).',
+    '— Leere Platzhalter oder Meta-Sätze («In diesem Abschnitt…», «Das Dossier deckt…»).',
     '— Glossar/Begriffserklärungen als Bullet-Liste statt Tabelle.',
+    '— **Deckt:** nur mit ausformulierten Fakten — nie als reine Themenliste ohne Erklärung.',
   ].join('\n')
 }
 
@@ -277,7 +299,7 @@ export function buildThinkingDocumentUserContextBlock(userContent: string): stri
     `Geschätzter Umfang: ca. ${totalChars.toLocaleString('de-DE')} Zeichen (~${approxPages} Seiten).`,
     filesLine,
     depthLine,
-    'Bei Zusammenfassungswunsch in Phase 2: Format «Zusammenfassung» — Mischung Fließtext, Stichpunkte, `---` zwischen Kapiteln; alle wesentlichen Inhalte des Anhangs mitnehmen.',
+    'Bei Zusammenfassungswunsch in Phase 2: **Inhalt** aus dem [Datei]-Block wiedergeben (Fakten/Ziele/Begriffe) — keine Meta-Liste «das Dokument enthält Kapitel über …».',
     'Begriffe/Glossar in Phase 2: immer als Tabelle (| Begriff | Erklärung |), vollständig aus dem Material.',
     '---',
   ]

@@ -124,7 +124,8 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
         ? 1
         : 0
   clarify_rounds_planned = Math.min(MAX_CLARIFY_ROUNDS, Math.max(0, clarify_rounds_planned))
-  const analysis_summary = clipText(o.analysis_summary, 280) || intent
+  const analysis_summary =
+    clipText(o.analysis_summary, task_type === 'document_summary' ? 420 : 280) || intent
 
   if (!needs_clarification) {
     missing_dimensions = []
@@ -280,6 +281,11 @@ export function buildThinkingAnalyzeSystemPrompt(): string {
     '- [Datei: …] im Text → document_summary, needs_clarification false.',
     '- «Word/PDF/Excel erstellen/exportieren» werden clientseitig separat geroutet — hier nur inhaltliche Aufgaben.',
     '- «Foto/Bild suchen/zeigen von …» und «Bild generieren/zeichnen» werden separat geroutet.',
+    '',
+    'document_summary + [Datei:…]-Block mit Text:',
+    '- analysis_summary: **inhaltlicher Kern** in 2–4 Sätzen (konkrete Themen, Fakten, Ziele aus dem Anhang) — **nicht** «Nutzer will PDF zusammenfassen» oder nur Kapitelüberschriften.',
+    '- assumptions[]: nur echte Lücken (z. B. fehlende Seiten), **nicht** eine Aufzählung der Dokumentkapitel.',
+    '- intent: was der Nutzer mit dem Material will (z. B. Zusammenfassung, Überblick).',
   ].join('\n')
 }
 
@@ -307,6 +313,11 @@ export function buildThinkingAnalyzeBriefingForGateway(
   }
   if (intakeSummary?.trim()) {
     lines.push(`Bereits vom Nutzer bestätigt:\n${intakeSummary.trim()}`)
+  }
+  if (analyze.task_type === 'document_summary') {
+    lines.push(
+      'Lieferung Phase 2/3: **Inhaltszusammenfassung** aus dem [Datei:…]-Anhang (Fakten, Ziele, Aufgaben, Begriffe) — keine Meta-Beschreibung («das Dossier deckt…», «das Blatt enthält Kapitel über…»).',
+    )
   }
   return lines.join('\n')
 }

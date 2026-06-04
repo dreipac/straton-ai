@@ -117,7 +117,8 @@ export function buildThinkingDraftSystemPrompt(): string {
     'Nutze die Aufgabenanalyse: vollständige inhaltliche Lösung, alle wichtigen Schritte/Fakten, passend zu task_type.',
     'Struktur grob mit ##-Überschriften; zwischen Hauptteilen `---`.',
     'Kein Meta («Hier ist dein Entwurf»), kein Clarify-Block, keine Anpassungsfrage am Ende.',
-    'Bei Dokumenten/Anhängen: alles Wesentliche aus dem Material einbeziehen.',
+    'Bei Dokumenten/Anhängen: **inhaltliche** Zusammenfassung aus dem [Datei:…]-Text — Fakten, Ziele, Aufgaben, Begriffe; nicht nur aufzählen, was das Dokument «deckt».',
+    'VERBOTEN im Entwurf: «Das Dossier thematisiert…», reine Themenlisten ohne Erklärung.',
     'Antworte nur mit dem Entwurf-Markdown (kein JSON).',
   ].join('\n')
 }
@@ -132,5 +133,7 @@ export function buildThinkingReviewSystemPrompt(): string {
     '- rewrite_hints (string, max 600 Zeichen): was die finale sichtbare Antwort noch verbessern muss',
     '- summary (string, max 280 Zeichen): ein Satz Urteil',
     'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur «Dossier deckt/thematisiert…» ohne Fakten aus dem Anhang.',
+    'gaps/rewrite_hints: fehlende **Inhalte** aus dem Anhang nachfordern, nicht nur Struktur.',
   ].join('\n')
 }

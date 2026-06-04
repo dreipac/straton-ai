@@ -2475,7 +2475,11 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
         ? 1
         : 0
   clarify_rounds_planned = Math.min(1, Math.max(0, clarify_rounds_planned))
-  const analysis_summary = clipInstantAnalyzeText(o.analysis_summary, 280) || intent
+  const analysis_summary =
+    clipInstantAnalyzeText(
+      o.analysis_summary,
+      task_type === 'document_summary' ? 420 : 280,
+    ) || intent
   let dims = missing_dimensions
   if (!needs_clarification) {
     dims = []
@@ -2582,6 +2586,8 @@ async function thinkingAnalyzeWithAi(
     'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
     'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
     'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
+    'Bei [Datei:…]-Anhang mit Text: task_type document_summary; analysis_summary = inhaltlicher Kern (Fakten/Themen aus dem Anhang), nicht nur «Nutzer will PDF zusammenfassen».',
+    'assumptions[] bei document_summary: nur echte Lücken im Material, kein Kapitelverzeichnis.',
   ].join('\n')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
@@ -2612,7 +2618,9 @@ async function thinkingDraftWithAi(
   const system = [
     'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
     'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
-    'Kein Clarify-Block, keine Anpassungsfrage, kein Meta. Nur Entwurf-Markdown.',
+    'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
+    'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
+    'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
   ].join('\n')
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
@@ -2658,6 +2666,7 @@ async function thinkingReviewWithAi(
     'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
     'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
     'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
   ].join('\n')
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
