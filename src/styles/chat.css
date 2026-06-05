@@ -1834,6 +1834,67 @@
   border-bottom-color: color-mix(in srgb, #475569 75%, #64748b);
 }
 
+.chat-mcq-block--direct-answer {
+  margin-top: 0.15rem;
+}
+
+.chat-mcq-option--static {
+  cursor: default;
+  pointer-events: none;
+}
+
+.chat-mcq-option.is-correct-answer {
+  border-color: color-mix(in srgb, #16a34a 58%, var(--color-border, #cbd5e1));
+  background: color-mix(in srgb, #16a34a 14%, var(--color-surface, #ffffff));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #16a34a 24%, transparent);
+}
+
+.chat-mcq-option.is-correct-answer .chat-mcq-checkbox {
+  border-color: #16a34a;
+  background: #16a34a;
+}
+
+.chat-mcq-option.is-correct-answer .chat-mcq-checkbox::after {
+  content: '';
+  position: absolute;
+  left: 0.28rem;
+  top: 0.1rem;
+  width: 0.34rem;
+  height: 0.58rem;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  transform: rotate(42deg);
+}
+
+.chat-mcq-option.is-correct-answer .chat-mcq-option-letter {
+  color: color-mix(in srgb, #15803d 82%, #166534);
+}
+
+.chat-mcq-direct-answer-badge {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: color-mix(in srgb, #15803d 88%, #166534);
+}
+
+.chat-mcq-direct-answer-badge--pending {
+  color: color-mix(in srgb, var(--color-muted, #64748b) 92%, #475569);
+  font-weight: 500;
+}
+
+:root[data-theme='dark'] .chat-mcq-option.is-correct-answer {
+  border-color: color-mix(in srgb, #22c55e 52%, var(--color-border, #343b47));
+  background: color-mix(in srgb, #22c55e 18%, var(--color-surface-elevated, #151a22));
+}
+
+:root[data-theme='dark'] .chat-mcq-option.is-correct-answer .chat-mcq-option-letter {
+  color: color-mix(in srgb, #86efac 85%, #bbf7d0);
+}
+
+:root[data-theme='dark'] .chat-mcq-direct-answer-badge {
+  color: color-mix(in srgb, #86efac 88%, #bbf7d0);
+}
+
 .chat-md-inline-code {
   font-family:
     ui-monospace,

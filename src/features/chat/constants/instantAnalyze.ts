@@ -3,6 +3,11 @@ export type InstantAnalyzeClarity = 'clear' | 'partial' | 'vague'
 export type InstantAnalyzeReplyMode = 'ask_only' | 'one_step' | 'short_answer' | 'normal'
 
 import type { InstantAnalyzeDebugMeta } from '../types'
+import {
+  buildInstantAnalyzeDirectAnswerBriefing,
+  buildInstantAnalyzeDirectAnswerSection,
+  userMessageRequestsDirectAnswer,
+} from './chatDirectAnswerInstruction'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
 import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
 import { buildInstantAnalyzeDocumentExportBriefing } from './documentExportIntent'
@@ -109,6 +114,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
     '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
     '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
+    '- Nutzer postet Multiple-Choice / Auswahlfrage mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → reply_mode "short_answer", action "short_answer", clarity "clear" — **nicht** normal mit Erklärblock.',
+    '- Kurze Folge «bitte die richtige Antwort» / «correct answer only» nach MC-Frage im Verlauf → reply_mode "short_answer".',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
     '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
     '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
@@ -119,6 +126,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- escalate_model: boolean — **fast immer false**. Nur true bei: ≥2 grosse Anhänge + expliziter Quervergleich, oder mehrere Excel-Sheets mit Vergleichsaufgabe.',
     '- escalate_reason: string (max. 80 Zeichen) nur wenn escalate_model true, sonst "".',
     '- «ausführlich», «detailliert», «Zusammenfassung», «Prüfung», einzelnes PDF/DOCX → escalate_model **false** (Antwortmodell bleibt Lite).',
+    '',
+    buildInstantAnalyzeDirectAnswerSection(),
     '',
     buildInstantAnalyzeRoutePromptSection(),
   ].join('\n')
@@ -362,6 +371,39 @@ export function applyTaskSolveHeuristic(
   })
 }
 
+/** MC / Zertifizierung / «nur die Antwort» → short_answer, nicht Erklär-Essay. */
+export function applyDirectAnswerHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
+): InstantAnalyzeResult {
+  if (analyze.category === 'document' || analyze.category === 'chart') {
+    return analyze
+  }
+  if (analyze.category === 'image' && analyze.action !== 'describe') {
+    return analyze
+  }
+  if (!userMessageRequestsDirectAnswer(userMessage, priorTurns)) {
+    return analyze
+  }
+  const route = routeFromReplyMode('short_answer')
+  return syncReplyModeWithRoute({
+    ...analyze,
+    ...route,
+    category: 'chat',
+    action: 'short_answer',
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    web_reason: '',
+    intent:
+      analyze.intent.trim() && analyze.intent !== 'Allgemeine Anfrage'
+        ? analyze.intent
+        : 'Multiple-Choice beantworten',
+  })
+}
+
 /** Tabellen-/Zuordnungsübungen: normal beantworten, nicht ask_only. */
 export function applyTableExerciseHeuristic(
   userMessage: string,
@@ -502,6 +544,7 @@ export function applyInstantAnalyzeHeuristics(
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
     priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
   })
+  result = applyDirectAnswerHeuristic(userMessage, result, options?.priorTurns)
   return result
 }
 
@@ -626,6 +669,11 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     )
   } else if (analyze.reply_mode === 'one_step') {
     lines.push('Ein klarer Prüfschritt oder eine fokussierte Kurzlösung — nicht alles auf einmal.')
+  } else if (
+    analyze.reply_mode === 'short_answer' &&
+    /multiple[- ]?choice|auswahlfrage|direktantwort|mcq|zertifizierung/i.test(analyze.intent)
+  ) {
+    lines.push(buildInstantAnalyzeDirectAnswerBriefing())
   } else if (analyze.reply_mode === 'short_answer') {
     lines.push('Kompakte **fertige** Antwort — direkt liefern, nicht nachfragen.')
   } else if (analyze.category === 'image' && analyze.action === 'search') {

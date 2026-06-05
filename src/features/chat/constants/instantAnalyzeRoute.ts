@@ -1,5 +1,6 @@
 import type { InstantAnalyzeReplyMode, InstantAnalyzeResult } from './instantAnalyze'
 import { buildInstantAnalyzeChartGenerateSection } from './chartExportIntent'
+import { buildInstantAnalyzeDirectAnswerSection } from './chatDirectAnswerInstruction'
 import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportIntent'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { stripImageGenTilePromptPrefix } from './imageGenTile'
@@ -443,6 +444,8 @@ export function buildInstantAnalyzeRoutePromptSection(): string {
     '',
     buildInstantAnalyzeChartGenerateSection(),
     '',
+    buildInstantAnalyzeDirectAnswerSection(),
+    '',
     'Zuordnung (chat / image):',
     '- Normale Fragen, Erklärungen, Code, Mathe, Fehlersuche → chat (answer / one_step / short_answer / clarify).',
     '- «zeige/such/finde Foto/Bild von …» (reale Person/Sache/Ort) → image.search — **nicht** generate.',
@@ -452,6 +455,7 @@ export function buildInstantAnalyzeRoutePromptSection(): string {
     '- **Herkunft:** «wer hat das Bild gemacht/erstellt/generiert» nach Straton-Generierung → chat.answer (short_answer): **Straton/KI** in diesem Chat — **kein** image.reference, keine Vision nach externem Fotografen.',
     '- image.reference: App lädt das Verlaufsbild für Vision; du beschreibst den **sichtbaren** Inhalt — nie «ich kann keine Bilder sehen».',
     '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild-Aufgabe → chat.answer (direkt lösen, nicht clarify).',
+    '- Multiple-Choice mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → chat.short_answer — nicht chat.answer/normal.',
     '- Unklar: chat.answer mit Annahme — chat.clarify nur wenn wirklich nicht lösbar.',
     '- Kurze Folgen («und jetzt?», «mehr») mit Verlauf → chat.short_answer.',
     '- Folgenachricht mit «ihm/der/die», «zeige noch Bilder», «ich meine den Schauspieler» nach Fotosuche → image.search; Suchbegriff aus Verlauf (nicht «ihm» wörtlich).',

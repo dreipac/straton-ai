@@ -11,6 +11,15 @@ import {
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import {
+  DIRECT_ANSWER_FOLLOW_UP_BRIEFING,
+  DIRECT_ANSWER_HARD_GUARD,
+  DIRECT_ANSWER_TURN_BRIEFING,
+  buildInstantAnalyzeStructuralHintForUserMessage,
+  getAssistantDirectAnswerInstruction,
+  shouldApplyDirectAnswerTurnBriefing,
+  userMessageIsDirectAnswerFollowUp,
+} from '../constants/chatDirectAnswerInstruction'
+import {
   getAssistantExerciseSolutionToneInstruction,
   getAssistantTableExerciseInstruction,
   shouldApplyTableExerciseTurnBriefing,
@@ -669,6 +678,19 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   if (
     isMainChat &&
     !thinking &&
+    lastUserMessage?.role === 'user' &&
+    shouldApplyDirectAnswerTurnBriefing(lastUserMessage.content, priorTurnsForFollowUp)
+  ) {
+    lastUserTurnContextBlocks.push(
+      userMessageIsDirectAnswerFollowUp(lastUserMessage.content, priorTurnsForFollowUp)
+        ? DIRECT_ANSWER_FOLLOW_UP_BRIEFING
+        : DIRECT_ANSWER_TURN_BRIEFING,
+    )
+    lastUserTurnContextBlocks.push(DIRECT_ANSWER_HARD_GUARD)
+  }
+  if (
+    isMainChat &&
+    !thinking &&
     options?.webSearchRequestedButMissing &&
     !options?.webSearchContext?.trim()
   ) {
@@ -756,6 +778,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     mainChatThreadContinuity,
     mainChatInstantPrompts ? getAssistantTableExerciseInstruction() : '',
     mainChatInstantPrompts ? getAssistantExerciseSolutionToneInstruction() : '',
+    mainChatInstantPrompts ? getAssistantDirectAnswerInstruction() : '',
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -1872,6 +1895,8 @@ export async function instantAnalyzeUserMessage(params: {
   const contextBlock = params.priorTurns?.length
     ? formatInstantAnalyzeContextLines(params.priorTurns)
     : ''
+  const structuralHint = buildInstantAnalyzeStructuralHintForUserMessage(trimmed)
+  const userMessageForAnalyze = structuralHint ? `${structuralHint}${trimmed}` : trimmed
 
   try {
     const supabase = getSupabaseClient()
@@ -1887,7 +1912,7 @@ export async function instantAnalyzeUserMessage(params: {
             }
           : { geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_INTENT }),
         payload: {
-          userMessage: trimmed,
+          userMessage: userMessageForAnalyze,
           contextBlock,
         },
       },

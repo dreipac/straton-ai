@@ -16,7 +16,10 @@ import {
   parseExcelSpecFromContent,
   stripExcelSpecBlock,
 } from '../../excel/excelSpec'
+import { userMessageHadDirectAnswerIntent } from '../../constants/chatDirectAnswerInstruction'
 import { userMessageRequestsChart } from '../../constants/instantAnalyzeRoute'
+import { DirectAnswerMcqPreview } from '../DirectAnswerMcqPreview'
+import { buildDirectAnswerMcqPreview } from '../../utils/directAnswerMcq'
 import { ChartSpecPreview, ChartSpecPreviewBuilding } from '../ChartSpecPreview'
 import { ExcelSpecPreview, ExcelSpecPreviewBuilding } from '../ExcelSpecPreview'
 import {
@@ -176,6 +179,24 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   precedingUserForWordPaper.metadata,
                 ),
             )
+          const isDirectAnswerAssistantTurn =
+            isAssistant &&
+            Boolean(
+              precedingUserForWordPaper &&
+                userMessageHadDirectAnswerIntent(
+                  precedingUserForWordPaper.content,
+                  precedingUserForWordPaper.metadata,
+                ),
+            )
+          const directAnswerMcq =
+            isDirectAnswerAssistantTurn && precedingUserForWordPaper
+              ? buildDirectAnswerMcqPreview(
+                  precedingUserForWordPaper.content,
+                  rawContent,
+                  messages,
+                  messageIndex,
+                )
+              : null
           /** Papier-Karte nur nach explizitem /Word oder /PDF — nicht bei zufälligen ####-Zeilen im Normalchat. */
           const showWordPaperLayout = isWordAssistantTurn || isPdfAssistantTurn
           const excelSpecForPreview =
@@ -474,12 +495,29 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         )
                       }
                       const unsplash = message.metadata?.unsplashSearch
+                      const assistantRichContent = directAnswerMcq
+                        ? directAnswerMcq.correctLetter
+                          ? directAnswerMcq.rationale.trim()
+                          : isStreamingAssistant
+                            ? ''
+                            : displayContent
+                        : displayContent
                       return (
                         <div className="chat-message-body chat-message-body--rich chat-message-body--unsplash">
-                          {renderAssistantRichContent(
-                            displayContent,
-                            buildAssistantRichOptions(message.id),
-                          )}
+                          {directAnswerMcq ? (
+                            <DirectAnswerMcqPreview
+                              prompt={directAnswerMcq.prompt}
+                              options={directAnswerMcq.options}
+                              correctLetter={directAnswerMcq.correctLetter}
+                              isStreaming={isStreamingAssistant}
+                            />
+                          ) : null}
+                          {assistantRichContent ? (
+                            renderAssistantRichContent(
+                              assistantRichContent,
+                              buildAssistantRichOptions(message.id),
+                            )
+                          ) : null}
                           {unsplash ? (
                             <UnsplashPhotoResults query={unsplash.query} photos={unsplash.photos} />
                           ) : null}

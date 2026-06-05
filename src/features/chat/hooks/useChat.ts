@@ -125,6 +125,7 @@ import {
   parseExcelSpecFromContent,
 } from '../excel/excelSpec'
 import { parseChartSpecFromContent } from '../chart/chartSpec'
+import { userMessageRequestsDirectAnswer } from '../constants/chatDirectAnswerInstruction'
 import {
   canFinalizePdfExportFromThread,
   extractPdfOutlineFromThread,
@@ -1237,6 +1238,7 @@ export function useChat(
         wantsChart = true
       }
     }
+    const wantsDirectAnswer = userMessageRequestsDirectAnswer(routingText, priorTurnsEarly)
 
     let imageGenPrompt: string | null = null
     let imageSearchQuery: string | null = null
@@ -1489,6 +1491,7 @@ export function useChat(
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
+        ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
       }
 

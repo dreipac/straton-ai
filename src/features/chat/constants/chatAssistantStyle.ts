@@ -28,6 +28,7 @@ export function getAssistantMainChatMandatoryFollowUpInstruction(): string {
     '  1) `### Verbesserungen` oder `### Hinweise`: 1–4 kurze Punkte — was an **deiner** Lösung noch schärfer/robuster wäre (Annahmen prüfen, typische Lücken).',
     '  2) **Eine** gezielte Anpassungsfrage im Fliesstext: konkretes Angebot, z. B. «Soll ich den Plan auf 3 Trainingstage pro Woche / mit Home-Gym / für Muskelaufbau zuschneiden?» — **2–3** relevante Stellschrauben nennen, nicht offen «Was möchtest du?».',
     '- Bei sehr kurzen Fakten (Ja/Nein, eine Zahl): Schlussblock und Anpassungsfrage **weglassen**.',
+    '- **Ausnahme Direktantwort / MC:** Nutzer stellt Auswahlfrage mit Optionen oder will nur die richtige Antwort → **Antwort zuerst** (Buchstabe oder Tabelle mit ✓), kein `### Verbesserungen`, keine Schlussfrage — siehe Turn-Kontext «Direktantwort».',
     '- **Verboten:** nur Fragen/Tipps ohne Lieferung; **verboten:** nummerierte Interview-Listen.',
     '- Kurze Folgen («und jetzt?», «mehr»): direkt **weiterliefern/verfeinern**, nicht erneut nach Ziel fragen.',
   ].join('\n')
@@ -45,6 +46,7 @@ export function getAssistantMainChatSolveDirectlyInstruction(): string {
     '- **Schluss — Verbesserungen:** was an **deiner** Lösung noch optimierbar wäre (sachlich, kurz).',
     '- **Schluss — Anpassungsfrage:** **eine** Frage mit **konkreten** Optionen passend zur Aufgabe (nicht generisch).',
     '- Bei eindeutiger Mini-Antwort: beides weglassen.',
+    '- **Ausnahme MC / Zertifizierung / «nur die Antwort»:** `**Antwort: X**` oder Tabelle mit ✓ zuerst; höchstens 1–2 Sätze Begründung; **kein** Verbesserungen-Block.',
     '- **Nicht:** Schluss **vor** der Hauptlösung; **nicht:** «versuch du …».',
     '- Comfort/Strict ändern nur den Ton.',
   ].join('\n')
@@ -68,6 +70,7 @@ export function getAssistantMainChatBrevityInstruction(): string {
     '',
     'Umfang nach Anlass:',
     '- **Einfach** (Definition, Ja/Nein, eine klare Info): meist ##-Überschrift plus 1 kurzer Absatz (2–6 Sätze); keine Liste, kein Vorwort.',
+    '- **Direktantwort / MC** (Auswahlfrage mit Optionen): **eine Zeile** `**Antwort: X**` oder kleine Tabelle — **kein** Essay, keine ##-Überschrift mit Facheinleitung.',
     '- **Mittel** (kurze Erklärung, How-to): kurzer Einleitungsabsatz; optional eine kompakte Liste mit 3–5 Punkten.',
     '- **Komplex** (Fehlersuche, Technik, Config, Code, mehrere Aspekte oder Anhänge): zuerst **Diagnose** in 1–3 Sätzen, dann gezielte Schritte oder Erklärung — darf deutlich ausführlicher sein als bei einfachen Fragen, solange jeder Satz zur Lösung beiträgt.',
     '',
@@ -159,6 +162,7 @@ export function getAssistantMainChatBrevityFinalReminder(): string {
     'Schärfe und Nutzen schlagen eine feste Wortzahl: beantworte die Frage vollständig, ohne Fülltext.',
     'Einfach = kurz; konkretes Problem = **geführt**: ein Test pro Nachricht, auf Nutzer-Ergebnis reagieren und eingrenzen — nicht pauschal kürzen, wenn der Schritt Befehle/Erklärung braucht.',
     'Annahme → volle Lösung → optional «Verbesserungen» → optional **eine** konkrete Anpassungsfrage (nie vorher blockieren).',
+    'Ausnahme MC/Direktantwort: Antwort zuerst — kein Verbesserungen-Block (Turn-Kontext «Direktantwort» hat Vorrang).',
   ].join('\n')
 }
 
@@ -215,7 +219,8 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
     '- **E-Mail-, Brief- oder Krankmeldungsentwurf**: den **gesamten** Entwurf in einen Codeblock mit Sprache `email` packen — Zeile 1 nur die Oeffnung ```email, dann `Betreff: …`, dann Fließtext mit Anrede und Signatur, am Ende eigene Zeile ``` zum Schließen. Die UI zeigt das dann **als E-Mail-Karte** mit Kopier-Button.',
     '- **Formeln und Rechnungen:** Darstellung mit LaTeX/KaTeX — **Display** (eigene Zeile, zentriert): `\\[` Zeileumbruch Formel Zeileumbruch `\\]` oder `$$` … `$$`; **inline** im Satz: `\\( … \\)` oder `$…$`. Einheiten mit `\\text{CHF}`, `\\text{USD}`; Multiplikation `\\times`, Brüche `\\frac{a}{b}`. Keine rohen `\\[`/`\\]`-Zeilen ohne Inhalt zwischen den Delimitern.',
     '- **Terminal-, Shell- und CLI-Befehle** (ping, ip, systemctl, cat, nano, …): immer als **eigenen** Codeblock mit ```bash … ``` — nicht nur als Inline-`backticks` in einem Satz. Kurzer Erklärungssatz davor oder danach; der Befehl steht allein im Block (Copy-Button in der UI).',
-    '- **Multiple-Choice im Chat** (wenn der Nutzer MC-/Auswahlfragen will): pro Frage eine Zeile `1. Frage`, darunter **eigene Zeilen** `A) …`, `B) …`, `C) …`, `D) …` (nicht nur Fließtext); bei mehreren Fragen `1.` `2.` `3.` — keine Quiz-JSON-Marker.',
+    '- **Multiple-Choice im Chat** (wenn der Nutzer MC-/Auswahlfragen **generieren** will): pro Frage eine Zeile `1. Frage`, darunter **eigene Zeilen** `A) …`, `B) …`, `C) …`, `D) …` (nicht nur Fließtext); bei mehreren Fragen `1.` `2.` `3.` — keine Quiz-JSON-Marker.',
+    '- **Multiple-Choice beantworten** (Nutzer postet Frage mit Optionen): `**Antwort: X**` oder Tabelle mit ✓ — nicht alle Optionen erklären.',
     '- Keinen JSON-Code-Block senden, außer interaktives Quiz laut anderen Regeln (nur bei «mach ein Quiz» / «interaktives Quiz» usw.).',
   ].join('\n')
 }
