@@ -140,6 +140,10 @@ export function useChatMessageList({
     lastChartUserIndex >= 0 &&
     !assistantHasChartSpecAfterLastChartUser
 
+  const showBootstrapPendingRow = isSending && messageList.length === 0
+  const bootstrapStatusLabel =
+    getChatSendPhaseLabel(sendPhase) ?? (isSending ? 'Denkt nach …' : undefined)
+
   const showPendingTextOrbitRow =
     showAssistantPendingLoader &&
     !pendingImageGeneration &&
@@ -533,6 +537,8 @@ export function useChatMessageList({
     messagesScrollRef,
     animatedAssistantContent,
     showPendingAssistantRow,
+    showBootstrapPendingRow,
+    bootstrapStatusLabel,
     pendingImageGeneration,
     pendingImageSearch,
     pendingExcelGeneration,

@@ -86,6 +86,11 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
       action: typeof d.action === 'string' ? d.action : 'answer',
       category_from_ai: typeof d.category_from_ai === 'string' ? d.category_from_ai : 'chat',
       action_from_ai: typeof d.action_from_ai === 'string' ? d.action_from_ai : 'answer',
+      task_type: typeof d.task_type === 'string' ? d.task_type : 'explanation',
+      task_type_from_ai: typeof d.task_type_from_ai === 'string' ? d.task_type_from_ai : 'explanation',
+      explanation_depth: typeof d.explanation_depth === 'string' ? d.explanation_depth : 'standard',
+      explanation_depth_from_ai:
+        typeof d.explanation_depth_from_ai === 'string' ? d.explanation_depth_from_ai : 'standard',
       clarity: typeof d.clarity === 'string' ? d.clarity : 'partial',
       intent: typeof d.intent === 'string' ? d.intent : '',
       missing,
@@ -263,28 +268,38 @@ function mapMessageRows(data: unknown): ChatMessage[] {
   return data.map((row) => mapMessage(row as ChatMessageRow))
 }
 
+const MESSAGE_PAGE_SIZE = 1000
+
 async function listMessagesByThreadIdsQuery(
   threadIds: string[],
   includeMetadata: boolean,
 ): Promise<ChatMessage[]> {
   const supabase = getSupabaseClient()
-  const { data, error } = includeMetadata
-    ? await supabase
-        .from('chat_messages')
-        .select(CHAT_MESSAGE_SELECT_WITH_METADATA)
-        .in('thread_id', threadIds)
-        .order('created_at', { ascending: true })
-    : await supabase
-        .from('chat_messages')
-        .select(CHAT_MESSAGE_SELECT_BASE)
-        .in('thread_id', threadIds)
-        .order('created_at', { ascending: true })
+  const select = includeMetadata ? CHAT_MESSAGE_SELECT_WITH_METADATA : CHAT_MESSAGE_SELECT_BASE
+  const allRows: ChatMessage[] = []
+  let offset = 0
 
-  if (error) {
-    throw error
+  while (true) {
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select(select)
+      .in('thread_id', threadIds)
+      .order('created_at', { ascending: true })
+      .range(offset, offset + MESSAGE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw error
+    }
+
+    const batch = mapMessageRows(data)
+    allRows.push(...batch)
+    if (batch.length < MESSAGE_PAGE_SIZE) {
+      break
+    }
+    offset += MESSAGE_PAGE_SIZE
   }
 
-  return mapMessageRows(data)
+  return allRows
 }
 
 export async function listMessagesByThreadIds(threadIds: string[]): Promise<ChatMessage[]> {
@@ -300,6 +315,10 @@ export async function listMessagesByThreadIds(threadIds: string[]): Promise<Chat
     }
     return listMessagesByThreadIdsQuery(threadIds, false)
   }
+}
+
+export async function listMessagesForThread(threadId: string): Promise<ChatMessage[]> {
+  return listMessagesByThreadIds([threadId])
 }
 
 export async function createChatThread(userId: string, title: string): Promise<ChatThread> {

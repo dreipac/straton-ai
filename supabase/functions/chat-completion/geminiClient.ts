@@ -204,6 +204,19 @@ async function resolveCachedContentName(
   return created
 }
 
+export type GeminiInlineDataPart = {
+  inlineData: { mimeType: string; data: string }
+}
+
+export type GeminiTextPart = { text: string }
+
+export type GeminiContentPart = GeminiTextPart | GeminiInlineDataPart
+
+export type GeminiContentTurn = {
+  role: 'user' | 'model'
+  parts: GeminiContentPart[]
+}
+
 type GenerateContentResponse = {
   candidates?: Array<{
     content?: { parts?: Array<{ text?: string }> }
@@ -213,6 +226,26 @@ type GenerateContentResponse = {
     candidatesTokenCount?: number
     cachedContentTokenCount?: number
   }
+}
+
+function parseUsageFromResponse(data: GenerateContentResponse): GeminiUsage {
+  const cachedInputTokens = Math.max(
+    0,
+    Math.floor(Number(data.usageMetadata?.cachedContentTokenCount ?? 0)),
+  )
+  return {
+    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+  }
+}
+
+function extractTextFromResponse(data: GenerateContentResponse): string {
+  const parts = data.candidates?.[0]?.content?.parts ?? []
+  return parts
+    .map((p) => (typeof p.text === 'string' ? p.text : ''))
+    .join('')
+    .trim()
 }
 
 /**
@@ -257,27 +290,63 @@ export async function geminiGenerateText(
     { method: 'POST', body: JSON.stringify(body) },
   )
 
-  const parts = data.candidates?.[0]?.content?.parts ?? []
-  const text = parts
-    .map((p) => (typeof p.text === 'string' ? p.text : ''))
-    .join('')
-    .trim()
-
+  const text = extractTextFromResponse(data)
   if (!text) {
     throw new Error('Gemini hat keine Textantwort geliefert.')
   }
 
-  const cachedInputTokens = Math.max(
-    0,
-    Math.floor(Number(data.usageMetadata?.cachedContentTokenCount ?? 0)),
-  )
-  const usage: GeminiUsage = {
-    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
-    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
-    ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+  return { text, usage: parseUsageFromResponse(data), model }
+}
+
+/** Mehrturn-Chat inkl. `inlineData` (Fotos) über Gemini REST. */
+export async function geminiGenerateContents(
+  contents: GeminiContentTurn[],
+  options?: GeminiGenerateOptions,
+): Promise<{ text: string; usage: GeminiUsage; model: GeminiModelId }> {
+  if (contents.length === 0) {
+    throw new Error('Keine gültigen Nachrichten für Gemini.')
   }
 
-  return { text, usage, model }
+  const apiKey = getGeminiApiKey()
+  const model = normalizeGeminiModel(options?.model)
+  const systemInstruction = (options?.systemInstruction ?? '').trim()
+
+  let cachedContent: string | null = null
+  if (systemInstruction && options?.contextCacheKey) {
+    cachedContent = await resolveCachedContentName(
+      apiKey,
+      model,
+      systemInstruction,
+      options.contextCacheKey,
+    )
+  }
+
+  const body: Record<string, unknown> = {
+    contents,
+    generationConfig: {
+      temperature: options?.temperature ?? 0.35,
+      maxOutputTokens: options?.maxOutputTokens ?? 8192,
+    },
+  }
+
+  if (cachedContent) {
+    body.cachedContent = cachedContent
+  } else if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction }] }
+  }
+
+  const data = await geminiJson<GenerateContentResponse>(
+    `${GEMINI_API_BASE}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    apiKey,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+
+  const text = extractTextFromResponse(data)
+  if (!text) {
+    throw new Error('Gemini hat keine Textantwort geliefert.')
+  }
+
+  return { text, usage: parseUsageFromResponse(data), model }
 }
 
 /** PDF-OCR-Abgleich: fehlender Text aus Scan/Bildern ergänzen (sparsam, nur bei dünnem Textlayer). */

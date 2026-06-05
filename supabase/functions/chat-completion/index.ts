@@ -2327,6 +2327,8 @@ type InstantAnalyzePayloadEdge = {
   needs_live_web: boolean
   web_query: string
   web_reason: string
+  task_type: 'mc_solve' | 'quiz_generate' | 'explanation' | 'summary'
+  explanation_depth: 'brief' | 'standard' | 'detailed'
   escalate_model?: boolean
   escalate_reason?: string
 }
@@ -2415,6 +2417,20 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
   if (!escalate_model) {
     escalate_reason = ''
   }
+  const taskRaw = typeof o.task_type === 'string' ? o.task_type.trim() : ''
+  const task_type =
+    taskRaw === 'mc_solve' ||
+    taskRaw === 'quiz_generate' ||
+    taskRaw === 'explanation' ||
+    taskRaw === 'summary'
+      ? taskRaw
+      : 'explanation'
+  const depthRaw = typeof o.explanation_depth === 'string' ? o.explanation_depth.trim() : ''
+  const explanation_depth =
+    task_type === 'explanation' &&
+    (depthRaw === 'brief' || depthRaw === 'standard' || depthRaw === 'detailed')
+      ? depthRaw
+      : 'standard'
   return {
     category,
     action,
@@ -2425,6 +2441,8 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
     needs_live_web,
     web_query,
     web_reason,
+    task_type,
+    explanation_depth,
     ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   }
 }
@@ -2906,6 +2924,10 @@ async function instantAnalyzeWithGemini(
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web),',
     'escalate_model (boolean, fast immer false), escalate_reason (max 80, nur wenn escalate_model).',
+    'task_type: mc_solve | quiz_generate | explanation | summary.',
+    'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
+    'mc_solve: MC/Auswahlfrage lösen → chat.short_answer. quiz_generate: Quiz/Fragen erzeugen.',
+    'summary: zusammenfassen/überblick/ausführliche Zusammenfassung/[Datei]+fassen → chat.answer, task_type summary.',
     'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
     'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
@@ -2963,6 +2985,9 @@ async function instantAnalyzeWithAi(
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
+    'task_type: mc_solve | quiz_generate | explanation | summary.',
+    'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
+    'mc_solve → chat.short_answer; quiz_generate → chat.answer; summary → chat.answer, reply_mode normal.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
     'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
     '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
@@ -3509,6 +3534,8 @@ serve(async (req) => {
       /** Gemini Instant: `gemini-3.1-flash-lite` oder `gemini-2.5-flash`. */
       geminiModel?: unknown
       geminiPromptCacheKey?: unknown
+      /** Client: Instant-Aufgabentyp — `summary` erzwingt OpenAI statt Gemini. */
+      instantTaskType?: unknown
     }
     const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
     let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
@@ -3539,6 +3566,7 @@ serve(async (req) => {
     if (
       mode === 'chat' &&
       provider === 'openai' &&
+      body.instantTaskType !== 'summary' &&
       body.includeProfileMemory === true &&
       admin &&
       planChatFields?.chat_allow_model_choice === false
@@ -3878,8 +3906,9 @@ serve(async (req) => {
         resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
         admin,
       )
-      if (provider === 'openai') {
-        /** Nur echte Vision-Modelle — GPT-5.x antwortet sonst oft «ich sehe kein Bild». */
+      const useGeminiForVision = isGeminiInstantEnabled() || provider === 'gemini'
+      if (provider === 'openai' && !useGeminiForVision) {
+        /** Nur ohne Smart Instant Gemini — sonst Vision über Gemini 3.1 Flash Lite. */
         openAiModels = ['gpt-4o', 'gpt-4o-mini']
       }
     }
@@ -3890,7 +3919,7 @@ serve(async (req) => {
       mode === 'chat' &&
       body.billingConsumeThinkingCredit === true &&
       isGeminiInstantEnabled() &&
-      !chatHasVision
+      provider !== 'anthropic'
 
     if (useGeminiThinkingChat) {
       await getProviderApiKey('gemini')
@@ -3922,11 +3951,12 @@ serve(async (req) => {
 
     const useGeminiMainChat =
       mode === 'chat' &&
-      provider !== 'anthropic' &&
       body.billingConsumeThinkingCredit !== true &&
+      body.instantTaskType !== 'summary' &&
+      provider !== 'anthropic' &&
       (provider === 'gemini' || (isGeminiInstantEnabled() && provider === 'openai'))
 
-    if (useGeminiMainChat && !chatHasVision) {
+    if (useGeminiMainChat) {
       await getProviderApiKey('gemini')
       const geminiResult = await geminiChatCompletion(chatMessages, {
         model: geminiModelOverride,

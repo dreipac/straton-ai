@@ -4,6 +4,16 @@ export type InstantAnalyzeReplyMode = 'ask_only' | 'one_step' | 'short_answer' |
 
 import type { InstantAnalyzeDebugMeta } from '../types'
 import {
+  applyInstantChatTaskTypeHeuristic,
+  buildInstantAnalyzeTaskTypePromptSection,
+  buildInstantTaskTypeTurnBriefing,
+  inferInstantExplanationDepth,
+  parseInstantChatTaskType,
+  parseInstantExplanationDepth,
+  type InstantChatTaskType,
+  type InstantExplanationDepth,
+} from './chatInstantTaskType'
+import {
   buildInstantAnalyzeDirectAnswerBriefing,
   buildInstantAnalyzeDirectAnswerSection,
   userMessageRequestsDirectAnswer,
@@ -36,6 +46,7 @@ import {
 } from '../utils/referencedImageVision'
 
 export type { InstantAnalyzeAction, InstantAnalyzeCategory } from './instantAnalyzeRoute'
+export type { InstantChatTaskType, InstantExplanationDepth } from './chatInstantTaskType'
 
 export type InstantAnalyzeInvokeResult = {
   analyze: InstantAnalyzeResult
@@ -57,6 +68,10 @@ export type InstantAnalyzeResult = {
   /** Nur true bei Whitelist (Multi-Dokument-Vergleich, komplexe Tabellen-Merge) → Gemini 2.5 Flash. */
   escalate_model?: boolean
   escalate_reason?: string
+  /** Lernaufgabe: MC lösen, Quiz erzeugen, Erklärung, Zusammenfassung. */
+  task_type: InstantChatTaskType
+  /** Tiefe bei task_type explanation. */
+  explanation_depth: InstantExplanationDepth
 }
 
 const REPLY_MODES: InstantAnalyzeReplyMode[] = ['ask_only', 'one_step', 'short_answer', 'normal']
@@ -127,6 +142,8 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- escalate_reason: string (max. 80 Zeichen) nur wenn escalate_model true, sonst "".',
     '- «ausführlich», «detailliert», «Zusammenfassung», «Prüfung», einzelnes PDF/DOCX → escalate_model **false** (Antwortmodell bleibt Lite).',
     '',
+    buildInstantAnalyzeTaskTypePromptSection(),
+    '',
     buildInstantAnalyzeDirectAnswerSection(),
     '',
     buildInstantAnalyzeRoutePromptSection(),
@@ -177,6 +194,12 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     escalate_reason = ''
   }
 
+  const task_type = parseInstantChatTaskType(o.task_type)
+  const explanation_depth =
+    task_type === 'explanation'
+      ? parseInstantExplanationDepth(o.explanation_depth)
+      : 'standard'
+
   return syncReplyModeWithRoute({
     category,
     action,
@@ -187,6 +210,8 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     needs_live_web,
     web_query,
     web_reason,
+    task_type,
+    explanation_depth,
     ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   })
 }
@@ -494,6 +519,8 @@ export function fallbackInstantAnalyzeResult(
     needs_live_web: false,
     web_query: '',
     web_reason: '',
+    task_type: 'explanation',
+    explanation_depth: inferInstantExplanationDepth(trimmed, 'explanation'),
   })
   let result = applyIdentityQuestionHeuristic(trimmed, applyLiveWebHeuristic(trimmed, base))
   result = applyConversationalFollowUpHeuristic(trimmed, priorTurns, result)
@@ -545,6 +572,10 @@ export function applyInstantAnalyzeHeuristics(
     priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
   })
   result = applyDirectAnswerHeuristic(userMessage, result, options?.priorTurns)
+  result = applyInstantChatTaskTypeHeuristic(userMessage, result, {
+    hasDocumentFileAttachment: options?.hasDocumentFileAttachment,
+    priorTurns: options?.priorTurns,
+  })
   return result
 }
 
@@ -656,6 +687,10 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     'Smart Instant — Einordnung (verbindlich für diese Antwort):',
     `Kategorie: ${analyze.category}`,
     `Aktion: ${analyze.action}`,
+    `Aufgabentyp: ${analyze.task_type}`,
+    ...(analyze.task_type === 'explanation'
+      ? [`Erklärungstiefe: ${analyze.explanation_depth}`]
+      : []),
     `Klarheit: ${analyze.clarity}`,
     `Nutzerabsicht: ${analyze.intent}`,
     `Antwortmodus: ${analyze.reply_mode}`,
@@ -663,6 +698,9 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
   if (analyze.missing.length > 0) {
     lines.push(`Fehlende Infos: ${analyze.missing.join('; ')}`)
   }
+
+  lines.push(buildInstantTaskTypeTurnBriefing(analyze))
+
   if (analyze.action === 'clarify' || analyze.reply_mode === 'ask_only') {
     lines.push(
       'Nur wenn wirklich blockiert: **eine** kurze Frage. Sonst: **Lösung mit Annahme** liefern — keine Tipps «wie du selbst vorgehen könntest».',
@@ -686,7 +724,9 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     )
   } else if (
     analyze.category === 'chat' &&
-    (analyze.action === 'answer' || analyze.reply_mode === 'normal')
+    (analyze.action === 'answer' || analyze.reply_mode === 'normal') &&
+    analyze.task_type !== 'summary' &&
+    analyze.task_type !== 'explanation'
   ) {
     lines.push(
       '**Zuerst** vollständige Lösung mit Annahme (Plan, Text, Tabelle …). **Danach** optional «Verbesserungen» + **eine** konkrete Anpassungsfrage (z. B. «Soll ich … auf X/Y anpassen?») — **nicht** vorher fragen.',
@@ -734,7 +774,9 @@ export function buildInstantAnalyzeDebugMeta(params: {
       fromAiRoute!.web_query !== final.web_query ||
       fromAiRoute!.reply_mode !== final.reply_mode ||
       fromAiRoute!.category !== final.category ||
-      fromAiRoute!.action !== final.action)
+      fromAiRoute!.action !== final.action ||
+      fromAiRoute!.task_type !== final.task_type ||
+      fromAiRoute!.explanation_depth !== final.explanation_depth)
 
   return {
     source: invoke.source,
@@ -742,6 +784,10 @@ export function buildInstantAnalyzeDebugMeta(params: {
     action: final.action,
     category_from_ai: fromAiRoute?.category ?? final.category,
     action_from_ai: fromAiRoute?.action ?? final.action,
+    task_type: final.task_type,
+    task_type_from_ai: fromAiRoute?.task_type ?? final.task_type,
+    explanation_depth: final.explanation_depth,
+    explanation_depth_from_ai: fromAiRoute?.explanation_depth ?? final.explanation_depth,
     clarity: final.clarity,
     intent: final.intent,
     missing: [...final.missing],

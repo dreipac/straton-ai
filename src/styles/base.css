@@ -2,6 +2,8 @@
   /* Browser-Tab: dynamische Viewport-Höhe. PWA-Override steht unten (100lvh), damit es nicht überschrieben wird. */
   --straton-app-height: 100vh;
   --straton-app-height: 100dvh;
+  --font-weight-body: 500;
+  --font-weight-medium: 600;
   font-family:
     'Manrope Variable',
     ui-sans-serif,
@@ -40,6 +42,13 @@
   --accent-fab-fg: #ffffff;
   /* Senden-Icon auf Akzent-Kreis (Monochrom-SVG → wird von applyAccentPalette gesetzt) */
   --composer-send-icon-filter: brightness(0) invert(1);
+}
+
+/* Manrope Variable (200–800): Fliesstext eine Stufe kräftiger; Fallback bleibt 400. */
+@supports (font-variation-settings: normal) {
+  :root {
+    font-weight: var(--font-weight-body);
+  }
 }
 
 /*

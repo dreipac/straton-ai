@@ -40,6 +40,12 @@ import {
   userMessageHasUploadedImage,
 } from '../utils/referencedImageVision'
 import {
+  shouldRouteSummaryInstantToOpenAi,
+  shouldSuppressInstantBrevityForAnalyze,
+  shouldSuppressInstantMandatoryFollowUpForAnalyze,
+  shouldSuppressInstantSolveDirectlyForAnalyze,
+} from '../constants/chatInstantTaskType'
+import {
   applyInstantAnalyzeHeuristics,
   buildInstantAnalyzeBriefingInstruction,
   CONVERSATIONAL_FOLLOW_UP_TURN_BRIEFING,
@@ -150,7 +156,8 @@ import {
 import { isValidVisionDataUrl } from '../utils/imageVisionNormalize'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
-  MAIN_CHAT_MAX_OUTPUT_TOKENS,
+  MAIN_CHAT_SUMMARY_OPENAI_MODELS,
+  resolveMainChatMaxOutputTokens,
   THINKING_MAX_OUTPUT_TOKENS,
 } from '../constants/mainChatOutput'
 import type {
@@ -572,17 +579,25 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     !options?.userRequestedPdf &&
     !options?.userRequestedChart &&
     !thinking
-  const mainChatBrevity = mainChatInstantPrompts ? getAssistantMainChatBrevityInstruction() : ''
+  const suppressInstantBrevity = shouldSuppressInstantBrevityForAnalyze(options?.instantAnalyze)
+  const suppressInstantFollowUp = shouldSuppressInstantMandatoryFollowUpForAnalyze(options?.instantAnalyze)
+  const suppressInstantSolveDirectly = shouldSuppressInstantSolveDirectlyForAnalyze(options?.instantAnalyze)
+  const mainChatBrevity =
+    mainChatInstantPrompts && !suppressInstantBrevity ? getAssistantMainChatBrevityInstruction() : ''
   const mainChatGuidedDiagnosis = mainChatInstantPrompts
     ? getAssistantMainChatGuidedDiagnosisInstruction()
     : ''
   const mainChatStepByStepIntake = mainChatInstantPrompts
     ? getAssistantMainChatStepByStepIntakeInstruction()
     : ''
-  const mainChatMandatoryFollowUp = mainChatInstantPrompts
-    ? getAssistantMainChatMandatoryFollowUpInstruction()
-    : ''
-  const mainChatSolveDirectly = mainChatInstantPrompts ? getAssistantMainChatSolveDirectlyInstruction() : ''
+  const mainChatMandatoryFollowUp =
+    mainChatInstantPrompts && !suppressInstantFollowUp
+      ? getAssistantMainChatMandatoryFollowUpInstruction()
+      : ''
+  const mainChatSolveDirectly =
+    mainChatInstantPrompts && !suppressInstantSolveDirectly
+      ? getAssistantMainChatSolveDirectlyInstruction()
+      : ''
   const mainChatThreadContinuity = mainChatInstantPrompts
     ? getAssistantMainChatThreadContinuityInstruction()
     : ''
@@ -794,7 +809,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         ? getAssistantEmojiStyleInstruction({ replyTone })
         : '',
     thinkingClarifyUiReminder,
-    mainChatBrevity && !thinkingClarifyUiReminder ? getAssistantMainChatBrevityFinalReminder() : '',
+    mainChatBrevity && !thinkingClarifyUiReminder && !suppressInstantBrevity
+      ? getAssistantMainChatBrevityFinalReminder()
+      : '',
     /* Profil + Zeit zuletzt: grosser statischer Prefix darüber bleibt prompt-cache-fähig; Datum ganz am Ende. */
     isMainChat ? getChatProfileIdentityInstruction(options?.profileIdentity) : '',
     isMainChat ? getChatCurrentDateContextInstruction() : '',
@@ -1148,22 +1165,16 @@ export async function generateExcelSpecWithSonnet(userRequest: string): Promise<
   )
 }
 
-/** Hauptchat Instant (nicht Thinking/Lernpfad). */
-function providerForMainChat(options: { hasVision?: boolean }): 'openai' | 'gemini' {
-  if (options.hasVision && isGeminiInstantEnabled()) {
-    return 'openai'
-  }
+/** Hauptchat Instant (nicht Thinking/Lernpfad) — inkl. Fotos über Gemini 3.1 Flash Lite. */
+function providerForMainChat(_options: { hasVision?: boolean }): 'openai' | 'gemini' {
   if (isGeminiInstantEnabled()) {
     return 'gemini'
   }
   return 'openai'
 }
 
-/** Thinking-Pipeline: Gemini 3.1 Flash Lite wenn Smart Instant Gemini aktiv; Vision → OpenAI. */
-function providerForThinking(options: { hasVision?: boolean }): 'openai' | 'gemini' {
-  if (options.hasVision) {
-    return 'openai'
-  }
+/** Thinking-Pipeline: Gemini 3.1 Flash Lite wenn Smart Instant Gemini aktiv (auch mit Foto). */
+function providerForThinking(_options: { hasVision?: boolean }): 'openai' | 'gemini' {
   if (isGeminiInstantEnabled()) {
     return 'gemini'
   }
@@ -1230,6 +1241,7 @@ function buildChatCompletionRequestBody(
   }
 
   const thinking = isMainChatThinking(options)
+  const summaryInstantOpenAi = shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking)
   const gatewayHasVisionEarly =
     gatewayMessages.some(
       (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
@@ -1238,18 +1250,25 @@ function buildChatCompletionRequestBody(
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
   const mainProvider = thinking
     ? providerForThinking({ hasVision: gatewayHasVisionEarly })
-    : providerForMainChat({ hasVision: gatewayHasVisionEarly })
+    : summaryInstantOpenAi
+      ? 'openai'
+      : providerForMainChat({ hasVision: gatewayHasVisionEarly })
   const meta =
     mainProvider === 'gemini'
       ? { provider: 'gemini' as const }
       : thinking
         ? { provider: 'openai' as const, openAiModels: [] as string[] }
-        : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+        : summaryInstantOpenAi
+          ? { provider: 'openai' as const, openAiModels: [...MAIN_CHAT_SUMMARY_OPENAI_MODELS] }
+          : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     mode: 'chat',
     provider: meta.provider,
     messages: gatewayMessages,
     includeProfileMemory: thinking ? false : true,
+  }
+  if (summaryInstantOpenAi) {
+    body.instantTaskType = 'summary'
   }
   if (mainProvider === 'gemini') {
     body.geminiModel = thinking
@@ -1262,6 +1281,8 @@ function buildChatCompletionRequestBody(
   if (meta.provider === 'openai') {
     if (!options?.useLearnPathModel && thinking) {
       body.openAiModels = [...THINKING_OPENAI_MODEL_CHAIN]
+    } else if (!options?.useLearnPathModel && !thinking && summaryInstantOpenAi) {
+      body.openAiModels = [...MAIN_CHAT_SUMMARY_OPENAI_MODELS]
     } else if (
       !options?.useLearnPathModel &&
       !thinking &&
@@ -1287,7 +1308,9 @@ function buildChatCompletionRequestBody(
       : mainChatPromptCacheKey(options?.mainChatThreadId)
     body.promptCacheRetention = '24h'
   }
-  body.maxTokens = thinking ? THINKING_MAX_OUTPUT_TOKENS : MAIN_CHAT_MAX_OUTPUT_TOKENS
+  body.maxTokens = thinking
+    ? THINKING_MAX_OUTPUT_TOKENS
+    : resolveMainChatMaxOutputTokens(options?.instantAnalyze)
   if (thinking) {
     body.billingConsumeThinkingCredit = true
   }
@@ -1334,20 +1357,18 @@ function buildChatCompletionRequestBody(
     })
   }
 
-  /** GPT-5.x wertet Vision in der Praxis oft schlecht; 4o-mini zuverlässig für Fotos. */
+  /** Ohne Smart Instant: Vision-Fallback OpenAI 4o — sonst bleibt Gemini (3.1 Flash Lite). */
   const gatewayHasVision =
     gatewayMessages.some(
       (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
     ) ||
     (typeof options?.visionInlineDataUrl === 'string' &&
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
-  if (!options?.useLearnPathModel && gatewayHasVision) {
-    if (body.provider === 'openai' || isGeminiInstantEnabled()) {
-      body.provider = 'openai'
-      body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
-      delete body.geminiModel
-      delete body.geminiPromptCacheKey
-    }
+  if (!options?.useLearnPathModel && gatewayHasVision && !isGeminiInstantEnabled()) {
+    body.provider = 'openai'
+    body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
+    delete body.geminiModel
+    delete body.geminiPromptCacheKey
   }
 
   return body

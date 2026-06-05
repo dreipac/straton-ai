@@ -35,6 +35,22 @@ export function ChatInstantAnalyzeDebugPanel({ debug, compact = false }: ChatIns
           <dd>{debug.action_from_ai}</dd>
         </div>
         <div>
+          <dt>task_type (final)</dt>
+          <dd>{debug.task_type}</dd>
+        </div>
+        <div>
+          <dt>task_type (KI)</dt>
+          <dd>{debug.task_type_from_ai}</dd>
+        </div>
+        <div>
+          <dt>explanation_depth (final)</dt>
+          <dd>{debug.explanation_depth}</dd>
+        </div>
+        <div>
+          <dt>explanation_depth (KI)</dt>
+          <dd>{debug.explanation_depth_from_ai}</dd>
+        </div>
+        <div>
           <dt>Klarheit</dt>
           <dd>{debug.clarity}</dd>
         </div>

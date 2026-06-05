@@ -77,6 +77,8 @@ export type ChatMessageListProps = {
   chatThinkingMode: ChatThinkingMode
   isSending: boolean
   showPendingAssistantRow: boolean
+  showBootstrapPendingRow: boolean
+  bootstrapStatusLabel: string | undefined
   pendingImageGeneration: boolean
   pendingImageSearch: boolean
   pendingExcelGeneration: boolean
@@ -119,6 +121,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
     chatThinkingMode,
     isSending,
     showPendingAssistantRow,
+    showBootstrapPendingRow,
+    bootstrapStatusLabel,
     pendingImageGeneration,
     pendingImageSearch,
     pendingExcelGeneration,
@@ -337,7 +341,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
           return (
             <article
               key={message.id}
-              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${isLatestMessage ? ' chat-message--latest' : ''}${userMessagePressActive ? ' is-message-press-active' : ''}`}
+              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${
+                isLatestMessage && message.role === 'user' ? ' chat-message--user-enter' : ''
+              }${isLatestMessage && isAssistant ? ' chat-message--assistant-enter' : ''}${
+                userMessagePressActive ? ' is-message-press-active' : ''
+              }`}
               {...userMessageLongPressHandlers}
             >
               {showOrbitLoader ? (
@@ -801,6 +809,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
             </article>
           )
         })}
+          {showBootstrapPendingRow ? (
+            <div className="chat-message-bootstrap-pending" aria-live="polite" aria-busy="true">
+              <ChatPendingReplyLoader statusLabel={bootstrapStatusLabel} />
+            </div>
+          ) : null}
           {showPendingAssistantRow ? (
             <div
               className={`chat-message is-assistant chat-message--pending${

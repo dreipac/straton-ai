@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import {
   CHAT_THREADS_REFRESH_EVENT,
+  CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY,
   type ChatThreadsRefreshDetail,
 } from '../constants/events'
 import { stripChartCommandMarker, userWantsChartExport } from '../constants/chartExportPrompt'
@@ -112,6 +113,7 @@ import {
   leaveSharedChatThreadMembership,
   listChatThreads,
   listMessagesByThreadIds,
+  listMessagesForThread,
   mapMessage,
   touchChatThread,
   updateChatThreadTitle,
@@ -232,6 +234,36 @@ function getMessagesByThread(
     acc[message.threadId].push(message)
     return acc
   }, {})
+}
+
+function readLastActiveThreadId(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    return sessionStorage.getItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function persistLastActiveThreadId(threadId: string | null) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    if (threadId) {
+      sessionStorage.setItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY, threadId)
+    } else {
+      sessionStorage.removeItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function threadLikelyHasMessages(thread: ChatThread): boolean {
+  return thread.updatedAt !== thread.createdAt
 }
 
 /** Eine Zeile pro Nachrichten-ID — verhindert Duplikate bei Realtime + lokalem Append. */
@@ -409,6 +441,7 @@ export function useChat(
     options?.isSuperadmin === true ? null : (options?.thinkingCreditBalance ?? 0),
   )
   const removeTimersRef = useRef<Record<string, number>>({})
+  const loadedMessageThreadIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (options?.isSuperadmin === true) {
@@ -511,8 +544,10 @@ export function useChat(
       if (nextThreads.length > 0) {
         const allMessages = await listMessagesByThreadIds(nextThreads.map((thread) => thread.id))
         setMessagesByThreadId(getMessagesByThread(allMessages))
+        loadedMessageThreadIdsRef.current = new Set(nextThreads.map((thread) => thread.id))
       } else {
         setMessagesByThreadId({})
+        loadedMessageThreadIdsRef.current = new Set()
       }
 
       setThreads(nextThreads)
@@ -529,11 +564,46 @@ export function useChat(
         if (currentId && nextThreads.some((thread) => thread.id === currentId)) {
           return currentId
         }
+        const storedId = readLastActiveThreadId()
+        if (storedId && nextThreads.some((thread) => thread.id === storedId)) {
+          return storedId
+        }
         return null
       })
     },
     [],
   )
+
+  const ensureThreadMessagesLoaded = async (threadId: string) => {
+    const thread = threads.find((item) => item.id === threadId)
+    const cachedLen = messagesByThreadId[threadId]?.length ?? 0
+    /** Optimistisches Senden / lokale Liste — nicht mit leerer Server-Antwort überschreiben. */
+    if (cachedLen > 0) {
+      loadedMessageThreadIdsRef.current.add(threadId)
+      return
+    }
+
+    const shouldLoad =
+      !loadedMessageThreadIdsRef.current.has(threadId) ||
+      (thread != null && threadLikelyHasMessages(thread))
+
+    if (!shouldLoad) {
+      return
+    }
+
+    const msgs = await listMessagesForThread(threadId)
+    loadedMessageThreadIdsRef.current.add(threadId)
+    setMessagesByThreadId((prev) => {
+      const localLen = prev[threadId]?.length ?? 0
+      if (localLen > 0) {
+        return prev
+      }
+      return {
+        ...prev,
+        [threadId]: msgs,
+      }
+    })
+  }
 
   function clearRemoveTimer(threadId: string) {
     const timerId = removeTimersRef.current[threadId]
@@ -576,6 +646,7 @@ export function useChat(
       setThreads([])
       setMessagesByThreadId({})
       setActiveThreadId(null)
+      loadedMessageThreadIdsRef.current = new Set()
       setIsBootstrapping(false)
       return
     }
@@ -610,7 +681,7 @@ export function useChat(
       setError(null)
 
       try {
-        await refreshThreadsFromServer(currentUserId, false)
+        await refreshThreadsFromServer(currentUserId, true)
       } catch (err) {
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Chats konnten nicht geladen werden.')
@@ -628,6 +699,20 @@ export function useChat(
       isMounted = false
     }
   }, [userId, refreshThreadsFromServer])
+
+  useEffect(() => {
+    persistLastActiveThreadId(activeThreadId)
+  }, [activeThreadId])
+
+  useEffect(() => {
+    if (!activeThreadId || isBootstrapping) {
+      return
+    }
+    void ensureThreadMessagesLoaded(activeThreadId).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden.')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nur bei Thread-Wechsel laden, nicht bei jeder Nachricht
+  }, [activeThreadId, isBootstrapping, threads])
 
   useEffect(() => {
     if (!userId) {
@@ -736,6 +821,7 @@ export function useChat(
           ...prev,
           [persistedThread.id]: prev[persistedThread.id] ?? [],
         }))
+        loadedMessageThreadIdsRef.current.add(persistedThread.id)
         setActiveThreadId(persistedThread.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Neuer Chat konnte nicht erstellt werden.')
@@ -756,6 +842,7 @@ export function useChat(
       ...prev,
       [temporaryThread.id]: [],
     }))
+    loadedMessageThreadIdsRef.current.add(temporaryThread.id)
     setActiveThreadId(temporaryThread.id)
   }
 
@@ -1167,7 +1254,7 @@ export function useChat(
     }
   }
 
-  function selectChat(threadId: string) {
+  async function selectChat(threadId: string) {
     setThinkingClarifyDialog(null)
     if (autoRemoveEmptyChats && activeThreadId && activeThreadId !== threadId) {
       const activeThread = threads.find((thread) => thread.id === activeThreadId)
@@ -1178,8 +1265,14 @@ export function useChat(
       }
     }
 
-    setActiveThreadId(threadId)
-    setError(null)
+    try {
+      await ensureThreadMessagesLoaded(threadId)
+      setActiveThreadId(threadId)
+      setError(null)
+    } catch (err) {
+      setActiveThreadId(threadId)
+      setError(err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden.')
+    }
   }
 
   async function submitMessage(content: string, sendOpts?: ChatSendMessageOptions) {
@@ -1198,6 +1291,9 @@ export function useChat(
       (sendOpts?.pendingDocumentFiles?.length ?? 0) > 0
     const hasDocumentFileAttachment =
       hasPendingServerDocuments || messageHasDocumentFileAttachment(content)
+    /** Voller Composer-Inhalt (mit `[BildData]`), nicht `routingText` — sonst blockiert reines Foto ohne Text. */
+    const hasAttachedVision =
+      messageHasVisionPayload(trimmed) || Boolean(sendOpts?.visionInlineDataUrl)
 
     if (!canSend) {
       return
@@ -1206,14 +1302,11 @@ export function useChat(
       !wantsWord &&
       !wantsPdf &&
       !routingText &&
-      !messageHasVisionPayload(routingText) &&
+      !hasAttachedVision &&
       !hasDocumentFileAttachment
     ) {
       return
     }
-
-    const hasVisionEarly =
-      messageHasVisionPayload(routingText) || Boolean(sendOpts?.visionInlineDataUrl)
     const priorTurnsEarly: ImageSearchPriorTurn[] = (activeThreadId
       ? messagesByThreadId[activeThreadId] ?? []
       : []
@@ -1230,7 +1323,7 @@ export function useChat(
     if (!wantsChart && routingText) {
       const chartRoute = detectRouteHeuristic(
         routingText,
-        hasVisionEarly,
+        hasAttachedVision,
         priorTurnsEarly,
         hasDocumentFileAttachment,
       )
@@ -1247,7 +1340,7 @@ export function useChat(
       const composerRouteLockedEarly =
         wantsWord || wantsPdf || wantsExcel || wantsChart || isComposerImageGenRequest(routingText)
       const thinkingMediaEarly = resolveThinkingMediaRouteFromHeuristics(routingText, {
-        hasVisionAttachment: hasVisionEarly,
+        hasVisionAttachment: hasAttachedVision,
         hasDocumentFileAttachment,
         priorTurns: priorTurnsEarly,
         composerRouteLocked: composerRouteLockedEarly,
@@ -1388,9 +1481,6 @@ export function useChat(
         (activeThread?.id === targetThreadId ? activeThread : undefined)
       const userOwnsThread = Boolean(userId && aclThread && aclThread.userId === userId)
 
-      const hasAttachedVisionEarly =
-        messageHasVisionPayload(routingText) || Boolean(sendOpts?.visionInlineDataUrl)
-
       const priorTurnsForContext: ImageSearchPriorTurn[] = (messagesByThreadId[targetThreadId] ?? [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({
@@ -1411,7 +1501,7 @@ export function useChat(
             ? extractImageSearchQuery(routingText, undefined, priorTurnsForContext) || null
             : null
       }
-      if (!imageGenPrompt && !wantsWord && !wantsPdf && hasAttachedVisionEarly) {
+      if (!imageGenPrompt && !wantsWord && !wantsPdf && hasAttachedVision) {
         const attachedEdit = matchAttachedImageEditRequest(routingText, true)
         if (attachedEdit.kind === 'prompt') {
           imageGenPrompt = attachedEdit.prompt
@@ -1511,8 +1601,7 @@ export function useChat(
         !wantsExcel &&
         !wantsChart &&
         (Boolean(routingText) || hasDocumentFileAttachment) &&
-        !hasAttachedVisionEarly &&
-        !messageHasVisionPayload(routingText)
+        !hasAttachedVision
 
       if (userId && messageHasVisionPayload(userContent)) {
         try {
@@ -1547,6 +1636,7 @@ export function useChat(
       }
 
       let nextMessages: ChatMessage[] = []
+      loadedMessageThreadIdsRef.current.add(targetThreadId)
       setMessagesByThreadId((prev) => {
         const list = prev[targetThreadId] ?? []
         nextMessages = upsertChatMessage(list, optimisticUserMessage)
@@ -1570,7 +1660,7 @@ export function useChat(
           const invokeResult = await instantAnalyzeUserMessage({
             userMessage: routingText,
             priorTurns,
-            hasVisionAttachment: hasAttachedVisionEarly,
+            hasVisionAttachment: hasAttachedVision,
             hasDocumentFileAttachment,
             signal,
           })
@@ -1627,7 +1717,7 @@ export function useChat(
           }
           if (
             routeOverrides.loadReferencedImageVision &&
-            !hasAttachedVisionEarly &&
+            !hasAttachedVision &&
             !visionInlineDataUrl &&
             userId
           ) {
@@ -1767,7 +1857,7 @@ export function useChat(
           const invokeResult = await instantAnalyzeUserMessage({
             userMessage: routingText,
             priorTurns,
-            hasVisionAttachment: hasAttachedVisionEarly,
+            hasVisionAttachment: hasAttachedVision,
             hasDocumentFileAttachment,
             signal,
           })
@@ -1816,7 +1906,7 @@ export function useChat(
           }
           if (
             routeOverrides.loadReferencedImageVision &&
-            !hasAttachedVisionEarly &&
+            !hasAttachedVision &&
             !visionInlineDataUrl &&
             userId
           ) {
@@ -2137,7 +2227,7 @@ export function useChat(
         wantsThinkingTurn &&
         routingText &&
         !visionInlineDataUrl &&
-        !hasAttachedVisionEarly &&
+        !hasAttachedVision &&
         userId &&
         usesGatewayAi()
       ) {
@@ -2196,7 +2286,7 @@ export function useChat(
               userMessage: userAnswer,
               priorTurns,
               isContinuationFollowUp: false,
-              hasVisionAttachment: hasAttachedVisionEarly,
+              hasVisionAttachment: hasAttachedVision,
               signal,
             })
             if (persistInstantAnalyzeDebug) {
@@ -2239,7 +2329,7 @@ export function useChat(
             userMessage: trimmed,
             priorTurns,
             isContinuationFollowUp: isThinkingContinuationFollowUp(trimmed, nextMessages),
-            hasVisionAttachment: hasAttachedVisionEarly,
+            hasVisionAttachment: hasAttachedVision,
             signal,
           })
           if (persistInstantAnalyzeDebug) {

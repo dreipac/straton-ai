@@ -17,7 +17,6 @@ import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
 import { ChatContextUsageRing } from './ChatContextUsageRing'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
 import { ChatThinkingAnalyzeDebugPanel } from './ChatThinkingAnalyzeDebugPanel'
-import { ChatPendingReplyLoader } from './ChatPendingReplyLoader'
 import { ChatEmptyGreetingTitle } from './ChatEmptyGreetingTitle'
 import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
@@ -33,7 +32,7 @@ import { copyTextToClipboard } from '../../../utils/copyTextToClipboard'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
 import { QuizFormatChoiceModal } from './QuizFormatChoiceModal'
-import { getChatSendPhaseLabel, type ChatSendPhaseState } from '../constants/chatSendPhase'
+import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import { CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS } from './chat-window/chatWindowConstants'
 import { ChatMessageList } from './chat-window/ChatMessageList'
 import { useChatMessageList } from '../hooks/useChatMessageList'
@@ -150,6 +149,8 @@ export function ChatWindow({
     messagesScrollRef,
     animatedAssistantContent,
     showPendingAssistantRow,
+    showBootstrapPendingRow,
+    bootstrapStatusLabel,
     pendingImageGeneration,
     pendingImageSearch,
     pendingExcelGeneration,
@@ -171,7 +172,7 @@ export function ChatWindow({
     downloadWordExport,
     downloadPdfExport,
   } = messageListModel
-  const isEmptyState = messageList.length === 0
+  const isEmptyState = messageList.length === 0 && !isSending
   const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
 
   const clearSectionReplyEmbedRef = useRef<() => void>(() => {})
@@ -552,13 +553,6 @@ export function ChatWindow({
           {thinkingClarifyOverlay}
           {quickTilesEl}
           {thinkingCreditsHintEl}
-          {isSending ? (
-            <div className="chat-empty-send-status" aria-live="polite">
-              <ChatPendingReplyLoader
-                statusLabel={getChatSendPhaseLabel(sendPhase) ?? 'Denkt nach …'}
-              />
-            </div>
-          ) : null}
           {showInstantAnalyzeDebug && liveInstantAnalyzeDebug ? (
             <div className="chat-empty-instant-debug">
               <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
@@ -605,6 +599,8 @@ export function ChatWindow({
         chatThinkingMode={chatThinkingMode}
         isSending={isSending}
         showPendingAssistantRow={showPendingAssistantRow}
+        showBootstrapPendingRow={showBootstrapPendingRow}
+        bootstrapStatusLabel={bootstrapStatusLabel}
         pendingImageGeneration={pendingImageGeneration}
         pendingImageSearch={pendingImageSearch}
         pendingExcelGeneration={pendingExcelGeneration}

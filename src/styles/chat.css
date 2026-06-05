@@ -689,10 +689,21 @@
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
 }
 
-@keyframes chat-message-latest-in {
+@keyframes chat-message-user-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px) translateX(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) translateX(0) scale(1);
+  }
+}
+
+@keyframes chat-message-assistant-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -700,8 +711,19 @@
   }
 }
 
-.chat-message--latest {
-  animation: chat-message-latest-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+.chat-message--user-enter {
+  animation: chat-message-user-in 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-message--assistant-enter {
+  animation: chat-message-assistant-in 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-message-bootstrap-pending {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.35rem 0 0.15rem;
+  animation: chat-message-assistant-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* during.svg: Größe unten bei Submit-Button (höhere Spezifität — sonst setzt .chat-input-row > button .chat-send-icon) */
@@ -1030,7 +1052,9 @@
     scroll-behavior: auto;
   }
 
-  .chat-message--latest {
+  .chat-message--user-enter,
+  .chat-message--assistant-enter,
+  .chat-message-bootstrap-pending {
     animation: none;
   }
 
@@ -1231,6 +1255,7 @@
   margin: 0.25rem 0 0;
   white-space: pre-wrap;
   color: #1e293b;
+  font-weight: var(--font-weight-body);
 }
 
 .chat-user-inline-images {
@@ -1576,6 +1601,7 @@
 .chat-md-p {
   margin: 0;
   font-size: 1em;
+  font-weight: var(--font-weight-body);
   line-height: 1.55;
   white-space: pre-wrap;
   color: inherit;
@@ -1611,6 +1637,7 @@
   padding-left: 0.15rem;
   line-height: 1.55;
   font-size: 1em;
+  font-weight: var(--font-weight-body);
   display: list-item;
 }
 
@@ -1806,7 +1833,7 @@
   min-width: 0;
   font-size: 0.98em;
   line-height: 1.45;
-  font-weight: 450;
+  font-weight: var(--font-weight-body);
 }
 
 :root[data-theme='dark'] .chat-mcq-option {

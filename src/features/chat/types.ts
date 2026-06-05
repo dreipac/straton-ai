@@ -20,6 +20,10 @@ export type InstantAnalyzeDebugMeta = {
   action: string
   category_from_ai: string
   action_from_ai: string
+  task_type: string
+  task_type_from_ai: string
+  explanation_depth: string
+  explanation_depth_from_ai: string
   clarity: string
   intent: string
   missing: string[]
