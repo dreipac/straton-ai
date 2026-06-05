@@ -1286,6 +1286,28 @@
   overflow: hidden;
 }
 
+.chat-user-inline-images .chat-inline-image-trigger {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-user-inline-images .chat-inline-image-trigger .chat-user-inline-image,
+.chat-user-inline-images .chat-inline-image-trigger .chat-md-inline-image {
+  width: 104px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid color-mix(in srgb, #3b82f6 20%, #c6d6eb);
+  display: block;
+}
+
 .chat-assistant-message-copy {
   display: flex;
   justify-content: flex-start;

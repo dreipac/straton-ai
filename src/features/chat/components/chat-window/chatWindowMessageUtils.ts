@@ -49,6 +49,25 @@ export function extractBildDataUrlFromStoredContent(content: string, imageId: st
   return undefined
 }
 
+/** Storage-Pfad aus `@chat-media:` in gespeichertem `[BildData]` (nach Upload in Supabase). */
+export function extractChatMediaStoragePathFromStoredContent(
+  content: string,
+  imageId: string,
+): string | undefined {
+  if (!imageId || !content.includes('[BildData:')) {
+    return undefined
+  }
+  const escaped = imageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`\\[BildData:${escaped}\\]\\s*([\\s\\S]*?)\\s*\\[/BildData\\]`, 'm')
+  const m = content.match(re)
+  const raw = m?.[1]?.trim()
+  if (!raw) {
+    return undefined
+  }
+  const refMatch = raw.match(/@chat-media:([^\s)\]]+)/i)
+  return refMatch?.[1]?.trim() || undefined
+}
+
 export function extractDateiFileNamesFromContent(content: string): string[] {
   if (!content.includes('[Datei:')) {
     return []

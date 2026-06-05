@@ -3,6 +3,7 @@ import fileIcon from '../../../../assets/icons/file.svg'
 import { ChatExportActionHint } from '../ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from '../ChatInstantAnalyzeDebugPanel'
 import { ChatThinkingAnalyzeDebugPanel } from '../ChatThinkingAnalyzeDebugPanel'
+import { ChatMediaInlineImage } from '../ChatMediaInlineImage'
 import { ChatPendingReplyLoader } from '../ChatPendingReplyLoader'
 import { ChatMessageReplyQuotePreview } from '../ChatComposerReplyQuoteBar'
 import { ChatUserMessageMenuSelect } from '../ChatUserMessageMenuSelect'
@@ -60,6 +61,7 @@ import {
 } from './chatWindowExportMatrices'
 import {
   extractBildDataUrlFromStoredContent,
+  extractChatMediaStoragePathFromStoredContent,
   extractDateiFileNamesFromContent,
   extractPastedImageIdsFromContent,
   safeMessageContent,
@@ -249,13 +251,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
             message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
-          const hasReloadedImageSrc =
-            message.role === 'user' &&
-            pastedImageIds.some(
-              (id) =>
-                Boolean(sentPastedImagePreviews[id]) ||
-                Boolean(extractBildDataUrlFromStoredContent(rawContent, id)),
-            )
+          const showUserInlineImages = message.role === 'user' && pastedImageIds.length > 0
           const showExcelFallbackText =
             isAssistant &&
             Boolean(message.metadata?.excelExport) &&
@@ -361,25 +357,41 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   ) : null}
                 </strong>
               ) : null}
-              {hasReloadedImageSrc ? (
-                  <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
+              {showUserInlineImages ? (
+                <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
                   {pastedImageIds.map((imageId) => {
-                    const src =
+                    const inlineSrc =
                       sentPastedImagePreviews[imageId] ??
                       extractBildDataUrlFromStoredContent(rawContent, imageId)
-                    if (!src) {
+                    if (inlineSrc) {
+                      return (
+                        <button
+                          key={imageId}
+                          type="button"
+                          className="chat-user-inline-image-trigger"
+                          aria-label="Bild vergrößern"
+                          onClick={() => onImagePreview(inlineSrc)}
+                        >
+                          <img className="chat-user-inline-image" src={inlineSrc} alt="Eingefügtes Bild" />
+                        </button>
+                      )
+                    }
+                    const storagePath =
+                      extractChatMediaStoragePathFromStoredContent(rawContent, imageId) ??
+                      (message.metadata?.visionImage?.attachmentId === imageId
+                        ? message.metadata.visionImage.path
+                        : undefined)
+                    if (!storagePath) {
                       return null
                     }
                     return (
-                      <button
+                      <ChatMediaInlineImage
                         key={imageId}
-                        type="button"
-                        className="chat-user-inline-image-trigger"
-                        aria-label="Bild vergrößern"
-                        onClick={() => onImagePreview(src)}
-                      >
-                        <img className="chat-user-inline-image" src={src} alt="Eingefügtes Bild" />
-                      </button>
+                        storagePath={storagePath}
+                        alt="Eingefügtes Bild"
+                        className="chat-user-inline-image"
+                        onPreview={onImagePreview}
+                      />
                     )
                   })}
                 </div>
