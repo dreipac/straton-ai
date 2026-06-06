@@ -846,6 +846,8 @@ export function ChatPage() {
         onCloseSettings={pageModals.closeSettingsModal}
         onCloseAdmin={pageModals.closeAdminModal}
         onCloseNews={pageModals.closeNewsModal}
+        onNewsSheetExitComplete={pageModals.handleNewsSheetExitComplete}
+        newsFullSheetRef={pageModals.newsFullSheetRef}
         onOpenSettings={pageModals.openSettingsModal}
         onOpenAdmin={pageModals.openAdminModal}
         onCloseBetaNotice={pageModals.closeBetaNoticeModal}

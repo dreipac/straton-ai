@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type RefObject } from 'react'
 import newsIcon from '../../../assets/icons/news.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
+import { type ProfileFullSheetHandle } from '../../../components/ui/bottom-sheet/ProfileFullSheet'
 import { ModalHeader } from '../../../components/ui/modal/ModalHeader'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { NEWS_FEED_REFRESH_EVENT } from '../constants/newsFeed'
@@ -15,10 +16,14 @@ import {
 } from '../services/news.service'
 import { NewsPostComposerModal } from './NewsPostComposerModal'
 
+type NewsFeedVariant = 'modal' | 'sheet'
+
 type NewsFeedModalProps = {
   isOpen: boolean
   onClose: () => void
   isAdmin: boolean
+  variant?: NewsFeedVariant
+  sheetRef?: RefObject<ProfileFullSheetHandle | null>
 }
 
 function formatNewsDate(iso: string): string {
@@ -32,7 +37,13 @@ function formatNewsDate(iso: string): string {
   }
 }
 
-export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) {
+export function NewsFeedModal({
+  isOpen,
+  onClose,
+  isAdmin,
+  variant = 'modal',
+  sheetRef,
+}: NewsFeedModalProps) {
   const [posts, setPosts] = useState<NewsPost[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +52,8 @@ export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) 
   const [composerMounted, setComposerMounted] = useState(false)
   const [composerVisible, setComposerVisible] = useState(false)
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
+
+  const isSheet = variant === 'sheet'
 
   const loadPosts = useCallback(async () => {
     setIsLoading(true)
@@ -68,6 +81,14 @@ export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) 
   function closeComposer() {
     setComposerOpen(false)
     setEditingPost(null)
+  }
+
+  function requestClose() {
+    if (isSheet) {
+      sheetRef?.current?.requestClose()
+      return
+    }
+    onClose()
   }
 
   async function handleDeletePost(post: NewsPost) {
@@ -111,6 +132,9 @@ export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) 
   }, [isOpen, loadPosts])
 
   useEffect(() => {
+    if (isSheet) {
+      return
+    }
     if (composerOpen) {
       setComposerMounted(true)
       const id = window.requestAnimationFrame(() => setComposerVisible(true))
@@ -122,7 +146,7 @@ export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) 
       setComposerMounted(false)
     }, 220)
     return () => window.clearTimeout(timer)
-  }, [composerOpen])
+  }, [composerOpen, isSheet])
 
   useEffect(() => {
     if (!isOpen) {
@@ -135,99 +159,117 @@ export function NewsFeedModal({ isOpen, onClose, isAdmin }: NewsFeedModalProps) 
     return () => window.removeEventListener(NEWS_FEED_REFRESH_EVENT, onRefresh)
   }, [isOpen, loadPosts])
 
-  return (
-    <>
-      <ModalShell isOpen={isOpen} onRequestClose={onClose} className="news-feed-modal-wrap">
-        <section
-          className="rename-modal news-feed-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Updates und Neuigkeiten"
-        >
-          <header className="news-feed-modal-header">
-            <ModalHeader
-              title="Updates & Neuigkeiten"
-              titleIcon={newsIcon}
-              headingLevel="h2"
-              onClose={onClose}
-              closeLabel="Schliessen"
-            />
-          </header>
-          {isAdmin ? (
-            <div className="news-feed-modal-toolbar">
-              <PrimaryButton type="button" onClick={openCreateComposer}>
-                Feed posten
-              </PrimaryButton>
-            </div>
-          ) : null}
-          <div className="news-feed-modal-body">
-            {isLoading && posts.length === 0 ? (
-              <p className="news-feed-empty">Lade Neuigkeiten…</p>
-            ) : null}
-            {error ? (
-              <p className="news-feed-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            {!isLoading && !error && posts.length === 0 ? (
-              <p className="news-feed-empty">Noch keine Neuigkeiten veröffentlicht.</p>
-            ) : null}
-            <div className="news-feed-list">
-              {posts.map((post) => (
-                <article key={post.id} className="news-feed-post">
-                  {post.image_url ? (
-                    <div className="news-feed-post-media">
-                      <img src={post.image_url} alt="" loading="lazy" />
+  const composerShouldRender = isSheet ? composerOpen : composerMounted
+  const composerIsOpen = isSheet ? composerOpen : composerVisible
+
+  const feedContent = (
+    <section
+      className={`rename-modal news-feed-modal${isSheet ? ' news-feed-modal--sheet-embed' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Updates und Neuigkeiten"
+    >
+      {!isSheet ? (
+        <header className="news-feed-modal-header">
+          <ModalHeader
+            title="Updates & Neuigkeiten"
+            titleIcon={newsIcon}
+            headingLevel="h2"
+            onClose={requestClose}
+            closeLabel="Schliessen"
+          />
+        </header>
+      ) : null}
+      {isAdmin ? (
+        <div className="news-feed-modal-toolbar">
+          <PrimaryButton type="button" onClick={openCreateComposer}>
+            Feed posten
+          </PrimaryButton>
+        </div>
+      ) : null}
+      <div className="news-feed-modal-body">
+        {isLoading && posts.length === 0 ? <p className="news-feed-empty">Lade Neuigkeiten…</p> : null}
+        {error ? (
+          <p className="news-feed-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {!isLoading && !error && posts.length === 0 ? (
+          <p className="news-feed-empty">Noch keine Neuigkeiten veröffentlicht.</p>
+        ) : null}
+        <div className="news-feed-list">
+          {posts.map((post) => (
+            <article key={post.id} className="news-feed-post">
+              {post.image_url ? (
+                <div className="news-feed-post-media">
+                  <img src={post.image_url} alt="" loading="lazy" />
+                </div>
+              ) : null}
+              <div className="news-feed-post-content">
+                <div className="news-feed-post-head">
+                  <div className="news-feed-post-head-copy">
+                    <h3 className="news-feed-post-title">{post.title}</h3>
+                    <p className="news-feed-post-date">{formatNewsDate(post.created_at)}</p>
+                  </div>
+                  {isAdmin ? (
+                    <div className="news-feed-post-admin-actions">
+                      <SecondaryButton
+                        type="button"
+                        className="news-feed-post-admin-btn"
+                        disabled={deletingPostId === post.id}
+                        onClick={() => openEditComposer(post)}
+                      >
+                        Bearbeiten
+                      </SecondaryButton>
+                      <button
+                        type="button"
+                        className="news-feed-post-delete-btn"
+                        disabled={deletingPostId === post.id}
+                        onClick={() => void handleDeletePost(post)}
+                      >
+                        {deletingPostId === post.id ? 'Löschen…' : 'Löschen'}
+                      </button>
                     </div>
                   ) : null}
-                  <div className="news-feed-post-content">
-                    <div className="news-feed-post-head">
-                      <div className="news-feed-post-head-copy">
-                        <h3 className="news-feed-post-title">{post.title}</h3>
-                        <p className="news-feed-post-date">{formatNewsDate(post.created_at)}</p>
-                      </div>
-                      {isAdmin ? (
-                        <div className="news-feed-post-admin-actions">
-                          <SecondaryButton
-                            type="button"
-                            className="news-feed-post-admin-btn"
-                            disabled={deletingPostId === post.id}
-                            onClick={() => openEditComposer(post)}
-                          >
-                            Bearbeiten
-                          </SecondaryButton>
-                          <button
-                            type="button"
-                            className="news-feed-post-delete-btn"
-                            disabled={deletingPostId === post.id}
-                            onClick={() => void handleDeletePost(post)}
-                          >
-                            {deletingPostId === post.id ? 'Löschen…' : 'Löschen'}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    <p className="news-feed-post-body">{post.body}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-      </ModalShell>
+                </div>
+                <p className="news-feed-post-body">{post.body}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
 
-      {composerMounted ? (
-        <NewsPostComposerModal
-          isOpen={composerVisible}
-          editingPost={editingPost}
-          onClose={closeComposer}
-          onSaved={() => {
-            closeComposer()
-            void loadPosts()
-            dispatchNewsFeedRefresh({ reason: 'manual' })
-          }}
-        />
-      ) : null}
+  const composer = composerShouldRender ? (
+    <NewsPostComposerModal
+      variant={variant}
+      isOpen={composerIsOpen}
+      editingPost={editingPost}
+      onClose={closeComposer}
+      onSaved={() => {
+        closeComposer()
+        void loadPosts()
+        dispatchNewsFeedRefresh({ reason: 'manual' })
+      }}
+    />
+  ) : null
+
+  if (isSheet) {
+    return (
+      <div className="news-feed-sheet-root">
+        <div className="news-feed-sheet-embed">{feedContent}</div>
+        {composer}
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <ModalShell isOpen={isOpen} onRequestClose={requestClose} className="news-feed-modal-wrap">
+        {feedContent}
+      </ModalShell>
+      {composer}
     </>
   )
 }

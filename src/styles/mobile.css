@@ -848,6 +848,21 @@
   width: 100%;
 }
 
+.profile-full-sheet-body.is-news-mode {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.profile-full-sheet-body.is-news-mode > .news-feed-sheet-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+}
+
 .profile-full-sheet-hero {
   display: flex;
   flex-direction: column;

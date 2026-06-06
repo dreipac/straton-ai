@@ -6,8 +6,8 @@ import folderFilledIcon from '../../../../assets/icons/folder-filled.svg'
 import logoutIcon from '../../../../assets/icons/logout.svg'
 import { PrimaryButton } from '../../../../components/ui/buttons/PrimaryButton'
 import { ActionBottomSheet } from '../../../../components/ui/bottom-sheet/ActionBottomSheet'
-import { ProfileFullSheet, type ProfileFullSheetHandle } from '../../../../components/ui/bottom-sheet/ProfileFullSheet'
 import { type ContentBottomSheetHandle } from '../../../../components/ui/bottom-sheet/ContentBottomSheet'
+import { ProfileFullSheet, type ProfileFullSheetHandle } from '../../../../components/ui/bottom-sheet/ProfileFullSheet'
 import { RenameBottomSheet, type RenameBottomSheetHandle } from '../../../../components/ui/bottom-sheet/RenameBottomSheet'
 import { ContextMenu } from '../../../../components/ui/menu/ContextMenu'
 import { MenuItem } from '../../../../components/ui/menu/MenuItem'
@@ -42,6 +42,7 @@ export type ChatPageOverlaysProps = {
   chatTourEligible: boolean
   isLearnPathsButtonDisabled: boolean
   profileFullSheetRef: RefObject<ProfileFullSheetHandle | null>
+  newsFullSheetRef: RefObject<ProfileFullSheetHandle | null>
   betaNoticeSheetRef: RefObject<ContentBottomSheetHandle | null>
   mobileSheetMode: 'closed' | 'profile' | 'settings'
   setMobileSheetMode: (mode: 'closed' | 'profile' | 'settings') => void
@@ -90,6 +91,7 @@ export type ChatPageOverlaysProps = {
   onCloseSettings: () => void
   onCloseAdmin: () => void
   onCloseNews: () => void
+  onNewsSheetExitComplete: () => void
   onOpenSettings: (section?: SettingsSectionId) => void
   onOpenAdmin: () => void
   onCloseBetaNotice: () => void
@@ -130,6 +132,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     chatTourEligible,
     isLearnPathsButtonDisabled,
     profileFullSheetRef,
+    newsFullSheetRef,
     betaNoticeSheetRef,
     mobileSheetMode,
     setMobileSheetMode,
@@ -178,6 +181,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     onCloseSettings,
     onCloseAdmin,
     onCloseNews,
+    onNewsSheetExitComplete,
     onOpenSettings,
     onOpenAdmin,
     onCloseBetaNotice,
@@ -303,12 +307,30 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
           <AdministratorModal onClose={onCloseAdmin} />
         </ModalShell>
       ) : null}
-      {isNewsMounted ? (
+      {isNewsMounted && !isCompactMobileSidebarLayout ? (
         <NewsFeedModal
           isOpen={isNewsVisible}
           onClose={onCloseNews}
           isAdmin={profile?.is_superadmin === true}
+          variant="modal"
         />
+      ) : null}
+      {isCompactMobileSidebarLayout && isNewsMounted ? (
+        <ProfileFullSheet
+          ref={newsFullSheetRef}
+          open={isNewsMounted}
+          onClose={onNewsSheetExitComplete}
+          title="Updates & Neuigkeiten"
+          bodyClassName="news-feed-sheet-body-wrap is-news-mode"
+        >
+          <NewsFeedModal
+            variant="sheet"
+            sheetRef={newsFullSheetRef}
+            isOpen={isNewsVisible}
+            onClose={onNewsSheetExitComplete}
+            isAdmin={profile?.is_superadmin === true}
+          />
+        </ProfileFullSheet>
       ) : null}
 
       {threadMenuVariant === 'sheet' && openMenuThreadId ? (

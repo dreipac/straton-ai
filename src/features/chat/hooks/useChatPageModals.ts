@@ -35,6 +35,7 @@ export function useChatPageModals({
   setIsMobileSidebarOpen,
 }: UseChatPageModalsArgs) {
   const profileFullSheetRef = useRef<ProfileFullSheetHandle | null>(null)
+  const newsFullSheetRef = useRef<ProfileFullSheetHandle | null>(null)
   const betaNoticeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const introductionSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
@@ -162,11 +163,20 @@ export function useChatPageModals({
   }, [isCompactMobileSidebarLayout, setIsMobileSidebarOpen])
 
   const closeNewsModal = useCallback(() => {
+    if (isCompactMobileSidebarLayout) {
+      newsFullSheetRef.current?.requestClose()
+      return
+    }
     setIsNewsVisible(false)
     newsCloseTimerRef.current = window.setTimeout(() => {
       setIsNewsMounted(false)
       newsCloseTimerRef.current = null
     }, CHAT_PAGE_MODAL_ANIMATION_MS)
+  }, [isCompactMobileSidebarLayout])
+
+  const handleNewsSheetExitComplete = useCallback(() => {
+    setIsNewsVisible(false)
+    setIsNewsMounted(false)
   }, [])
 
   const handleBetaNoticeSheetExitComplete = useCallback(async () => {
@@ -326,6 +336,7 @@ export function useChatPageModals({
 
   return {
     profileFullSheetRef,
+    newsFullSheetRef,
     betaNoticeSheetRef,
     introductionSheetRef,
     mobileSheetMode,
@@ -352,6 +363,7 @@ export function useChatPageModals({
     closeAdminModal,
     openNewsModal,
     closeNewsModal,
+    handleNewsSheetExitComplete,
     closeBetaNoticeModal,
     handleBetaNoticeSheetExitComplete,
     closeIntroductionModal,
