@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import accountIcon from '../assets/icons/account.svg'
 import generalIcon from '../assets/icons/general.svg'
+import infoIcon from '../assets/icons/info.svg'
 import folderOutlinedIcon from '../assets/icons/folder-outlined.svg'
 import newMessageIcon from '../assets/icons/newMessage.svg'
 import personalizeIcon from '../assets/icons/personalize.svg'
@@ -16,6 +17,8 @@ import { ChatInvitationsSection } from '../features/settings/components/ChatInvi
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
 import { FeedbackSettingsSection } from '../features/settings/components/FeedbackSettingsSection'
 import { GeneralSettingsSection } from '../features/settings/components/GeneralSettingsSection'
+import { IntroductionSettingsSection } from '../features/settings/components/IntroductionSettingsSection'
+import type { IntroductionEditorValue } from '../features/settings/components/IntroductionEditor'
 import { PersonalizeSettingsSection } from '../features/settings/components/PersonalizeSettingsSection'
 import { StratonSettingsSection } from '../features/settings/components/StratonSettingsSection'
 import { CHAT_THREADS_REFRESH_EVENT } from '../features/chat/constants/events'
@@ -48,6 +51,10 @@ import {
 import { syncThemeColorMeta } from '../utils/themeColorMeta'
 import { deleteEmptyChatThreadsByUserId } from '../features/chat/services/chat.persistence'
 import { useAuth } from '../features/auth/context/useAuth'
+import {
+  normalizeIntroductionText,
+  parseUserIntroductionAnswers,
+} from '../features/auth/constants/userIntroduction'
 import { labelForSubscriptionImageGenerationModel } from '../features/auth/constants/subscriptionImageGenerationModels'
 import { listVisibleSubscriptionPlans, type VisibleSubscriptionPlan } from '../features/auth/services/subscriptionCatalog.service'
 import {
@@ -75,6 +82,7 @@ export type SettingsSectionId =
   | 'general'
   | 'straton'
   | 'chat'
+  | 'introduction'
   | 'invitations'
   | 'archived-chats'
   | 'personalize'
@@ -116,6 +124,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     updateEmail,
     updateUiSettings,
     updateAiChatMemory,
+    updateUserIntroduction,
     logout,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
@@ -423,6 +432,12 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       icon: personalizeIcon,
     },
     {
+      id: 'introduction',
+      label: 'Einführung',
+      title: 'Einführung',
+      icon: infoIcon,
+    },
+    {
       id: 'status',
       label:
         language === 'en'
@@ -658,6 +673,15 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
 
   const activeSectionConfig = sections.find((section) => section.id === activeSection) ?? sections[0]
   const autoRemoveEmptyChats = profile?.auto_remove_empty_chats ?? true
+
+  async function handleSaveIntroduction(value: IntroductionEditorValue) {
+    await updateUserIntroduction({
+      introduction_completed: true,
+      introduction_mode: value.mode,
+      introduction_text: normalizeIntroductionText(value.text) || null,
+      introduction_answers: parseUserIntroductionAnswers(value.answers),
+    })
+  }
 
   useEffect(() => {
     const firstName = profile?.first_name ?? ''
@@ -1049,6 +1073,13 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             onChangeMessageBoxPalette={setMessageBoxPaletteId}
             onChangeLearnPathTitleColorMode={setLearnPathTitleColorMode}
             showSidebarScaleOption={!isNarrowSettings}
+          />
+        ) : null}
+        {activeSection === 'introduction' ? (
+          <IntroductionSettingsSection
+            profile={profile}
+            disableActions={!isConfigured || !user}
+            onSaveIntroduction={handleSaveIntroduction}
           />
         ) : null}
         {activeSection === 'chat' ? (

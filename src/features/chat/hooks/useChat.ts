@@ -153,6 +153,8 @@ import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { ThinkingAnalyzeDebugMeta } from '../types'
 import type { ChatProfileIdentity } from '../constants/chatProfileIdentityContext'
+import type { ChatUserIntroduction } from '../constants/chatUserIntroductionContext'
+import type { ChatSubscriptionUsageContext } from '../constants/chatSubscriptionUsageContext'
 import type { InstantAnalyzeDebugMeta } from '../types'
 import type { ChatMessage, ChatThread } from '../types'
 
@@ -395,6 +397,12 @@ export function useChat(
     onThinkingCreditsConsumed?: () => void | Promise<void>
     /** Vor-/Nachname aus Profil — System-Prompt Hauptchat (kein Extra-Request pro Turn). */
     profileIdentity?: ChatProfileIdentity | null
+    /** Einführung aus Profil — System-Prompt Hauptchat. */
+    userIntroduction?: ChatUserIntroduction | null
+    /** Abo-Verbrauch aus Profil — System-Prompt + Karten im Chat. */
+    subscriptionUsage?: ChatSubscriptionUsageContext | null
+    /** Abo: Custom-Modus (Intent Analyze + Modell-Picker). */
+    customModeAllowed?: boolean
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -452,7 +460,11 @@ export function useChat(
   }, [options?.isSuperadmin, options?.thinkingCreditBalance])
 
   function persistComposerModelId(id: ChatComposerModelId) {
-    if (chatModelPolicy && !chatModelPolicy.allowModelChoice) {
+    if (
+      chatModelPolicy &&
+      !chatModelPolicy.allowModelChoice &&
+      chatThinkingMode !== 'custom'
+    ) {
       return
     }
     setComposerModelId(id)
@@ -473,6 +485,9 @@ export function useChat(
   }
 
   function persistChatThinkingMode(mode: ChatThinkingMode) {
+    if (mode === 'custom' && options?.customModeAllowed !== true) {
+      mode = 'normal'
+    }
     setChatThinkingMode(mode)
     try {
       localStorage.setItem(CHAT_THINKING_MODE_STORAGE_KEY, mode)
@@ -482,16 +497,33 @@ export function useChat(
   }
 
   useEffect(() => {
-    if (!chatModelPolicy || chatModelPolicy.allowModelChoice) {
+    if (!chatModelPolicy || chatModelPolicy.allowModelChoice || chatThinkingMode === 'custom') {
       return
     }
     setComposerModelId(chatModelPolicy.forcedModelId)
-  }, [chatModelPolicy])
+  }, [chatModelPolicy, chatThinkingMode])
+
+  useEffect(() => {
+    if (options?.customModeAllowed === true) {
+      return
+    }
+    if (chatThinkingMode !== 'custom') {
+      return
+    }
+    setChatThinkingMode('normal')
+    try {
+      localStorage.setItem(CHAT_THINKING_MODE_STORAGE_KEY, 'normal')
+    } catch {
+      /* ignore */
+    }
+  }, [options?.customModeAllowed, chatThinkingMode])
 
   const effectiveComposerModelId: ChatComposerModelId =
-    chatModelPolicy && !chatModelPolicy.allowModelChoice
-      ? chatModelPolicy.forcedModelId
-      : composerModelId
+    chatThinkingMode === 'custom'
+      ? composerModelId
+      : chatModelPolicy && !chatModelPolicy.allowModelChoice
+        ? chatModelPolicy.forcedModelId
+        : composerModelId
 
   const isChatModelLocked = Boolean(chatModelPolicy && !chatModelPolicy.allowModelChoice)
 
@@ -2367,6 +2399,37 @@ export function useChat(
             roundsTotal: progress.roundsTotal,
           }
         } else if (thinkingConversationPhase === 'final' && thinkingAnalyzeResult) {
+          const shouldAutoWebThinking =
+            thinkingAnalyzeResult.needs_live_web &&
+            thinkingAnalyzeResult.web_query.trim().length > 0
+          wantedAutoWebSearch = shouldAutoWebThinking
+
+          if (shouldAutoWebThinking) {
+            if (!options?.isSuperadmin && (options?.webSearchCreditBalance ?? 0) < 1) {
+              setError(
+                'Für aktuelle Web-Infos ist dein Websuche-Guthaben aufgebraucht. Die Antwort erfolgt ohne Live-Suche.',
+              )
+            } else {
+              setSendPhase('web_search')
+              try {
+                const ws = await fetchTavilySearchContext(
+                  thinkingAnalyzeResult.web_query.trim(),
+                  signal,
+                )
+                webSearchContext = ws.contextText
+                usedAutoWebSearch = true
+                void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
+              } catch (wsErr) {
+                if (isAbortErrorLike(wsErr)) {
+                  throw wsErr
+                }
+                const message =
+                  wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
+                setError(message)
+              }
+            }
+          }
+
           const pipelinePriorTurns = nextMessages
             .slice(0, -1)
             .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -2381,6 +2444,7 @@ export function useChat(
             analyze: thinkingAnalyzeResult,
             intakeSummary,
             priorTurns: pipelinePriorTurns,
+            webSearchContext,
             signal,
           })
           setSendPhase('thinking_review')
@@ -2389,6 +2453,7 @@ export function useChat(
             analyze: thinkingAnalyzeResult,
             draft,
             intakeSummary,
+            webSearchContext,
             signal,
           })
           thinkingDraft = draft
@@ -2454,6 +2519,8 @@ export function useChat(
             visionInlineDataUrl,
             mainChatThreadId: targetThreadId,
             profileIdentity: options?.profileIdentity ?? null,
+            userIntroduction: options?.userIntroduction ?? null,
+            subscriptionUsage: options?.subscriptionUsage ?? null,
             signal,
             onDelta: (full) => {
               setMessagesByThreadId((prev) => ({
@@ -2518,6 +2585,8 @@ export function useChat(
           visionInlineDataUrl,
           mainChatThreadId: targetThreadId,
           profileIdentity: options?.profileIdentity ?? null,
+          userIntroduction: options?.userIntroduction ?? null,
+          subscriptionUsage: options?.subscriptionUsage ?? null,
           signal,
         })
         finalAssistantContent = assistantMessage.content

@@ -42,6 +42,26 @@ export function ChatThinkingAnalyzeDebugPanel({
           <dd>{boolLabel(debug.needs_clarification_final)}</dd>
         </div>
         <div>
+          <dt>needs_live_web (KI)</dt>
+          <dd>{boolLabel(debug.needs_live_web_from_ai)}</dd>
+        </div>
+        <div>
+          <dt>needs_live_web (final)</dt>
+          <dd>{boolLabel(debug.needs_live_web_final)}</dd>
+        </div>
+        {debug.web_query ? (
+          <div>
+            <dt>web_query</dt>
+            <dd>{debug.web_query}</dd>
+          </div>
+        ) : null}
+        {debug.web_reason ? (
+          <div>
+            <dt>web_reason</dt>
+            <dd>{debug.web_reason}</dd>
+          </div>
+        ) : null}
+        <div>
           <dt>Klärungsrunden geplant</dt>
           <dd>{String(debug.clarify_rounds_planned_final)}</dd>
         </div>

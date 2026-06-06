@@ -40,6 +40,7 @@ import './styles/settings.css'
 import './styles/auth.css'
 import './styles/mobile.css'
 import './styles/toast.css'
+import './styles/news.css'
 
 initViewportDebug()
 

@@ -20,6 +20,9 @@ import type { useChatFolders } from '../../hooks/useChatFolders'
 import type { ChatFolder, ChatThread } from '../../types'
 import { isMobileViewport } from '../../../../utils/mobile'
 import { ChatBetaNoticeDialog } from './ChatBetaNoticeDialog'
+import { ChatIntroductionDialog } from './ChatIntroductionDialog'
+import type { IntroductionEditorValue } from '../../../settings/components/IntroductionEditor'
+import { NewsFeedModal } from '../../../news/components/NewsFeedModal'
 import { PROFILE_SETTINGS_SHEET_SECTIONS } from './chatPageConstants'
 import type { FormEvent, RefObject } from 'react'
 
@@ -47,8 +50,19 @@ export type ChatPageOverlaysProps = {
   settingsInitialSection: SettingsSectionId
   isAdminMounted: boolean
   isAdminVisible: boolean
+  isNewsMounted: boolean
+  isNewsVisible: boolean
   isBetaNoticeMounted: boolean
   isBetaNoticeVisible: boolean
+  introductionSheetRef: RefObject<ContentBottomSheetHandle | null>
+  isIntroductionMounted: boolean
+  isIntroductionVisible: boolean
+  introductionDraft: IntroductionEditorValue
+  onIntroductionDraftChange: (value: IntroductionEditorValue) => void
+  isIntroductionSaving: boolean
+  onSaveIntroduction: () => void | Promise<void>
+  onDeferIntroduction: () => void | Promise<void>
+  onIntroductionSheetExitComplete: () => void
   menuWrapperRef: RefObject<HTMLDivElement | null>
   threadSheetRef: RefObject<HTMLDivElement | null>
   renameSheetRef: RefObject<RenameBottomSheetHandle | null>
@@ -75,6 +89,7 @@ export type ChatPageOverlaysProps = {
   setRenameDraft: (value: string) => void
   onCloseSettings: () => void
   onCloseAdmin: () => void
+  onCloseNews: () => void
   onOpenSettings: (section?: SettingsSectionId) => void
   onOpenAdmin: () => void
   onCloseBetaNotice: () => void
@@ -123,8 +138,19 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     settingsInitialSection,
     isAdminMounted,
     isAdminVisible,
+    isNewsMounted,
+    isNewsVisible,
     isBetaNoticeMounted,
     isBetaNoticeVisible,
+    introductionSheetRef,
+    isIntroductionMounted,
+    isIntroductionVisible,
+    introductionDraft,
+    onIntroductionDraftChange,
+    isIntroductionSaving,
+    onSaveIntroduction,
+    onDeferIntroduction,
+    onIntroductionSheetExitComplete,
     menuWrapperRef,
     threadSheetRef,
     renameSheetRef,
@@ -151,6 +177,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     setRenameDraft,
     onCloseSettings,
     onCloseAdmin,
+    onCloseNews,
     onOpenSettings,
     onOpenAdmin,
     onCloseBetaNotice,
@@ -275,6 +302,13 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
         <ModalShell isOpen={isAdminVisible} closeOnOverlayClick={false}>
           <AdministratorModal onClose={onCloseAdmin} />
         </ModalShell>
+      ) : null}
+      {isNewsMounted ? (
+        <NewsFeedModal
+          isOpen={isNewsVisible}
+          onClose={onCloseNews}
+          isAdmin={profile?.is_superadmin === true}
+        />
       ) : null}
 
       {threadMenuVariant === 'sheet' && openMenuThreadId ? (
@@ -681,6 +715,19 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
         betaNoticeSheetRef={betaNoticeSheetRef}
         onClose={() => void onCloseBetaNotice()}
         onSheetExitComplete={() => void onBetaNoticeSheetExitComplete()}
+      />
+
+      <ChatIntroductionDialog
+        isNarrowViewport={isNarrowViewport}
+        isMounted={isIntroductionMounted}
+        isVisible={isIntroductionVisible}
+        introductionSheetRef={introductionSheetRef}
+        draft={introductionDraft}
+        onDraftChange={onIntroductionDraftChange}
+        isSaving={isIntroductionSaving}
+        onSave={() => void onSaveIntroduction()}
+        onLater={() => void onDeferIntroduction()}
+        onSheetExitComplete={() => void onIntroductionSheetExitComplete()}
       />
     </>
   )

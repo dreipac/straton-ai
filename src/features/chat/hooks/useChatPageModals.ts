@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ContentBottomSheetHandle } from '../../../components/ui/bottom-sheet/ContentBottomSheet'
 import type { ProfileFullSheetHandle } from '../../../components/ui/bottom-sheet/ProfileFullSheet'
-import type { UserProfile } from '../../auth/services/auth.service'
+import type { UpdateUserIntroductionPatch, UserProfile } from '../../auth/services/auth.service'
+import {
+  normalizeIntroductionText,
+  parseUserIntroductionAnswers,
+} from '../../auth/constants/userIntroduction'
+import { introductionValueFromProfile } from '../../settings/components/IntroductionEditor'
+import type { IntroductionEditorValue } from '../../settings/components/IntroductionEditor'
 import type { SettingsSectionId } from '../../../pages/SettingsPage'
 import { CHAT_PAGE_MODAL_ANIMATION_MS } from '../components/chat-page/chatPageConstants'
 
@@ -12,6 +18,7 @@ type UseChatPageModalsArgs = {
   isNarrowViewport: boolean
   showBetaNoticeOnFirstLogin: boolean
   markBetaNoticeSeen: () => Promise<void>
+  updateUserIntroduction: (patch: UpdateUserIntroductionPatch) => Promise<void>
   refreshProfile: () => Promise<void>
   setIsMobileSidebarOpen: (value: boolean | ((prev: boolean) => boolean)) => void
 }
@@ -23,14 +30,18 @@ export function useChatPageModals({
   isNarrowViewport,
   showBetaNoticeOnFirstLogin,
   markBetaNoticeSeen,
+  updateUserIntroduction,
   refreshProfile,
   setIsMobileSidebarOpen,
 }: UseChatPageModalsArgs) {
   const profileFullSheetRef = useRef<ProfileFullSheetHandle | null>(null)
   const betaNoticeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+  const introductionSheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const adminCloseTimerRef = useRef<number | null>(null)
+  const newsCloseTimerRef = useRef<number | null>(null)
   const betaNoticeCloseTimerRef = useRef<number | null>(null)
+  const introductionCloseTimerRef = useRef<number | null>(null)
 
   const [mobileSheetMode, setMobileSheetMode] = useState<'closed' | 'profile' | 'settings'>('closed')
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
@@ -38,9 +49,17 @@ export function useChatPageModals({
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('general')
   const [isAdminMounted, setIsAdminMounted] = useState(false)
   const [isAdminVisible, setIsAdminVisible] = useState(false)
+  const [isNewsMounted, setIsNewsMounted] = useState(false)
+  const [isNewsVisible, setIsNewsVisible] = useState(false)
   const [isBetaNoticeMounted, setIsBetaNoticeMounted] = useState(false)
   const [isBetaNoticeVisible, setIsBetaNoticeVisible] = useState(false)
   const [betaNoticeShouldMarkSeen, setBetaNoticeShouldMarkSeen] = useState(false)
+  const [isIntroductionMounted, setIsIntroductionMounted] = useState(false)
+  const [isIntroductionVisible, setIsIntroductionVisible] = useState(false)
+  const [introductionDraft, setIntroductionDraft] = useState<IntroductionEditorValue>(() =>
+    introductionValueFromProfile(profile),
+  )
+  const [isIntroductionSaving, setIsIntroductionSaving] = useState(false)
 
   const toggleCompactProfileSheet = useCallback(() => {
     if (!isCompactMobileSidebarLayout) {
@@ -126,6 +145,30 @@ export function useChatPageModals({
     }, CHAT_PAGE_MODAL_ANIMATION_MS)
   }, [])
 
+  const openNewsModal = useCallback(() => {
+    if (isCompactMobileSidebarLayout) {
+      profileFullSheetRef.current?.requestClose()
+    }
+    setIsMobileSidebarOpen(false)
+    if (newsCloseTimerRef.current !== null) {
+      window.clearTimeout(newsCloseTimerRef.current)
+      newsCloseTimerRef.current = null
+    }
+
+    setIsNewsMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsNewsVisible(true)
+    })
+  }, [isCompactMobileSidebarLayout, setIsMobileSidebarOpen])
+
+  const closeNewsModal = useCallback(() => {
+    setIsNewsVisible(false)
+    newsCloseTimerRef.current = window.setTimeout(() => {
+      setIsNewsMounted(false)
+      newsCloseTimerRef.current = null
+    }, CHAT_PAGE_MODAL_ANIMATION_MS)
+  }, [])
+
   const handleBetaNoticeSheetExitComplete = useCallback(async () => {
     try {
       if (betaNoticeShouldMarkSeen) {
@@ -155,6 +198,51 @@ export function useChatPageModals({
     }
   }, [betaNoticeShouldMarkSeen, isNarrowViewport, markBetaNoticeSeen])
 
+  const closeIntroductionModal = useCallback(() => {
+    if (isNarrowViewport && introductionSheetRef.current) {
+      introductionSheetRef.current.requestClose()
+      return
+    }
+    setIsIntroductionVisible(false)
+    introductionCloseTimerRef.current = window.setTimeout(() => {
+      setIsIntroductionMounted(false)
+      introductionCloseTimerRef.current = null
+    }, CHAT_PAGE_MODAL_ANIMATION_MS)
+  }, [isNarrowViewport])
+
+  const handleIntroductionSheetExitComplete = useCallback(() => {
+    setIsIntroductionMounted(false)
+    setIsIntroductionVisible(false)
+  }, [])
+
+  const saveIntroductionFromModal = useCallback(async () => {
+    setIsIntroductionSaving(true)
+    try {
+      await updateUserIntroduction({
+        introduction_completed: true,
+        introduction_mode: introductionDraft.mode,
+        introduction_text: normalizeIntroductionText(introductionDraft.text) || null,
+        introduction_answers: parseUserIntroductionAnswers(introductionDraft.answers),
+      })
+      closeIntroductionModal()
+    } finally {
+      setIsIntroductionSaving(false)
+    }
+  }, [closeIntroductionModal, introductionDraft, updateUserIntroduction])
+
+  const deferIntroductionModal = useCallback(() => {
+    closeIntroductionModal()
+  }, [closeIntroductionModal])
+
+  useEffect(() => {
+    setIntroductionDraft(introductionValueFromProfile(profile))
+  }, [
+    profile?.introduction_mode,
+    profile?.introduction_text,
+    profile?.introduction_answers,
+    profile?.introduction_updated_at,
+  ])
+
   useEffect(() => {
     const shouldShowBetaNotice = Boolean(
       user &&
@@ -181,6 +269,42 @@ export function useChatPageModals({
   }, [user, profile, showBetaNoticeOnFirstLogin])
 
   useEffect(() => {
+    const betaGatePassed = !showBetaNoticeOnFirstLogin || profile?.beta_notice_seen === true
+    const betaModalOpen = isBetaNoticeMounted || isBetaNoticeVisible
+    const shouldShowIntroduction = Boolean(
+      user &&
+        profile &&
+        profile.must_change_password_on_first_login !== true &&
+        betaGatePassed &&
+        !betaModalOpen &&
+        profile.introduction_completed !== true,
+    )
+
+    if (!shouldShowIntroduction) {
+      return
+    }
+
+    if (introductionCloseTimerRef.current !== null) {
+      window.clearTimeout(introductionCloseTimerRef.current)
+      introductionCloseTimerRef.current = null
+    }
+
+    setIsIntroductionMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsIntroductionVisible(true)
+    })
+  }, [
+    user,
+    profile,
+    showBetaNoticeOnFirstLogin,
+    isBetaNoticeMounted,
+    isBetaNoticeVisible,
+    profile?.introduction_completed,
+    profile?.beta_notice_seen,
+    profile?.must_change_password_on_first_login,
+  ])
+
+  useEffect(() => {
     return () => {
       if (settingsCloseTimerRef.current !== null) {
         window.clearTimeout(settingsCloseTimerRef.current)
@@ -188,8 +312,14 @@ export function useChatPageModals({
       if (adminCloseTimerRef.current !== null) {
         window.clearTimeout(adminCloseTimerRef.current)
       }
+      if (newsCloseTimerRef.current !== null) {
+        window.clearTimeout(newsCloseTimerRef.current)
+      }
       if (betaNoticeCloseTimerRef.current !== null) {
         window.clearTimeout(betaNoticeCloseTimerRef.current)
+      }
+      if (introductionCloseTimerRef.current !== null) {
+        window.clearTimeout(introductionCloseTimerRef.current)
       }
     }
   }, [])
@@ -197,6 +327,7 @@ export function useChatPageModals({
   return {
     profileFullSheetRef,
     betaNoticeSheetRef,
+    introductionSheetRef,
     mobileSheetMode,
     setMobileSheetMode,
     isSettingsMounted,
@@ -204,15 +335,28 @@ export function useChatPageModals({
     settingsInitialSection,
     isAdminMounted,
     isAdminVisible,
+    isNewsMounted,
+    isNewsVisible,
     isBetaNoticeMounted,
     isBetaNoticeVisible,
+    isIntroductionMounted,
+    isIntroductionVisible,
+    introductionDraft,
+    setIntroductionDraft,
+    isIntroductionSaving,
     toggleCompactProfileSheet,
     openBetaNoticeModal,
     openSettingsModal,
     closeSettingsModal,
     openAdminModal,
     closeAdminModal,
+    openNewsModal,
+    closeNewsModal,
     closeBetaNoticeModal,
     handleBetaNoticeSheetExitComplete,
+    closeIntroductionModal,
+    handleIntroductionSheetExitComplete,
+    saveIntroductionFromModal,
+    deferIntroductionModal,
   }
 }

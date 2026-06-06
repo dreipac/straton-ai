@@ -18,6 +18,7 @@ import {
   getAssistantDirectAnswerInstruction,
   shouldApplyDirectAnswerTurnBriefing,
   userMessageIsDirectAnswerFollowUp,
+  userMessageRequestsDirectAnswer,
 } from '../constants/chatDirectAnswerInstruction'
 import {
   getAssistantExerciseSolutionToneInstruction,
@@ -117,6 +118,12 @@ import {
   THINKING_OPENAI_MODEL_CHAIN,
 } from '../constants/thinkingPipeline'
 import {
+  buildThinkingTaskTypeTurnBriefing,
+  shouldRouteThinkingFinalToOpenAi,
+  shouldSuppressThinkingMandatoryFollowUp,
+  THINKING_FINAL_OPENAI_MODELS,
+} from '../constants/thinkingTaskRouting'
+import {
   fallbackThinkingReviewResult,
   sanitizeThinkingReviewResult,
   type ThinkingReviewResult,
@@ -140,6 +147,14 @@ import {
   type ChatProfileIdentity,
 } from '../constants/chatProfileIdentityContext'
 import {
+  getChatUserIntroductionInstruction,
+  type ChatUserIntroduction,
+} from '../constants/chatUserIntroductionContext'
+import {
+  getChatSubscriptionUsageInstruction,
+  type ChatSubscriptionUsageContext,
+} from '../constants/chatSubscriptionUsageContext'
+import {
   clipChatMessagesToEstimatedTokenBudget,
   computeVisionTokenReserve,
   estimateMessageContentTokens,
@@ -156,6 +171,7 @@ import {
 import { isValidVisionDataUrl } from '../utils/imageVisionNormalize'
 import {
   LEARN_PATH_MAX_OUTPUT_TOKENS,
+  MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS,
   MAIN_CHAT_SUMMARY_OPENAI_MODELS,
   resolveMainChatMaxOutputTokens,
   THINKING_MAX_OUTPUT_TOKENS,
@@ -169,8 +185,13 @@ import type {
 } from '../types'
 import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
 import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
-import { WORD_CHAT_DOCUMENT_BODY_HINT, WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
-import { PDF_CHAT_DOCUMENT_BODY_HINT, PDF_EXPORT_COMMAND_MARKER } from '../constants/pdfExportPrompt'
+import { WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
+import { PDF_EXPORT_COMMAND_MARKER } from '../constants/pdfExportPrompt'
+import {
+  buildPdfChatDocumentBodyHint,
+  buildWordChatDocumentBodyHint,
+  isSummaryStyleDocumentExport,
+} from '../constants/documentExportIntent'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -266,6 +287,10 @@ export type SendMessageOptions = {
    * Im System-Prompt vor dem Datum — für Prompt-Cache und «Wer bin ich?».
    */
   profileIdentity?: ChatProfileIdentity | null
+  /** Hauptchat: Einführung aus Profil (Einstellungen → Einführung). */
+  userIntroduction?: ChatUserIntroduction | null
+  /** Hauptchat: Abo-Verbrauch aus Profil (Einstellungen → Konto). */
+  subscriptionUsage?: ChatSubscriptionUsageContext | null
   /** Laufende Anfrage abbrechen (During/Send-Button). */
   signal?: AbortSignal
 }
@@ -293,6 +318,10 @@ type GatewayMessage = {
 
 function isMainChatThinking(options?: SendMessageOptions): boolean {
   return Boolean(!options?.useLearnPathModel && options?.chatThinkingMode === 'thinking')
+}
+
+function isMainChatCustom(options?: SendMessageOptions): boolean {
+  return Boolean(!options?.useLearnPathModel && options?.chatThinkingMode === 'custom')
 }
 
 const MAX_CHAT_TITLE_LENGTH = 42
@@ -550,8 +579,6 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const baseQuiz =
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
-  const wordChatHint = options?.userRequestedWord ? WORD_CHAT_DOCUMENT_BODY_HINT : ''
-  const pdfChatHint = options?.userRequestedPdf ? PDF_CHAT_DOCUMENT_BODY_HINT : ''
   const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
@@ -610,6 +637,16 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         ? getChatComfortToneInstruction()
         : ''
   const lastUserMessage = [...threadMessages].reverse().find((m) => m.role === 'user')
+  const documentExportSummaryStyle = isSummaryStyleDocumentExport(
+    options?.instantAnalyze,
+    lastUserMessage?.role === 'user' ? lastUserMessage.content : undefined,
+  )
+  const wordChatHint = options?.userRequestedWord
+    ? buildWordChatDocumentBodyHint(documentExportSummaryStyle)
+    : ''
+  const pdfChatHint = options?.userRequestedPdf
+    ? buildPdfChatDocumentBodyHint(documentExportSummaryStyle)
+    : ''
   const forceStepByStepIntake = mainChatInstantPrompts && shouldForceStepByStepIntake(lastUserMessage)
   const instantAnalyze = options?.instantAnalyze
   const instantAskOnly = Boolean(
@@ -705,9 +742,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   }
   if (
     isMainChat &&
-    !thinking &&
     options?.webSearchRequestedButMissing &&
-    !options?.webSearchContext?.trim()
+    !options?.webSearchContext?.trim() &&
+    (!thinking || options?.thinkingConversationPhase === 'final')
   ) {
     lastUserTurnContextBlocks.push(
       [
@@ -717,7 +754,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       ].join(' '),
     )
   }
-  if (isMainChat && !thinking && options?.webSearchContext?.trim()) {
+  if (
+    isMainChat &&
+    options?.webSearchContext?.trim() &&
+    (!thinking || options?.thinkingConversationPhase === 'final')
+  ) {
     lastUserTurnContextBlocks.push(`--- Websuche ---\n${options.webSearchContext.trim()}`)
   }
   if (stepByStepIntakeHardGuard) {
@@ -754,6 +795,21 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       }),
     )
   }
+  const lastUserContentForThinking =
+    lastUserMessage?.role === 'user' ? lastUserMessage.content : undefined
+  const thinkingFinalOpenAi =
+    thinking &&
+    shouldRouteThinkingFinalToOpenAi(options?.thinkingAnalyze, lastUserContentForThinking)
+  if (
+    thinking &&
+    thinkingClarifyPhase === 'final' &&
+    lastUserMessage?.role === 'user' &&
+    options?.thinkingAnalyze
+  ) {
+    lastUserTurnContextBlocks.push(
+      buildThinkingTaskTypeTurnBriefing(options.thinkingAnalyze, lastUserMessage.content),
+    )
+  }
   const thinkingBlock = thinking
     ? [
         getChatThinkingWorkflowInstruction(),
@@ -762,7 +818,13 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
         thinkingClarifyPhase === 'clarify'
           ? getChatThinkingMandatoryClarifyTurnInstruction()
-          : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type),
+          : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type, {
+              suppressMandatoryFollowUp: shouldSuppressThinkingMandatoryFollowUp(
+                options?.thinkingAnalyze,
+                lastUserContentForThinking,
+              ),
+              openAiFinal: thinkingFinalOpenAi,
+            }),
       ]
         .filter(Boolean)
         .join('\n\n')
@@ -814,6 +876,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : '',
     /* Profil + Zeit zuletzt: grosser statischer Prefix darüber bleibt prompt-cache-fähig; Datum ganz am Ende. */
     isMainChat ? getChatProfileIdentityInstruction(options?.profileIdentity) : '',
+    isMainChat ? getChatUserIntroductionInstruction(options?.userIntroduction) : '',
+    isMainChat ? getChatSubscriptionUsageInstruction(options?.subscriptionUsage) : '',
     isMainChat ? getChatCurrentDateContextInstruction() : '',
   ]
     .filter(Boolean)
@@ -1173,8 +1237,11 @@ function providerForMainChat(_options: { hasVision?: boolean }): 'openai' | 'gem
   return 'openai'
 }
 
-/** Thinking-Pipeline: Gemini 3.1 Flash Lite wenn Smart Instant Gemini aktiv (auch mit Foto). */
-function providerForThinking(_options: { hasVision?: boolean }): 'openai' | 'gemini' {
+/** Thinking-Pipeline: Gemini 3.1 Flash Lite; finale Antwort OpenAI bei Summary/MC. */
+function providerForThinking(options: { useOpenAiFinal?: boolean }): 'openai' | 'gemini' {
+  if (options.useOpenAiFinal) {
+    return 'openai'
+  }
   if (isGeminiInstantEnabled()) {
     return 'gemini'
   }
@@ -1241,34 +1308,67 @@ function buildChatCompletionRequestBody(
   }
 
   const thinking = isMainChatThinking(options)
-  const summaryInstantOpenAi = shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking)
+  const custom = isMainChatCustom(options)
   const gatewayHasVisionEarly =
     gatewayMessages.some(
       (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
     ) ||
     (typeof options?.visionInlineDataUrl === 'string' &&
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
+  const lastUserForThinkingRouting = [...gatewayMessages].reverse().find((m) => m.role === 'user')
+  const lastUserTextForThinkingRouting =
+    typeof lastUserForThinkingRouting?.content === 'string'
+      ? lastUserForThinkingRouting.content
+      : ''
+  const documentExportSummaryInstant =
+    !thinking &&
+    Boolean(options?.userRequestedPdf || options?.userRequestedWord) &&
+    isSummaryStyleDocumentExport(options?.instantAnalyze, lastUserTextForThinkingRouting || undefined)
+  const summaryInstantOpenAi =
+    shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking) || documentExportSummaryInstant
+  const thinkingFinalOpenAi =
+    thinking &&
+    shouldRouteThinkingFinalToOpenAi(options?.thinkingAnalyze, lastUserTextForThinkingRouting)
+  const customModelMeta = custom
+    ? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+    : null
   const mainProvider = thinking
-    ? providerForThinking({ hasVision: gatewayHasVisionEarly })
-    : summaryInstantOpenAi
-      ? 'openai'
-      : providerForMainChat({ hasVision: gatewayHasVisionEarly })
+    ? providerForThinking({ useOpenAiFinal: thinkingFinalOpenAi })
+    : custom && customModelMeta
+      ? customModelMeta.provider
+      : summaryInstantOpenAi
+        ? 'openai'
+        : providerForMainChat({ hasVision: gatewayHasVisionEarly })
   const meta =
     mainProvider === 'gemini'
       ? { provider: 'gemini' as const }
       : thinking
-        ? { provider: 'openai' as const, openAiModels: [] as string[] }
+        ? {
+            provider: 'openai' as const,
+            openAiModels: thinkingFinalOpenAi
+              ? [...THINKING_FINAL_OPENAI_MODELS]
+              : [...THINKING_OPENAI_MODEL_CHAIN],
+          }
         : summaryInstantOpenAi
           ? { provider: 'openai' as const, openAiModels: [...MAIN_CHAT_SUMMARY_OPENAI_MODELS] }
-          : getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+          : customModelMeta ?? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     mode: 'chat',
     provider: meta.provider,
     messages: gatewayMessages,
     includeProfileMemory: thinking ? false : true,
   }
+  if (custom) {
+    body.chatCustomMode = true
+  }
   if (summaryInstantOpenAi) {
     body.instantTaskType = 'summary'
+  }
+  if (thinkingFinalOpenAi) {
+    body.thinkingFinalOpenAi = true
+    if (options?.thinkingAnalyze?.task_type) {
+      body.thinkingTaskType = options.thinkingAnalyze.task_type
+    }
   }
   if (mainProvider === 'gemini') {
     body.geminiModel = thinking
@@ -1280,12 +1380,15 @@ function buildChatCompletionRequestBody(
   }
   if (meta.provider === 'openai') {
     if (!options?.useLearnPathModel && thinking) {
-      body.openAiModels = [...THINKING_OPENAI_MODEL_CHAIN]
+      body.openAiModels = thinkingFinalOpenAi
+        ? [...THINKING_FINAL_OPENAI_MODELS]
+        : [...THINKING_OPENAI_MODEL_CHAIN]
     } else if (!options?.useLearnPathModel && !thinking && summaryInstantOpenAi) {
       body.openAiModels = [...MAIN_CHAT_SUMMARY_OPENAI_MODELS]
     } else if (
       !options?.useLearnPathModel &&
       !thinking &&
+      !custom &&
       options?.mainChatDailyTierConfig != null &&
       typeof options?.mainChatUsedTokensToday === 'number'
     ) {
@@ -1309,7 +1412,12 @@ function buildChatCompletionRequestBody(
     body.promptCacheRetention = '24h'
   }
   body.maxTokens = thinking
-    ? THINKING_MAX_OUTPUT_TOKENS
+    ? options?.thinkingAnalyze?.task_type === 'document_summary'
+      ? MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS
+      : thinkingFinalOpenAi &&
+          userMessageRequestsDirectAnswer(lastUserTextForThinkingRouting)
+        ? resolveMainChatMaxOutputTokens({ task_type: 'mc_solve' })
+        : THINKING_MAX_OUTPUT_TOKENS
     : resolveMainChatMaxOutputTokens(options?.instantAnalyze)
   if (thinking) {
     body.billingConsumeThinkingCredit = true
@@ -2068,6 +2176,7 @@ export async function thinkingDraftForTurn(params: {
   analyze: ThinkingAnalyzeResult
   intakeSummary?: string
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+  webSearchContext?: string
   signal?: AbortSignal
 }): Promise<ThinkingDraftInvokeResult> {
   throwIfAborted(params.signal)
@@ -2079,10 +2188,14 @@ export async function thinkingDraftForTurn(params: {
   const contextBlock = params.priorTurns?.length
     ? formatThinkingAnalyzeContextLines(params.priorTurns)
     : ''
-  const analyzeBriefing = buildThinkingAnalyzeBriefingForGateway(
-    params.analyze,
-    params.intakeSummary,
-  )
+  const analyzeBriefing = [
+    buildThinkingAnalyzeBriefingForGateway(params.analyze, params.intakeSummary),
+    params.webSearchContext?.trim()
+      ? `--- Websuche ---\n${params.webSearchContext.trim()}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   try {
     await ensureGeminiInstantFlagLoaded()
@@ -2136,6 +2249,7 @@ export async function thinkingReviewDraft(params: {
   analyze: ThinkingAnalyzeResult
   draft: string
   intakeSummary?: string
+  webSearchContext?: string
   signal?: AbortSignal
 }): Promise<ThinkingReviewInvokeResult> {
   throwIfAborted(params.signal)
@@ -2145,10 +2259,14 @@ export async function thinkingReviewDraft(params: {
     return { review: fallbackThinkingReviewResult(draft.length), source: 'fallback' }
   }
 
-  const analyzeBriefing = buildThinkingAnalyzeBriefingForGateway(
-    params.analyze,
-    params.intakeSummary,
-  )
+  const analyzeBriefing = [
+    buildThinkingAnalyzeBriefingForGateway(params.analyze, params.intakeSummary),
+    params.webSearchContext?.trim()
+      ? `--- Websuche ---\n${params.webSearchContext.trim()}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   try {
     await ensureGeminiInstantFlagLoaded()

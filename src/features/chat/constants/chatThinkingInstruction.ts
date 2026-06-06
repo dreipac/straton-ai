@@ -1,18 +1,19 @@
 import type { ThinkingTaskType } from './thinkingAnalyze'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
+import { shouldSuppressThinkingMandatoryFollowUp } from './thinkingTaskRouting'
 
 /** Systemblock nur im Hauptchat, wenn Thinking aktiv (Gemini 3.1 Flash Lite, kein Profil-Speicher). */
 export function getChatThinkingWorkflowInstruction(): string {
   return [
     getSecretSafetyInstruction(),
-    'Thinking-Modus (Gemini 3.1 Flash Lite, Aufgaben & gründliche Bearbeitung):',
+    'Thinking-Modus (Hybrid: Pipeline Gemini 3.1 Flash Lite; finale Lieferung teils gpt-5-mini):',
     'Persönlicher Nutzer-Speicher ist ausgeschaltet — nutze nur den sichtbaren Chatverlauf in dieser Unterhaltung.',
     '',
     'Ablauf (verbindlich):',
-    '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse».',
+    '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse» (Gemini Flash Lite).',
     '1) Klärung nur bei needs_clarification im Analyse-Kontext — selten, max. eine Rückfrage als Clarify-Block.',
-    '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung».',
-    '3) Diese sichtbare Antwort: finale, ausführliche Bearbeitung (Formatregeln) — kein Clarify-Block.',
+    '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung» (Gemini Flash Lite).',
+    '3) Diese sichtbare Antwort: finale Bearbeitung — bei Zusammenfassungen & MC über gpt-5-mini; sonst Gemini Flash Lite.',
     'Kurze Folgenachrichten: direkt weiterbearbeiten, nicht erneut interviewen.',
     '',
     'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
@@ -44,17 +45,39 @@ export function getChatThinkingMandatoryClarifyTurnInstruction(): string {
 }
 
 /** Finale sichtbare Antwort (nach Entwurf/Review); task_type steuert Zusatzstruktur. */
-export function getChatThinkingFinalAnswerTurnInstruction(taskType?: ThinkingTaskType): string {
+export function getChatThinkingFinalAnswerTurnInstruction(
+  taskType?: ThinkingTaskType,
+  opts?: { suppressMandatoryFollowUp?: boolean; openAiFinal?: boolean },
+): string {
+  const suppressFollowUp =
+    opts?.suppressMandatoryFollowUp === true ||
+    shouldSuppressThinkingMandatoryFollowUp(taskType ? { task_type: taskType } : null)
+  const openAiFinal = opts?.openAiFinal === true
+
+  const header =
+    openAiFinal && taskType === 'document_summary'
+      ? 'Thinking — Finale Antwort (gpt-5-mini, Zusammenfassung — sichtbar für den Nutzer):'
+      : openAiFinal
+        ? 'Thinking — Finale Antwort (gpt-5-mini, kurz — sichtbar für den Nutzer):'
+        : 'Thinking — Finale Antwort (Gemini Flash Lite — sichtbar für den Nutzer):'
+
   const blocks = [
-    'Thinking — Finale Antwort (diese Nachricht — sichtbar für den Nutzer):',
+    header,
     'Nutze den internen Entwurf und die Qualitätsprüfung: Lücken schließen, Form und Tiefe verbessern.',
-    'KEIN Clarify-Block. NICHT die Kürze des Instant-Modus.',
+    'KEIN Clarify-Block.',
+    openAiFinal && taskType === 'document_summary'
+      ? 'NICHT die Kürze des Instant-Modus — vollständige Kapitel-Zusammenfassung.'
+      : openAiFinal
+        ? 'Kurz und präzise — keine ausführliche Essay-Struktur.'
+        : 'NICHT die Kürze des Instant-Modus.',
     'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
     'Glossare/Begriffe nur als Tabelle; bei Dokumenten alles Wesentliche aus dem Material.',
     '## Annahmen am Anfang (1–3 Sätze), dann vollständig liefern.',
     getChatThinkingGenericDeliverableInstruction(),
-    getChatThinkingMandatoryFollowUpInstruction(),
   ]
+  if (!suppressFollowUp) {
+    blocks.push(getChatThinkingMandatoryFollowUpInstruction())
+  }
   if (taskType === 'server_setup' || taskType === 'software_setup') {
     blocks.push(getChatThinkingSetupGuideInstruction())
   } else if (taskType === 'troubleshooting') {

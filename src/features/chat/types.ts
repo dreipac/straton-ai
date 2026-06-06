@@ -10,6 +10,10 @@ export type ThinkingAnalyzeDebugMeta = {
   needs_clarification_from_ai: boolean
   needs_clarification_final: boolean
   clarify_rounds_planned_final: number
+  needs_live_web_from_ai: boolean
+  needs_live_web_final: boolean
+  web_query: string
+  web_reason: string
   heuristic_applied: boolean
   analysis_summary: string
 }

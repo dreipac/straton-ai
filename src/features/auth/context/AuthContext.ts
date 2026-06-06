@@ -23,6 +23,8 @@ export type AuthContextValue = {
   completeChatOnboarding: () => Promise<void>
   /** Beta-Hinweis als gesehen markieren */
   markBetaNoticeSeen: () => Promise<void>
+  /** Einführung (Freitext/Fragebogen) speichern */
+  updateUserIntroduction: (patch: import('../services/auth.service').UpdateUserIntroductionPatch) => Promise<void>
   /** Oberflächen-Einstellungen (Theme, Paletten, …) in profiles.ui_settings speichern */
   updateUiSettings: (settings: UiSettingsV1) => Promise<void>
   /** Persönlicher KI-Speicher (Hauptchat): aktivieren/deaktivieren oder Text leeren */

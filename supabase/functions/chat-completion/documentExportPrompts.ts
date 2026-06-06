@@ -8,9 +8,10 @@ export function buildInstantAnalyzeDocumentGenerateSection(): string {
     '  - Word/Docx erstellen → document.**word_generate**.',
     '  - PDF erstellen → document.**pdf_generate**.',
     '  - Excel/XLSX exportieren → document.**excel_generate**.',
+    '- Summary-PDF/Word: «ausführliches/zusammenfassendes PDF», task_type **summary** + document.*.',
     '- Bei document.*: reply_mode **normal**, needs_live_web **false**.',
     '- escalate_model **false** bei einzelnem Export — nur true bei Multi-Dokument-Vergleich oder Sheet-Merge.',
     '',
-    'App: KI liefert Vorschau-JSON im Chat; Nutzer klickt «generieren» → Libraries (.docx/.pdf/.xlsx).',
+    'App: KI liefert Outline-JSON (voller Dokumentinhalt) im Chat; Nutzer klickt «generieren» → Libraries (.docx/.pdf/.xlsx).',
   ].join('\n')
 }

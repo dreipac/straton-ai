@@ -1,11 +1,9 @@
-import { useRef } from 'react'
-import { MAX_IMAGE_CREDIT_BALANCE } from '../../auth/constants/imageCredits'
-import { MAX_TOKEN_BALANCE } from '../../auth/constants/tokenBalance'
-import { DEFAULT_THINKING_CREDIT_MAX } from '../../auth/constants/thinkingCredits'
-import { labelForSubscriptionImageGenerationModel } from '../../auth/constants/subscriptionImageGenerationModels'
+import { useMemo, useRef } from 'react'
 import check2Icon from '../../../assets/icons/check_2.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
+import { AccountSubscriptionUsageGrid } from './AccountSubscriptionUsageGrid'
+import { buildAccountSubscriptionDisplay } from '../utils/accountSubscriptionDisplay'
 
 type AccountSettingsSectionProps = {
   firstNameDraft: string
@@ -24,6 +22,8 @@ type AccountSettingsSectionProps = {
     image_credit_max?: number | null
     thinking_daily_grant?: number | null
     thinking_credit_max?: number | null
+    web_search_daily_grant?: number | null
+    web_search_credit_max?: number | null
   } | null
   subscriptionUsage: {
     used_tokens: number
@@ -31,6 +31,8 @@ type AccountSettingsSectionProps = {
     used_files: number
     image_credit_balance: number
     token_balance: number
+    web_search_credit_balance?: number
+    used_web_searches?: number
     thinking_credit_balance?: number
     used_thinking_requests?: number
   } | null
@@ -78,15 +80,10 @@ export function AccountSettingsSection({
 }: AccountSettingsSectionProps) {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const avatarFallback = (firstNameDraft.trim()[0] || lastNameDraft.trim()[0] || '?').toUpperCase()
-  const imageCreditMax =
-    typeof subscriptionPlan?.image_credit_max === 'number'
-      ? subscriptionPlan.image_credit_max
-      : MAX_IMAGE_CREDIT_BALANCE
-  const thinkingCreditMax =
-    typeof subscriptionPlan?.thinking_credit_max === 'number'
-      ? subscriptionPlan.thinking_credit_max
-      : DEFAULT_THINKING_CREDIT_MAX
-  const thinkingDailyGrant = subscriptionPlan?.thinking_daily_grant ?? 0
+  const subscriptionDisplay = useMemo(
+    () => buildAccountSubscriptionDisplay(subscriptionPlan, subscriptionUsage),
+    [subscriptionPlan, subscriptionUsage],
+  )
 
   const normalizedDraft = emailDraft.trim().toLowerCase()
   const normalizedCurrent = currentEmail.trim().toLowerCase()
@@ -238,60 +235,17 @@ export function AccountSettingsSection({
       </div>
 
       <div className="account-settings-subscription-block">
-        <h3 className="account-settings-subheading">Abonnement</h3>
-        <p className="account-settings-subscription-value" role="status">
-          {subscriptionPlan?.name ?? 'Kein Abo zugewiesen'}
-        </p>
-        {subscriptionPlan ? (
-          <>
-            <p className="account-subscription">
-              Smart Instant (heute verbraucht): {subscriptionUsage?.used_tokens ?? 0}
-              {subscriptionPlan.max_tokens != null ? (
-                <>
-                  {' '}
-                  /{' '}
-                  {(subscriptionUsage?.token_balance ?? 0) + subscriptionPlan.max_tokens} heute nutzbar
-                  <br />
-                  <small>
-                    Guthaben {subscriptionUsage?.token_balance ?? 0} (max.{' '}
-                    {(
-                      subscriptionPlan.instant_token_balance_max ?? MAX_TOKEN_BALANCE
-                    ).toLocaleString('de-CH')}
-                    ) + {subscriptionPlan.max_tokens.toLocaleString('de-CH')} Tokens/Tag — Rest des Tages wird
-                    gutgeschrieben
-                  </small>
-                </>
-              ) : (
-                <> — unbegrenzt (nur Verbrauchsanzeige)</>
-              )}
-            </p>
-            <p className="account-subscription">
-              Bild-Guthaben: {subscriptionUsage?.image_credit_balance ?? 0} / max. {imageCreditMax}{' '}
-              {subscriptionPlan.max_images != null
-                ? `(+${subscriptionPlan.max_images} pro Tag, ungenutztes läuft mit)`
-                : ''}
-            </p>
-            <p className="account-subscription">
-              Thinking-Guthaben: {subscriptionUsage?.thinking_credit_balance ?? 0} / max. {thinkingCreditMax}
-              {thinkingDailyGrant > 0 ? ` (+${thinkingDailyGrant} pro Tag)` : ''}
-            </p>
-            <p className="account-subscription">
-              Thinking (heute): {subscriptionUsage?.used_thinking_requests ?? 0} Anfragen
-            </p>
-            <p className="account-subscription">
-              Bilder (heute erzeugt): {subscriptionUsage?.used_images ?? 0}
-            </p>
-            <p className="account-subscription">
-              Bildgenerator: {labelForSubscriptionImageGenerationModel(subscriptionPlan.image_generation_model)}
-            </p>
-            <p className="account-subscription">
-              Dateien (heute): {subscriptionUsage?.used_files ?? 0} /{' '}
-              {subscriptionPlan.max_files ?? 'unbegrenzt'}
-            </p>
-          </>
+        <div className="account-settings-subscription-header">
+          <h3 className="account-settings-subheading">Abonnement</h3>
+          <p className="account-settings-subscription-value" role="status">
+            {subscriptionDisplay?.planName ?? 'Kein Abo zugewiesen'}
+          </p>
+        </div>
+        {subscriptionDisplay ? (
+          <AccountSubscriptionUsageGrid display={subscriptionDisplay} />
         ) : (
           <p className="account-settings-subscription-hint">
-            Sobald ein Abo zugewiesen ist, siehst du hier den Verbrauch.
+            Sobald ein Abo zugewiesen ist, siehst du hier Limits und Guthaben.
           </p>
         )}
         {subscriptionPlan ? (

@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
+  type Ref,
 } from 'react'
 
 export type ContentBottomSheetHandle = {
@@ -34,6 +35,8 @@ type ContentBottomSheetProps = {
   adaptVisualViewport?: boolean
   panelClassName?: string
   bodyClassName?: string
+  /** Optional: Zugriff auf das Panel-Element (z. B. FLIP-Resize). */
+  panelRef?: Ref<HTMLDivElement | null>
 }
 
 /** Muss zu `--straton-sheet-exit-ms` in `mobile.css` passen. */
@@ -54,6 +57,7 @@ export const ContentBottomSheet = forwardRef<ContentBottomSheetHandle, ContentBo
       adaptVisualViewport = false,
       panelClassName,
       bodyClassName,
+      panelRef: panelRefProp,
     }: ContentBottomSheetProps,
     forwardedRef,
   ) {
@@ -202,6 +206,18 @@ export const ContentBottomSheet = forwardRef<ContentBottomSheetHandle, ContentBo
 
     const headingText = title?.trim() ?? ''
 
+    function assignPanelRef(node: HTMLDivElement | null) {
+      panelRef.current = node
+      if (!panelRefProp) {
+        return
+      }
+      if (typeof panelRefProp === 'function') {
+        panelRefProp(node)
+        return
+      }
+      panelRefProp.current = node
+    }
+
     return (
       <div className={`rename-bottom-sheet-root${isShown ? ' is-shown' : ''}`} role="presentation">
         <div
@@ -216,7 +232,7 @@ export const ContentBottomSheet = forwardRef<ContentBottomSheetHandle, ContentBo
         />
         <div className="rename-bottom-sheet-panel-outer" style={outerStyle}>
           <div
-            ref={panelRef}
+            ref={assignPanelRef}
             className={`rename-bottom-sheet-panel${panelClassName ? ` ${panelClassName}` : ''}`}
             style={panelStyle}
             role="dialog"

@@ -5,6 +5,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { handleDocumentExtract } from './documentExtractRoute.ts'
 import { buildInstantAnalyzeChartGenerateSection } from './chartExportPrompts.ts'
 import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportPrompts.ts'
+import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 import {
   geminiChatCompletion,
   GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
@@ -2476,7 +2477,7 @@ function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: st
 }
 
 /** Thinking — Aufgabenanalyse (JSON). */
-const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 420
+const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 480
 const THINKING_DRAFT_MAX_OUTPUT_TOKENS = 7200
 const THINKING_REVIEW_MAX_OUTPUT_TOKENS = 420
 const THINKING_PIPELINE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
@@ -2499,6 +2500,9 @@ type ThinkingAnalyzePayloadEdge = {
   needs_clarification: boolean
   clarify_rounds_planned: number
   analysis_summary: string
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
 }
 
 type ThinkingReviewPayloadEdge = {
@@ -2569,6 +2573,13 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
       o.analysis_summary,
       task_type === 'document_summary' ? 420 : 280,
     ) || intent
+  let needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  let web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  }
   let dims = missing_dimensions
   if (!needs_clarification) {
     dims = []
@@ -2587,6 +2598,9 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
     needs_clarification,
     clarify_rounds_planned,
     analysis_summary,
+    needs_live_web,
+    web_query,
+    web_reason,
   }
 }
 
@@ -2667,15 +2681,7 @@ async function thinkingAnalyzeWithGemini(
   userMessage: string,
   contextBlock: string,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
-  const system = [
-    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (Gemini 3.1 Flash Lite, nicht nur Server).',
-    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
-    'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
-    'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
-    'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
-    'Bei [Datei:…]-Anhang mit Text: task_type document_summary; analysis_summary = inhaltlicher Kern (Fakten/Themen aus dem Anhang), nicht nur «Nutzer will PDF zusammenfassen».',
-    'assumptions[] bei document_summary: nur echte Lücken im Material, kein Kapitelverzeichnis.',
-  ].join('\n')
+  const system = buildThinkingAnalyzeSystemPromptBase('Gemini 3.1 Flash Lite')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
@@ -2788,15 +2794,7 @@ async function thinkingAnalyzeWithAi(
     await getProviderApiKey('gemini')
     return thinkingAnalyzeWithGemini(userMessage, contextBlock)
   }
-  const system = [
-    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (gpt-5-mini, nicht nur Server).',
-    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
-    'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
-    'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
-    'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
-    'Bei [Datei:…]-Anhang mit Text: task_type document_summary; analysis_summary = inhaltlicher Kern (Fakten/Themen aus dem Anhang), nicht nur «Nutzer will PDF zusammenfassen».',
-    'assumptions[] bei document_summary: nur echte Lücken im Material, kein Kapitelverzeichnis.',
-  ].join('\n')
+  const system = buildThinkingAnalyzeSystemPromptBase('gpt-5-mini')
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
@@ -2927,7 +2925,9 @@ async function instantAnalyzeWithGemini(
     'task_type: mc_solve | quiz_generate | explanation | summary.',
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
     'mc_solve: MC/Auswahlfrage lösen → chat.short_answer. quiz_generate: Quiz/Fragen erzeugen.',
-    'summary: zusammenfassen/überblick/ausführliche Zusammenfassung/[Datei]+fassen → chat.answer, task_type summary.',
+    'summary: nur expliziter Zusammenfassungswunsch (fasse zusammen/überblick/ausführliche Zusammenfassung/[Datei]+fassen) → chat.answer, task_type summary.',
+    'summary + document: «ausführliches/zusammenfassendes PDF/Word» → category document, action pdf_generate/word_generate, **task_type summary**.',
+    'explanation: «über was geht es im Dokument?», Thema-/Inhaltsfrage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
     'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
     'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
@@ -3568,6 +3568,7 @@ serve(async (req) => {
       provider === 'openai' &&
       body.instantTaskType !== 'summary' &&
       body.includeProfileMemory === true &&
+      body.chatCustomMode !== true &&
       admin &&
       planChatFields?.chat_allow_model_choice === false
     ) {
@@ -3915,11 +3916,13 @@ serve(async (req) => {
 
     const geminiModelOverride = sanitizeGeminiModelOverride(body.geminiModel)
     const geminiPromptCacheKey = sanitizePromptCacheKey(body.geminiPromptCacheKey)
+    const thinkingFinalOpenAi = body.thinkingFinalOpenAi === true
     const useGeminiThinkingChat =
       mode === 'chat' &&
       body.billingConsumeThinkingCredit === true &&
       isGeminiInstantEnabled() &&
-      provider !== 'anthropic'
+      provider !== 'anthropic' &&
+      !thinkingFinalOpenAi
 
     if (useGeminiThinkingChat) {
       await getProviderApiKey('gemini')

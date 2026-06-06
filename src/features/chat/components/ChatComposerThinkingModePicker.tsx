@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { chatToolbarMobileMediaQuery, isChatToolbarMobileViewport } from '../../../utils/mobile'
-import { CHAT_THINKING_MODE_OPTIONS, type ChatThinkingMode } from '../constants/chatThinkingMode'
+import { type ChatThinkingMode, filterChatThinkingModeOptions } from '../constants/chatThinkingMode'
 
 export type ChatComposerThinkingModePickerProps = {
   value: ChatThinkingMode
   onChange: (mode: ChatThinkingMode) => void
   disabled?: boolean
+  allowCustomMode?: boolean
 }
 
 function useChatToolbarMobilePicker(): boolean {
@@ -37,9 +38,10 @@ function ChatComposerThinkingModeNativeSelect({
   value,
   onChange,
   disabled,
+  allowCustomMode = false,
 }: ChatComposerThinkingModePickerProps) {
-  const currentLabel =
-    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Smart Instant'
+  const options = filterChatThinkingModeOptions(allowCustomMode)
+  const currentLabel = options.find((o) => o.id === value)?.label ?? 'Smart Instant'
 
   return (
     <div className="chat-model-picker chat-thinking-mode-picker">
@@ -55,13 +57,13 @@ function ChatComposerThinkingModeNativeSelect({
           aria-label={`Bearbeitungsmodus: ${currentLabel}`}
           onChange={(event) => {
             const next = event.target.value
-            if (next === 'normal' || next === 'thinking') {
+            if (next === 'normal' || next === 'thinking' || next === 'custom') {
               onChange(next)
             }
             event.currentTarget.blur()
           }}
         >
-          {CHAT_THINKING_MODE_OPTIONS.map((option) => (
+          {options.map((option) => (
             <option key={option.id} value={option.id}>
               {option.label}
             </option>
@@ -86,12 +88,13 @@ function ChatComposerThinkingModeDropdown({
   value,
   onChange,
   disabled,
+  allowCustomMode = false,
 }: ChatComposerThinkingModePickerProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const options = filterChatThinkingModeOptions(allowCustomMode)
 
-  const currentLabel =
-    CHAT_THINKING_MODE_OPTIONS.find((o) => o.id === value)?.label ?? 'Smart Instant'
+  const currentLabel = options.find((o) => o.id === value)?.label ?? 'Smart Instant'
 
   useEffect(() => {
     if (!open) {
@@ -140,9 +143,9 @@ function ChatComposerThinkingModeDropdown({
         <div
           className="chat-slash-menu thread-menu chat-model-picker-dropdown"
           role="listbox"
-          aria-label="Smart Instant oder Thinking wählen"
+          aria-label="Smart Instant, Custom oder Thinking wählen"
         >
-          {CHAT_THINKING_MODE_OPTIONS.map((option) => (
+          {options.map((option) => (
             <button
               key={option.id}
               type="button"

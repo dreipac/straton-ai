@@ -434,6 +434,77 @@
   color: var(--color-text-secondary, #94a3b8);
 }
 
+.rename-bottom-sheet-panel.introduction-sheet-panel {
+  min-height: 58vh;
+  max-height: 82vh;
+  transition:
+    transform var(--straton-sheet-exit-ms) cubic-bezier(0.36, 0.66, 0.04, 1),
+    opacity calc(var(--straton-sheet-exit-ms) * 0.9) ease-out;
+}
+
+.rename-bottom-sheet-panel.introduction-sheet-panel--questionnaire {
+  min-height: 82vh;
+  max-height: 94vh;
+}
+
+.rename-bottom-sheet-panel.introduction-sheet-panel.introduction-sheet-panel--resize-flip {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rename-bottom-sheet-panel.introduction-sheet-panel.introduction-sheet-panel--resize-flip {
+    will-change: auto;
+  }
+}
+
+.introduction-sheet-body-plain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding-top: 0;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.introduction-sheet-subtitle {
+  margin: 0;
+  color: var(--color-text-secondary, #64748b);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.introduction-sheet-panel .introduction-modal-body--sheet {
+  padding: 0;
+  min-width: 0;
+}
+
+.introduction-sheet-panel .introduction-editor-questionnaire {
+  min-width: 0;
+}
+
+.introduction-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.introduction-sheet-action {
+  width: 100%;
+  justify-content: center;
+}
+
+.introduction-sheet-action.glass-pill-touch {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+:root[data-theme='dark'] .introduction-sheet-subtitle {
+  color: var(--color-text-secondary, #94a3b8);
+}
+
 /* Deploy-Update: neues `version.json` nach Build */
 .rename-bottom-sheet-panel.deploy-update-sheet-panel {
   min-height: auto;

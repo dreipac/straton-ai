@@ -2,100 +2,22 @@ import fileIcon from '../../../../assets/icons/file.svg'
 import type { ChatWindowPendingAttachment } from './chatWindowMessageUtils'
 
 type ChatComposerAttachmentChipsProps = {
-  imageGenCommandSelected: boolean
-  excelCommandSelected: boolean
-  wordCommandSelected: boolean
-  pdfCommandSelected: boolean
-  chartCommandSelected: boolean
   pendingAttachments: ChatWindowPendingAttachment[]
-  onClearImageGen: () => void
-  onClearExcel: () => void
-  onClearWord: () => void
-  onClearPdf: () => void
-  onClearChart: () => void
   onRemoveAttachment: (id: string) => void
   onPreviewImage: (src: string) => void
 }
 
 export function ChatComposerAttachmentChips({
-  imageGenCommandSelected,
-  excelCommandSelected,
-  wordCommandSelected,
-  pdfCommandSelected,
-  chartCommandSelected,
   pendingAttachments,
-  onClearImageGen,
-  onClearExcel,
-  onClearWord,
-  onClearPdf,
-  onClearChart,
   onRemoveAttachment,
   onPreviewImage,
 }: ChatComposerAttachmentChipsProps) {
-  const visible =
-    pendingAttachments.length > 0 ||
-    imageGenCommandSelected ||
-    excelCommandSelected ||
-    wordCommandSelected ||
-    pdfCommandSelected ||
-    chartCommandSelected
-
-  if (!visible) {
+  if (pendingAttachments.length === 0) {
     return null
   }
 
   return (
     <div className="chat-attachment-chips" aria-label="Anhänge">
-      {imageGenCommandSelected ? (
-        <span className="chat-attach-removable">
-          <span className="chat-compose-mode-badge chat-compose-mode-badge--image" title="Bildgenerierung aktiv">
-            <span className="chat-compose-mode-badge-label">Bilder</span>
-          </span>
-          <button type="button" className="chat-attachment-chip-remove" aria-label="Bildgenerierung entfernen" onClick={onClearImageGen}>
-            ×
-          </button>
-        </span>
-      ) : null}
-      {excelCommandSelected ? (
-        <span className="chat-attach-removable">
-          <span className="chat-compose-mode-badge chat-compose-mode-badge--excel" title="Excel-Befehl aktiv">
-            <span className="chat-compose-mode-badge-label">Excel</span>
-          </span>
-          <button type="button" className="chat-attachment-chip-remove" aria-label="Excel-Befehl entfernen" onClick={onClearExcel}>
-            ×
-          </button>
-        </span>
-      ) : null}
-      {wordCommandSelected ? (
-        <span className="chat-attach-removable">
-          <span className="chat-compose-mode-badge chat-compose-mode-badge--word" title="Word-Export aktiv">
-            <span className="chat-compose-mode-badge-label">Word</span>
-          </span>
-          <button type="button" className="chat-attachment-chip-remove" aria-label="Word-Befehl entfernen" onClick={onClearWord}>
-            ×
-          </button>
-        </span>
-      ) : null}
-      {pdfCommandSelected ? (
-        <span className="chat-attach-removable">
-          <span className="chat-compose-mode-badge chat-compose-mode-badge--pdf" title="PDF-Export aktiv">
-            <span className="chat-compose-mode-badge-label">PDF</span>
-          </span>
-          <button type="button" className="chat-attachment-chip-remove" aria-label="PDF-Befehl entfernen" onClick={onClearPdf}>
-            ×
-          </button>
-        </span>
-      ) : null}
-      {chartCommandSelected ? (
-        <span className="chat-attach-removable">
-          <span className="chat-compose-mode-badge chat-compose-mode-badge--chart" title="Diagramm aktiv">
-            <span className="chat-compose-mode-badge-label">Diagramm</span>
-          </span>
-          <button type="button" className="chat-attachment-chip-remove" aria-label="Diagramm-Befehl entfernen" onClick={onClearChart}>
-            ×
-          </button>
-        </span>
-      ) : null}
       {pendingAttachments.map((item) =>
         item.kind === 'pasted-image' && item.previewDataUrl ? (
           <span key={item.id} className="chat-attachment-chip chat-attachment-chip--image chat-attach-removable">

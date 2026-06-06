@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { ChatComposerAttachmentChips } from './ChatComposerAttachmentChips'
-import { ChatComposerSlashMenu } from './ChatComposerSlashMenu'
 import type { useChatComposer } from '../../hooks/useChatComposer'
 import {
   CHAT_COMPOSER_DOCUMENT_FILE_ACCEPT,
@@ -39,9 +38,6 @@ export function ChatComposerForm({
   const {
     isMobileCompactComposer,
     draft,
-    showSlashMenu,
-    slashMenuHighlightIndex,
-    setSlashMenuHighlightIndex,
     inputRef,
     fileInputRef,
     imageFileInputRef,
@@ -52,23 +48,8 @@ export function ChatComposerForm({
     handleComposeKeyDown,
     handleComposePaste,
     handleAttachFiles,
-    handleSelectExcelSlashCommand,
-    handleSelectWordSlashCommand,
-    handleSelectPdfSlashCommand,
-    handleSelectChartSlashCommand,
-    handleSelectImageSlashCommand,
     buildComposerInputRowClass,
-    imageGenCommandSelected,
-    excelCommandSelected,
-    wordCommandSelected,
-    pdfCommandSelected,
-    chartCommandSelected,
     pendingAttachments,
-    setImageGenCommandSelected,
-    setExcelCommandSelected,
-    setWordCommandSelected,
-    setPdfCommandSelected,
-    setChartCommandSelected,
     removeAttachment,
   } = composer
 
@@ -110,17 +91,7 @@ export function ChatComposerForm({
       >
         {composerReplyQuoteSlot}
         <ChatComposerAttachmentChips
-          imageGenCommandSelected={imageGenCommandSelected}
-          excelCommandSelected={excelCommandSelected}
-          wordCommandSelected={wordCommandSelected}
-          pdfCommandSelected={pdfCommandSelected}
-          chartCommandSelected={chartCommandSelected}
           pendingAttachments={pendingAttachments}
-          onClearImageGen={() => setImageGenCommandSelected(false)}
-          onClearExcel={() => setExcelCommandSelected(false)}
-          onClearWord={() => setWordCommandSelected(false)}
-          onClearPdf={() => setPdfCommandSelected(false)}
-          onClearChart={() => setChartCommandSelected(false)}
           onRemoveAttachment={removeAttachment}
           onPreviewImage={onPreviewImage}
         />
@@ -148,17 +119,6 @@ export function ChatComposerForm({
         ) : (
           <div className="chat-input-field">
             <div className="chat-input-field-grow">
-              {showSlashMenu ? (
-                <ChatComposerSlashMenu
-                  highlightIndex={slashMenuHighlightIndex}
-                  onHighlightIndex={setSlashMenuHighlightIndex}
-                  onSelectExcel={handleSelectExcelSlashCommand}
-                  onSelectWord={handleSelectWordSlashCommand}
-                  onSelectPdf={handleSelectPdfSlashCommand}
-                  onSelectChart={handleSelectChartSlashCommand}
-                  onSelectImage={handleSelectImageSlashCommand}
-                />
-              ) : null}
               <textarea
                 ref={inputRef}
                 className="chat-input"

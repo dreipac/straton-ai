@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject } from 'react'
 import accountIcon from '../../../../assets/icons/account.svg'
 import learnIcon from '../../../../assets/icons/learn-outlined.svg'
+import newsIcon from '../../../../assets/icons/news.svg'
 import settingsIcon from '../../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../../assets/icons/sidebar.svg'
 import type { User } from '@supabase/supabase-js'
@@ -37,6 +38,7 @@ type ChatPageSidebarProps = {
   chatTourEligible: boolean
   isLearnPathsButtonDisabled: boolean
   learnFeatureInfoVisible: boolean
+  newsUnreadCount: number
   isNewChatPending: boolean
   newChatTourRef: RefObject<HTMLButtonElement | null>
   learnTourRef: RefObject<HTMLButtonElement | null>
@@ -49,6 +51,7 @@ type ChatPageSidebarProps = {
   onCreateNewChat: () => void
   onOpenSettings: () => void
   onNavigateLearn: () => void
+  onOpenNews: () => void
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
   onCreateFolder: () => void
@@ -81,6 +84,7 @@ export function ChatPageSidebar({
   chatTourEligible,
   isLearnPathsButtonDisabled,
   learnFeatureInfoVisible,
+  newsUnreadCount,
   isNewChatPending,
   newChatTourRef,
   learnTourRef,
@@ -93,6 +97,7 @@ export function ChatPageSidebar({
   onCreateNewChat,
   onOpenSettings,
   onNavigateLearn,
+  onOpenNews,
   onOpenAdmin,
   onToggleCompactProfileSheet,
   onCreateFolder,
@@ -194,6 +199,34 @@ export function ChatPageSidebar({
               Lernpfade
               <span className="chat-dev-badge">In Entwicklung</span>
             </>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className={`chat-sidebar-nav-button chat-sidebar-nav-button--news${
+            isSidebarCollapsed && newsUnreadCount > 0 ? ' is-collapsed-badge' : ''
+          }`}
+          onClick={onOpenNews}
+          aria-label={
+            isSidebarCollapsed
+              ? `Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`
+              : undefined
+          }
+        >
+          <img className="ui-icon chat-sidebar-top-button-icon" src={newsIcon} alt="" aria-hidden="true" />
+          {!isSidebarCollapsed ? (
+            <span className="chat-sidebar-nav-label-row">
+              Updates & Neuigkeiten
+              {newsUnreadCount > 0 ? (
+                <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                  {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                </span>
+              ) : null}
+            </span>
+          ) : newsUnreadCount > 0 ? (
+            <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+              {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+            </span>
           ) : null}
         </button>
         {profile?.is_superadmin ? (

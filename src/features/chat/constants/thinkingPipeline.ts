@@ -1,6 +1,9 @@
 import type { ChatMessage } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
+import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
 import { messageContainsCompleteThinkingClarifyBlock } from '../utils/thinkingClarify'
+import { detectLiveWebHeuristic } from './instantAnalyze'
+import { userMessageAsksAboutPriorSubscriptionUsage } from './chatSubscriptionUsageMarker'
 import type { ThinkingAnalyzeResult } from './thinkingAnalyze'
 import { buildThinkingReviewBriefingForGateway, type ThinkingReviewResult } from './thinkingReview'
 
@@ -35,6 +38,42 @@ export function isThinkingContinuationFollowUp(
   return false
 }
 
+function applyThinkingLiveWebHeuristic(
+  userMessage: string,
+  analyze: ThinkingAnalyzeResult,
+): ThinkingAnalyzeResult {
+  const trimmed = userMessage.trim()
+  const hasFile = userMessageHasThinkingFileAttachment(trimmed)
+  if (hasFile && analyze.task_type === 'document_summary') {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+  if (userMessageAsksAboutPriorSubscriptionUsage(trimmed)) {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+
+  const h = detectLiveWebHeuristic(trimmed)
+  if (h.needs) {
+    return {
+      ...analyze,
+      needs_live_web: true,
+      web_query: analyze.web_query.trim() || h.webQuery,
+      web_reason:
+        analyze.web_reason.trim() ||
+        (h.hasLegalCue && !h.hasMarketCue
+          ? 'Aktuelle Rechtslage / Gesetzesinfos'
+          : 'Aktuelle Fakten (z. B. Kurs, Preis, News)'),
+    }
+  }
+
+  if (!analyze.needs_live_web) {
+    return { ...analyze, web_query: '', web_reason: '' }
+  }
+  if (!analyze.web_query.trim()) {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+  return analyze
+}
+
 export function applyThinkingAnalyzeHeuristics(
   userMessage: string,
   analyze: ThinkingAnalyzeResult,
@@ -44,26 +83,31 @@ export function applyThinkingAnalyzeHeuristics(
   const hasFile = userMessageHasThinkingFileAttachment(trimmed)
   const hasVision = opts?.hasVisionAttachment === true
 
+  let result: ThinkingAnalyzeResult
+
   if (opts?.isContinuationFollowUp) {
-    return {
+    result = {
       ...analyze,
       needs_clarification: false,
       clarify_rounds_planned: 0,
       missing_dimensions: [],
     }
-  }
-
-  if ((hasFile || hasVision) && analyze.task_type === 'document_summary') {
-    return {
+  } else if (userMessageRequestsDirectAnswer(trimmed)) {
+    result = {
       ...analyze,
       needs_clarification: false,
       clarify_rounds_planned: 0,
       missing_dimensions: [],
     }
-  }
-
-  if (hasVision && analyze.task_type === 'other') {
-    return {
+  } else if ((hasFile || hasVision) && analyze.task_type === 'document_summary') {
+    result = {
+      ...analyze,
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (hasVision && analyze.task_type === 'other') {
+    result = {
       ...analyze,
       task_type: 'document_summary',
       needs_clarification: false,
@@ -71,21 +115,21 @@ export function applyThinkingAnalyzeHeuristics(
       missing_dimensions: [],
       intent: analyze.intent.trim() || 'Bildanhang auswerten',
     }
-  }
-
-  if (!analyze.needs_clarification) {
-    return {
+  } else if (!analyze.needs_clarification) {
+    result = {
       ...analyze,
       clarify_rounds_planned: 0,
       missing_dimensions: [],
     }
+  } else {
+    result = {
+      ...analyze,
+      clarify_rounds_planned: 1,
+      missing_dimensions: analyze.missing_dimensions.slice(0, 1),
+    }
   }
 
-  return {
-    ...analyze,
-    clarify_rounds_planned: 1,
-    missing_dimensions: analyze.missing_dimensions.slice(0, 1),
-  }
+  return applyThinkingLiveWebHeuristic(userMessage, result)
 }
 
 export function buildThinkingDraftBriefingForGateway(draft: string): string {

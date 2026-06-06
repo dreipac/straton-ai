@@ -25,6 +25,7 @@ export const CHAT_TOOLBAR_AVATAR_ACCENTS = [
 /** Menüpunkt-Labels wie in den Desktop-Einstellungen (DE), Reihenfolge: Konto zuerst. */
 export const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: string }[] = [
   { id: 'account', label: 'Konto' },
+  { id: 'introduction', label: 'Einführung' },
   { id: 'general', label: 'Allgemein' },
   { id: 'chat', label: 'Chat Einstellungen' },
   { id: 'invitations', label: 'Einladungen' },

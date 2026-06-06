@@ -2414,6 +2414,24 @@
   margin-top: 0.65rem;
 }
 
+.chat-message-body--unsplash .chat-subscription-usage-preview,
+.chat-message-body--rich .chat-subscription-usage-preview {
+  margin-top: 0.75rem;
+  width: 100%;
+  max-width: min(100%, 640px);
+  min-width: 0;
+}
+
+.chat-subscription-usage-preview .account-subscription-usage-grid {
+  gap: 0.55rem;
+}
+
+@media (max-width: 640px) {
+  .chat-subscription-usage-preview .account-subscription-usage-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .chat-unsplash-results {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

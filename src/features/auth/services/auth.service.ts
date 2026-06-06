@@ -1,5 +1,12 @@
 import type { AuthChangeEvent, PostgrestError, Session, User } from '@supabase/supabase-js'
 import { clipAiChatMemoryToMaxTokens } from '../../chat/constants/aiChatMemory'
+import {
+  normalizeIntroductionText,
+  parseIntroductionMode,
+  parseUserIntroductionAnswers,
+  type IntroductionMode,
+  type UserIntroductionAnswers,
+} from '../constants/userIntroduction'
 import { getSupabaseClient, prepareAuthStorageForSignIn } from '../../../integrations/supabase/client'
 import { extractProfileNamesFromAuthUser } from '../utils/userDisplay'
 import { parseUiSettings, type UiSettingsV1 } from '../../settings/uiSettings'
@@ -75,21 +82,28 @@ async function resolveCurrentSession(): Promise<Session | null> {
   return null
 }
 
+const PROFILE_INTRODUCTION_SELECT =
+  'introduction_completed, introduction_mode, introduction_text, introduction_answers, introduction_updated_at' as const
+
 /** Volle Profil-Spalten inkl. KI-Speicher (`20260425120000_profiles_ai_chat_memory`). */
 const PROFILE_SELECT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
+  `first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ${PROFILE_INTRODUCTION_SELECT}, ai_chat_memory, ai_chat_memory_enabled` as const
+
+/** Ohne Einführung — wenn Migration noch nicht ausgerollt. */
+const PROFILE_SELECT_WITHOUT_INTRODUCTION =
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ai_chat_memory, ai_chat_memory_enabled' as const
 
 /** Ohne KI-Speicher-Spalten — wenn Migration noch nicht ausgerollt. */
 const PROFILE_SELECT_WITHOUT_AI_MEMORY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 /** Ohne ui_settings — wenn Remote-DB die Migration `20260405140000_add_ui_settings_to_profiles` noch nicht hat (sonst PostgREST 400). */
 const PROFILE_SELECT_COMPAT =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 /** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
 const PROFILE_SELECT_COMPAT_LEGACY =
-  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
+  'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -105,6 +119,14 @@ function isMissingMustChangePasswordColumnError(err: unknown): boolean {
   }
   const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
   return msg.includes('must_change_password_on_first_login')
+}
+
+function isMissingIntroductionColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
+  return msg.includes('introduction_')
 }
 
 function isMissingAiChatMemoryColumnError(err: unknown): boolean {
@@ -126,6 +148,28 @@ async function updateProfileReturningNoUiSettingsPatch(
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'ui_settings')) {
     return r
+  }
+  if (isMissingIntroductionColumnError(r.error)) {
+    r = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId)
+      .select(PROFILE_SELECT_WITHOUT_INTRODUCTION)
+      .single()
+    if (!r.error) {
+      return r
+    }
+  }
+  if (isMissingAiChatMemoryColumnError(r.error)) {
+    r = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId)
+      .select(PROFILE_SELECT_WITHOUT_AI_MEMORY)
+      .single()
+    if (!r.error) {
+      return r
+    }
   }
   if (isMissingUiSettingsColumnError(r.error)) {
     r = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT_COMPAT).single()
@@ -160,12 +204,15 @@ type ProfileRow = {
         max_files: number | null
         image_generation_model?: string | null
         chat_allow_model_choice?: boolean | null
+        chat_allow_custom_mode?: boolean | null
         default_chat_model_id?: string | null
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
         chat_context_max_tokens?: number | null
         web_search_daily_grant?: number | null
+        web_search_start_balance?: number | null
+        web_search_credit_max?: number | null
         image_start_balance?: number | null
         image_credit_max?: number | null
         thinking_start_balance?: number | null
@@ -183,12 +230,15 @@ type ProfileRow = {
         max_files: number | null
         image_generation_model?: string | null
         chat_allow_model_choice?: boolean | null
+        chat_allow_custom_mode?: boolean | null
         default_chat_model_id?: string | null
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
         chat_context_max_tokens?: number | null
         web_search_daily_grant?: number | null
+        web_search_start_balance?: number | null
+        web_search_credit_max?: number | null
         image_start_balance?: number | null
         image_credit_max?: number | null
         thinking_start_balance?: number | null
@@ -227,6 +277,11 @@ type ProfileRow = {
     | null
   ai_chat_memory?: string | null
   ai_chat_memory_enabled?: boolean | null
+  introduction_completed?: boolean | null
+  introduction_mode?: string | null
+  introduction_text?: string | null
+  introduction_answers?: unknown
+  introduction_updated_at?: string | null
 }
 
 function currentUtcDateString(): string {
@@ -309,6 +364,12 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     ai_chat_memory:
       typeof data.ai_chat_memory === 'string' ? clipAiChatMemoryToMaxTokens(data.ai_chat_memory) : null,
     ai_chat_memory_enabled: data.ai_chat_memory_enabled !== false,
+    introduction_completed: data.introduction_completed === true,
+    introduction_mode: parseIntroductionMode(data.introduction_mode),
+    introduction_text: normalizeIntroductionText(data.introduction_text),
+    introduction_answers: parseUserIntroductionAnswers(data.introduction_answers),
+    introduction_updated_at:
+      typeof data.introduction_updated_at === 'string' ? data.introduction_updated_at : null,
   }
 }
 
@@ -337,13 +398,16 @@ export type UserProfile = {
         max_files: number | null
         image_generation_model: SubscriptionImageGenerationModelId
         chat_allow_model_choice?: boolean | null
+        chat_allow_custom_mode?: boolean | null
         default_chat_model_id?: string | null
         chat_daily_tier1_openai_model_id?: string | null
         chat_daily_tier1_token_budget?: number | null
         chat_daily_tier2_openai_model_id?: string | null
         chat_context_max_tokens?: number | null
-        /** Tägliche Aufladung Websuche-Guthaben (UTC); bis zu 50 Kontostand. */
+        /** Tägliche Aufladung Websuche-Guthaben (UTC). */
         web_search_daily_grant?: number | null
+        web_search_start_balance?: number | null
+        web_search_credit_max?: number | null
         image_start_balance?: number | null
         image_credit_max?: number | null
         thinking_start_balance?: number | null
@@ -362,7 +426,7 @@ export type UserProfile = {
     image_credit_balance: number
     /** Ungenutztes Token-Kontingent aus Vorperioden; max. 3 Mio.; täglich nutzbar mit Tageslimit. */
     token_balance: number
-    /** Verfügbare Tavily-Websuchen (max. 50); täglich +web_search_daily_grant (UTC). */
+    /** Verfügbare Tavily-Websuchen; täglich +web_search_daily_grant (UTC), gedeckelt mit web_search_credit_max. */
     web_search_credit_balance: number
     /** Websuchen am heutigen UTC-Tag (Anzeige; DB kann noch alten Tag haben bis Lazy-Reset). */
     used_web_searches: number
@@ -374,6 +438,12 @@ export type UserProfile = {
   ai_chat_memory: string | null
   /** false: kein Lesen/Aktualisieren des Nutzer-Speichers */
   ai_chat_memory_enabled: boolean
+  /** Einführungs-Modal abgeschlossen (Speichern in Einstellungen/Modal). */
+  introduction_completed: boolean
+  introduction_mode: IntroductionMode | null
+  introduction_text: string
+  introduction_answers: UserIntroductionAnswers
+  introduction_updated_at: string | null
 }
 
 /**
@@ -468,6 +538,13 @@ export function getUserFromSession(session: Session | null): User | null {
 export async function getProfileByUserId(userId: string): Promise<UserProfile | null> {
   const supabase = getSupabaseClient()
   let { data, error } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', userId).maybeSingle()
+  if (error && isMissingIntroductionColumnError(error)) {
+    ;({ data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_WITHOUT_INTRODUCTION)
+      .eq('id', userId)
+      .maybeSingle())
+  }
   if (error && isMissingAiChatMemoryColumnError(error)) {
     ;({ data, error } = await supabase
       .from('profiles')
@@ -750,6 +827,46 @@ export async function completeChatOnboardingByUserId(userId: string): Promise<Us
 
 export async function markBetaNoticeSeenByUserId(userId: string): Promise<UserProfile | null> {
   const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, { beta_notice_seen: true })
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
+export type UpdateUserIntroductionPatch = {
+  introduction_completed?: boolean
+  introduction_mode?: IntroductionMode | null
+  introduction_text?: string | null
+  introduction_answers?: UserIntroductionAnswers | null
+}
+
+export async function updateUserIntroductionByUserId(
+  userId: string,
+  patch: UpdateUserIntroductionPatch,
+): Promise<UserProfile | null> {
+  const payload: Record<string, unknown> = {
+    introduction_updated_at: new Date().toISOString(),
+  }
+  if (typeof patch.introduction_completed === 'boolean') {
+    payload.introduction_completed = patch.introduction_completed
+  }
+  if (patch.introduction_mode === 'text' || patch.introduction_mode === 'questionnaire') {
+    payload.introduction_mode = patch.introduction_mode
+  } else if (patch.introduction_mode === null) {
+    payload.introduction_mode = null
+  }
+  if (typeof patch.introduction_text === 'string') {
+    payload.introduction_text = normalizeIntroductionText(patch.introduction_text) || null
+  } else if (patch.introduction_text === null) {
+    payload.introduction_text = null
+  }
+  if (patch.introduction_answers != null) {
+    payload.introduction_answers = parseUserIntroductionAnswers(patch.introduction_answers)
+  }
+
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, payload)
 
   if (error) {
     throw error

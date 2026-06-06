@@ -201,7 +201,8 @@ export function ChatPageGuestView({
             tokenLimitReached={false}
             composerModelId={guestComposerModelId}
             onComposerModelChange={onGuestComposerModel}
-            showComposerModelPicker
+            showComposerModelPicker={false}
+            allowCustomChatMode={false}
             chatReplyMode={guestChatReplyMode}
             onChatReplyModeChange={onGuestChatReplyMode}
             showReplyModePicker={!isChatToolbarMobile}

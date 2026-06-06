@@ -18,8 +18,15 @@ import {
   stripExcelSpecBlock,
 } from '../../excel/excelSpec'
 import { userMessageHadDirectAnswerIntent } from '../../constants/chatDirectAnswerInstruction'
+import {
+  messageContainsSubscriptionUsageMarker,
+  stripSubscriptionUsageMarker,
+  userMessageRequestsSubscriptionUsage,
+} from '../../constants/chatSubscriptionUsageMarker'
+import type { AccountSubscriptionDisplay } from '../../../settings/utils/accountSubscriptionDisplay'
 import { userMessageRequestsChart } from '../../constants/instantAnalyzeRoute'
 import { DirectAnswerMcqPreview } from '../DirectAnswerMcqPreview'
+import { ChatSubscriptionUsagePreview } from '../ChatSubscriptionUsagePreview'
 import { buildDirectAnswerMcqPreview } from '../../utils/directAnswerMcq'
 import { ChartSpecPreview, ChartSpecPreviewBuilding } from '../ChartSpecPreview'
 import { ExcelSpecPreview, ExcelSpecPreviewBuilding } from '../ExcelSpecPreview'
@@ -109,6 +116,7 @@ export type ChatMessageListProps = {
   onFinalizeExcelDocument?: () => void | Promise<void>
   excelFinalizeBusy: boolean
   onCopyUserMessage: (text: string) => boolean | Promise<boolean>
+  subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -153,6 +161,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     onFinalizeExcelDocument,
     excelFinalizeBusy,
     onCopyUserMessage,
+    subscriptionUsageDisplay,
   } = props
 
   return (
@@ -194,6 +203,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   precedingUserForWordPaper.metadata,
                 ),
             )
+          const isSubscriptionUsageAssistantTurn =
+            isAssistant &&
+            Boolean(
+              precedingUserForWordPaper &&
+                userMessageRequestsSubscriptionUsage(precedingUserForWordPaper.content),
+            )
           const directAnswerMcq =
             isDirectAnswerAssistantTurn && precedingUserForWordPaper
               ? buildDirectAnswerMcqPreview(
@@ -223,7 +238,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor den Spec-Markern. */
-          const assistantAfterExcel = stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))
+          const assistantAfterExcel = stripSubscriptionUsageMarker(
+            stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay)),
+          )
           const thinkingClarifyStreaming =
             isAssistant &&
             !isWordAssistantTurn &&
@@ -241,13 +258,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
             : userSectionReplyParsed
               ? stripAttachmentBlocksForDisplay(userSectionReplyParsed.userText)
               : stripAttachmentBlocksForDisplay(rawContent)
-          const thinkingFinalStreaming =
-            isAssistant &&
-            !isWordAssistantTurn &&
-            chatThinkingMode === 'thinking' &&
-            Boolean(message.metadata?.liveStream) &&
-            message.metadata?.thinkingStreamKind === 'final' &&
-            !String(displayContent ?? '').trim()
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
           const savedDateiNames =
             message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
@@ -294,6 +304,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !message.metadata?.pdfExport &&
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
+          const showSubscriptionUsagePreview =
+            Boolean(subscriptionUsageDisplay) &&
+            isAssistant &&
+            !isStreamingAssistant &&
+            (messageContainsSubscriptionUsageMarker(rawContent) || isSubscriptionUsageAssistantTurn)
           const showExcelSpecPreviewBuilding =
             isExcelAssistantTurn &&
             !message.metadata?.excelExport &&
@@ -431,10 +446,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 <p className="chat-thinking-stream-hint" role="status">
                   KI formuliert eine Rückfrage…
                 </p>
-              ) : thinkingFinalStreaming ? (
-                <p className="chat-thinking-stream-hint" role="status">
-                  Ausführliche Antwort wird erstellt…
-                </p>
               ) : displayContent ? (
                 isAssistant ? (
                   !hasInteractiveQuiz ? (
@@ -541,6 +552,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                           {unsplash ? (
                             <UnsplashPhotoResults query={unsplash.query} photos={unsplash.photos} />
                           ) : null}
+                          {showSubscriptionUsagePreview && subscriptionUsageDisplay ? (
+                            <ChatSubscriptionUsagePreview display={subscriptionUsageDisplay} />
+                          ) : null}
                         </div>
                       )
                     })()
@@ -555,6 +569,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                           query={message.metadata.unsplashSearch.query}
                           photos={message.metadata.unsplashSearch.photos}
                         />
+                      ) : null}
+                      {showSubscriptionUsagePreview && subscriptionUsageDisplay ? (
+                        <ChatSubscriptionUsagePreview display={subscriptionUsageDisplay} />
                       ) : null}
                     </div>
                   )

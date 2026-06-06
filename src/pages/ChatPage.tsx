@@ -12,6 +12,8 @@ import {
   parseThinkingTierConfigFromPlan,
 } from '../features/chat/constants/chatDailyOpenAiTier'
 import { resolveChatProfileIdentity } from '../features/chat/constants/chatProfileIdentityContext'
+import { resolveChatUserIntroduction } from '../features/chat/constants/chatUserIntroductionContext'
+import { resolveChatSubscriptionUsageContext } from '../features/chat/constants/chatSubscriptionUsageContext'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import { getChatModelPolicyFromPlan } from '../features/chat/constants/chatComposerModels'
 import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
@@ -46,11 +48,13 @@ import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewp
 import { useMobileSidebarEdgeSwipe } from '../hooks/useMobileSidebarEdgeSwipe'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useToast } from '../components/toast/ToastProvider'
+import { useNewsUnreadCount } from '../features/news/hooks/useNewsUnreadCount'
 import { AuthSessionBootstrap } from '../features/auth/components/AuthSessionBootstrap'
 
 export function ChatPage() {
-  const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, refreshProfile } = useAuth()
+  const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, updateUserIntroduction, refreshProfile } = useAuth()
   const { push: pushToast } = useToast()
+  const { unreadCount: newsUnreadCount } = useNewsUnreadCount(Boolean(user))
   const navigate = useNavigate()
   /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
   const isNarrowViewport = useIsMobileViewport()
@@ -63,13 +67,14 @@ export function ChatPage() {
   )
   /** Profil kommt nach Session — ohne Plan keine Modellauswahl-Flash für gesperrte Abos. */
   const isChatModelPolicyReady = !user || profile !== null
-  /** Tages-Staffel nur wenn Admin die Modellwahl sperrt; sonst gilt die Composer-Auswahl. */
-  const applyMainChatDailyTier =
-    Boolean(user) && profile?.subscription_plans?.chat_allow_model_choice === false
+  /** Custom-Modus nur bei expliziter Abo-Freigabe. */
+  const customModeAllowed = profile?.subscription_plans?.chat_allow_custom_mode === true
   const mainChatDailyTierConfig = useMemo(
     () =>
-      applyMainChatDailyTier ? parseChatDailyTierConfigFromPlan(profile?.subscription_plans ?? null) : undefined,
-    [applyMainChatDailyTier, profile?.subscription_plans],
+      user && profile?.subscription_plans?.chat_allow_model_choice === false
+        ? parseChatDailyTierConfigFromPlan(profile.subscription_plans)
+        : undefined,
+    [user, profile?.subscription_plans],
   )
   const mainChatThinkingTierConfig = useMemo(
     () => parseThinkingTierConfigFromPlan(profile?.subscription_plans ?? null),
@@ -92,6 +97,22 @@ export function ChatPage() {
   const chatProfileIdentity = useMemo(
     () => resolveChatProfileIdentity(user, profile),
     [user, profile?.first_name, profile?.last_name, user?.email, user?.user_metadata],
+  )
+
+  const chatUserIntroduction = useMemo(
+    () => resolveChatUserIntroduction(profile),
+    [
+      profile?.introduction_completed,
+      profile?.introduction_mode,
+      profile?.introduction_text,
+      profile?.introduction_answers,
+      profile?.introduction_updated_at,
+    ],
+  )
+
+  const chatSubscriptionUsage = useMemo(
+    () => (user ? resolveChatSubscriptionUsageContext(profile) : null),
+    [user, profile?.subscription_plans, profile?.subscription_usages],
   )
 
   const featureFlags = useChatPageFeatureFlags({ user, profile, isLoading })
@@ -129,7 +150,6 @@ export function ChatPage() {
     selectChat,
     composerModelId,
     setComposerModelId,
-    isChatModelLocked,
     chatReplyMode,
     setChatReplyMode,
     chatThinkingMode,
@@ -144,7 +164,7 @@ export function ChatPage() {
     persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
     onProfileMemoryUpdated: refreshProfile,
     mainChatUsedTokensToday: user ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
-    mainChatDailyTierConfig: user && applyMainChatDailyTier ? mainChatDailyTierConfig : undefined,
+    mainChatDailyTierConfig: user ? mainChatDailyTierConfig : undefined,
     mainChatThinkingTierConfig: user ? mainChatThinkingTierConfig : undefined,
     mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
     webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
@@ -154,6 +174,9 @@ export function ChatPage() {
     thinkingCreditBalance: profile?.subscription_usages?.thinking_credit_balance ?? 0,
     onThinkingCreditsConsumed: refreshProfile,
     profileIdentity: chatProfileIdentity,
+    userIntroduction: chatUserIntroduction,
+    subscriptionUsage: chatSubscriptionUsage,
+    customModeAllowed,
   })
   const chatFolders = useChatFolders(user?.id, threads)
   const isPageEnter = useChatPageEnter()
@@ -188,6 +211,7 @@ export function ChatPage() {
     isNarrowViewport,
     showBetaNoticeOnFirstLogin,
     markBetaNoticeSeen,
+    updateUserIntroduction,
     refreshProfile,
     setIsMobileSidebarOpen: mobileShell.setIsMobileSidebarOpen,
   })
@@ -580,6 +604,7 @@ export function ChatPage() {
         chatTourEligible={chatTourEligible}
         isLearnPathsButtonDisabled={isLearnPathsButtonDisabled}
         learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
+        newsUnreadCount={newsUnreadCount}
         isNewChatPending={isNewChatPending}
         newChatTourRef={newChatTourRef}
         learnTourRef={learnTourRef}
@@ -600,6 +625,7 @@ export function ChatPage() {
           navigate('/learn')
           setIsMobileSidebarOpen(false)
         }}
+        onOpenNews={pageModals.openNewsModal}
         onOpenAdmin={pageModals.openAdminModal}
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
         onCreateFolder={pageMenus.openCreateFolderSheet}
@@ -656,7 +682,10 @@ export function ChatPage() {
           tokenLimitReached={tokenLimitReached}
           composerModelId={composerModelId}
           onComposerModelChange={setComposerModelId}
-          showComposerModelPicker={isChatModelPolicyReady && !isChatModelLocked}
+          showComposerModelPicker={
+            isChatModelPolicyReady && customModeAllowed && chatThinkingMode === 'custom'
+          }
+          allowCustomChatMode={customModeAllowed}
           chatReplyMode={chatReplyMode}
           onChatReplyModeChange={setChatReplyMode}
           showReplyModePicker={!isChatToolbarMobile}
@@ -691,6 +720,7 @@ export function ChatPage() {
           }
           thinkingCreditsBlocked={thinkingCreditsBlocked}
           mainChatContextMaxTokens={mainChatContextMaxTokens}
+          subscriptionUsageDisplay={chatSubscriptionUsage?.display ?? null}
         />
         <ChatLearningPathDraftSidebar
           open={learnDraft.learningPathDraftOpen}
@@ -776,8 +806,19 @@ export function ChatPage() {
         settingsInitialSection={pageModals.settingsInitialSection}
         isAdminMounted={pageModals.isAdminMounted}
         isAdminVisible={pageModals.isAdminVisible}
+        isNewsMounted={pageModals.isNewsMounted}
+        isNewsVisible={pageModals.isNewsVisible}
         isBetaNoticeMounted={pageModals.isBetaNoticeMounted}
         isBetaNoticeVisible={pageModals.isBetaNoticeVisible}
+        introductionSheetRef={pageModals.introductionSheetRef}
+        isIntroductionMounted={pageModals.isIntroductionMounted}
+        isIntroductionVisible={pageModals.isIntroductionVisible}
+        introductionDraft={pageModals.introductionDraft}
+        onIntroductionDraftChange={pageModals.setIntroductionDraft}
+        isIntroductionSaving={pageModals.isIntroductionSaving}
+        onSaveIntroduction={pageModals.saveIntroductionFromModal}
+        onDeferIntroduction={pageModals.deferIntroductionModal}
+        onIntroductionSheetExitComplete={pageModals.handleIntroductionSheetExitComplete}
         menuWrapperRef={pageMenus.menuWrapperRef}
         threadSheetRef={pageMenus.threadSheetRef}
         renameSheetRef={pageMenus.renameSheetRef}
@@ -804,6 +845,7 @@ export function ChatPage() {
         setRenameDraft={pageMenus.setRenameDraft}
         onCloseSettings={pageModals.closeSettingsModal}
         onCloseAdmin={pageModals.closeAdminModal}
+        onCloseNews={pageModals.closeNewsModal}
         onOpenSettings={pageModals.openSettingsModal}
         onOpenAdmin={pageModals.openAdminModal}
         onCloseBetaNotice={pageModals.closeBetaNoticeModal}

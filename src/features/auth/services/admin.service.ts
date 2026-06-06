@@ -29,14 +29,17 @@ export type SubscriptionPlanRow = {
   /** Fehlt lokal/remote vor Migration `20260430230000_subscription_plan_image_generation_model`. */
   image_generation_model?: SubscriptionImageGenerationModelId | null
   chat_allow_model_choice: boolean
+  chat_allow_custom_mode?: boolean
   default_chat_model_id: string | null
   chat_daily_tier1_openai_model_id?: string
   chat_daily_tier1_token_budget?: number
   chat_daily_tier2_openai_model_id?: string
   /** Max. geschätzte Tokens für Hauptchat-Verlauf; NULL = unbegrenzt (Migration `20260504210000`). */
   chat_context_max_tokens?: number | null
-  /** Täglich +N zum Websuche-Guthaben (UTC), max. 50 Kontostand. */
+  /** Täglich +N zum Websuche-Guthaben (UTC). */
   web_search_daily_grant?: number | null
+  web_search_start_balance?: number | null
+  web_search_credit_max?: number | null
   image_start_balance?: number | null
   image_credit_max?: number | null
   thinking_start_balance?: number | null
@@ -197,6 +200,53 @@ export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRo
 /** Einzelaufrufe neueste zuerst; fest die letzten 500 (Server-Obergrenze 500). */
 export const ADMIN_AI_TOKEN_USAGE_LOG_LIMIT = 500
 
+/** Max. Zeilen pro Nutzer und UTC-Tag im Anfragen-Protokoll. */
+export const ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT = 10000
+
+export function utcTodayDateInputValue(now = new Date()): string {
+  return now.toISOString().slice(0, 10)
+}
+
+export async function listAdminAiTokenUsageLogForUserDay(
+  userId: string,
+  day: string,
+  limit = ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT,
+): Promise<AdminAiTokenUsageLogRow[]> {
+  const supabase = getSupabaseClient()
+  const trimmedDay = day.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedDay)) {
+    throw new Error('Ungültiges Datum (YYYY-MM-DD erwartet).')
+  }
+
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_log_for_user_day', {
+    p_user_id: userId,
+    p_day: trimmedDay,
+    p_limit: Math.min(ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT, Math.max(1, Math.floor(limit))),
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    estimated_cost_usd: toSafeUsd(row.estimated_cost_usd),
+    created_at: typeof row.created_at === 'string' ? row.created_at : String(row.created_at ?? ''),
+  }))
+}
+
 export async function listAdminAiTokenUsageLog(
   limit = ADMIN_AI_TOKEN_USAGE_LOG_LIMIT,
 ): Promise<AdminAiTokenUsageLogRow[]> {
@@ -322,7 +372,7 @@ export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
   const { data, error } = await supabase
     .from('subscription_plans')
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
     )
     .order('name', { ascending: true })
 
@@ -365,8 +415,9 @@ export async function createSubscriptionPlan(params: {
   maxFiles: number | null
   imageGenerationModel?: SubscriptionImageGenerationModelId
   chatContextMaxTokens?: number | null
-  /** 0–50: tägliche Aufladung Websuche-Guthaben */
   webSearchDailyGrant?: number | null
+  webSearchStartBalance?: number | null
+  webSearchCreditMax?: number | null
   imageStartBalance?: number | null
   imageCreditMax?: number | null
   thinkingStartBalance?: number | null
@@ -374,6 +425,7 @@ export async function createSubscriptionPlan(params: {
   thinkingCreditMax?: number | null
   instantTokenStartBalance?: number | null
   instantTokenBalanceMax?: number | null
+  chatAllowCustomMode?: boolean
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
@@ -390,10 +442,16 @@ export async function createSubscriptionPlan(params: {
       max_files: params.maxFiles,
       image_generation_model: imageModel,
       chat_allow_model_choice: false,
+      chat_allow_custom_mode: params.chatAllowCustomMode === true,
       default_chat_model_id: null,
       ...LEGACY_PLAN_OPENAI_TIER_DEFAULTS,
       chat_context_max_tokens: params.chatContextMaxTokens ?? null,
       web_search_daily_grant: params.webSearchDailyGrant ?? null,
+      web_search_start_balance: normalizePlanCreditField(params.webSearchStartBalance ?? null, 0),
+      web_search_credit_max: normalizePlanCreditField(
+        params.webSearchCreditMax ?? null,
+        50,
+      ),
       image_start_balance: normalizePlanCreditField(params.imageStartBalance ?? null, 0),
       image_credit_max: normalizePlanCreditField(params.imageCreditMax ?? null, 60),
       thinking_start_balance: normalizePlanCreditField(params.thinkingStartBalance ?? null, 0),
@@ -409,7 +467,7 @@ export async function createSubscriptionPlan(params: {
       ),
     })
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
     )
     .single()
 
@@ -429,6 +487,8 @@ export async function updateSubscriptionPlan(params: {
   imageGenerationModel: SubscriptionImageGenerationModelId
   chatContextMaxTokens?: number | null
   webSearchDailyGrant?: number | null
+  webSearchStartBalance?: number | null
+  webSearchCreditMax?: number | null
   imageStartBalance?: number | null
   imageCreditMax?: number | null
   thinkingStartBalance?: number | null
@@ -436,6 +496,7 @@ export async function updateSubscriptionPlan(params: {
   thinkingCreditMax?: number | null
   instantTokenStartBalance?: number | null
   instantTokenBalanceMax?: number | null
+  chatAllowCustomMode?: boolean
 }): Promise<SubscriptionPlanRow> {
   const supabase = getSupabaseClient()
   const trimmed = params.name.trim()
@@ -452,9 +513,15 @@ export async function updateSubscriptionPlan(params: {
       max_files: params.maxFiles,
       image_generation_model: imageModel,
       chat_allow_model_choice: false,
+      chat_allow_custom_mode: params.chatAllowCustomMode === true,
       default_chat_model_id: null as string | null,
       chat_context_max_tokens: params.chatContextMaxTokens ?? null,
       web_search_daily_grant: params.webSearchDailyGrant ?? null,
+      web_search_start_balance: normalizePlanCreditField(params.webSearchStartBalance ?? null, 0),
+      web_search_credit_max: normalizePlanCreditField(
+        params.webSearchCreditMax ?? null,
+        50,
+      ),
       image_start_balance: normalizePlanCreditField(params.imageStartBalance ?? null, 0),
       image_credit_max: normalizePlanCreditField(params.imageCreditMax ?? null, 60),
       thinking_start_balance: normalizePlanCreditField(params.thinkingStartBalance ?? null, 0),
@@ -471,7 +538,7 @@ export async function updateSubscriptionPlan(params: {
     })
     .eq('id', params.planId)
     .select(
-      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, created_at',
     )
     .single()
 

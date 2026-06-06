@@ -18,6 +18,7 @@ export type ThinkingAnalyzeDimension = {
 
 import type { ThinkingAnalyzeDebugMeta } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
+import { buildThinkingAnalyzeIntentPromptSection } from './thinkingTaskRouting'
 
 export type ThinkingAnalyzeResult = {
   task_type: ThinkingTaskType
@@ -30,6 +31,10 @@ export type ThinkingAnalyzeResult = {
   needs_clarification: boolean
   clarify_rounds_planned: number
   analysis_summary: string
+  /** Aktuelle Web-Fakten vor Draft/Review/Final nötig (Tavily). */
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
 }
 
 const TASK_TYPES: ThinkingTaskType[] = [
@@ -127,6 +132,14 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
   const analysis_summary =
     clipText(o.analysis_summary, task_type === 'document_summary' ? 420 : 280) || intent
 
+  let needs_live_web = o.needs_live_web === true
+  let web_query = clipText(o.web_query, 120)
+  let web_reason = clipText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  }
+
   if (!needs_clarification) {
     missing_dimensions = []
     clarify_rounds_planned = 0
@@ -149,6 +162,9 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
     needs_clarification,
     clarify_rounds_planned,
     analysis_summary,
+    needs_live_web,
+    web_query,
+    web_reason,
   }
 }
 
@@ -262,30 +278,33 @@ export function fallbackThinkingAnalyzeResult(userMessage: string): ThinkingAnal
 export function buildThinkingAnalyzeSystemPrompt(): string {
   return [
     getSecretSafetyInstruction(),
-    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus — nicht nur Server/Linux.',
+    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (Intent via Gemini 3.1 Flash Lite; finale Lieferung teils gpt-5-mini).',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
     '',
     'Felder:',
     '- task_type: "server_setup" | "software_setup" | "troubleshooting" | "document_summary" | "process_howto" | "decision_planning" | "general_howto" | "other"',
     '- complexity: "low" | "medium" | "high"',
     '- intent, assumptions[], risks[], needs_clarification (boolean), missing_dimensions[{id,label,question_hint}], clarify_rounds_planned (0 oder 1), analysis_summary',
+    '- needs_live_web: true wenn aktuelle Web-Fakten nötig (Preise, Kurse, News, Gesetzes-/Rechtslage, «aktuell», Versionen, Termine)',
+    '- web_query: optimierte Suchanfrage auf Deutsch (max. 120 Zeichen), nur wenn needs_live_web true, sonst ""',
+    '- web_reason: kurzer Grund (max. 80 Zeichen), nur wenn needs_live_web true, sonst ""',
+    '',
+    'needs_live_web:',
+    '- true bei «aktuell», «neueste», Kurs/Preis/News, Gesetzeslage mit Zeitbezug, Verfügbarkeit/Version heute.',
+    '- false bei Coding, Mathe, Server-Setup-Anleitung ohne Zeitbezug, reiner [Datei:…]-Inhalt ohne Live-Fakten, Straton-Verbrauch/Limits/Guthaben (auch «aktuell»).',
+    '- Bei needs_clarification true: needs_live_web darf true bleiben (Websuche erst nach Klärung).',
+    '',
+    buildThinkingAnalyzeIntentPromptSection(),
     '',
     'needs_clarification — sehr selten true:',
     '- true NUR bei echtem Blocker: Produktion/Datenverlust ohne Kontext, zwei gleich wertige Wege, oder Anfrage völlig unklar (<15 Zeichen ohne Material).',
-    '- false in den allermeisten Fällen: auch bei Server-Setup, How-tos, Dokumenten mit Anhang — dann Annahmen nutzen.',
+    '- false in den allermeisten Fällen — auch bei Server-Setup, How-tos, Dokumenten mit Anhang; dann Annahmen nutzen.',
     '- Bei needs_clarification false: missing_dimensions [] und clarify_rounds_planned 0.',
     '- Bei needs_clarification true: genau 1 Dimension in missing_dimensions, clarify_rounds_planned 1.',
     '',
-    'Medien (Intent, getrennt vom task_type):',
-    '- Bild-Anhang + «beschreibe / was siehst du / lies / OCR» → document_summary, needs_clarification false.',
-    '- [Datei: …] im Text → document_summary, needs_clarification false.',
-    '- «Word/PDF/Excel erstellen/exportieren» werden clientseitig separat geroutet — hier nur inhaltliche Aufgaben.',
-    '- «Foto/Bild suchen/zeigen von …» und «Bild generieren/zeichnen» werden separat geroutet.',
-    '',
     'document_summary + [Datei:…]-Block mit Text:',
-    '- analysis_summary: **inhaltlicher Kern** in 2–4 Sätzen (konkrete Themen, Fakten, Ziele aus dem Anhang) — **nicht** «Nutzer will PDF zusammenfassen» oder nur Kapitelüberschriften.',
+    '- analysis_summary: **inhaltlicher Kern** in 2–4 Sätzen (konkrete Themen, Fakten, Ziele aus dem Anhang) — **nicht** «Nutzer will PDF zusammenfassen».',
     '- assumptions[]: nur echte Lücken (z. B. fehlende Seiten), **nicht** eine Aufzählung der Dokumentkapitel.',
-    '- intent: was der Nutzer mit dem Material will (z. B. Zusammenfassung, Überblick).',
   ].join('\n')
 }
 
@@ -358,7 +377,9 @@ export function buildThinkingAnalyzeDebugMeta(params: {
     Boolean(invoke.analyzeFromAi) &&
     (invoke.analyzeFromAi!.needs_clarification !== final.needs_clarification ||
       invoke.analyzeFromAi!.clarify_rounds_planned !== final.clarify_rounds_planned ||
-      invoke.analyzeFromAi!.task_type !== final.task_type)
+      invoke.analyzeFromAi!.task_type !== final.task_type ||
+      invoke.analyzeFromAi!.needs_live_web !== final.needs_live_web ||
+      invoke.analyzeFromAi!.web_query !== final.web_query)
 
   return {
     source: invoke.source,
@@ -368,6 +389,10 @@ export function buildThinkingAnalyzeDebugMeta(params: {
     needs_clarification_from_ai: fromAi.needs_clarification,
     needs_clarification_final: final.needs_clarification,
     clarify_rounds_planned_final: final.clarify_rounds_planned,
+    needs_live_web_from_ai: fromAi.needs_live_web,
+    needs_live_web_final: final.needs_live_web,
+    web_query: final.web_query,
+    web_reason: final.web_reason,
     heuristic_applied: heuristicApplied,
     analysis_summary: final.analysis_summary,
   }

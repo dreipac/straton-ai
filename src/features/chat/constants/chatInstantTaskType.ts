@@ -1,5 +1,8 @@
 import { matchQuizPracticeIntent } from '../utils/quizFormatChoice'
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
+import {
+  userWantsSummaryDocumentExport,
+} from './documentExportIntent'
 import type { InstantAnalyzeResult } from './instantAnalyze'
 import { syncReplyModeWithRoute } from './instantAnalyzeRoute'
 
@@ -32,6 +35,10 @@ const QUIZ_GENERATION_VERB_RE =
 
 const FILE_ATTACHMENT_RE = /\[Datei:[^\]]+\][\s\S]*?\[\/Datei\]/i
 
+/** Thema/Inhalt fragen — kein Zusammenfassungsauftrag («fasse zusammen»). */
+const DOCUMENT_TOPIC_QUESTION_RE =
+  /\b(über\s+was\s+geht|worum\s+geht|was\s+ist\s+das\s+thema|thema\s+(?:des|vom)\s+(?:dokument|pdf|anhang|material|dossier)|was\s+behandelt(?:\s+(?:das|der))?\s*(?:dokument|pdf|anhang|text)?|wofür\s+ist\s+(?:das\s+)?(?:dokument|pdf)|was\s+steht\s+(?:im|in\s+dem)\s+(?:dokument|pdf)|inhalt\s+(?:des|vom)\s+(?:dokument|pdf))\b/i
+
 const SIMPLE_EXPLANATION_RE =
   /^(?:was\s+ist|was\s+sind|wer\s+ist|wann\s+war|wann\s+ist|define|definition)\b/i
 
@@ -59,7 +66,7 @@ function userWantsQuizGeneration(text: string): boolean {
   return QUIZ_GENERATION_VERB_RE.test(t)
 }
 
-function userWantsSummary(text: string, hasDocumentFileAttachment = false): boolean {
+export function userMessageWantsSummary(text: string, hasDocumentFileAttachment = false): boolean {
   const t = text.trim()
   if (!t) {
     return false
@@ -76,6 +83,14 @@ function userWantsSummary(text: string, hasDocumentFileAttachment = false): bool
   return false
 }
 
+export function userAsksDocumentTopicQuestion(text: string): boolean {
+  const t = text.trim()
+  if (!t) {
+    return false
+  }
+  return DOCUMENT_TOPIC_QUESTION_RE.test(t)
+}
+
 export function inferInstantExplanationDepth(
   userMessage: string,
   taskType: InstantChatTaskType,
@@ -86,6 +101,9 @@ export function inferInstantExplanationDepth(
   const t = userMessage.trim()
   if (!t) {
     return 'standard'
+  }
+  if (userAsksDocumentTopicQuestion(t) && !userMessageWantsSummary(t)) {
+    return 'brief'
   }
   if (DETAILED_EXPLANATION_RE.test(t)) {
     return 'detailed'
@@ -114,13 +132,23 @@ export function classifyInstantChatTaskType(
   if (userMessageRequestsDirectAnswer(t, options?.priorTurns)) {
     return 'mc_solve'
   }
+  if (userAsksDocumentTopicQuestion(t) && !userMessageWantsSummary(t, options?.hasDocumentFileAttachment === true)) {
+    return 'explanation'
+  }
+  if (
+    analyze.category === 'document' &&
+    (analyze.action === 'pdf_generate' || analyze.action === 'word_generate') &&
+    userWantsSummaryDocumentExport(t, options?.hasDocumentFileAttachment === true)
+  ) {
+    return 'summary'
+  }
   if (analyze.category !== 'chat') {
     return 'explanation'
   }
   if (userWantsQuizGeneration(t)) {
     return 'quiz_generate'
   }
-  if (userWantsSummary(t, options?.hasDocumentFileAttachment === true)) {
+  if (userMessageWantsSummary(t, options?.hasDocumentFileAttachment === true)) {
     return 'summary'
   }
   if (analyze.action === 'short_answer' && analyze.reply_mode === 'short_answer') {
@@ -139,14 +167,17 @@ export function applyInstantChatTaskTypeHeuristic(
 ): InstantAnalyzeResult {
   const aiTaskType = parseInstantChatTaskType(analyze.task_type)
   const heuristicTaskType = classifyInstantChatTaskType(userMessage, analyze, options)
+  const wantsSummary = userMessageWantsSummary(userMessage, options?.hasDocumentFileAttachment === true)
   const task_type =
     heuristicTaskType === 'mc_solve' ||
     heuristicTaskType === 'quiz_generate' ||
     heuristicTaskType === 'summary'
       ? heuristicTaskType
-      : aiTaskType !== 'explanation'
-        ? aiTaskType
-        : heuristicTaskType
+      : aiTaskType === 'summary' && !wantsSummary
+        ? heuristicTaskType
+        : aiTaskType !== 'explanation'
+          ? aiTaskType
+          : heuristicTaskType
 
   const explanation_depth =
     task_type === 'explanation'
@@ -245,7 +276,8 @@ export function buildInstantAnalyzeTaskTypePromptSection(): string {
     '- mc_solve: Nutzer postet MC/Auswahlfrage mit Optionen oder will nur die richtige Antwort → reply_mode short_answer.',
     '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve.',
     '- summary: «fasse zusammen», «Zusammenfassung», «überblick», «ausführliche Zusammenfassung zu …», [Datei:…] + zusammenfassen → reply_mode normal, clarity clear.',
-    '- explanation: offene Fragen, Erklären, Vergleiche, How-to ohne Zusammenfassungswunsch — Standard.',
+    '- summary + document (PDF/Word): «ausführliches/zusammenfassendes PDF/Word», «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
+    '- explanation: offene Fragen, Erklären, Vergleiche, How-to — auch «über was geht es im Dokument?» / Thema-Fragen **ohne** Zusammenfassungswunsch (task_type explanation, depth brief).',
     '',
     'explanation_depth:',
     '- brief: einfache Definition/Kurzfrage (z. B. «was ist BIOS» ohne «ausführlich»).',
@@ -286,6 +318,7 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
         return [
           'Aufgabentyp Erklärung — kurz (verbindlich):',
           '- Eine `##`-Überschrift, dann 1–3 klare Sätze oder eine kompakte Liste.',
+          '- **Keine** Kapitel-Zusammenfassung (`## 1. …`, `## Zusammenfassung:`) — nur die gefragte Info liefern.',
           '- Kein künstliches Aufblähen; Fachbegriffe kurz erklären.',
           '- Optional 1 freundlicher Satz am Schluss — kein `### Verbesserungen`.',
         ].join('\n')

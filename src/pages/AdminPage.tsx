@@ -24,8 +24,9 @@ import {
   deleteSubscriptionPlan,
   updateSubscriptionPlan,
   deploySubscriptionAssignmentDrafts,
-  listAdminAiTokenUsageLog,
+  listAdminAiTokenUsageLogForUserDay,
   listAdminAiTokenUsageSummary,
+  utcTodayDateInputValue,
   listAdminUserLastAiUsage,
   listAdminUsers,
   listSubscriptionAssignmentDrafts,
@@ -50,6 +51,7 @@ import {
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
 import { getComposerApiModelIdsForAdminFilter } from '../features/chat/constants/chatComposerModels'
 import { MAX_TOKEN_BALANCE } from '../features/auth/constants/tokenBalance'
+import { DEFAULT_WEB_SEARCH_CREDIT_MAX } from '../features/chat/constants/webSearchCredits'
 import {
   adminDeployLearnAiModelDraft,
   adminDeployLearnAiProviderDraft,
@@ -97,6 +99,38 @@ function formatSubscriptionPlanSmartInstantSummary(plan: SubscriptionPlanRow): s
       : MAX_TOKEN_BALANCE.toLocaleString('de-DE')
   return `Smart Instant: ${daily}, Start-Guthaben ${start}, Guthaben-Limit ${cap} (Rest des Tages → Guthaben)`
 }
+
+/** KI-Bildgenerierung (GPT Image / Flux) — nicht Unsplash-Suche, nicht Foto-Upload. */
+function formatSubscriptionPlanImageCreditsSummary(plan: SubscriptionPlanRow): string {
+  if (plan.max_images == null) {
+    return 'KI-Bildgenerierung: unbegrenzt'
+  }
+  const start = plan.image_start_balance ?? 0
+  const daily = plan.max_images
+  const cap = plan.image_credit_max ?? 60
+  return `KI-Bildgenerierung: Start ${start}, +${daily}/Tag (UTC), max. ${cap} angespart`
+}
+
+const ADMIN_IMAGE_CREDITS_HINT =
+  'Gilt für generierte KI-Grafiken (Chat «Bild erstellen», Lernkarten-Bilder). Pro Bild −1 Guthaben. Unsplash-Fotosuche und hochgeladene Fotos zählen nicht. Feld «Tages-Aufladung» leer lassen = unbegrenzt (kein Guthaben-System).'
+
+function formatSubscriptionPlanWebSearchSummary(plan: SubscriptionPlanRow): string {
+  const start = plan.web_search_start_balance ?? 0
+  const daily =
+    typeof plan.web_search_daily_grant === 'number' ? plan.web_search_daily_grant : 0
+  const cap = plan.web_search_credit_max ?? DEFAULT_WEB_SEARCH_CREDIT_MAX
+  if (daily <= 0 && start <= 0 && cap <= 0) {
+    return 'Websuche: deaktiviert (0 Guthaben)'
+  }
+  const dailyLabel =
+    typeof plan.web_search_daily_grant === 'number'
+      ? `+${plan.web_search_daily_grant}/Tag (UTC)`
+      : 'keine Tages-Aufladung'
+  return `Websuche: Start ${start}, ${dailyLabel}, max. ${cap} angespart`
+}
+
+const ADMIN_WEB_SEARCH_HINT =
+  'Gilt für automatische Tavily-Websuche (Smart Instant & Thinking bei aktuellen Fakten). Pro Suche −1 Guthaben. Tages-Aufladung leer = keine tägliche Aufladung (Start-Guthaben bleibt).'
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message.trim()) {
@@ -207,6 +241,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
   const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
   const [newPlanWebSearchDailyGrant, setNewPlanWebSearchDailyGrant] = useState('')
+  const [newPlanWebSearchStartBalance, setNewPlanWebSearchStartBalance] = useState('0')
+  const [newPlanWebSearchCreditMax, setNewPlanWebSearchCreditMax] = useState(
+    String(DEFAULT_WEB_SEARCH_CREDIT_MAX),
+  )
   const [newPlanImageStartBalance, setNewPlanImageStartBalance] = useState('0')
   const [newPlanImageCreditMax, setNewPlanImageCreditMax] = useState('60')
   const [newPlanThinkingStartBalance, setNewPlanThinkingStartBalance] = useState('0')
@@ -221,6 +259,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   )
   const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
     useState<SubscriptionImageGenerationModelId>('gpt_image_1')
+  const [newPlanChatAllowCustomMode, setNewPlanChatAllowCustomMode] = useState(false)
   const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [editPlanDraft, setEditPlanDraft] = useState<{
@@ -232,6 +271,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     imageGenerationModel: SubscriptionImageGenerationModelId
     chatContextMaxTokens: string
     webSearchDailyGrant: string
+    webSearchStartBalance: string
+    webSearchCreditMax: string
     imageStartBalance: string
     imageCreditMax: string
     thinkingStartBalance: string
@@ -239,6 +280,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     thinkingCreditMax: string
     instantTokenStartBalance: string
     instantTokenBalanceMax: string
+    chatAllowCustomMode: boolean
   } | null>(null)
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -299,7 +341,12 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingDeployedAppVersion, setIsSavingDeployedAppVersion] = useState(false)
   const [deployedAppVersionInfo, setDeployedAppVersionInfo] = useState<string | null>(null)
   const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
-  const [tokenUsageLogRows, setTokenUsageLogRows] = useState<AdminAiTokenUsageLogRow[]>([])
+  const [tokenUsageLogDayByUser, setTokenUsageLogDayByUser] = useState<Record<string, string>>({})
+  const [tokenUsageLogByUserDay, setTokenUsageLogByUserDay] = useState<
+    Record<string, AdminAiTokenUsageLogRow[]>
+  >({})
+  const [tokenUsageLogLoadingUserId, setTokenUsageLogLoadingUserId] = useState<string | null>(null)
+  const [tokenUsageLogErrorByUser, setTokenUsageLogErrorByUser] = useState<Record<string, string>>({})
   const [lastAiUsageRows, setLastAiUsageRows] = useState<AdminUserLastAiUsageRow[]>([])
   const [isLoadingTokenUsage, setIsLoadingTokenUsage] = useState(false)
   const [tokenUsageError, setTokenUsageError] = useState<string | null>(null)
@@ -331,36 +378,47 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     })
   }, [lastAiUsageRows])
 
-  const tokenUsageLogByUser = useMemo(() => {
-    const map = new Map<string, AdminAiTokenUsageLogRow[]>()
-    for (const row of tokenUsageLogRows) {
-      const list = map.get(row.user_id) ?? []
-      list.push(row)
-      map.set(row.user_id, list)
-    }
-    for (const [, list] of map) {
-      list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    }
-    return map
-  }, [tokenUsageLogRows])
+  const tokenUsageProtocolUsers = useMemo(() => {
+    return [...lastAiUsageSorted].sort((a, b) => formatLastAiPerson(a).localeCompare(formatLastAiPerson(b), 'de'))
+  }, [lastAiUsageSorted])
 
-  const tokenUsageLogUserIdsSorted = useMemo(() => {
-    const ids = [...tokenUsageLogByUser.keys()]
-    function labelFor(uid: string): string {
-      const rows = tokenUsageLogByUser.get(uid)
-      const head = rows?.[0]
-      if (!head) {
-        return uid
-      }
-      const name = [head.first_name, head.last_name].filter(Boolean).join(' ').trim()
-      if (name) {
-        return name
-      }
-      return head.email?.trim() ?? uid
+  function tokenUsageLogCacheKey(userId: string, day: string): string {
+    return `${userId}:${day}`
+  }
+
+  function getTokenUsageLogDayForUser(userId: string): string {
+    return tokenUsageLogDayByUser[userId] ?? utcTodayDateInputValue()
+  }
+
+  async function loadTokenUsageLogForUser(userId: string, day?: string) {
+    const selectedDay = day ?? getTokenUsageLogDayForUser(userId)
+    const cacheKey = tokenUsageLogCacheKey(userId, selectedDay)
+    setTokenUsageLogLoadingUserId(userId)
+    setTokenUsageLogErrorByUser((prev) => {
+      const next = { ...prev }
+      delete next[userId]
+      return next
+    })
+    try {
+      const rows = await listAdminAiTokenUsageLogForUserDay(userId, selectedDay)
+      setTokenUsageLogByUserDay((prev) => ({ ...prev, [cacheKey]: rows }))
+    } catch (err) {
+      setTokenUsageLogErrorByUser((prev) => ({
+        ...prev,
+        [userId]: getErrorMessage(err, 'Protokoll konnte nicht geladen werden.'),
+      }))
+    } finally {
+      setTokenUsageLogLoadingUserId(null)
     }
-    ids.sort((a, b) => labelFor(a).localeCompare(labelFor(b), 'de'))
-    return ids
-  }, [tokenUsageLogByUser])
+  }
+
+  function handleTokenUsageLogDayChange(userId: string, nextDay: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDay)) {
+      return
+    }
+    setTokenUsageLogDayByUser((prev) => ({ ...prev, [userId]: nextDay }))
+    void loadTokenUsageLogForUser(userId, nextDay)
+  }
 
   const tokenUsageUserOptions = useMemo(() => {
     const byId = new Map<string, AdminAiTokenUsageRow>()
@@ -733,22 +791,23 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       try {
         setIsLoadingTokenUsage(true)
         setTokenUsageError(null)
-        const [summary, lastByUser, logRows] = await Promise.all([
+        const [summary, lastByUser] = await Promise.all([
           listAdminAiTokenUsageSummary(),
           listAdminUserLastAiUsage(),
-          listAdminAiTokenUsageLog(),
         ])
         if (isMounted) {
           setTokenUsageRows(summary)
           setLastAiUsageRows(lastByUser)
-          setTokenUsageLogRows(logRows)
+          setTokenUsageLogByUserDay({})
+          setTokenUsageLogErrorByUser({})
         }
       } catch (err) {
         if (isMounted) {
           setTokenUsageError(getErrorMessage(err, 'Token-Statistik konnte nicht geladen werden.'))
           setTokenUsageRows([])
           setLastAiUsageRows([])
-          setTokenUsageLogRows([])
+          setTokenUsageLogByUserDay({})
+          setTokenUsageLogErrorByUser({})
         }
       } finally {
         if (isMounted) {
@@ -854,17 +913,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return n
   }
 
-  /** Leer = keine tägliche Aufladung; sonst 0 … 50 (Websuche-Guthaben). */
+  /** Leer = keine tägliche Aufladung; sonst 0 … 10 000. */
   function parseOptionalWebSearchDailyGrant(raw: string): number | null {
-    const t = raw.trim()
-    if (!t) {
-      return null
-    }
-    const n = Number(t)
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 50) {
-      return null
-    }
-    return n
+    return parseOptionalPlanCreditField(raw)
   }
 
   /** Guthaben-Felder pro Abo (0 … 10 000). */
@@ -938,20 +989,28 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
 
     const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(newPlanWebSearchDailyGrant)
     if (newPlanWebSearchDailyGrant.trim() && webSearchDailyGrant === null) {
-      setSubscriptionPlansError(
-        'Websuche pro Tag: ganze Zahl zwischen 0 und 50 (tägliche Aufladung zum Guthaben), oder leer.',
-      )
+      setSubscriptionPlansError('Websuche Tages-Aufladung: ganze Zahl 0–10 000, oder leer.')
+      return
+    }
+    const webSearchStartBalance = parseOptionalPlanCreditField(newPlanWebSearchStartBalance)
+    if (newPlanWebSearchStartBalance.trim() && webSearchStartBalance === null) {
+      setSubscriptionPlansError('Websuche Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const webSearchCreditMax = parseOptionalPlanCreditField(newPlanWebSearchCreditMax)
+    if (newPlanWebSearchCreditMax.trim() && webSearchCreditMax === null) {
+      setSubscriptionPlansError('Websuche Guthaben-Limit: ganze Zahl 0–10 000.')
       return
     }
 
     const imageStartBalance = parseOptionalPlanCreditField(newPlanImageStartBalance)
     if (newPlanImageStartBalance.trim() && imageStartBalance === null) {
-      setSubscriptionPlansError('Bilder Start-Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('KI-Bildgenerierung Start-Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const imageCreditMax = parseOptionalPlanCreditField(newPlanImageCreditMax)
     if (newPlanImageCreditMax.trim() && imageCreditMax === null) {
-      setSubscriptionPlansError('Bilder max. Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('KI-Bildgenerierung max. Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const thinkingStartBalance = parseOptionalPlanCreditField(newPlanThinkingStartBalance)
@@ -981,6 +1040,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         imageGenerationModel: newPlanImageGenerationModel,
         chatContextMaxTokens,
         webSearchDailyGrant,
+        webSearchStartBalance: webSearchStartBalance ?? 0,
+        webSearchCreditMax: webSearchCreditMax ?? DEFAULT_WEB_SEARCH_CREDIT_MAX,
         imageStartBalance: imageStartBalance ?? 0,
         imageCreditMax: imageCreditMax ?? 60,
         thinkingStartBalance: thinkingStartBalance ?? 0,
@@ -988,6 +1049,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingCreditMax: thinkingCreditMax ?? 10,
         instantTokenStartBalance: instantTokenStartBalance ?? 0,
         instantTokenBalanceMax: instantTokenBalanceMax ?? MAX_TOKEN_BALANCE,
+        chatAllowCustomMode: newPlanChatAllowCustomMode,
       })
       setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
 
@@ -997,6 +1059,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanMaxImages('')
       setNewPlanMaxFiles('')
       setNewPlanWebSearchDailyGrant('')
+      setNewPlanWebSearchStartBalance('0')
+      setNewPlanWebSearchCreditMax(String(DEFAULT_WEB_SEARCH_CREDIT_MAX))
       setNewPlanImageStartBalance('0')
       setNewPlanImageCreditMax('60')
       setNewPlanThinkingStartBalance('0')
@@ -1006,6 +1070,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       setNewPlanInstantTokenStartBalance('0')
       setNewPlanInstantTokenBalanceMax(String(MAX_TOKEN_BALANCE))
       setNewPlanImageGenerationModel('gpt_image_1')
+      setNewPlanChatAllowCustomMode(false)
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
     } finally {
@@ -1063,20 +1128,28 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
 
     const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(editPlanDraft.webSearchDailyGrant)
     if (editPlanDraft.webSearchDailyGrant.trim() && webSearchDailyGrant === null) {
-      setSubscriptionPlansError(
-        'Websuche pro Tag: ganze Zahl zwischen 0 und 50 (tägliche Aufladung zum Guthaben), oder leer.',
-      )
+      setSubscriptionPlansError('Websuche Tages-Aufladung: ganze Zahl 0–10 000, oder leer.')
+      return
+    }
+    const webSearchStartBalance = parseOptionalPlanCreditField(editPlanDraft.webSearchStartBalance)
+    if (editPlanDraft.webSearchStartBalance.trim() && webSearchStartBalance === null) {
+      setSubscriptionPlansError('Websuche Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const webSearchCreditMax = parseOptionalPlanCreditField(editPlanDraft.webSearchCreditMax)
+    if (editPlanDraft.webSearchCreditMax.trim() && webSearchCreditMax === null) {
+      setSubscriptionPlansError('Websuche Guthaben-Limit: ganze Zahl 0–10 000.')
       return
     }
 
     const imageStartBalance = parseOptionalPlanCreditField(editPlanDraft.imageStartBalance)
     if (editPlanDraft.imageStartBalance.trim() && imageStartBalance === null) {
-      setSubscriptionPlansError('Bilder Start-Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('KI-Bildgenerierung Start-Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const imageCreditMax = parseOptionalPlanCreditField(editPlanDraft.imageCreditMax)
     if (editPlanDraft.imageCreditMax.trim() && imageCreditMax === null) {
-      setSubscriptionPlansError('Bilder max. Guthaben: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('KI-Bildgenerierung max. Guthaben: ganze Zahl 0–10 000.')
       return
     }
     const thinkingStartBalance = parseOptionalPlanCreditField(editPlanDraft.thinkingStartBalance)
@@ -1107,6 +1180,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         imageGenerationModel: editPlanDraft.imageGenerationModel,
         chatContextMaxTokens,
         webSearchDailyGrant,
+        webSearchStartBalance: webSearchStartBalance ?? 0,
+        webSearchCreditMax: webSearchCreditMax ?? DEFAULT_WEB_SEARCH_CREDIT_MAX,
         imageStartBalance: imageStartBalance ?? 0,
         imageCreditMax: imageCreditMax ?? 60,
         thinkingStartBalance: thinkingStartBalance ?? 0,
@@ -1114,6 +1189,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         thinkingCreditMax: thinkingCreditMax ?? 10,
         instantTokenStartBalance: instantTokenStartBalance ?? 0,
         instantTokenBalanceMax: instantTokenBalanceMax ?? MAX_TOKEN_BALANCE,
+        chatAllowCustomMode: editPlanDraft.chatAllowCustomMode,
       })
       setSubscriptionPlans((prev) =>
         prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
@@ -1736,14 +1812,6 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     return row.email?.trim() || row.user_id
   }
 
-  function formatTokenLogPerson(row: AdminAiTokenUsageLogRow): string {
-    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
-    if (name) {
-      return name
-    }
-    return row.email?.trim() || row.user_id
-  }
-
   function formatLastAiPerson(row: AdminUserLastAiUsageRow): string {
     const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
     if (name) {
@@ -2328,110 +2396,157 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
 
                       <h3 className="admin-token-section-heading">Anfragen-Protokoll (je Nutzer aufklappbar)</h3>
                       <p className="admin-token-section-hint">
-                        Jede Zeile ist ein KI-Aufruf. <strong>Kosten (USD)</strong> aus der Datenbank (
-                        <code>estimated_cost_usd</code> beim Aufruf). Es werden global die{' '}
-                        <strong>neuesten 500</strong> Einträge geladen (ältere fallen aus dem Ausschnitt). Spalte{' '}
-                        <strong>Erstellt</strong>: Zeitpunkt des Eintrags in der Datenbank (<code>created_at</code>, UTC).
+                        Jede Zeile ist ein KI-Aufruf. Nutzer aufklappen, <strong>UTC-Tag</strong> wählen — es werden{' '}
+                        <strong>alle Anfragen dieses Tages</strong> geladen (neueste zuerst). Spalte{' '}
+                        <strong>Erstellt</strong>: <code>created_at</code> in UTC.
                       </p>
-                      {tokenUsageLogRows.length === 0 ? (
-                        <p className="admin-user-empty">Keine Einzelaufrufe im geladenen Ausschnitt.</p>
+                      {tokenUsageProtocolUsers.length === 0 ? (
+                        <p className="admin-user-empty">Keine Nutzer mit protokollierten KI-Aufrufen.</p>
                       ) : (
                         <div
                           className="admin-token-user-log-list"
                           role="list"
                           aria-label="KI-Anfragen gruppiert nach Nutzer"
                         >
-                          {tokenUsageLogUserIdsSorted.map((userId) => {
-                            const rows = tokenUsageLogByUser.get(userId) ?? []
-                            const head = rows[0]
-                            if (!head) {
-                              return null
-                            }
+                          {tokenUsageProtocolUsers.map((userRow) => {
+                            const userId = userRow.user_id
+                            const selectedDay = getTokenUsageLogDayForUser(userId)
+                            const cacheKey = tokenUsageLogCacheKey(userId, selectedDay)
+                            const rows = tokenUsageLogByUserDay[cacheKey]
+                            const isLoadingLog = tokenUsageLogLoadingUserId === userId
+                            const logError = tokenUsageLogErrorByUser[userId]
                             let sumIn = 0
                             let sumOut = 0
                             let sumUsd = 0
-                            for (const r of rows) {
-                              sumIn += r.input_tokens
-                              sumOut += r.output_tokens
-                              sumUsd += r.estimated_cost_usd
+                            if (rows) {
+                              for (const r of rows) {
+                                sumIn += r.input_tokens
+                                sumOut += r.output_tokens
+                                sumUsd += r.estimated_cost_usd
+                              }
                             }
                             const sumTok = sumIn + sumOut
+                            const summaryStats =
+                              rows && !isLoadingLog
+                                ? `${rows.length} Anfrage${rows.length === 1 ? '' : 'n'} · ${formatTokenInt(sumTok)} Tok. · ${formatUsdEstimate(sumUsd, true)}`
+                                : `Tag ${selectedDay} (UTC)`
                             return (
-                              <details key={userId} className="admin-token-user-log" role="listitem">
+                              <details
+                                key={userId}
+                                className="admin-token-user-log"
+                                role="listitem"
+                                onToggle={(event) => {
+                                  if (event.currentTarget.open && rows === undefined && !isLoadingLog) {
+                                    void loadTokenUsageLogForUser(userId, selectedDay)
+                                  }
+                                }}
+                              >
                                 <summary className="admin-token-user-log-summary">
                                   <span className="admin-token-user-log-summary-main">
-                                    <strong>{formatTokenLogPerson(head)}</strong>
-                                    <span className="admin-token-user-log-summary-email">{head.email ?? '—'}</span>
+                                    <strong>{formatLastAiPerson(userRow)}</strong>
+                                    <span className="admin-token-user-log-summary-email">{userRow.email ?? '—'}</span>
                                   </span>
-                                  <span className="admin-token-user-log-summary-stats">
-                                    {rows.length} Anfrage{rows.length === 1 ? '' : 'n'} ·{' '}
-                                    {formatTokenInt(sumTok)} Tok. · {formatUsdEstimate(sumUsd, true)}
-                                  </span>
+                                  <span className="admin-token-user-log-summary-stats">{summaryStats}</span>
                                 </summary>
-                                <div className="admin-token-table-scroll">
-                                <table
-                                  className="admin-token-usage-table admin-token-log-detail-table"
-                                  aria-label={`Anfragen für ${formatTokenLogPerson(head)}`}
+                                <div
+                                  className="admin-token-user-log-controls"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                  }}
                                 >
-                                  <thead>
-                                    <tr>
-                                      <th scope="col">Erstellt (UTC)</th>
-                                      <th scope="col">Modus</th>
-                                      <th scope="col">Provider</th>
-                                      <th scope="col">Modell</th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Brutto In
-                                      </th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Cache
-                                      </th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Netto In
-                                      </th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Output
-                                      </th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Σ Tokens
-                                      </th>
-                                      <th scope="col" className="admin-token-usage-num">
-                                        Kosten
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {rows.map((r) => {
-                                      const lineSum = r.input_tokens + r.output_tokens
-                                      return (
-                                        <tr key={r.id}>
-                                          <td>
-                                            <time dateTime={r.created_at}>{formatAiTokenUsageCreatedAt(r.created_at)}</time>
-                                          </td>
-                                          <td>
-                                            <code className="admin-token-model">{r.mode}</code>
-                                          </td>
-                                          <td>{r.provider}</td>
-                                          <td>
-                                            <code className="admin-token-model">{r.model}</code>
-                                          </td>
-                                          <td className="admin-token-usage-num">
-                                            {formatTokenInt(r.gross_input_tokens)}
-                                          </td>
-                                          <td className="admin-token-usage-num">
-                                            {formatTokenInt(r.cached_input_tokens)}
-                                          </td>
-                                          <td className="admin-token-usage-num">{formatTokenInt(r.input_tokens)}</td>
-                                          <td className="admin-token-usage-num">{formatTokenInt(r.output_tokens)}</td>
-                                          <td className="admin-token-usage-num">{formatTokenInt(lineSum)}</td>
-                                          <td className="admin-token-usage-num">
-                                            {formatUsdEstimate(r.estimated_cost_usd, true)}
-                                          </td>
-                                        </tr>
-                                      )
-                                    })}
-                                  </tbody>
-                                </table>
+                                  <label className="admin-token-user-log-day-label" htmlFor={`admin-token-log-day-${userId}`}>
+                                    Tag (UTC)
+                                  </label>
+                                  <input
+                                    id={`admin-token-log-day-${userId}`}
+                                    className="admin-token-user-log-day-input"
+                                    type="date"
+                                    value={selectedDay}
+                                    onChange={(event) => handleTokenUsageLogDayChange(userId, event.target.value)}
+                                  />
+                                  <SecondaryButton
+                                    type="button"
+                                    disabled={isLoadingLog}
+                                    onClick={() => void loadTokenUsageLogForUser(userId, selectedDay)}
+                                  >
+                                    {isLoadingLog ? 'Lade…' : 'Neu laden'}
+                                  </SecondaryButton>
                                 </div>
+                                {logError ? <p className="error-text admin-token-user-log-error">{logError}</p> : null}
+                                {isLoadingLog ? <p className="admin-token-user-log-loading">Lade Anfragen…</p> : null}
+                                {!isLoadingLog && rows && rows.length === 0 ? (
+                                  <p className="admin-user-empty admin-token-user-log-empty">
+                                    Keine Anfragen am {selectedDay} (UTC).
+                                  </p>
+                                ) : null}
+                                {!isLoadingLog && rows && rows.length > 0 ? (
+                                  <div className="admin-token-table-scroll">
+                                    <table
+                                      className="admin-token-usage-table admin-token-log-detail-table"
+                                      aria-label={`Anfragen für ${formatLastAiPerson(userRow)} am ${selectedDay}`}
+                                    >
+                                      <thead>
+                                        <tr>
+                                          <th scope="col">Erstellt (UTC)</th>
+                                          <th scope="col">Modus</th>
+                                          <th scope="col">Provider</th>
+                                          <th scope="col">Modell</th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Brutto In
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Cache
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Netto In
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Output
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Σ Tokens
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Kosten
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {rows.map((r) => {
+                                          const lineSum = r.input_tokens + r.output_tokens
+                                          return (
+                                            <tr key={r.id}>
+                                              <td>
+                                                <time dateTime={r.created_at}>
+                                                  {formatAiTokenUsageCreatedAt(r.created_at)}
+                                                </time>
+                                              </td>
+                                              <td>
+                                                <code className="admin-token-model">{r.mode}</code>
+                                              </td>
+                                              <td>{r.provider}</td>
+                                              <td>
+                                                <code className="admin-token-model">{r.model}</code>
+                                              </td>
+                                              <td className="admin-token-usage-num">
+                                                {formatTokenInt(r.gross_input_tokens)}
+                                              </td>
+                                              <td className="admin-token-usage-num">
+                                                {formatTokenInt(r.cached_input_tokens)}
+                                              </td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(r.input_tokens)}</td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(r.output_tokens)}</td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(lineSum)}</td>
+                                              <td className="admin-token-usage-num">
+                                                {formatUsdEstimate(r.estimated_cost_usd, true)}
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : null}
                               </details>
                             )
                           })}
@@ -2746,22 +2861,16 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         <p className="admin-subscriptions-meta">
                           {formatSubscriptionPlanSmartInstantSummary(plan)}
                           <br />
-                          Bilder:{' '}
-                          {plan.max_images != null
-                            ? `Start ${plan.image_start_balance ?? 0}, +${plan.max_images}/Tag, max. ${plan.image_credit_max ?? 60}`
-                            : 'unbegrenzt'}{' '}
-                          · Dateien:{' '}
+                          {formatSubscriptionPlanImageCreditsSummary(plan)}
+                          {' · '}Dateien:{' '}
                           {plan.max_files ?? 'unbegrenzt'}
+                          <br />
+                          {formatSubscriptionPlanWebSearchSummary(plan)}
                           <br />
                           Chat-Kontext (Verlauf):{' '}
                           {typeof plan.chat_context_max_tokens === 'number'
                             ? `max. ca. ${plan.chat_context_max_tokens.toLocaleString('de-DE')} Tokens`
                             : 'unbegrenzt'}
-                          <br />
-                          Websuche:{' '}
-                          {typeof plan.web_search_daily_grant === 'number'
-                            ? `+${plan.web_search_daily_grant}/Tag (Guthaben max. 50)`
-                            : 'keine tägliche Aufladung'}
                           <br />
                           Thinking: Start Guthaben {plan.thinking_start_balance ?? 0}, Tokens/Tag{' '}
                           {plan.thinking_daily_grant ?? 0}, Guthaben-Limit {plan.thinking_credit_max ?? 10}
@@ -2770,6 +2879,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                           {labelForSubscriptionImageGenerationModel(
                             parseSubscriptionImageGenerationModelId(plan.image_generation_model),
                           )}
+                          <br />
+                          Custom-Modus: {plan.chat_allow_custom_mode === true ? 'erlaubt' : 'nicht erlaubt'}
                         </p>
                       </div>
                       <div className="admin-subscriptions-row-actions">
@@ -2794,6 +2905,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 typeof plan.web_search_daily_grant === 'number'
                                   ? String(plan.web_search_daily_grant)
                                   : '',
+                              webSearchStartBalance:
+                                typeof plan.web_search_start_balance === 'number'
+                                  ? String(plan.web_search_start_balance)
+                                  : '0',
+                              webSearchCreditMax:
+                                typeof plan.web_search_credit_max === 'number'
+                                  ? String(plan.web_search_credit_max)
+                                  : String(DEFAULT_WEB_SEARCH_CREDIT_MAX),
                               imageStartBalance:
                                 typeof plan.image_start_balance === 'number'
                                   ? String(plan.image_start_balance)
@@ -2822,6 +2941,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                                 typeof plan.instant_token_balance_max === 'number'
                                   ? String(plan.instant_token_balance_max)
                                   : String(MAX_TOKEN_BALANCE),
+                              chatAllowCustomMode: plan.chat_allow_custom_mode === true,
                             })
                           }}
                         >
@@ -3429,199 +3549,320 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   void handleCreateSubscriptionPlan()
                 }}
               >
-                <div className="subscription-plan-modal-columns">
-                  <div className="subscription-plan-modal-col">
-                    <label htmlFor="admin-new-subscription-name">Name</label>
-                    <input
-                      id="admin-new-subscription-name"
-                      type="text"
-                      placeholder="z. B. Premium"
-                      value={newPlanName}
-                      maxLength={120}
-                      onChange={(event) => setNewPlanName(event.target.value)}
-                    />
+                <div className="subscription-plan-form-sections">
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-general"
+                  >
+                    <h4 id="admin-new-plan-section-general" className="subscription-plan-form-section-title">
+                      Allgemein
+                    </h4>
+                    <div className="subscription-plan-form-field">
+                      <label htmlFor="admin-new-subscription-name">Name</label>
+                      <input
+                        id="admin-new-subscription-name"
+                        type="text"
+                        placeholder="z. B. Premium"
+                        value={newPlanName}
+                        maxLength={120}
+                        onChange={(event) => setNewPlanName(event.target.value)}
+                      />
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-new-subscription-max-tokens">Smart Instant: Max. Tokens pro Tag</label>
-                    <input
-                      id="admin-new-subscription-max-tokens"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={newPlanMaxTokens}
-                      onChange={(event) => setNewPlanMaxTokens(event.target.value)}
-                    />
-                    <p className="admin-users-hint">
-                      Verfügbar pro UTC-Tag: Guthaben + dieser Wert. Ungenutzte Tokens des Tages werden ins
-                      Guthaben übernommen (gecappt mit Guthaben-Limit).
-                    </p>
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-new-instant-token-start">Smart Instant: Start-Guthaben</label>
-                    <input
-                      id="admin-new-instant-token-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10_000_000}
-                      step={1}
-                      value={newPlanInstantTokenStartBalance}
-                      onChange={(event) => setNewPlanInstantTokenStartBalance(event.target.value)}
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-instant"
+                  >
+                    <h4 id="admin-new-plan-section-instant" className="subscription-plan-form-section-title">
+                      Smart Instant
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-tokens">Max. Tokens pro Tag</label>
+                        <input
+                          id="admin-new-subscription-max-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanMaxTokens}
+                          onChange={(event) => setNewPlanMaxTokens(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-instant-token-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-instant-token-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={newPlanInstantTokenStartBalance}
+                          onChange={(event) => setNewPlanInstantTokenStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-instant-token-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-new-instant-token-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={newPlanInstantTokenBalanceMax}
+                          onChange={(event) => setNewPlanInstantTokenBalanceMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Verfügbar pro UTC-Tag: Guthaben + Max. Tokens pro Tag. Ungenutzte Tokens des Tages werden ins
+                        Guthaben übernommen (gecappt mit Guthaben-Limit).
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-new-instant-token-max">Smart Instant: Guthaben-Limit</label>
-                    <input
-                      id="admin-new-instant-token-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10_000_000}
-                      step={1}
-                      value={newPlanInstantTokenBalanceMax}
-                      onChange={(event) => setNewPlanInstantTokenBalanceMax(event.target.value)}
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-new-subscription-max-images">Bilder: Aufladung pro Tag (+/Tag)</label>
-                    <input
-                      id="admin-new-subscription-max-images"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={newPlanMaxImages}
-                      onChange={(event) => setNewPlanMaxImages(event.target.value)}
-                    />
-                    <p className="admin-users-hint">
-                      Wird täglich (UTC) zum Bild-Guthaben addiert (Feld max_images).
-                    </p>
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-images"
+                  >
+                    <h4 id="admin-new-plan-section-images" className="subscription-plan-form-section-title">
+                      KI-Bildgenerierung
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-images">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-new-subscription-max-images"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanMaxImages}
+                          onChange={(event) => setNewPlanMaxImages(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-subscription-image-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanImageStartBalance}
+                          onChange={(event) => setNewPlanImageStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-new-subscription-image-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanImageCreditMax}
+                          onChange={(event) => setNewPlanImageCreditMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">{ADMIN_IMAGE_CREDITS_HINT}</p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-new-subscription-image-start">Bilder: Start-Guthaben</label>
-                    <input
-                      id="admin-new-subscription-image-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={newPlanImageStartBalance}
-                      onChange={(event) => setNewPlanImageStartBalance(event.target.value)}
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-new-subscription-image-max">Bilder: max. Guthaben (Deckel)</label>
-                    <input
-                      id="admin-new-subscription-image-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={newPlanImageCreditMax}
-                      onChange={(event) => setNewPlanImageCreditMax(event.target.value)}
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-thinking"
+                  >
+                    <h4 id="admin-new-plan-section-thinking" className="subscription-plan-form-section-title">
+                      Thinking
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-thinking-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-subscription-thinking-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanThinkingStartBalance}
+                          onChange={(event) => setNewPlanThinkingStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-thinking-daily">Tokens Limit pro Tag</label>
+                        <input
+                          id="admin-new-subscription-thinking-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanThinkingDailyGrant}
+                          onChange={(event) => setNewPlanThinkingDailyGrant(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-thinking-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-new-subscription-thinking-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanThinkingCreditMax}
+                          onChange={(event) => setNewPlanThinkingCreditMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Täglich (UTC) wird Tokens Limit pro Tag zum Guthaben addiert (Deckel: Guthaben-Limit). Ein
+                        Thinking-Senden verbraucht 1 Guthaben. Start-Guthaben bei Abo-Zuweisung.
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-new-subscription-thinking-start">Thinking Start Guthaben</label>
-                    <input
-                      id="admin-new-subscription-thinking-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={newPlanThinkingStartBalance}
-                      onChange={(event) => setNewPlanThinkingStartBalance(event.target.value)}
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-new-subscription-thinking-daily">Thinking Tokens Limit pro Tag</label>
-                    <input
-                      id="admin-new-subscription-thinking-daily"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={newPlanThinkingDailyGrant}
-                      onChange={(event) => setNewPlanThinkingDailyGrant(event.target.value)}
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-web-search"
+                  >
+                    <h4 id="admin-new-plan-section-web-search" className="subscription-plan-form-section-title">
+                      Websuche
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-daily">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-new-subscription-web-search-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          placeholder="leer = keine Aufladung"
+                          value={newPlanWebSearchDailyGrant}
+                          onChange={(event) => setNewPlanWebSearchDailyGrant(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-subscription-web-search-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanWebSearchStartBalance}
+                          onChange={(event) => setNewPlanWebSearchStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-new-subscription-web-search-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanWebSearchCreditMax}
+                          onChange={(event) => setNewPlanWebSearchCreditMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        {ADMIN_WEB_SEARCH_HINT}
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-new-subscription-thinking-max">Thinking Guthaben Limit</label>
-                    <input
-                      id="admin-new-subscription-thinking-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={newPlanThinkingCreditMax}
-                      onChange={(event) => setNewPlanThinkingCreditMax(event.target.value)}
-                    />
-                    <p className="admin-users-hint">
-                      Täglich (UTC) wird Tokens Limit pro Tag zum Guthaben addiert (Deckel: Guthaben Limit). Ein
-                      Thinking-Senden verbraucht 1 Guthaben. Start Guthaben bei Abo-Zuweisung.
-                    </p>
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
-                    <select
-                      id="admin-new-subscription-image-gen-model"
-                      className="admin-user-subscription-select"
-                      value={newPlanImageGenerationModel}
-                      onChange={(event) =>
-                        setNewPlanImageGenerationModel(event.target.value as SubscriptionImageGenerationModelId)
-                      }
-                    >
-                      {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label htmlFor="admin-new-subscription-max-files">Max Dateien</label>
-                    <input
-                      id="admin-new-subscription-max-files"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={newPlanMaxFiles}
-                      onChange={(event) => setNewPlanMaxFiles(event.target.value)}
-                    />
-
-                    <label htmlFor="admin-new-subscription-web-search-daily">Websuche pro Tag (Aufladung)</label>
-                    <input
-                      id="admin-new-subscription-web-search-daily"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={50}
-                      step={1}
-                      placeholder="leer = keine Aufladung — max. 50 Kontostand"
-                      value={newPlanWebSearchDailyGrant}
-                      onChange={(event) => setNewPlanWebSearchDailyGrant(event.target.value)}
-                    />
-                    <p className="admin-users-hint">
-                      Täglich (UTC) zum Websuche-Guthaben dazu; höchstens 50 gespeicherte Websuchen gleichzeitig.
-                    </p>
-
-                    <label htmlFor="admin-new-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
-                    <input
-                      id="admin-new-subscription-chat-context-tokens"
-                      type="number"
-                      inputMode="numeric"
-                      min={1000}
-                      max={5_000_000}
-                      step={1}
-                      placeholder={`Standard ${DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS.toLocaleString('de-DE')} — leer = unbegrenzt`}
-                      value={newPlanChatContextMaxTokens}
-                      onChange={(event) => setNewPlanChatContextMaxTokens(event.target.value)}
-                    />
-                    <p className="admin-users-hint">
-                      Geschätzte Input-Tokens für den mitgesendeten Chat-Verlauf (ca. Zeichen ÷ 4), ohne Systemprompt.
-                    </p>
-                  </div>
-
-                  <div className="subscription-plan-modal-col" />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-limits"
+                  >
+                    <h4 id="admin-new-plan-section-limits" className="subscription-plan-form-section-title">
+                      Weitere Limits
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
+                        <select
+                          id="admin-new-subscription-image-gen-model"
+                          className="admin-user-subscription-select"
+                          value={newPlanImageGenerationModel}
+                          onChange={(event) =>
+                            setNewPlanImageGenerationModel(
+                              event.target.value as SubscriptionImageGenerationModelId,
+                            )
+                          }
+                        >
+                          {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-files">Max. Dateien</label>
+                        <input
+                          id="admin-new-subscription-max-files"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanMaxFiles}
+                          onChange={(event) => setNewPlanMaxFiles(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                        <input
+                          id="admin-new-subscription-chat-context-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={1000}
+                          max={5_000_000}
+                          step={1}
+                          placeholder={`Standard ${DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS.toLocaleString('de-DE')} — leer = unbegrenzt`}
+                          value={newPlanChatContextMaxTokens}
+                          onChange={(event) => setNewPlanChatContextMaxTokens(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Chat-Kontext: geschätzte Input-Tokens für den mitgesendeten Verlauf (ca. Zeichen ÷ 4), ohne
+                        Systemprompt.
+                      </p>
+                      <div className="subscription-plan-form-field subscription-plan-form-field-full">
+                        <label className="admin-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={newPlanChatAllowCustomMode}
+                            onChange={(event) => setNewPlanChatAllowCustomMode(event.target.checked)}
+                          />
+                          Custom-Modus im Chat erlauben (Modellwahl + Intent Analyze)
+                        </label>
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
                 <div className="rename-actions subscription-plan-modal-actions">
@@ -3676,248 +3917,380 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   void handleUpdateSubscriptionPlan()
                 }}
               >
-                <div className="subscription-plan-modal-columns">
-                  <div className="subscription-plan-modal-col">
-                    <label htmlFor="admin-edit-subscription-name">Name</label>
-                    <input
-                      id="admin-edit-subscription-name"
-                      type="text"
-                      value={editPlanDraft.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
-                      }
-                    />
+                <div className="subscription-plan-form-sections">
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-general"
+                  >
+                    <h4 id="admin-edit-plan-section-general" className="subscription-plan-form-section-title">
+                      Allgemein
+                    </h4>
+                    <div className="subscription-plan-form-field">
+                      <label htmlFor="admin-edit-subscription-name">Name</label>
+                      <input
+                        id="admin-edit-subscription-name"
+                        type="text"
+                        value={editPlanDraft.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
+                        }
+                      />
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-edit-subscription-max-tokens">Smart Instant: Max. Tokens pro Tag</label>
-                    <input
-                      id="admin-edit-subscription-max-tokens"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={editPlanDraft.maxTokens}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
-                      }
-                    />
-                    <p className="admin-users-hint">
-                      Verfügbar pro UTC-Tag: Guthaben + dieser Wert. Rest des Tages → Guthaben (Limit siehe unten).
-                    </p>
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-edit-instant-token-start">Smart Instant: Start-Guthaben</label>
-                    <input
-                      id="admin-edit-instant-token-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10_000_000}
-                      step={1}
-                      value={editPlanDraft.instantTokenStartBalance}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, instantTokenStartBalance: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-instant"
+                  >
+                    <h4 id="admin-edit-plan-section-instant" className="subscription-plan-form-section-title">
+                      Smart Instant
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-tokens">Max. Tokens pro Tag</label>
+                        <input
+                          id="admin-edit-subscription-max-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.maxTokens}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, maxTokens: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-instant-token-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-instant-token-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={editPlanDraft.instantTokenStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, instantTokenStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-instant-token-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-edit-instant-token-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={editPlanDraft.instantTokenBalanceMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, instantTokenBalanceMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Verfügbar pro UTC-Tag: Guthaben + Max. Tokens pro Tag. Rest des Tages → Guthaben (Limit siehe
+                        oben).
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-edit-instant-token-max">Smart Instant: Guthaben-Limit</label>
-                    <input
-                      id="admin-edit-instant-token-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10_000_000}
-                      step={1}
-                      value={editPlanDraft.instantTokenBalanceMax}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, instantTokenBalanceMax: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-edit-subscription-max-images">Bilder: Aufladung pro Tag (+/Tag)</label>
-                    <input
-                      id="admin-edit-subscription-max-images"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={editPlanDraft.maxImages}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
-                      }
-                    />
-                    <p className="admin-users-hint">
-                      Wird täglich (UTC) zum Bild-Guthaben addiert (Feld max_images).
-                    </p>
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-images"
+                  >
+                    <h4 id="admin-edit-plan-section-images" className="subscription-plan-form-section-title">
+                      KI-Bildgenerierung
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-images">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-edit-subscription-max-images"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.maxImages}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-image-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.imageStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, imageStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-image-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.imageCreditMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, imageCreditMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">{ADMIN_IMAGE_CREDITS_HINT}</p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-edit-subscription-image-start">Bilder: Start-Guthaben</label>
-                    <input
-                      id="admin-edit-subscription-image-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={editPlanDraft.imageStartBalance}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, imageStartBalance: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-edit-subscription-image-max">Bilder: max. Guthaben (Deckel)</label>
-                    <input
-                      id="admin-edit-subscription-image-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={editPlanDraft.imageCreditMax}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, imageCreditMax: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-thinking"
+                  >
+                    <h4 id="admin-edit-plan-section-thinking" className="subscription-plan-form-section-title">
+                      Thinking
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-thinking-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-thinking-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.thinkingStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, thinkingStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-thinking-daily">Tokens Limit pro Tag</label>
+                        <input
+                          id="admin-edit-subscription-thinking-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.thinkingDailyGrant}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, thinkingDailyGrant: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-thinking-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-edit-subscription-thinking-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.thinkingCreditMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, thinkingCreditMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Täglich (UTC) Tokens Limit pro Tag → Guthaben (max. Guthaben-Limit). Ein Thinking-Senden = 1
+                        Guthaben. Start-Guthaben bei neuer Abo-Zuweisung.
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-edit-subscription-thinking-start">Thinking Start Guthaben</label>
-                    <input
-                      id="admin-edit-subscription-thinking-start"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={editPlanDraft.thinkingStartBalance}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, thinkingStartBalance: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-edit-subscription-thinking-daily">Thinking Tokens Limit pro Tag</label>
-                    <input
-                      id="admin-edit-subscription-thinking-daily"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={editPlanDraft.thinkingDailyGrant}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, thinkingDailyGrant: event.target.value } : null,
-                        )
-                      }
-                    />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-web-search"
+                  >
+                    <h4 id="admin-edit-plan-section-web-search" className="subscription-plan-form-section-title">
+                      Websuche
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-daily">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-edit-subscription-web-search-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          placeholder="leer = keine Aufladung"
+                          value={editPlanDraft.webSearchDailyGrant}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchDailyGrant: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-web-search-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.webSearchStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-web-search-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.webSearchCreditMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchCreditMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        {ADMIN_WEB_SEARCH_HINT}
+                      </p>
+                    </div>
+                  </section>
 
-                    <label htmlFor="admin-edit-subscription-thinking-max">Thinking Guthaben Limit</label>
-                    <input
-                      id="admin-edit-subscription-thinking-max"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10000}
-                      step={1}
-                      value={editPlanDraft.thinkingCreditMax}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, thinkingCreditMax: event.target.value } : null,
-                        )
-                      }
-                    />
-                    <p className="admin-users-hint">
-                      Täglich (UTC) Tokens Limit pro Tag → Guthaben (max. Guthaben Limit). Ein Thinking-Senden = 1
-                      Guthaben. Start Guthaben bei neuer Abo-Zuweisung.
-                    </p>
+                  <hr className="subscription-plan-form-divider" />
 
-                    <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
-                    <select
-                      id="admin-edit-subscription-image-gen-model"
-                      className="admin-user-subscription-select"
-                      value={editPlanDraft.imageGenerationModel}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
-                              }
-                            : null,
-                        )
-                      }
-                    >
-                      {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label htmlFor="admin-edit-subscription-max-files">Max Dateien</label>
-                    <input
-                      id="admin-edit-subscription-max-files"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={1}
-                      placeholder="leer = unbegrenzt"
-                      value={editPlanDraft.maxFiles}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
-                      }
-                    />
-
-                    <label htmlFor="admin-edit-subscription-web-search-daily">Websuche pro Tag (Aufladung)</label>
-                    <input
-                      id="admin-edit-subscription-web-search-daily"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={50}
-                      step={1}
-                      placeholder="leer = keine Aufladung — max. 50 Kontostand"
-                      value={editPlanDraft.webSearchDailyGrant}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, webSearchDailyGrant: event.target.value } : null,
-                        )
-                      }
-                    />
-                    <p className="admin-users-hint">
-                      Täglich (UTC) zum Websuche-Guthaben dazu; höchstens 50 gespeicherte Websuchen gleichzeitig.
-                    </p>
-
-                    <label htmlFor="admin-edit-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
-                    <input
-                      id="admin-edit-subscription-chat-context-tokens"
-                      type="number"
-                      inputMode="numeric"
-                      min={1000}
-                      max={5_000_000}
-                      step={1}
-                      placeholder="leer = unbegrenzter Verlauf"
-                      value={editPlanDraft.chatContextMaxTokens}
-                      onChange={(event) =>
-                        setEditPlanDraft((prev) =>
-                          prev ? { ...prev, chatContextMaxTokens: event.target.value } : null,
-                        )
-                      }
-                    />
-                    <p className="admin-users-hint">
-                      Geschätzte Input-Tokens für den mitgesendeten Chat-Verlauf (ca. Zeichen ÷ 4), ohne Systemprompt.
-                    </p>
-                  </div>
-
-                  <div className="subscription-plan-modal-col" />
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-limits"
+                  >
+                    <h4 id="admin-edit-plan-section-limits" className="subscription-plan-form-section-title">
+                      Weitere Limits
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
+                        <select
+                          id="admin-edit-subscription-image-gen-model"
+                          className="admin-user-subscription-select"
+                          value={editPlanDraft.imageGenerationModel}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
+                                  }
+                                : null,
+                            )
+                          }
+                        >
+                          {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-files">Max. Dateien</label>
+                        <input
+                          id="admin-edit-subscription-max-files"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.maxFiles}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                        <input
+                          id="admin-edit-subscription-chat-context-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={1000}
+                          max={5_000_000}
+                          step={1}
+                          placeholder="leer = unbegrenzter Verlauf"
+                          value={editPlanDraft.chatContextMaxTokens}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, chatContextMaxTokens: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Chat-Kontext: geschätzte Input-Tokens für den mitgesendeten Verlauf (ca. Zeichen ÷ 4), ohne
+                        Systemprompt.
+                      </p>
+                      <div className="subscription-plan-form-field subscription-plan-form-field-full">
+                        <label className="admin-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={editPlanDraft.chatAllowCustomMode}
+                            onChange={(event) =>
+                              setEditPlanDraft((prev) =>
+                                prev ? { ...prev, chatAllowCustomMode: event.target.checked } : null,
+                              )
+                            }
+                          />
+                          Custom-Modus im Chat erlauben (Modellwahl + Intent Analyze)
+                        </label>
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
                 <div className="rename-actions subscription-plan-modal-actions">

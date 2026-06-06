@@ -4,6 +4,7 @@ type ModalHeaderProps = {
   closeLabel: string
   headingLevel?: 'h1' | 'h2' | 'h3' | 'h4'
   className?: string
+  titleIcon?: string
   /** Mobil: Zurück-Button links (vor dem Titel) */
   onBack?: () => void
   backLabel?: string
@@ -17,6 +18,7 @@ export function ModalHeader({
   closeLabel,
   headingLevel = 'h2',
   className,
+  titleIcon,
   onBack,
   backLabel,
   showCloseButton = true,
@@ -33,7 +35,14 @@ export function ModalHeader({
           <span className="ui-icon settings-back-icon" aria-hidden="true" />
         </button>
       ) : null}
-      <HeadingTag className="settings-title-row-heading">{title}</HeadingTag>
+      <HeadingTag
+        className={`settings-title-row-heading${titleIcon ? ' settings-title-row-heading--with-icon' : ''}`}
+      >
+        {titleIcon ? (
+          <img className="ui-icon settings-title-row-icon" src={titleIcon} alt="" aria-hidden="true" />
+        ) : null}
+        <span className="settings-title-row-heading-text">{title}</span>
+      </HeadingTag>
       {showCloseButton ? (
         <button type="button" className="settings-close-button" onClick={onClose} aria-label={closeLabel}>
           <span className="ui-icon settings-close-icon" aria-hidden="true" />

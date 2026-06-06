@@ -30,6 +30,7 @@ import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
 import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
 import { copyTextToClipboard } from '../../../utils/copyTextToClipboard'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import type { AccountSubscriptionDisplay } from '../../settings/utils/accountSubscriptionDisplay'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
 import { QuizFormatChoiceModal } from './QuizFormatChoiceModal'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
@@ -40,7 +41,6 @@ import { useChatComposer } from '../hooks/useChatComposer'
 import { useChatComposerSectionReply } from '../hooks/useChatComposerSectionReply'
 import { useChatImageLightbox } from '../hooks/useChatImageLightbox'
 import { ChatComposerForm } from './chat-window/ChatComposerForm'
-import { ChatComposerQuickTiles } from './chat-window/ChatComposerQuickTiles'
 import { ChatComposerThinkingCreditsHint } from './chat-window/ChatComposerThinkingCreditsHint'
 import { ChatImageLightbox } from './chat-window/ChatImageLightbox'
 
@@ -67,6 +67,8 @@ type ChatWindowProps = {
   showComposerModelPicker?: boolean
   chatReplyMode: ChatReplyMode
   onChatReplyModeChange: (mode: ChatReplyMode) => void
+  /** Abo: Custom-Modus im Bearbeitungsmodus-Picker. */
+  allowCustomChatMode?: boolean
   chatThinkingMode: ChatThinkingMode
   onChatThinkingModeChange: (mode: ChatThinkingMode) => void
   /** Auf schmalen Viewports sitzt der Comfort/Strict-Schalter in der Oberleiste (`ChatToolbarReplyModeSelect`). */
@@ -99,6 +101,8 @@ type ChatWindowProps = {
   excelFinalizeBusy?: boolean
   /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
   mainChatContextMaxTokens?: number | null
+  /** Live Abo-Verbrauch — Karten in Assistentenantworten. */
+  subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
 }
 
 export function ChatWindow({
@@ -118,6 +122,7 @@ export function ChatWindow({
   chatReplyMode,
   onChatReplyModeChange,
   chatThinkingMode,
+  allowCustomChatMode = false,
   onChatThinkingModeChange,
   showReplyModePicker = true,
   thinkingClarifyDialog = null,
@@ -137,6 +142,7 @@ export function ChatWindow({
   onFinalizeExcelDocument,
   excelFinalizeBusy = false,
   mainChatContextMaxTokens = null,
+  subscriptionUsageDisplay = null,
 }: ChatWindowProps) {
   const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
   const messageListModel = useChatMessageList({
@@ -380,27 +386,6 @@ export function ChatWindow({
       />
     ) : null
 
-  const quickTilesEl = tokenLimitReached ? null : (
-    <ChatComposerQuickTiles
-      isMobileComposer={composer.isMobileComposer}
-      imageGenCommandSelected={composer.imageGenCommandSelected}
-      excelCommandSelected={composer.excelCommandSelected}
-      wordCommandSelected={composer.wordCommandSelected}
-      pdfCommandSelected={composer.pdfCommandSelected}
-      chartCommandSelected={composer.chartCommandSelected}
-      onSelectImage={composer.handleSelectImageQuickTile}
-      onSelectExcel={composer.handleSelectExcelQuickTile}
-      onSelectWord={composer.handleSelectWordQuickTile}
-      onSelectPdf={composer.handleSelectPdfQuickTile}
-      onSelectChart={composer.handleSelectChartQuickTile}
-      onClearImageGen={() => composer.setImageGenCommandSelected(false)}
-      onClearExcel={() => composer.setExcelCommandSelected(false)}
-      onClearWord={() => composer.setWordCommandSelected(false)}
-      onClearPdf={() => composer.setPdfCommandSelected(false)}
-      onClearChart={() => composer.setChartCommandSelected(false)}
-    />
-  )
-
   const thinkingCreditsHintEl = (
     <ChatComposerThinkingCreditsHint
       chatThinkingMode={chatThinkingMode}
@@ -416,7 +401,7 @@ export function ChatWindow({
     <ChatComposerAttachMenu
       className={composer.attachButtonClassName}
       disabled={composer.attachControlDisabled}
-      ariaLabel={composer.isMobileComposer ? 'Einfügen: Bilder, Excel oder Datei' : 'Anhang-Menü öffnen'}
+      ariaLabel={composer.isMobileComposer ? 'Anhang hinzufügen' : 'Anhang-Menü öffnen'}
       isMobile={composer.isMobileComposer}
       onMobileOpen={composer.openMobileAttachSheet}
       onUploadFile={() => composer.openDocumentFilePicker()}
@@ -431,32 +416,8 @@ export function ChatWindow({
       open={composer.attachComposerSheetOpen}
       onClose={() => composer.setAttachComposerSheetOpen(false)}
       title="Einfügen"
-      ariaLabel="Word, PDF, Excel, Foto oder Datei wählen"
+      ariaLabel="Foto oder Datei anhängen"
       actions={[
-        {
-          id: 'word',
-          label: 'Word',
-          actionClassName: 'action-bottom-sheet-action--compose-word',
-          onClick: () => {
-            composer.handleSelectWordQuickTile()
-          },
-        },
-        {
-          id: 'pdf',
-          label: 'PDF',
-          actionClassName: 'action-bottom-sheet-action--compose-pdf',
-          onClick: () => {
-            composer.handleSelectPdfQuickTile()
-          },
-        },
-        {
-          id: 'excel',
-          label: 'Excel',
-          actionClassName: 'action-bottom-sheet-action--compose-excel',
-          onClick: () => {
-            composer.handleSelectExcelQuickTile()
-          },
-        },
         {
           id: 'foto',
           label: 'Foto anhängen',
@@ -464,14 +425,6 @@ export function ChatWindow({
           onClick: () => {
             composer.setAttachComposerSheetOpen(false)
             composer.openImageFilePicker()
-          },
-        },
-        {
-          id: 'bilder',
-          label: 'Bild generieren',
-          actionClassName: 'action-bottom-sheet-action--compose-bilder',
-          onClick: () => {
-            composer.handleSelectImageQuickTile()
           },
         },
         {
@@ -521,6 +474,7 @@ export function ChatWindow({
           value={chatThinkingMode}
           onChange={onChatThinkingModeChange}
           disabled={isSending || tokenLimitReached}
+          allowCustomMode={allowCustomChatMode}
         />
       ) : null}
     </>
@@ -551,7 +505,6 @@ export function ChatWindow({
           {error ? <p className="error-text">{error}</p> : null}
           {quizFormatOverlay}
           {thinkingClarifyOverlay}
-          {quickTilesEl}
           {thinkingCreditsHintEl}
           {showInstantAnalyzeDebug && liveInstantAnalyzeDebug ? (
             <div className="chat-empty-instant-debug">
@@ -629,13 +582,13 @@ export function ChatWindow({
         onFinalizeExcelDocument={onFinalizeExcelDocument}
         excelFinalizeBusy={excelFinalizeBusy}
         onCopyUserMessage={handleCopyUserMessageText}
+        subscriptionUsageDisplay={subscriptionUsageDisplay}
       />
       {error ? <p className="error-text">{error}</p> : null}
 
       <div className="chat-composer-stack">
         {quizFormatOverlay}
         {thinkingClarifyOverlay}
-        {composer.isMobileComposer ? quickTilesEl : null}
         {composer.isMobileComposer ? thinkingCreditsHintEl : null}
         {showInstantAnalyzeDebug && liveInstantAnalyzeDebug && isSending ? (
           <div className="chat-composer-instant-debug">

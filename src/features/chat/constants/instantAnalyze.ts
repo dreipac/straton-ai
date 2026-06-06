@@ -20,7 +20,10 @@ import {
 } from './chatDirectAnswerInstruction'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
 import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
-import { buildInstantAnalyzeDocumentExportBriefing } from './documentExportIntent'
+import {
+  buildDocumentExportSummaryTurnBriefing,
+  buildInstantAnalyzeDocumentExportBriefing,
+} from './documentExportIntent'
 import {
   applyRouteHeuristics,
   buildInstantAnalyzeRoutePromptSection,
@@ -44,6 +47,10 @@ import {
   shouldResolveReferencedImageVision,
   userMessageHasUploadedImage,
 } from '../utils/referencedImageVision'
+import {
+  userMessageAsksAboutPriorSubscriptionUsage,
+  userMessageRequestsSubscriptionUsage,
+} from './chatSubscriptionUsageMarker'
 
 export type { InstantAnalyzeAction, InstantAnalyzeCategory } from './instantAnalyzeRoute'
 export type { InstantChatTaskType, InstantExplanationDepth } from './chatInstantTaskType'
@@ -127,12 +134,13 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
     '- Verlauf mit «[Straton hat zuvor ein Bild generiert]» oder Assistenten-Bild: Nutzer bezieht sich darauf («wer/was ist das auf dem Bild», «was siehst du», «dein Bild») → category "image", action "reference" (nicht generate).',
     '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
-    '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — keine ask_only-Fragenliste.',
+    '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — Name aus Konto, Persönliches aus Einführung.',
+    '- Verbrauch, Limits, Guthaben, Abo, «was kann ich noch nutzen», «wie viel habe ich verbraucht», «sind die Verbrauchsdaten aktuell»: category "chat", action "answer", reply_mode "short_answer", clarity "clear" — Kurzantwort + Marker [[STRATON_SUBSCRIPTION_USAGE]] (App zeigt Karten); needs_live_web **false** (Daten aus Straton-Konto, keine Websuche).',
     '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
     '- Nutzer postet Multiple-Choice / Auswahlfrage mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → reply_mode "short_answer", action "short_answer", clarity "clear" — **nicht** normal mit Erklärblock.',
     '- Kurze Folge «bitte die richtige Antwort» / «correct answer only» nach MC-Frage im Verlauf → reply_mode "short_answer".',
-    '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste».',
-    '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit.',
+    '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste», sowie **Straton-Verbrauch/Limits/Guthaben** auch bei «aktuell/derzeit/momentan».',
+    '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit — **nicht** bei Straton-Konto-Verbrauch.',
     '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
     '- Beispiel: «aktueller Kurs von Sherritt (S.TO)» → needs_live_web true, web_query «Sherritt S.TO Aktienkurs heute».',
     '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
@@ -260,6 +268,9 @@ export function detectLiveWebHeuristic(userMessage: string): {
 } {
   const trimmed = userMessage.trim()
   if (!trimmed) {
+    return { needs: false, webQuery: '', hasLegalCue: false, hasMarketCue: false }
+  }
+  if (userMessageRequestsSubscriptionUsage(trimmed)) {
     return { needs: false, webQuery: '', hasLegalCue: false, hasMarketCue: false }
   }
   const lower = trimmed.toLowerCase()
@@ -475,6 +486,28 @@ export function applyIdentityQuestionHeuristic(
   })
 }
 
+/** Straton-Abo-Verbrauch — «aktuell» bezieht sich auf Konto-Daten, nicht Tavily. */
+export function applySubscriptionUsageHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
+): InstantAnalyzeResult {
+  if (!userMessageAsksAboutPriorSubscriptionUsage(userMessage, priorTurns)) {
+    return analyze
+  }
+  const route = routeFromReplyMode('short_answer')
+  return syncReplyModeWithRoute({
+    ...analyze,
+    ...route,
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    web_reason: '',
+    intent: analyze.intent.trim() || 'Straton-Abo-Verbrauch',
+  })
+}
+
 export function applyLiveWebHeuristic(
   userMessage: string,
   analyze: InstantAnalyzeResult,
@@ -544,6 +577,7 @@ export function applyInstantAnalyzeHeuristics(
   },
 ): InstantAnalyzeResult {
   let result = applyLiveWebHeuristic(userMessage, analyze)
+  result = applySubscriptionUsageHeuristic(userMessage, result, options?.priorTurns)
   result = applyIdentityQuestionHeuristic(userMessage, result)
   result = applyTableExerciseHeuristic(userMessage, result, options?.hasVisionAttachment === true)
   result = applyConversationalFollowUpHeuristic(userMessage, options?.priorTurns, result)
@@ -576,6 +610,7 @@ export function applyInstantAnalyzeHeuristics(
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment,
     priorTurns: options?.priorTurns,
   })
+  result = applySubscriptionUsageHeuristic(userMessage, result, options?.priorTurns)
   return result
 }
 
@@ -699,7 +734,16 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     lines.push(`Fehlende Infos: ${analyze.missing.join('; ')}`)
   }
 
-  lines.push(buildInstantTaskTypeTurnBriefing(analyze))
+  const isDocumentSummaryExport =
+    analyze.category === 'document' &&
+    (analyze.action === 'pdf_generate' || analyze.action === 'word_generate') &&
+    analyze.task_type === 'summary'
+
+  if (isDocumentSummaryExport) {
+    lines.push(buildDocumentExportSummaryTurnBriefing())
+  } else {
+    lines.push(buildInstantTaskTypeTurnBriefing(analyze))
+  }
 
   if (analyze.action === 'clarify' || analyze.reply_mode === 'ask_only') {
     lines.push(
@@ -742,7 +786,7 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
       analyze.action === 'excel_generate'
         ? analyze.action
         : 'word_generate'
-    lines.push(buildInstantAnalyzeDocumentExportBriefing(docAction))
+    lines.push(buildInstantAnalyzeDocumentExportBriefing(docAction, { summaryStyle: isDocumentSummaryExport }))
   }
   if (analyze.category === 'chart') {
     lines.push(buildInstantAnalyzeChartBriefing())

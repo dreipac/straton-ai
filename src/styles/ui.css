@@ -191,6 +191,17 @@ textarea.ui-textarea:disabled {
   resize: none;
 }
 
+textarea.ui-textarea.ui-textarea--auto-grow {
+  min-height: 2.85rem;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
 /*
  * Tap-Feder: kurzer Tipp = ein Durchlauf (größer → kleiner + Aufhellen).
  * Gedrückthalten (.is-tap-held) = Peak-Scale bis Loslassen.

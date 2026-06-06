@@ -62,11 +62,6 @@ export function detectExplicitQuizFormatInText(text: string): QuizFormatChoice |
 }
 
 export type QuizFormatPromptContext = {
-  wantsWord: boolean
-  wantsPdf?: boolean
-  wantsExcel: boolean
-  wantsChart?: boolean
-  wantsImageGen: boolean
   thinkingMode: boolean
 }
 
@@ -74,14 +69,7 @@ export function shouldPromptQuizFormatChoice(
   text: string,
   context: QuizFormatPromptContext,
 ): boolean {
-  if (
-    context.wantsWord ||
-    context.wantsPdf ||
-    context.wantsExcel ||
-    context.wantsChart ||
-    context.wantsImageGen ||
-    context.thinkingMode
-  ) {
+  if (context.thinkingMode) {
     return false
   }
   if (!matchQuizPracticeIntent(text)) {

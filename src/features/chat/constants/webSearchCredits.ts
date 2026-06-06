@@ -1,2 +1,2 @@
-/** Höchstes Websuche-Guthaben (entspricht DB-Check auf subscription_usages). */
-export const MAX_WEB_SEARCH_CREDIT_BALANCE = 50
+/** Fallback-Deckel Websuche-Guthaben, wenn kein Abo-Plan (DB: web_search_credit_max pro Plan). */
+export const DEFAULT_WEB_SEARCH_CREDIT_MAX = 50

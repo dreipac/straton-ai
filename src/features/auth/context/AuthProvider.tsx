@@ -22,6 +22,8 @@ import {
   updateLanguageByUserId,
   completeChatOnboardingByUserId,
   markBetaNoticeSeenByUserId,
+  updateUserIntroductionByUserId,
+  type UpdateUserIntroductionPatch,
   updateAuthEmail,
   updateProfileNamesByUserId,
   uploadProfileAvatarByUserId,
@@ -327,6 +329,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  async function updateUserIntroduction(patch: UpdateUserIntroductionPatch) {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await updateUserIntroductionByUserId(user.id, patch)
+    setProfile(nextProfile)
+  }
+
   const updateUiSettings = useCallback(async (settings: UiSettingsV1) => {
     if (!user) {
       return
@@ -357,6 +369,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     updateEmail,
     completeChatOnboarding,
     markBetaNoticeSeen,
+    updateUserIntroduction,
     updateUiSettings,
     updateAiChatMemory,
   }

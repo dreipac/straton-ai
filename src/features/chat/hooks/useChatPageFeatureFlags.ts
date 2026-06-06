@@ -64,13 +64,18 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
     user && profile && showBetaNoticeOnFirstLogin && !profile.beta_notice_seen,
   )
 
+  const tourBlockedByIntroduction = Boolean(
+    user && profile && profile.introduction_completed !== true,
+  )
+
   const chatTourEligible = Boolean(
     user &&
       profile &&
       profile.chat_onboarding_completed === false &&
       !isLoading &&
       profile.must_change_password_on_first_login !== true &&
-      !tourBlockedByBeta,
+      !tourBlockedByBeta &&
+      !tourBlockedByIntroduction,
   )
 
   return {

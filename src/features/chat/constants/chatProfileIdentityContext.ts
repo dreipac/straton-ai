@@ -66,7 +66,7 @@ export function getChatProfileIdentityInstruction(
     profileFullName
       ? `- Vollständiger Name aus dem Profil: ${profileFullName}`
       : `- Anzeigename (Fallback): ${identity.displayName}`,
-    '- Bei «Wer bin ich?», «Wie heisse ich?», «Kennst du mich?»: diesen Namen nennen, sofern vorhanden; sonst ehrlich erklären, was fehlt (leeres Profil, nur E-Mail usw.).',
+    '- Bei «Wer bin ich?», «Wie heisse ich?», «Kennst du mich?»: Namen aus Konto nennen; Persönliches (Alter, Hobbys, Beruf) aus Nutzer-Einführung, falls hinterlegt.',
     '- Namen natürlich in Du-Form nutzen — nicht in jeder Antwort erzwingen.',
     '- Nicht behaupten, persönliche Daten ausserhalb von Profil, Verlauf und KI-Speicher zu kennen.',
   ]
