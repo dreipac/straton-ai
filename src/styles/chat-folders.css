@@ -81,7 +81,7 @@
   mask-position: center;
   -webkit-mask-size: contain;
   mask-size: contain;
-  background-color: currentColor;
+  background-color: var(--color-accent, var(--accent-ring-base, #6366f1));
   opacity: 0.92;
 }
 
@@ -277,7 +277,7 @@
   mask-position: center;
   -webkit-mask-size: contain;
   mask-size: contain;
-  background-color: currentColor;
+  background-color: var(--color-accent, var(--accent-ring-base, #6366f1));
   opacity: 0.92;
 }
 
@@ -352,4 +352,84 @@
 
 .chat-main {
   position: relative;
+}
+
+.chat-folder-editor-modal .rename-form,
+.chat-folder-editor-sheet-form {
+  gap: 0.85rem;
+}
+
+.chat-folder-color-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.chat-folder-color-legend {
+  margin: 0 0 0.55rem;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-folder-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chat-folder-color-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: color-mix(in srgb, var(--color-surface-soft, #f8fafc) 82%, #fff);
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.chat-folder-color-swatch:hover {
+  transform: translateY(-1px);
+}
+
+.chat-folder-color-swatch.is-selected {
+  border-color: var(--color-accent, #6366f1);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #6366f1) 35%, transparent);
+}
+
+.chat-folder-color-swatch-icon {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  -webkit-mask-image: url('../assets/icons/folder-filled.svg');
+  mask-image: url('../assets/icons/folder-filled.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: var(--chat-folder-swatch, var(--color-accent, #6366f1));
+}
+
+.chat-folder-color-swatch--default .chat-folder-color-swatch-icon {
+  background-color: var(--color-accent, #6366f1);
+}
+
+.rename-bottom-sheet-panel--folder-editor {
+  max-height: min(78vh, 34rem);
+}
+
+:root[data-theme='dark'] .chat-folder-color-swatch {
+  background: rgba(36, 52, 71, 0.72);
+}
+
+:root[data-theme='dark'] .chat-folder-color-legend {
+  color: #94a3b8;
 }

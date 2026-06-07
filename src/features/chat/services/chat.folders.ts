@@ -1,13 +1,25 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import { isChatFolderColorId } from '../constants/chatFolderColors'
 import type { ChatFolder } from '../types'
 
 type ChatFolderRow = {
   id: string
   user_id: string
   name: string
+  color: string | null
   sort_order: number
   created_at: string
   updated_at: string
+}
+
+const FOLDER_SELECT =
+  'id, user_id, name, color, sort_order, created_at, updated_at' as const
+
+function normalizeFolderColor(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+  return isChatFolderColorId(value) ? value : null
 }
 
 type ChatThreadFolderLinkRow = {
@@ -21,6 +33,7 @@ function mapFolder(row: ChatFolderRow): ChatFolder {
     id: row.id,
     userId: row.user_id,
     name: row.name.trim(),
+    color: normalizeFolderColor(row.color),
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -31,7 +44,7 @@ export async function listChatFolders(userId: string): Promise<ChatFolder[]> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('chat_folders')
-    .select('id, user_id, name, sort_order, created_at, updated_at')
+    .select(FOLDER_SELECT)
     .eq('user_id', userId)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
@@ -61,7 +74,12 @@ export async function listChatThreadFolderLinks(userId: string): Promise<Record<
   return map
 }
 
-export async function createChatFolder(userId: string, name: string, sortOrder?: number): Promise<ChatFolder> {
+export async function createChatFolder(
+  userId: string,
+  name: string,
+  sortOrder?: number,
+  color?: string | null,
+): Promise<ChatFolder> {
   const supabase = getSupabaseClient()
   const trimmed = name.trim()
   if (!trimmed) {
@@ -73,9 +91,10 @@ export async function createChatFolder(userId: string, name: string, sortOrder?:
     .insert({
       user_id: userId,
       name: trimmed,
+      color: normalizeFolderColor(color),
       sort_order: sortOrder ?? 0,
     })
-    .select('id, user_id, name, sort_order, created_at, updated_at')
+    .select(FOLDER_SELECT)
     .single()
 
   if (error) {
@@ -85,18 +104,24 @@ export async function createChatFolder(userId: string, name: string, sortOrder?:
   return mapFolder(data as ChatFolderRow)
 }
 
-export async function renameChatFolder(folderId: string, name: string): Promise<ChatFolder> {
+export async function updateChatFolder(
+  folderId: string,
+  patch: { name: string; color?: string | null },
+): Promise<ChatFolder> {
   const supabase = getSupabaseClient()
-  const trimmed = name.trim()
+  const trimmed = patch.name.trim()
   if (!trimmed) {
     throw new Error('Ordnername darf nicht leer sein.')
   }
 
   const { data, error } = await supabase
     .from('chat_folders')
-    .update({ name: trimmed })
+    .update({
+      name: trimmed,
+      ...(patch.color !== undefined ? { color: normalizeFolderColor(patch.color) } : {}),
+    })
     .eq('id', folderId)
-    .select('id, user_id, name, sort_order, created_at, updated_at')
+    .select(FOLDER_SELECT)
     .single()
 
   if (error) {
@@ -104,6 +129,11 @@ export async function renameChatFolder(folderId: string, name: string): Promise<
   }
 
   return mapFolder(data as ChatFolderRow)
+}
+
+/** @deprecated Verwende `updateChatFolder`. */
+export async function renameChatFolder(folderId: string, name: string): Promise<ChatFolder> {
+  return updateChatFolder(folderId, { name })
 }
 
 export async function deleteChatFolder(folderId: string): Promise<void> {

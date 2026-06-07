@@ -145,6 +145,13 @@ import {
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
 import { getStratonProductContextInstruction } from '../constants/chatProductContext'
+import {
+  buildChatBackgroundNotAvailableBriefing,
+  buildStratonPlatformNavigationTurnBriefing,
+  getStratonPlatformGuideInstruction,
+  userMessageAsksChatBackgroundChange,
+  userMessageAsksStratonPlatformNavigation,
+} from '../constants/stratonPlatformGuide'
 import { getSwissGermanOrthographyInstruction } from '../constants/chatSwissOrthography'
 import {
   getSecretSafetyInstruction,
@@ -759,6 +766,25 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     !thinking &&
     lastUserMessage?.role === 'user' &&
+    userMessageAsksChatBackgroundChange(
+      stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+    )
+  ) {
+    lastUserTurnContextBlocks.push(buildChatBackgroundNotAvailableBriefing())
+  } else if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    userMessageAsksStratonPlatformNavigation(
+      stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+    )
+  ) {
+    lastUserTurnContextBlocks.push(buildStratonPlatformNavigationTurnBriefing())
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
     shouldApplyDirectAnswerTurnBriefing(
       stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
       priorTurnsForFollowUp,
@@ -872,6 +898,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     getSwissGermanOrthographyInstruction(),
     isMainChat ? getAssistantVisionCapabilityInstruction() : '',
     isMainChat ? getStratonProductContextInstruction() : '',
+    isMainChat ? getStratonPlatformGuideInstruction() : '',
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,

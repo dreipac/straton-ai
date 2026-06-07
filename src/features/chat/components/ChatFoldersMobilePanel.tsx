@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { getChatFolderIconStyle } from '../constants/chatFolderColors'
 import type { ChatFolder, ChatThread } from '../types'
 
 type ChatFoldersMobilePanelProps = {
@@ -62,7 +63,11 @@ export function ChatFoldersMobilePanel({
                   >
                     <span className="chat-folders-mobile-folder-leading">
                       <span className="chat-folders-mobile-folder-chevron" aria-hidden="true" />
-                      <span className="chat-folders-mobile-folder-icon" aria-hidden="true" />
+                      <span
+                        className="chat-folders-mobile-folder-icon"
+                        style={getChatFolderIconStyle(folder.color)}
+                        aria-hidden="true"
+                      />
                     </span>
                     <span className="chat-folders-mobile-folder-name">{folder.name}</span>
                     <span className="chat-folders-mobile-folder-count">{threads.length}</span>

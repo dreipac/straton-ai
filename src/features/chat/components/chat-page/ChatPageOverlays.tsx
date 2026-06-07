@@ -4,11 +4,13 @@ import editIcon from '../../../../assets/icons/edit.svg'
 import fileIcon from '../../../../assets/icons/file.svg'
 import folderFilledIcon from '../../../../assets/icons/folder-filled.svg'
 import logoutIcon from '../../../../assets/icons/logout.svg'
-import { PrimaryButton } from '../../../../components/ui/buttons/PrimaryButton'
 import { ActionBottomSheet } from '../../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { type ContentBottomSheetHandle } from '../../../../components/ui/bottom-sheet/ContentBottomSheet'
 import { ProfileFullSheet, type ProfileFullSheetHandle } from '../../../../components/ui/bottom-sheet/ProfileFullSheet'
 import { RenameBottomSheet, type RenameBottomSheetHandle } from '../../../../components/ui/bottom-sheet/RenameBottomSheet'
+import { ChatFolderEditorForm } from '../ChatFolderEditorForm'
+import { ChatFolderEditorBottomSheet } from '../ChatFolderEditorBottomSheet'
+import type { ChatFolderColorId } from '../../constants/chatFolderColors'
 import { ContextMenu } from '../../../../components/ui/menu/ContextMenu'
 import { MenuItem } from '../../../../components/ui/menu/MenuItem'
 import { ModalHeader } from '../../../../components/ui/modal/ModalHeader'
@@ -79,9 +81,11 @@ export type ChatPageOverlaysProps = {
   folderContextMenuPosition: { x: number; y: number } | null
   folderMoveThreadId: string | null
   isFolderMoveModalVisible: boolean
-  folderNameSheetMode: 'create' | { renameFolderId: string } | null
+  folderNameSheetMode: 'create' | { editFolderId: string } | null
   folderNameDraft: string
   setFolderNameDraft: (value: string) => void
+  folderColorDraft: ChatFolderColorId | null
+  setFolderColorDraft: (value: ChatFolderColorId | null) => void
   isFolderNameSheetOpen: boolean
   isFolderNameModalVisible: boolean
   editingThread: ChatThread | null
@@ -108,7 +112,7 @@ export type ChatPageOverlaysProps = {
   onLeaveSharedThread: (threadId: string) => void | Promise<void>
   onMoveThreadToFolder: (threadId: string, folderId: string | null) => void | Promise<void>
   onCloseFolderMove: () => void
-  onOpenRenameFolderSheet: (folder: ChatFolder) => void
+  onOpenEditFolderSheet: (folder: ChatFolder) => void
   onDeleteFolder: (folderId: string) => void | Promise<void>
   onCloseFolderName: () => void
   onFolderNameSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
@@ -172,6 +176,8 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     folderNameSheetMode,
     folderNameDraft,
     setFolderNameDraft,
+    folderColorDraft,
+    setFolderColorDraft,
     isFolderNameSheetOpen,
     isFolderNameModalVisible,
     editingThread,
@@ -198,7 +204,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     onLeaveSharedThread,
     onMoveThreadToFolder,
     onCloseFolderMove,
-    onOpenRenameFolderSheet,
+    onOpenEditFolderSheet,
     onDeleteFolder,
     onCloseFolderName,
     onFolderNameSubmit,
@@ -578,13 +584,13 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
           onClose={onCloseFolderMenu}
           actions={[
             {
-              id: 'rename-folder',
-              label: 'Umbenennen',
+              id: 'edit-folder',
+              label: 'Bearbeiten',
               iconSrc: editIcon,
               onClick: () => {
                 const folder = chatFolders.folders.find((item) => item.id === openFolderMenuId)
                 if (folder) {
-                  onOpenRenameFolderSheet(folder)
+                  onOpenEditFolderSheet(folder)
                 }
               },
             },
@@ -617,11 +623,11 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
             onClick={() => {
               const folder = chatFolders.folders.find((item) => item.id === openFolderMenuId)
               if (folder) {
-                onOpenRenameFolderSheet(folder)
+                onOpenEditFolderSheet(folder)
               }
             }}
           >
-            Umbenennen
+            Bearbeiten
           </MenuItem>
           <MenuItem
             iconSrc={deleteIcon}
@@ -638,51 +644,43 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
       ) : null}
 
       {chatFoldersFeatureEnabled && isFolderNameSheetOpen && isCompactMobileSidebarLayout ? (
-        <RenameBottomSheet
+        <ChatFolderEditorBottomSheet
           open
           onClose={onCloseFolderName}
-          heading={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
-          inputLabel="Ordnername"
-          inputId="chat-folder-name-input"
-          value={folderNameDraft}
-          onChange={setFolderNameDraft}
-          placeholder="z. B. Arbeit"
-          saveLabel={folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
+          heading={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner bearbeiten'}
+          name={folderNameDraft}
+          color={folderColorDraft}
+          onNameChange={setFolderNameDraft}
+          onColorChange={setFolderColorDraft}
+          submitLabel={folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
           onSubmit={onFolderNameSubmit}
         />
       ) : chatFoldersFeatureEnabled && isFolderNameSheetOpen ? (
         <ModalShell isOpen={isFolderNameModalVisible} onRequestClose={onCloseFolderName}>
           <section
-            className="rename-modal"
+            className="rename-modal chat-folder-editor-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
+            aria-label={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner bearbeiten'}
           >
             <ModalHeader
-              title={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner umbenennen'}
+              title={folderNameSheetMode === 'create' ? 'Neuer Ordner' : 'Ordner bearbeiten'}
               headingLevel="h3"
               className="rename-modal-header"
               onClose={onCloseFolderName}
               closeLabel={
-                folderNameSheetMode === 'create' ? 'Neuer Ordner schließen' : 'Ordner umbenennen schließen'
+                folderNameSheetMode === 'create' ? 'Neuer Ordner schließen' : 'Ordner bearbeiten schließen'
               }
             />
-            <form className="rename-form" onSubmit={onFolderNameSubmit}>
-              <label htmlFor="chat-folder-name-input">Ordnername</label>
-              <input
-                id="chat-folder-name-input"
-                type="text"
-                value={folderNameDraft}
-                onChange={(event) => setFolderNameDraft(event.target.value)}
-                placeholder="z. B. Arbeit"
-                autoFocus
-              />
-              <div className="rename-actions">
-                <PrimaryButton type="submit" disabled={!folderNameDraft.trim()}>
-                  {folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
-                </PrimaryButton>
-              </div>
-            </form>
+            <ChatFolderEditorForm
+              inputId="chat-folder-name-input"
+              name={folderNameDraft}
+              color={folderColorDraft}
+              onNameChange={setFolderNameDraft}
+              onColorChange={setFolderColorDraft}
+              onSubmit={onFolderNameSubmit}
+              submitLabel={folderNameSheetMode === 'create' ? 'Erstellen' : 'Speichern'}
+            />
           </section>
         </ModalShell>
       ) : null}

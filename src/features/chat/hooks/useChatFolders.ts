@@ -5,7 +5,7 @@ import {
   deleteChatFolder,
   listChatFolders,
   listChatThreadFolderLinks,
-  renameChatFolder,
+  updateChatFolder,
   setChatThreadFolder,
 } from '../services/chat.folders'
 
@@ -64,22 +64,25 @@ export function useChatFolders(userId: string | undefined, threads: ChatThread[]
   }, [folderIdByThreadId, folders, threads])
 
   const createFolder = useCallback(
-    async (name: string) => {
+    async (name: string, color?: string | null) => {
       if (!userId) {
         return null
       }
-      const folder = await createChatFolder(userId, name, folders.length)
+      const folder = await createChatFolder(userId, name, folders.length, color)
       setFolders((prev) => [...prev, folder])
       return folder
     },
     [folders.length, userId],
   )
 
-  const renameFolder = useCallback(async (folderId: string, name: string) => {
-    const folder = await renameChatFolder(folderId, name)
-    setFolders((prev) => prev.map((item) => (item.id === folderId ? folder : item)))
-    return folder
-  }, [])
+  const updateFolder = useCallback(
+    async (folderId: string, patch: { name: string; color?: string | null }) => {
+      const folder = await updateChatFolder(folderId, patch)
+      setFolders((prev) => prev.map((item) => (item.id === folderId ? folder : item)))
+      return folder
+    },
+    [],
+  )
 
   const removeFolder = useCallback(async (folderId: string) => {
     await deleteChatFolder(folderId)
@@ -127,7 +130,7 @@ export function useChatFolders(userId: string | undefined, threads: ChatThread[]
     isLoading,
     refreshFolders,
     createFolder,
-    renameFolder,
+    updateFolder,
     removeFolder,
     moveThreadToFolder,
     getThreadFolderId,

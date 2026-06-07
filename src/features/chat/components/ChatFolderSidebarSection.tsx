@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { getChatFolderIconStyle } from '../constants/chatFolderColors'
 import type { ChatFolder, ChatThread } from '../types'
 
 type ChatFolderSidebarSectionProps = {
@@ -79,7 +80,11 @@ export function ChatFolderSidebarSection({
               >
                 <span className="chat-folder-group-leading">
                   <span className="chat-folder-group-chevron" aria-hidden="true" />
-                  <span className="chat-folder-group-icon" aria-hidden="true" />
+                  <span
+                    className="chat-folder-group-icon"
+                    style={getChatFolderIconStyle(folder.color)}
+                    aria-hidden="true"
+                  />
                 </span>
                 <span className="chat-thread-title">{folder.name}</span>
               </button>

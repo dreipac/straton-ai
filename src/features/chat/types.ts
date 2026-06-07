@@ -167,6 +167,7 @@ export type ChatFolder = {
   id: string
   userId: string
   name: string
+  color: string | null
   sortOrder: number
   createdAt: string
   updatedAt: string

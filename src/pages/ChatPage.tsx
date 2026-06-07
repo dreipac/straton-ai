@@ -837,6 +837,8 @@ export function ChatPage() {
         folderNameSheetMode={pageMenus.folderNameSheetMode}
         folderNameDraft={pageMenus.folderNameDraft}
         setFolderNameDraft={pageMenus.setFolderNameDraft}
+        folderColorDraft={pageMenus.folderColorDraft}
+        setFolderColorDraft={pageMenus.setFolderColorDraft}
         isFolderNameSheetOpen={pageMenus.isFolderNameSheetOpen}
         isFolderNameModalVisible={pageMenus.isFolderNameModalVisible}
         editingThread={pageMenus.editingThread}
@@ -870,7 +872,7 @@ export function ChatPage() {
         }}
         onMoveThreadToFolder={pageMenus.handleMoveThreadToFolder}
         onCloseFolderMove={pageMenus.closeFolderMoveDialog}
-        onOpenRenameFolderSheet={pageMenus.openRenameFolderSheet}
+        onOpenEditFolderSheet={pageMenus.openEditFolderSheet}
         onDeleteFolder={pageMenus.handleDeleteFolder}
         onCloseFolderName={pageMenus.closeFolderNameSheet}
         onFolderNameSubmit={pageMenus.handleFolderNameSubmit}

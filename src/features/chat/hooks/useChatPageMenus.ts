@@ -3,6 +3,8 @@ import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } fro
 import type { RenameBottomSheetHandle } from '../../../components/ui/bottom-sheet/RenameBottomSheet'
 import { isThreadOwner } from '../services/chat.collaboration'
 import type { useChatFolders } from './useChatFolders'
+import type { ChatFolderColorId } from '../constants/chatFolderColors'
+import { isChatFolderColorId } from '../constants/chatFolderColors'
 import type { ChatFolder, ChatThread } from '../types'
 import { hapticLightImpact } from '../../../utils/haptics'
 import { isMobileViewport } from '../../../utils/mobile'
@@ -62,8 +64,9 @@ export function useChatPageMenus({
   )
   const [folderMoveThreadId, setFolderMoveThreadId] = useState<string | null>(null)
   const [isFolderMoveModalVisible, setIsFolderMoveModalVisible] = useState(false)
-  const [folderNameSheetMode, setFolderNameSheetMode] = useState<'create' | { renameFolderId: string } | null>(null)
+  const [folderNameSheetMode, setFolderNameSheetMode] = useState<'create' | { editFolderId: string } | null>(null)
   const [folderNameDraft, setFolderNameDraft] = useState('')
+  const [folderColorDraft, setFolderColorDraft] = useState<ChatFolderColorId | null>(null)
   const [isFolderNameSheetOpen, setIsFolderNameSheetOpen] = useState(false)
   const [isFolderNameModalVisible, setIsFolderNameModalVisible] = useState(false)
 
@@ -315,13 +318,18 @@ export function useChatPageMenus({
   }, [cancelFolderLongPress])
 
   const openFolderNameDialog = useCallback(
-    (mode: 'create' | { renameFolderId: string }, draft: string) => {
+    (
+      mode: 'create' | { editFolderId: string },
+      draft: string,
+      color: ChatFolderColorId | null = null,
+    ) => {
       if (folderNameCloseTimerRef.current !== null) {
         window.clearTimeout(folderNameCloseTimerRef.current)
         folderNameCloseTimerRef.current = null
       }
 
       setFolderNameDraft(draft)
+      setFolderColorDraft(isChatFolderColorId(color) ? color : null)
       setFolderNameSheetMode(mode)
       setIsFolderNameSheetOpen(true)
 
@@ -342,10 +350,14 @@ export function useChatPageMenus({
     openFolderNameDialog('create', '')
   }, [chatFoldersFeatureEnabled, openFolderNameDialog])
 
-  const openRenameFolderSheet = useCallback(
+  const openEditFolderSheet = useCallback(
     (folder: ChatFolder) => {
       closeFolderActionMenu()
-      openFolderNameDialog({ renameFolderId: folder.id }, folder.name)
+      openFolderNameDialog(
+        { editFolderId: folder.id },
+        folder.name,
+        isChatFolderColorId(folder.color) ? folder.color : null,
+      )
     },
     [closeFolderActionMenu, openFolderNameDialog],
   )
@@ -355,6 +367,7 @@ export function useChatPageMenus({
       setIsFolderNameSheetOpen(false)
       setFolderNameSheetMode(null)
       setFolderNameDraft('')
+      setFolderColorDraft(null)
       return
     }
 
@@ -363,6 +376,7 @@ export function useChatPageMenus({
       setIsFolderNameSheetOpen(false)
       setFolderNameSheetMode(null)
       setFolderNameDraft('')
+      setFolderColorDraft(null)
       folderNameCloseTimerRef.current = null
     }, CHAT_PAGE_MODAL_ANIMATION_MS)
   }, [isCompactMobileSidebarLayout])
@@ -376,18 +390,21 @@ export function useChatPageMenus({
       }
       try {
         if (folderNameSheetMode === 'create') {
-          await chatFolders.createFolder(trimmed)
+          await chatFolders.createFolder(trimmed, folderColorDraft)
           pushToast('Ordner erstellt.')
         } else if (folderNameSheetMode && typeof folderNameSheetMode === 'object') {
-          await chatFolders.renameFolder(folderNameSheetMode.renameFolderId, trimmed)
-          pushToast('Ordner umbenannt.')
+          await chatFolders.updateFolder(folderNameSheetMode.editFolderId, {
+            name: trimmed,
+            color: folderColorDraft,
+          })
+          pushToast('Ordner gespeichert.')
         }
         closeFolderNameSheet()
       } catch (err) {
         pushToast(err instanceof Error ? err.message : 'Ordner konnte nicht gespeichert werden.')
       }
     },
-    [chatFolders, closeFolderNameSheet, folderNameDraft, folderNameSheetMode, pushToast],
+    [chatFolders, closeFolderNameSheet, folderColorDraft, folderNameDraft, folderNameSheetMode, pushToast],
   )
 
   const handleDeleteFolder = useCallback(
@@ -507,6 +524,8 @@ export function useChatPageMenus({
     folderNameSheetMode,
     folderNameDraft,
     setFolderNameDraft,
+    folderColorDraft,
+    setFolderColorDraft,
     isFolderNameSheetOpen,
     isFolderNameModalVisible,
     closeThreadActionMenu,
@@ -520,7 +539,7 @@ export function useChatPageMenus({
     handleFolderLongPressTouchMove,
     handleFolderLongPressTouchEnd,
     openCreateFolderSheet,
-    openRenameFolderSheet,
+    openEditFolderSheet,
     closeFolderNameSheet,
     handleFolderNameSubmit,
     handleDeleteFolder,
