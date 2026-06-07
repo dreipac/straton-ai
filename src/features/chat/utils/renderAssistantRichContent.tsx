@@ -48,12 +48,336 @@ type Block =
   | { type: 'emailDraft'; body: string }
   /** GFM-Pipe-Tabelle: erste Zeile = Kopfzeile, weitere = Daten */
   | { type: 'table'; rows: string[][] }
+  /** Konzept-Karten (```cards … ```) */
+  | { type: 'cards'; cards: ChatVisualCard[] }
+  /** Einleitung mit Akzent-Rand (`> ! …`) */
+  | { type: 'callout'; lines: string[] }
+  /** Erklärung/Definition — Karte mit Badge «Definition» */
+  | { type: 'definition'; title: string; body: string }
   /** Multiple-Choice (Frage + A–D), getrennt von Standard-Listen */
   | { type: 'mcq'; title?: string; questionNumber: number; prompt: string; options: McqOption[] }
   /** LaTeX/KaTeX: `\[ … \]` oder `$$ … $$` */
   | { type: 'math'; latex: string }
 
 type McqOption = { letter: string; text: string }
+
+export type ChatVisualCard = {
+  label: string
+  title: string
+  body: string
+  badges: Array<{ text: string; variant: ChatBadgeVariant }>
+}
+
+export type ChatBadgeVariant = 'blue' | 'green' | 'orange' | 'gray' | 'teal'
+
+const BADGE_VARIANTS: ChatBadgeVariant[] = ['blue', 'green', 'orange', 'teal', 'gray']
+
+function normalizeBadgeVariant(raw: string | undefined): ChatBadgeVariant {
+  const v = (raw ?? 'blue').trim().toLowerCase()
+  if (v === 'green' || v === 'orange' || v === 'gray' || v === 'teal' || v === 'blue') {
+    return v
+  }
+  return 'blue'
+}
+
+/** ```cards`-Block: Karten durch `---`, Felder label/title/body/badges. */
+export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
+  const sections = raw
+    .replace(/\r\n/g, '\n')
+    .split(/\n---\n/)
+    .map((section) => section.trim())
+    .filter(Boolean)
+
+  const cards: ChatVisualCard[] = []
+  for (const section of sections) {
+    const card: ChatVisualCard = { label: '', title: '', body: '', badges: [] }
+    const bodyLines: string[] = []
+    let inBody = false
+
+    for (const line of section.split('\n')) {
+      const trimmed = line.trim()
+      const field = trimmed.match(/^(label|title|body|badges):\s*(.*)$/i)
+      if (field) {
+        inBody = field[1]!.toLowerCase() === 'body'
+        const value = field[2]!.trim()
+        if (field[1]!.toLowerCase() === 'label') {
+          card.label = value
+        } else if (field[1]!.toLowerCase() === 'title') {
+          card.title = value
+        } else if (field[1]!.toLowerCase() === 'body') {
+          if (value) {
+            bodyLines.push(value)
+          }
+        } else if (field[1]!.toLowerCase() === 'badges') {
+          card.badges = value
+            .split('|')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part, index) => {
+              const tagged = part.match(/^(blue|green|orange|gray|teal):\s*(.+)$/i)
+              if (tagged) {
+                return {
+                  variant: normalizeBadgeVariant(tagged[1]),
+                  text: tagged[2]!.trim(),
+                }
+              }
+              return {
+                variant: BADGE_VARIANTS[index % BADGE_VARIANTS.length] ?? 'blue',
+                text: part,
+              }
+            })
+        }
+        continue
+      }
+      if (inBody && trimmed) {
+        bodyLines.push(trimmed)
+      }
+    }
+
+    card.body = bodyLines.join('\n').trim()
+    if (card.title || card.body || card.label) {
+      cards.push(card)
+    }
+  }
+
+  return cards
+}
+
+function ChatVisualCardGrid({
+  cards,
+  options,
+}: {
+  cards: ChatVisualCard[]
+  options?: AssistantRichContentOptions
+}) {
+  if (cards.length === 0) {
+    return null
+  }
+  return (
+    <div className="chat-md-cards">
+      {cards.map((card, index) => (
+        <article key={`card-${index}`} className="chat-md-card">
+          {card.label ? <p className="chat-md-card-label">{card.label}</p> : null}
+          {card.title ? (
+            <h4 className="chat-md-card-title">{renderAssistantInline(card.title, options)}</h4>
+          ) : null}
+          {card.body ? (
+            <div className="chat-md-card-body">
+              {card.body.split('\n').map((line, lineIndex) => (
+                <p key={`card-${index}-ln-${lineIndex}`} className="chat-md-card-body-line">
+                  {renderAssistantInline(line, options)}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {card.badges.length > 0 ? (
+            <div className="chat-md-card-badges">
+              {card.badges.map((badge, badgeIndex) => (
+                <span
+                  key={`card-${index}-badge-${badgeIndex}`}
+                  className={`chat-md-badge chat-md-badge--${badge.variant}`}
+                >
+                  {badge.text}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function CalloutBlock({
+  lines,
+  options,
+}: {
+  lines: string[]
+  options?: AssistantRichContentOptions
+}) {
+  return (
+    <aside className="chat-md-callout">
+      {lines.map((line, index) => (
+        <p key={`callout-${index}`} className="chat-md-callout-line">
+          {renderAssistantInline(line, options)}
+        </p>
+      ))}
+    </aside>
+  )
+}
+
+const DEFINITION_TITLE_RE = /^(?:Erklärung|Definition|Was ist|Was bedeutet)\b/i
+
+function parseDefinitionBlockRaw(raw: string): { title: string; body: string } | null {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return null
+  }
+  let title = ''
+  const bodyLines: string[] = []
+  for (const line of trimmed.split('\n')) {
+    const t = line.trim()
+    const titleField = t.match(/^title:\s*(.+)$/i)
+    if (titleField) {
+      title = titleField[1]!.trim()
+      continue
+    }
+    if (t.match(/^body:\s*/i)) {
+      bodyLines.push(t.replace(/^body:\s*/i, ''))
+      continue
+    }
+    bodyLines.push(line)
+  }
+  if (!title) {
+    const first = bodyLines[0]?.trim() ?? ''
+    if (first) {
+      title = first.replace(/^\*\*(.+)\*\*$/, '$1').trim()
+      bodyLines.shift()
+    }
+  }
+  const body = bodyLines.join('\n').trim()
+  if (!title && !body) {
+    return null
+  }
+  return { title: title || 'Erklärung', body }
+}
+
+function extractDefinitionTitleFromText(text: string): { title: string; bodyRemainder: string } {
+  const trimmed = text.trim()
+  const boldLine = trimmed.match(/^\*\*(.+?)\*\*:?\s*(.*)$/s)
+  if (boldLine && DEFINITION_TITLE_RE.test(boldLine[1]!.trim())) {
+    return {
+      title: boldLine[1]!.replace(/:$/, '').trim(),
+      bodyRemainder: boldLine[2]?.trim() ?? '',
+    }
+  }
+  if (DEFINITION_TITLE_RE.test(stripBoldMarkers(trimmed))) {
+    const plain = stripBoldMarkers(trimmed)
+    const colon = plain.indexOf(':')
+    if (colon > 0 && colon < 140) {
+      return {
+        title: plain.slice(0, colon).trim(),
+        bodyRemainder: plain.slice(colon + 1).trim(),
+      }
+    }
+    return { title: plain, bodyRemainder: '' }
+  }
+  return { title: '', bodyRemainder: '' }
+}
+
+function blockIsDefinitionLead(block: Block): boolean {
+  if (block.type === 'h3' || block.type === 'h4' || block.type === 'h5' || block.type === 'h6') {
+    return DEFINITION_TITLE_RE.test(stripBoldMarkers(block.text))
+  }
+  if (block.type === 'p') {
+    return DEFINITION_TITLE_RE.test(stripBoldMarkers(block.text.split('\n')[0] ?? ''))
+  }
+  return false
+}
+
+function blockStopsDefinitionBody(block: Block): boolean {
+  return (
+    block.type === 'hr' ||
+    block.type === 'h1' ||
+    block.type === 'h2' ||
+    block.type === 'definition' ||
+    block.type === 'cards' ||
+    block.type === 'callout' ||
+    block.type === 'table' ||
+    block.type === 'code' ||
+    block.type === 'math' ||
+    block.type === 'mcq' ||
+    block.type === 'emailDraft' ||
+    block.type === 'ul' ||
+    block.type === 'ol' ||
+    block.type === 'blockquote'
+  )
+}
+
+/** «Erklärung …» / «Definition …» + folgende Absätze → Definition-Karte. */
+function coalesceDefinitionBlocks(blocks: Block[]): Block[] {
+  const out: Block[] = []
+  let index = 0
+  while (index < blocks.length) {
+    const block = blocks[index]!
+    if (!blockIsDefinitionLead(block)) {
+      out.push(block)
+      index += 1
+      continue
+    }
+
+    let sourceText = ''
+    if (block.type === 'p') {
+      sourceText = block.text
+    } else if (
+      block.type === 'h3' ||
+      block.type === 'h4' ||
+      block.type === 'h5' ||
+      block.type === 'h6'
+    ) {
+      sourceText = block.text
+    }
+    const { title, bodyRemainder } = extractDefinitionTitleFromText(sourceText)
+    const bodyParts: string[] = []
+    if (bodyRemainder) {
+      bodyParts.push(bodyRemainder)
+    }
+    index += 1
+
+    while (index < blocks.length) {
+      const next = blocks[index]!
+      if (blockStopsDefinitionBody(next)) {
+        break
+      }
+      if (blockIsDefinitionLead(next)) {
+        break
+      }
+      if (next.type === 'h3' || next.type === 'h4' || next.type === 'h5' || next.type === 'h6') {
+        break
+      }
+      if (next.type === 'p') {
+        bodyParts.push(next.text)
+        index += 1
+        continue
+      }
+      break
+    }
+
+    out.push({
+      type: 'definition',
+      title: title || 'Erklärung',
+      body: bodyParts.join('\n\n').trim(),
+    })
+  }
+  return out
+}
+
+function DefinitionCard({
+  title,
+  body,
+  options,
+}: {
+  title: string
+  body: string
+  options?: AssistantRichContentOptions
+}) {
+  const paragraphs = body ? body.split(/\n\n+/).filter(Boolean) : []
+  return (
+    <article className="chat-md-definition-card">
+      <span className="chat-md-definition-badge">Definition</span>
+      <h4 className="chat-md-definition-title">{renderAssistantInline(title, options)}</h4>
+      {paragraphs.length > 0 ? (
+        <div className="chat-md-definition-body">
+          {paragraphs.map((paragraph, paragraphIndex) => (
+            <p key={`def-body-${paragraphIndex}`} className="chat-md-definition-body-line">
+              {renderAssistantInline(paragraph, options)}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  )
+}
 
 const HEADING_BLOCK_TYPES = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
 type HeadingBlockType = (typeof HEADING_BLOCK_TYPES)[number]
@@ -438,8 +762,15 @@ function parseBlocks(raw: string): Block[] {
 
   function flushQuote() {
     if (quoteLines && quoteLines.length) {
-      const kind = classifyScriptureBlockquote(quoteLines, quoteParseContext)
-      blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind: kind })
+      const firstLine = quoteLines[0]?.trim() ?? ''
+      if (firstLine.startsWith('!')) {
+        const lines = [...quoteLines]
+        lines[0] = firstLine.replace(/^!\s*/, '')
+        blocks.push({ type: 'callout', lines })
+      } else {
+        const kind = classifyScriptureBlockquote(quoteLines, quoteParseContext)
+        blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind: kind })
+      }
       quoteLines = null
       quoteParseContext = ''
     }
@@ -451,6 +782,13 @@ function parseBlocks(raw: string): Block[] {
       const lang = codeLanguage.trim().toLowerCase()
       if (lang === 'email' || lang === 'mail' || lang === 'e-mail') {
         blocks.push({ type: 'emailDraft', body: raw })
+      } else if (lang === 'cards' || lang === 'card') {
+        blocks.push({ type: 'cards', cards: parseChatCardsBlock(raw) })
+      } else if (lang === 'definition' || lang === 'def') {
+        const parsed = parseDefinitionBlockRaw(raw)
+        if (parsed) {
+          blocks.push({ type: 'definition', title: parsed.title, body: parsed.body })
+        }
       } else {
         blocks.push({ type: 'code', language: normalizeCodeLanguage(codeLanguage), code: raw })
       }
@@ -613,7 +951,9 @@ function parseBlocks(raw: string): Block[] {
   flushPara()
   return promoteShellCommandsToCodeBlocks(
     transformBlocksWithMcq(
-      promotePlainParagraphEmailDrafts(coalesceOrderedListBlocks(expandEmbeddedDisplayMath(blocks))),
+      promotePlainParagraphEmailDrafts(
+        coalesceDefinitionBlocks(coalesceOrderedListBlocks(expandEmbeddedDisplayMath(blocks))),
+      ),
     ),
   )
 }
@@ -1430,6 +1770,14 @@ function renderBlock(
         </div>
       )
     }
+    case 'cards':
+      return <ChatVisualCardGrid key={key} cards={block.cards} options={options} />
+    case 'callout':
+      return <CalloutBlock key={key} lines={block.lines} options={options} />
+    case 'definition':
+      return (
+        <DefinitionCard key={key} title={block.title} body={block.body} options={options} />
+      )
     default:
       return null
   }

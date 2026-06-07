@@ -43,11 +43,33 @@ function looksLikeRawPdfPayload(text: string): boolean {
 }
 
 function clampDocumentText(raw: string): string {
-  const normalized = raw.replace(/\u0000/g, '').replace(/\s+/g, ' ').trim()
+  const normalized = raw
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   if (normalized.length <= MAX_OUTPUT_CHARS) {
     return normalized
   }
   return `${normalized.slice(0, MAX_OUTPUT_CHARS)}\n\n[… Dokument gekürzt …]`
+}
+
+function htmlToStructuredPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|h[1-6]|tr)>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
 }
 
 function mergePageTexts(textLayerPages: string[], ocrSupplement: string): string {
@@ -122,18 +144,23 @@ async function extractPdf(bytes: Uint8Array, fileName: string): Promise<Extracte
   }
 }
 
+/** Node/Deno mammoth (`lib/unzip.js`) akzeptiert `buffer`, nicht `arrayBuffer` (nur Browser-Build). */
+function mammothInputFromBytes(bytes: Uint8Array): { buffer: ArrayBuffer } {
+  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    return { buffer: bytes.buffer as ArrayBuffer }
+  }
+  return {
+    buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  }
+}
+
 async function extractDocx(bytes: Uint8Array, fileName: string): Promise<ExtractedDocument> {
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer })
+  const mammothInput = mammothInputFromBytes(bytes)
+  const result = await mammoth.extractRawText(mammothInput)
   let raw = (result.value ?? '').trim()
   if (!raw) {
-    const htmlResult = await mammoth.convertToHtml({ arrayBuffer: buffer })
-    raw = (htmlResult.value ?? '')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const htmlResult = await mammoth.convertToHtml(mammothInput)
+    raw = htmlToStructuredPlain(htmlResult.value ?? '').trim()
   }
   const text = clampDocumentText(raw)
   return {

@@ -1,55 +1,106 @@
-import { forwardRef, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
-export type ChatUserMessageMenuSelectProps = {
-  onSelectCopy: () => void
+type ChatUserMessageActionMenuProps = {
+  anchorRef: RefObject<HTMLElement | null>
+  onCopy: () => boolean | Promise<boolean>
   onClose: () => void
 }
 
 /**
- * Natives `<select>` über der Nutzer-Bubble — gleiches Muster wie Toolbar-Titel/Menü (iOS Systemliste).
+ * Long-Press-Menü mit echtem Button — Backdrop + Menü im selben Body-Portal,
+ * damit das Menü auf iOS über dem Backdrop liegt und klickbar bleibt.
  */
-export const ChatUserMessageMenuSelect = forwardRef<HTMLSelectElement, ChatUserMessageMenuSelectProps>(
-  function ChatUserMessageMenuSelect({ onSelectCopy, onClose }, ref) {
-    const dismissTimerRef = useRef<number | null>(null)
+export function ChatUserMessageActionMenu({
+  anchorRef,
+  onCopy,
+  onClose,
+}: ChatUserMessageActionMenuProps) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
 
-    function scheduleDismiss() {
-      if (dismissTimerRef.current !== null) {
-        window.clearTimeout(dismissTimerRef.current)
-      }
-      dismissTimerRef.current = window.setTimeout(() => {
-        dismissTimerRef.current = null
-        onClose()
-      }, 420)
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current
+    if (!anchor) {
+      return
     }
+    const rect = anchor.getBoundingClientRect()
+    setPosition({ top: rect.top, left: rect.right })
+  }, [anchorRef])
 
-    return (
-      <label className="chat-user-message-menu">
-        <select
-          ref={ref}
-          className="chat-user-message-menu-select"
-          value=""
-          aria-label="Nachrichten-Aktionen"
-          onChange={(event) => {
-            if (dismissTimerRef.current !== null) {
-              window.clearTimeout(dismissTimerRef.current)
-              dismissTimerRef.current = null
-            }
-            const action = event.target.value
-            if (action === 'copy') {
-              onSelectCopy()
-            }
-            event.target.value = ''
-            event.currentTarget.blur()
-            onClose()
-          }}
-          onBlur={scheduleDismiss}
+  useLayoutEffect(() => {
+    updatePosition()
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setOpen(true))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [updatePosition])
+
+  useEffect(() => {
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    document.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      document.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [updatePosition])
+
+  async function handleCopyClick() {
+    const ok = await onCopy()
+    if (ok) {
+      onClose()
+    }
+  }
+
+  if (!position || typeof document === 'undefined') {
+    return null
+  }
+
+  return createPortal(
+    <div className="chat-user-message-menu-layer">
+      <button
+        type="button"
+        className={`chat-user-message-menu-backdrop${open ? ' is-open' : ''}`}
+        aria-label="Menü schließen"
+        onClick={onClose}
+      />
+      <div
+        className={`chat-user-message-menu${open ? ' is-open' : ''}`}
+        style={{ top: position.top, left: position.left }}
+        role="menu"
+        aria-label="Nachrichten-Aktionen"
+      >
+        <button
+          type="button"
+          className="chat-user-message-menu-action"
+          role="menuitem"
+          onClick={() => void handleCopyClick()}
         >
-          <option value="" disabled hidden>
-            Nachricht
-          </option>
-          <option value="copy">Kopieren</option>
-        </select>
-      </label>
-    )
-  },
-)
+          <svg
+            className="chat-user-message-menu-action-icon"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.75" />
+            <path
+              d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+            />
+          </svg>
+          Kopieren
+        </button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** @deprecated Alias — gleiche Komponente, neuer Name. */
+export const ChatUserMessageMenuSelect = ChatUserMessageActionMenu

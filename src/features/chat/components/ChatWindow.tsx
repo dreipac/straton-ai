@@ -40,9 +40,11 @@ import { useChatMessageList } from '../hooks/useChatMessageList'
 import { useChatComposer } from '../hooks/useChatComposer'
 import { useChatComposerSectionReply } from '../hooks/useChatComposerSectionReply'
 import { useChatImageLightbox } from '../hooks/useChatImageLightbox'
+import { useChatDocumentPreview } from '../hooks/useChatDocumentPreview'
 import { ChatComposerForm } from './chat-window/ChatComposerForm'
 import { ChatComposerThinkingCreditsHint } from './chat-window/ChatComposerThinkingCreditsHint'
 import { ChatImageLightbox } from './chat-window/ChatImageLightbox'
+import { ChatDocumentPreviewModal } from './chat-window/ChatDocumentPreviewModal'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
 
@@ -204,6 +206,7 @@ export function ChatWindow({
   clearSectionReplyEmbedRef.current = sectionReply.clearSectionReplyEmbedSchedule
 
   const imageLightbox = useChatImageLightbox()
+  const documentPreview = useChatDocumentPreview()
 
   const userMessageLongPress = useUserMessageLongPress(composer.isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
@@ -449,6 +452,23 @@ export function ChatWindow({
       />
     ) : null
 
+  const documentPreviewEl =
+    documentPreview.preview !== null ? (
+      <ChatDocumentPreviewModal
+        preview={documentPreview.preview}
+        open={documentPreview.open}
+        previewText={documentPreview.previewText}
+        showPdfEmbed={documentPreview.showPdfEmbed}
+        signedUrl={documentPreview.signedUrl}
+        loading={documentPreview.loading}
+        error={documentPreview.error}
+        canDownload={documentPreview.canDownload}
+        onClose={documentPreview.closeDocumentPreview}
+        onTransitionEnd={documentPreview.handleTransitionEnd}
+        onDownload={documentPreview.downloadDocument}
+      />
+    ) : null
+
   function buildAssistantRichOptions(messageId: string): AssistantRichContentOptions {
     return {
       onChatImagePreview: imageLightbox.setImageLightboxSrc,
@@ -530,6 +550,7 @@ export function ChatWindow({
           {composerAttachSheet}
         </div>
         {imageLightboxEl}
+        {documentPreviewEl}
       </section>
     )
   }
@@ -547,6 +568,7 @@ export function ChatWindow({
         animatedAssistantContent={animatedAssistantContent}
         sentPastedImagePreviews={composer.sentPastedImagePreviews}
         onImagePreview={imageLightbox.setImageLightboxSrc}
+        onDocumentPreview={documentPreview.openDocumentPreview}
         isMobileComposer={composer.isMobileComposer}
         showInstantAnalyzeDebug={showInstantAnalyzeDebug}
         chatThinkingMode={chatThinkingMode}
@@ -620,6 +642,7 @@ export function ChatWindow({
         </p>
       </div>
       {imageLightboxEl}
+      {documentPreviewEl}
     </section>
   )
 }

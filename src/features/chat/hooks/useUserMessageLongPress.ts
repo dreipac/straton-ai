@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { hapticLightImpact } from '../../../utils/haptics'
-import { openNativeSelectPicker } from '../utils/openNativeSelectPicker'
 
-const LONG_PRESS_MS = 520
+const LONG_PRESS_MS = 320
 const MOVE_CANCEL_PX = 14
 
 export type UserMessageCopyMenuState = {
@@ -14,7 +13,6 @@ export type UserMessageCopyMenuState = {
 export function useUserMessageLongPress(enabled: boolean) {
   const [pressingMessageId, setPressingMessageId] = useState<string | null>(null)
   const [menuState, setMenuState] = useState<UserMessageCopyMenuState | null>(null)
-  const menuSelectRef = useRef<HTMLSelectElement>(null)
   const menuCopyTextRef = useRef('')
   const timerRef = useRef<number | null>(null)
   const startRef = useRef<{ x: number; y: number } | null>(null)
@@ -56,9 +54,9 @@ export function useUserMessageLongPress(enabled: boolean) {
     [pressingMessageId],
   )
 
-  const shouldMountMenuOverlay = useCallback(
-    (messageId: string) => pressingMessageId === messageId || menuState?.messageId === messageId,
-    [menuState, pressingMessageId],
+  const shouldShowCopyMenu = useCallback(
+    (messageId: string) => menuState?.messageId === messageId,
+    [menuState],
   )
 
   const bindUserMessageLongPress = useCallback(
@@ -119,10 +117,6 @@ export function useUserMessageLongPress(enabled: boolean) {
           if (text) {
             menuCopyTextRef.current = text
             setMenuState({ messageId, copyText: text })
-            const select = menuSelectRef.current
-            if (select) {
-              openNativeSelectPicker(select)
-            }
           }
           setPressingMessageId(null)
           return
@@ -146,11 +140,10 @@ export function useUserMessageLongPress(enabled: boolean) {
 
   return {
     menuState,
-    menuSelectRef,
     getMenuCopyText,
     closeMenu,
     isMessagePressActive,
-    shouldMountMenuOverlay,
+    shouldShowCopyMenu,
     bindUserMessageLongPress,
   }
 }

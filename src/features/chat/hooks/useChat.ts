@@ -1551,10 +1551,78 @@ export function useChat(
         trimmed ||
         (wantsWord ? 'Word-Dokument vorbereiten' : wantsPdf ? 'PDF-Dokument vorbereiten' : trimmed)
 
+      const optimisticUserId = crypto.randomUUID()
+      const optimisticCreatedAt = new Date().toISOString()
+      let nextMessages: ChatMessage[] = []
+
       let documentAttachments = [...(sendOpts?.documentAttachments ?? [])]
       const pendingDocFiles = sendOpts?.pendingDocumentFiles ?? []
+      const hasDocumentProcessing =
+        documentAttachments.length > 0 || pendingDocFiles.length > 0
+
+      const buildPrePersistUserMetadata = (
+        docAttachments: typeof documentAttachments,
+      ): NonNullable<ChatMessage['metadata']> => ({
+        ...(wantsExcel ? { userExcelCommand: true as const } : {}),
+        ...(wantsWord ? { userWordCommand: true as const } : {}),
+        ...(wantsPdf ? { userPdfCommand: true as const } : {}),
+        ...(wantsChart ? { userChartCommand: true as const } : {}),
+        ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
+        ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
+        ...(docAttachments.length > 0
+          ? {
+              documentAttachments: docAttachments.map((attachment) => ({
+                id: attachment.id,
+                name: attachment.name,
+                bucket: attachment.bucket,
+                path: attachment.path,
+                mimeType: attachment.mimeType,
+              })),
+            }
+          : {}),
+      })
+
+      const syncOptimisticUserMessage = (content: string, metadata: ChatMessage['metadata']) => {
+        const message: ChatMessage = {
+          id: optimisticUserId,
+          role: 'user',
+          content,
+          createdAt: optimisticCreatedAt,
+          metadata: metadata && Object.keys(metadata).length > 0 ? metadata : undefined,
+        }
+        loadedMessageThreadIdsRef.current.add(targetThreadId)
+        setMessagesByThreadId((prev) => {
+          const list = prev[targetThreadId] ?? []
+          nextMessages = upsertChatMessage(list, message)
+          return { ...prev, [targetThreadId]: nextMessages }
+        })
+      }
+
+      const dropOptimisticUserMessage = () => {
+        setMessagesByThreadId((prev) => ({
+          ...prev,
+          [targetThreadId]: (prev[targetThreadId] ?? []).filter((m) => m.id !== optimisticUserId),
+        }))
+      }
+
+      if (hasDocumentProcessing) {
+        const pendingAttachmentRefs = pendingDocFiles.map((pending) => ({
+          id: pending.id,
+          name: pending.name,
+          bucket: '',
+          path: '',
+          mimeType: pending.file.type || 'application/octet-stream',
+        }))
+        syncOptimisticUserMessage(
+          userContent,
+          buildPrePersistUserMetadata([...documentAttachments, ...pendingAttachmentRefs]),
+        )
+        setSendPhase('document_processing')
+      }
+
       if (pendingDocFiles.length > 0) {
         if (!userId) {
+          dropOptimisticUserMessage()
           setError('Kein Nutzer aktiv. Bitte neu anmelden.')
           return
         }
@@ -1574,6 +1642,7 @@ export function useChat(
               mimeType: uploaded.mimeType,
             })
           } catch (uploadErr) {
+            dropOptimisticUserMessage()
             setError(
               uploadErr instanceof Error
                 ? uploadErr.message
@@ -1582,10 +1651,15 @@ export function useChat(
             return
           }
         }
+        if (hasDocumentProcessing) {
+          syncOptimisticUserMessage(userContent, buildPrePersistUserMetadata(documentAttachments))
+        }
       }
 
       if (documentAttachments.length > 0) {
-        setSendPhase('document_processing')
+        if (!hasDocumentProcessing) {
+          setSendPhase('document_processing')
+        }
         try {
           const { fileBlocks } = await extractChatDocumentsOnServer({
             attachments: documentAttachments,
@@ -1604,6 +1678,7 @@ export function useChat(
                 : 'Dokument konnte nicht analysiert werden.',
             )
           }
+          dropOptimisticUserMessage()
           return
         }
       }
@@ -1615,6 +1690,17 @@ export function useChat(
         ...(wantsChart ? { userChartCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
+        ...(documentAttachments.length > 0
+          ? {
+              documentAttachments: documentAttachments.map((attachment) => ({
+                id: attachment.id,
+                name: attachment.name,
+                bucket: attachment.bucket,
+                path: attachment.path,
+                mimeType: attachment.mimeType,
+              })),
+            }
+          : {}),
       }
 
       let visionInlineDataUrl = resolveVisionInlineDataUrlForSend(
@@ -1652,28 +1738,17 @@ export function useChat(
         !visionInlineDataUrl &&
         !userContent.includes('@chat-media:')
       ) {
+        dropOptimisticUserMessage()
         setError('Das Foto konnte nicht für die KI vorbereitet werden. Bitte erneut anhängen.')
         return
       }
 
       const priorTurns = priorTurnsForContext
 
-      const optimisticUserId = crypto.randomUUID()
-      const optimisticUserMessage: ChatMessage = {
-        id: optimisticUserId,
-        role: 'user',
-        content: userContent,
-        createdAt: new Date().toISOString(),
-        metadata: Object.keys(userMetadataBase).length > 0 ? userMetadataBase : undefined,
-      }
-
-      let nextMessages: ChatMessage[] = []
-      loadedMessageThreadIdsRef.current.add(targetThreadId)
-      setMessagesByThreadId((prev) => {
-        const list = prev[targetThreadId] ?? []
-        nextMessages = upsertChatMessage(list, optimisticUserMessage)
-        return { ...prev, [targetThreadId]: nextMessages }
-      })
+      syncOptimisticUserMessage(
+        userContent,
+        Object.keys(userMetadataBase).length > 0 ? userMetadataBase : undefined,
+      )
 
       if (wantsInstantAnalyze) {
         setSendPhase('analyzing')
@@ -1854,7 +1929,9 @@ export function useChat(
         throw analyzeErr
       }
 
-      if (Object.keys(userMetadataBase).length > 0 || userContent !== optimisticUserMessage.content) {
+      const optimisticContentSnapshot =
+        nextMessages.find((message) => message.id === optimisticUserId)?.content ?? ''
+      if (Object.keys(userMetadataBase).length > 0 || userContent !== optimisticContentSnapshot) {
         setMessagesByThreadId((prev) => {
           const list = prev[targetThreadId] ?? []
           const idx = list.findIndex((m) => m.id === optimisticUserId)
@@ -1868,6 +1945,7 @@ export function useChat(
             metadata:
               Object.keys(userMetadataBase).length > 0 ? { ...userMetadataBase } : next[idx].metadata,
           }
+          nextMessages = next
           return { ...prev, [targetThreadId]: next }
         })
       }

@@ -59,6 +59,15 @@ export type ChatMessagePdfExport = {
   fileName: string
 }
 
+/** User-Nachricht: hochgeladenes Dokument in `chat-media` (PDF/Word/Excel …). */
+export type ChatMessageDocumentAttachment = {
+  id: string
+  name: string
+  bucket: string
+  path: string
+  mimeType: string
+}
+
 /** Unsplash-Treffer (Hotlink-URLs, Attribution in der UI). */
 export type UnsplashPhotoResult = {
   id: string
@@ -125,6 +134,8 @@ export type ChatMessage = {
       path: string
       attachmentId: string
     }
+    /** User-Nachricht: angehängte Dokumente (Storage-Ref + Anzeigename). */
+    documentAttachments?: ChatMessageDocumentAttachment[]
     /** Assistant: generiertes Bild in Storage (`chat-media`), Inhalt nur `@chat-media:`-Link. */
     generatedImage?: {
       bucket: string

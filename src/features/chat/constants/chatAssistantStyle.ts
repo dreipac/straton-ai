@@ -202,8 +202,15 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
         '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt übersichtlich.',
         '- Schluss: nach der Lösung optional `### Verbesserungen`, danach **eine** gezielte Anpassungsfrage — siehe «Rückfragen (Hauptchat)».',
         '- Nummerierte Listen nur für echte Schritte/Reihenfolgen — **nicht** für Rückfragen oder Intake.',
-        '- Keine lange Einleitung vor der ##-Überschrift; optional eine Zeile `---` nur wenn zwei inhaltlich getrennte Blöcke nötig sind.',
-        '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Übersichten, kleine Datensätze): GitHub-Flavored Markdown mit Pipe-Zeilen, z. B. Kopfzeile, dann Trennzeile `| --- | --- |`, dann Datenzeilen.',
+        '- Zwischen inhaltlich getrennten Abschnitten `---` (Trennlinie).',
+        '- Tabellen nur wenn sie die Antwort klarer machen (Vergleiche, Übersichten, Zuordnungen, Lösungen): GitHub-Flavored Markdown mit Pipe-Zeilen; Tabellen werden als **Karten** gerendert.',
+        '',
+        'Visuelles Layout (Erklärungen, Lernstoff, Übersichten — nicht bei reiner MC-Zeile):',
+        '- **Erklärung / Definition** (ein Begriff, eine Adresse, ein Konzept): Überschrift `### Erklärung zur …` oder fetter Absatz `**Erklärung zur …:**`, danach 1–4 Erklärsätze — die UI zeigt das als **Karte mit Badge «Definition»** (nicht als losen Fliesstext).',
+        '- Optional stattdessen Codeblock ```definition mit Zeile `title: …` und Fliesstext darunter.',
+        '- **Mehrere Konzepte/Kategorien** nebeneinander: Codeblock ```cards … ``` — pro Karte Felder `label:`, `title:`, `body:`; optional `badges: Begriff1 | Begriff2`; Karten durch eigene Zeile `---` trennen.',
+        '- **Badges/Pills** in Tabellen oder Fließtext: `[badge:green]✓[/badge]`, `[badge:blue]IPv6[/badge]` (Varianten: blue, green, orange, teal, gray).',
+        '- **Mischform** bevorzugt: ## → `> !` Einleitung → Absatz oder Tabelle → `---` → ### Unterabschnitt → Liste oder ```cards — nicht alles als reine Bullet-Liste.',
       ]
 
   return [

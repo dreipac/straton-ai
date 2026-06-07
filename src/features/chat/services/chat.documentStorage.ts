@@ -3,9 +3,32 @@ import { CHAT_VISION_MEDIA_BUCKET } from './chat.visionStorage'
 
 const DOC_PREFIX = 'doc'
 
+/** Storage-Key (S3-kompatibel): kein Leerzeichen, keine Umlaute im Pfad — Anzeigename bleibt `file.name`. */
 function sanitizeFileName(name: string): string {
-  const base = name.replace(/[/\\]/g, '_').trim() || 'document'
-  return base.slice(0, 180)
+  const trimmed = name.replace(/[/\\]/g, '_').trim() || 'document'
+  const dot = trimmed.lastIndexOf('.')
+  const ext = dot > 0 ? trimmed.slice(dot) : ''
+  const stem = dot > 0 ? trimmed.slice(0, dot) : trimmed
+
+  function asciiSafe(part: string): string {
+    return (
+      part
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '') || 'document'
+    )
+  }
+
+  const safeStem = asciiSafe(stem)
+  const safeExt = ext
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9.]+/g, '')
+    .slice(0, 12)
+
+  return `${safeStem}${safeExt}`.slice(0, 180)
 }
 
 export function buildChatDocumentStoragePath(

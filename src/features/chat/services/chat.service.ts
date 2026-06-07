@@ -70,7 +70,7 @@ import {
 } from '../constants/geminiModels'
 import { ensureGeminiInstantFlagLoaded, isGeminiInstantEnabled } from './geminiInstantFlag'
 import { env } from '../../../config/env'
-import { errorMessageFromUnknown, parseApiErrorField } from '../../../utils/errorMessage'
+import { errorMessageFromUnknown, parseApiErrorField, sanitizeUserFacingAiError } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
@@ -353,7 +353,7 @@ async function messageFromFunctionsInvokeFailure(
           }
           const apiErr = parseApiErrorField(parsed)
           if (apiErr) {
-            return apiErr
+            return sanitizeUserFacingAiError(apiErr)
           }
         } catch {
           if (text.length < 800) {

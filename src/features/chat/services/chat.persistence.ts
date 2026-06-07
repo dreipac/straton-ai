@@ -146,6 +146,28 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     }
   }
 
+  const docAttachmentsRaw = o.documentAttachments
+  if (Array.isArray(docAttachmentsRaw)) {
+    const documentAttachments = docAttachmentsRaw
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      .map((item) => {
+        const id = typeof item.id === 'string' ? item.id : ''
+        const name = typeof item.name === 'string' ? item.name : ''
+        const bucket = typeof item.bucket === 'string' ? item.bucket : ''
+        const path = typeof item.path === 'string' ? item.path : ''
+        const mimeType = typeof item.mimeType === 'string' ? item.mimeType : ''
+        if (!id || !name || !bucket || !path) {
+          return null
+        }
+        return { id, name, bucket, path, mimeType }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .slice(0, 8)
+    if (documentAttachments.length > 0) {
+      out.documentAttachments = documentAttachments
+    }
+  }
+
   const px = o.pdfExport
   if (px && typeof px === 'object') {
     const p = px as Record<string, unknown>

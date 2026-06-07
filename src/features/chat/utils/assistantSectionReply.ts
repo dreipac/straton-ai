@@ -135,6 +135,9 @@ type BlockExcerptInput =
   | { type: 'code'; code: string }
   | { type: 'emailDraft'; body: string }
   | { type: 'table'; rows: string[][] }
+  | { type: 'cards'; cards: Array<{ title: string; body: string; label: string }> }
+  | { type: 'callout'; lines: string[] }
+  | { type: 'definition'; title: string; body: string }
   | { type: 'mcq'; prompt: string; options: { text: string }[] }
   | { type: 'math'; latex: string }
 
@@ -193,6 +196,26 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
           .slice(0, 280),
         previewTitle: 'Tabelle',
       }
+    case 'cards': {
+      const joined = block.cards
+        .map((card) => [card.title, card.body].filter(Boolean).join(': '))
+        .join(' · ')
+      return {
+        excerpt: joined.slice(0, 420),
+        previewTitle: block.cards[0]?.title?.slice(0, 56) || 'Karten',
+      }
+    }
+    case 'callout': {
+      const joined = block.lines.map((l) => stripBoldMarkers(l)).join(' ')
+      return { excerpt: joined.slice(0, 420), previewTitle: 'Einleitung' }
+    }
+    case 'definition': {
+      const joined = [block.title, block.body].filter(Boolean).join(': ')
+      return {
+        excerpt: joined.slice(0, 420),
+        previewTitle: block.title.slice(0, 56) || 'Definition',
+      }
+    }
     case 'mcq':
       return {
         excerpt: [block.prompt, ...block.options.map((o) => o.text)].join(' · ').slice(0, 420),

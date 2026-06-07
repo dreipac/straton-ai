@@ -44,19 +44,80 @@ export function getGeminiApiKey(): string {
   return key
 }
 
-async function geminiJson<T>(url: string, apiKey: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
-  const raw = await res.text()
-  if (!res.ok) {
-    throw new Error(`Gemini-Anfrage fehlgeschlagen (${res.status}): ${raw.slice(0, 800)}`)
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableGeminiStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504
+}
+
+function formatGeminiApiError(status: number, raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; status?: string } }
+    const apiMessage = parsed.error?.message?.trim()
+    if (status === 503 || parsed.error?.status === 'UNAVAILABLE') {
+      return 'Das KI-Modell (Gemini) ist gerade stark ausgelastet. Straton versucht es automatisch erneut — bitte kurz warten und nochmal senden.'
+    }
+    if (status === 429) {
+      return 'Zu viele Anfragen an Gemini. Bitte in ein paar Sekunden erneut versuchen.'
+    }
+    if (apiMessage) {
+      return `Gemini-Anfrage fehlgeschlagen (${status}): ${apiMessage}`
+    }
+  } catch {
+    // Roh-JSON nicht parsebar
   }
-  return JSON.parse(raw) as T
+  return `Gemini-Anfrage fehlgeschlagen (${status}). Bitte später erneut versuchen.`
+}
+
+/** Transiente Gemini-Ausfälle — Fallback auf OpenAI möglich. */
+export function isGeminiTransientFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false
+  }
+  const message = err.message
+  return (
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('504') ||
+    message.includes('429') ||
+    message.includes('UNAVAILABLE') ||
+    message.includes('stark ausgelastet') ||
+    message.includes('Zu viele Anfragen an Gemini')
+  )
+}
+
+async function geminiJson<T>(url: string, apiKey: string, init?: RequestInit): Promise<T> {
+  const maxAttempts = 3
+  let lastStatus = 500
+  let lastRaw = ''
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+    const raw = await res.text()
+    if (res.ok) {
+      return JSON.parse(raw) as T
+    }
+
+    lastStatus = res.status
+    lastRaw = raw
+
+    if (isRetryableGeminiStatus(res.status) && attempt < maxAttempts) {
+      await sleep(450 * attempt)
+      continue
+    }
+
+    throw new Error(formatGeminiApiError(res.status, raw))
+  }
+
+  throw new Error(formatGeminiApiError(lastStatus, lastRaw))
 }
 
 async function sha256Hex8(text: string): Promise<string> {

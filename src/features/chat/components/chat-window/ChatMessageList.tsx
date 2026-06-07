@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useRef, type RefObject } from 'react'
 import fileIcon from '../../../../assets/icons/file.svg'
 import { ChatExportActionHint } from '../ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from '../ChatInstantAnalyzeDebugPanel'
@@ -6,7 +6,7 @@ import { ChatThinkingAnalyzeDebugPanel } from '../ChatThinkingAnalyzeDebugPanel'
 import { ChatMediaInlineImage } from '../ChatMediaInlineImage'
 import { ChatPendingReplyLoader } from '../ChatPendingReplyLoader'
 import { ChatMessageReplyQuotePreview } from '../ChatComposerReplyQuoteBar'
-import { ChatUserMessageMenuSelect } from '../ChatUserMessageMenuSelect'
+import { ChatUserMessageActionMenu } from '../ChatUserMessageMenuSelect'
 import { ChatAssistantMessageCopyButton } from './ChatAssistantMessageCopyButton'
 import { extractAssistantMessageCopyText } from '../../utils/chatMessageCopy'
 import { WordOutlinePaper, WordOutlinePaperBuilding } from '../WordOutlinePaper'
@@ -69,7 +69,9 @@ import {
 import {
   extractBildDataUrlFromStoredContent,
   extractChatMediaStoragePathFromStoredContent,
-  extractDateiFileNamesFromContent,
+  extractDateiTextFromContent,
+  resolveUserMessageDocumentAttachments,
+  type ResolvedUserDocumentAttachment,
   extractPastedImageIdsFromContent,
   safeMessageContent,
   stripAttachmentBlocksForDisplay,
@@ -81,6 +83,10 @@ export type ChatMessageListProps = {
   animatedAssistantContent: Record<string, string>
   sentPastedImagePreviews: Record<string, string>
   onImagePreview: (src: string) => void
+  onDocumentPreview?: (request: {
+    attachment: ResolvedUserDocumentAttachment
+    messageContent: string
+  }) => void
   isMobileComposer: boolean
   showInstantAnalyzeDebug: boolean
   chatThinkingMode: ChatThinkingMode
@@ -126,6 +132,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     animatedAssistantContent,
     sentPastedImagePreviews,
     onImagePreview,
+    onDocumentPreview,
     isMobileComposer,
     showInstantAnalyzeDebug,
     chatThinkingMode,
@@ -163,6 +170,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
     onCopyUserMessage,
     subscriptionUsageDisplay,
   } = props
+
+  const userMessageMenuAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
     <div className="chat-messages" ref={messagesScrollRef}>
@@ -259,8 +268,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
               ? stripAttachmentBlocksForDisplay(userSectionReplyParsed.userText)
               : stripAttachmentBlocksForDisplay(rawContent)
           const pastedImageIds = message.role === 'user' ? extractPastedImageIdsFromContent(rawContent) : []
-          const savedDateiNames =
-            message.role === 'user' ? extractDateiFileNamesFromContent(rawContent) : []
+          const savedDocuments =
+            message.role === 'user' ? resolveUserMessageDocumentAttachments(message) : []
           const showUserInlineImages = message.role === 'user' && pastedImageIds.length > 0
           const showExcelFallbackText =
             isAssistant &&
@@ -348,16 +357,167 @@ export function ChatMessageList(props: ChatMessageListProps) {
               : undefined
           const userMessagePressActive =
             message.role === 'user' && userMessageLongPress.isMessagePressActive(message.id)
+          const isUserMessage = message.role === 'user'
+          const userMessageHasAttachments =
+            isUserMessage && (showUserInlineImages || savedDocuments.length > 0)
+          const userMessageShowBubble =
+            isUserMessage &&
+            (Boolean(String(displayContent ?? '').trim()) ||
+              Boolean(userSectionReplyParsed?.sectionRef) ||
+              (showInstantAnalyzeDebug &&
+                Boolean(message.metadata?.instantAnalyzeDebug || message.metadata?.thinkingAnalyzeDebug)))
+
+          if (isUserMessage) {
+            return (
+              <article
+                key={message.id}
+                className={`chat-user-message-turn${
+                  isLatestMessage ? ' chat-message--user-enter' : ''
+                }`}
+              >
+                {userMessageHasAttachments ? (
+                  <div className="chat-user-message-attachments" aria-label="Anhänge">
+                    {showUserInlineImages ? (
+                      <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
+                        {pastedImageIds.map((imageId) => {
+                          const inlineSrc =
+                            sentPastedImagePreviews[imageId] ??
+                            extractBildDataUrlFromStoredContent(rawContent, imageId)
+                          if (inlineSrc) {
+                            return (
+                              <button
+                                key={imageId}
+                                type="button"
+                                className="chat-user-inline-image-trigger"
+                                aria-label="Bild vergrößern"
+                                onClick={() => onImagePreview(inlineSrc)}
+                              >
+                                <img
+                                  className="chat-user-inline-image"
+                                  src={inlineSrc}
+                                  alt="Eingefügtes Bild"
+                                />
+                              </button>
+                            )
+                          }
+                          const storagePath =
+                            extractChatMediaStoragePathFromStoredContent(rawContent, imageId) ??
+                            (message.metadata?.visionImage?.attachmentId === imageId
+                              ? message.metadata.visionImage.path
+                              : undefined)
+                          if (!storagePath) {
+                            return null
+                          }
+                          return (
+                            <ChatMediaInlineImage
+                              key={imageId}
+                              storagePath={storagePath}
+                              alt="Eingefügtes Bild"
+                              className="chat-user-inline-image"
+                              onPreview={onImagePreview}
+                            />
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                    {savedDocuments.length > 0 ? (
+                      <div
+                        className="chat-user-saved-attachments chat-attachment-chips"
+                        aria-label="Angehängte Dateien"
+                      >
+                        {savedDocuments.map((attachment) => {
+                          const canPreview =
+                            !attachment.textOnly ||
+                            extractDateiTextFromContent(rawContent, attachment.name).length > 0
+                          const chipContent = (
+                            <>
+                              <img
+                                className="ui-icon chat-attachment-chip-icon"
+                                src={fileIcon}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                              <span className="chat-attachment-chip-name">{attachment.name}</span>
+                            </>
+                          )
+                          if (canPreview && onDocumentPreview) {
+                            return (
+                              <button
+                                key={`${message.id}-datei-${attachment.id}`}
+                                type="button"
+                                className="chat-attachment-chip chat-attachment-chip--saved-file chat-attachment-chip--preview"
+                                aria-label={`Dokument «${attachment.name}» anzeigen`}
+                                onClick={() =>
+                                  onDocumentPreview({
+                                    attachment,
+                                    messageContent: rawContent,
+                                  })
+                                }
+                              >
+                                {chipContent}
+                              </button>
+                            )
+                          }
+                          return (
+                            <span
+                              key={`${message.id}-datei-${attachment.id}`}
+                              className="chat-attachment-chip chat-attachment-chip--saved-file"
+                            >
+                              {chipContent}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {userMessageShowBubble ? (
+                  <div
+                    ref={
+                      userMessageLongPress.shouldShowCopyMenu(message.id)
+                        ? userMessageMenuAnchorRef
+                        : undefined
+                    }
+                    className={`chat-message is-user chat-user-message-bubble${
+                      userMessagePressActive ? ' is-message-press-active' : ''
+                    }`}
+                    {...userMessageLongPressHandlers}
+                  >
+                    {userSectionReplyParsed?.sectionRef ? (
+                      <ChatMessageReplyQuotePreview reference={userSectionReplyParsed.sectionRef} />
+                    ) : null}
+                    {showInstantAnalyzeDebug && message.metadata?.instantAnalyzeDebug ? (
+                      <ChatInstantAnalyzeDebugPanel debug={message.metadata.instantAnalyzeDebug} />
+                    ) : null}
+                    {showInstantAnalyzeDebug && message.metadata?.thinkingAnalyzeDebug ? (
+                      <ChatThinkingAnalyzeDebugPanel debug={message.metadata.thinkingAnalyzeDebug} />
+                    ) : null}
+                    {displayContent ? <p>{renderInlineMarkdown(displayContent)}</p> : null}
+                    {isMobileComposer && userMessageLongPress.shouldShowCopyMenu(message.id) ? (
+                      <ChatUserMessageActionMenu
+                        anchorRef={userMessageMenuAnchorRef}
+                        onCopy={() => {
+                          const text = userMessageLongPress.getMenuCopyText()
+                          if (!text) {
+                            return false
+                          }
+                          return onCopyUserMessage(text)
+                        }}
+                        onClose={userMessageLongPress.closeMenu}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            )
+          }
 
           return (
             <article
               key={message.id}
-              className={`chat-message ${message.role === 'user' ? 'is-user' : 'is-assistant'}${isStreamingAssistant ? ' chat-message--streaming' : ''}${
-                isLatestMessage && message.role === 'user' ? ' chat-message--user-enter' : ''
-              }${isLatestMessage && isAssistant ? ' chat-message--assistant-enter' : ''}${
-                userMessagePressActive ? ' is-message-press-active' : ''
+              className={`chat-message is-assistant${isStreamingAssistant ? ' chat-message--streaming' : ''}${
+                isLatestMessage ? ' chat-message--assistant-enter' : ''
               }`}
-              {...userMessageLongPressHandlers}
             >
               {showOrbitLoader ? (
                 <div className="chat-message-orbit-loader-wrap">
@@ -372,83 +532,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   ) : null}
                 </strong>
               ) : null}
-              {showUserInlineImages ? (
-                <div className="chat-user-inline-images" aria-label="Eingefügte Bilder">
-                  {pastedImageIds.map((imageId) => {
-                    const inlineSrc =
-                      sentPastedImagePreviews[imageId] ??
-                      extractBildDataUrlFromStoredContent(rawContent, imageId)
-                    if (inlineSrc) {
-                      return (
-                        <button
-                          key={imageId}
-                          type="button"
-                          className="chat-user-inline-image-trigger"
-                          aria-label="Bild vergrößern"
-                          onClick={() => onImagePreview(inlineSrc)}
-                        >
-                          <img className="chat-user-inline-image" src={inlineSrc} alt="Eingefügtes Bild" />
-                        </button>
-                      )
-                    }
-                    const storagePath =
-                      extractChatMediaStoragePathFromStoredContent(rawContent, imageId) ??
-                      (message.metadata?.visionImage?.attachmentId === imageId
-                        ? message.metadata.visionImage.path
-                        : undefined)
-                    if (!storagePath) {
-                      return null
-                    }
-                    return (
-                      <ChatMediaInlineImage
-                        key={imageId}
-                        storagePath={storagePath}
-                        alt="Eingefügtes Bild"
-                        className="chat-user-inline-image"
-                        onPreview={onImagePreview}
-                      />
-                    )
-                  })}
-                </div>
-              ) : null}
-              {message.role === 'user' && savedDateiNames.length > 0 ? (
-                <div className="chat-user-saved-attachments chat-attachment-chips" aria-label="Angehängte Dateien">
-                  {savedDateiNames.map((name, fileIndex) => (
-                    <span
-                      key={`${message.id}-datei-${fileIndex}`}
-                      className="chat-attachment-chip chat-attachment-chip--saved-file"
-                    >
-                      <img
-                        className="ui-icon chat-attachment-chip-icon"
-                        src={fileIcon}
-                        alt=""
-                        aria-hidden="true"
-                      />
-                      <span className="chat-attachment-chip-name">{name}</span>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {userSectionReplyParsed?.sectionRef ? (
-                <ChatMessageReplyQuotePreview reference={userSectionReplyParsed.sectionRef} />
-              ) : null}
-              {message.role === 'user' &&
-              showInstantAnalyzeDebug &&
-              message.metadata?.instantAnalyzeDebug ? (
-                <ChatInstantAnalyzeDebugPanel debug={message.metadata.instantAnalyzeDebug} />
-              ) : null}
-              {message.role === 'user' &&
-              showInstantAnalyzeDebug &&
-              message.metadata?.thinkingAnalyzeDebug ? (
-                <ChatThinkingAnalyzeDebugPanel debug={message.metadata.thinkingAnalyzeDebug} />
-              ) : null}
               {thinkingClarifyStreaming ? (
                 <p className="chat-thinking-stream-hint" role="status">
                   KI formuliert eine Rückfrage…
                 </p>
               ) : displayContent ? (
-                isAssistant ? (
-                  !hasInteractiveQuiz ? (
+                !hasInteractiveQuiz ? (
                     (() => {
                       if (message.metadata?.wordExport || message.metadata?.excelExport || message.metadata?.pdfExport) {
                         return (
@@ -575,9 +664,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                       ) : null}
                     </div>
                   )
-                ) : (
-                  <p>{renderInlineMarkdown(displayContent)}</p>
-                )
               ) : null}
               {showAssistantCopyButton ? (
                 <ChatAssistantMessageCopyButton
@@ -720,18 +806,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   onAction={() => {
                     void downloadPdfExport(message)
                   }}
-                />
-              ) : null}
-              {isMobileComposer && userMessageLongPress.shouldMountMenuOverlay(message.id) ? (
-                <ChatUserMessageMenuSelect
-                  ref={userMessageLongPress.menuSelectRef}
-                  onSelectCopy={() => {
-                    const text = userMessageLongPress.getMenuCopyText()
-                    if (text) {
-                      void onCopyUserMessage(text)
-                    }
-                  }}
-                  onClose={userMessageLongPress.closeMenu}
                 />
               ) : null}
 

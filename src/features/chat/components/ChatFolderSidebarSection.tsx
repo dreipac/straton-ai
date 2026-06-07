@@ -29,7 +29,7 @@ export function ChatFolderSidebarSection({
   function toggleFolder(folderId: string) {
     setExpandedFolderIds((prev) => ({
       ...prev,
-      [folderId]: !prev[folderId],
+      [folderId]: !(prev[folderId] ?? true),
     }))
   }
 

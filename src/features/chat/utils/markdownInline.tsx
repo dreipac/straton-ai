@@ -129,42 +129,6 @@ function renderEmailsThenBold(text: string, keyBase: string): ReactNode[] {
   return out
 }
 
-function renderPlainBoldUrlsAndEmailsWithoutMath(text: string, keyBase: string): ReactNode[] {
-  const urlRe = /https?:\/\/[^\s<]+/gi
-  const out: ReactNode[] = []
-  let last = 0
-  let m: RegExpExecArray | null
-  let idx = 0
-
-  while ((m = urlRe.exec(text)) !== null) {
-    if (m.index > last) {
-      const chunk = text.slice(last, m.index)
-      out.push(...renderEmailsThenBold(chunk, `${keyBase}-pre${idx++}`))
-    }
-    const href = trimTrailingPunctuation(m[0])
-    out.push(
-      <a
-        key={`${keyBase}-u${idx++}`}
-        className="chat-md-link-pill"
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {hostnameFromUrl(href)}
-      </a>,
-    )
-    last = m.index + m[0].length
-  }
-  if (last < text.length) {
-    out.push(...renderEmailsThenBold(text.slice(last), `${keyBase}-post${idx++}`))
-  }
-  return out
-}
-
-function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[] {
-  return renderInlineMathNodes(text, renderPlainBoldUrlsAndEmailsWithoutMath, keyBase)
-}
-
 function withKeys(nodes: ReactNode[], prefix: string): ReactNode[] {
   return nodes.map((n, i) => {
     if (typeof n === 'object' && n !== null && 'key' in (n as object) && (n as { key?: unknown }).key != null) {
@@ -172,6 +136,81 @@ function withKeys(nodes: ReactNode[], prefix: string): ReactNode[] {
     }
     return <span key={`${prefix}-${i}`}>{n}</span>
   })
+}
+
+const BADGE_INLINE_RE = /\[badge(?::(blue|green|orange|gray|teal))?\]([\s\S]*?)\[\/badge\]/gi
+
+function renderBadgeSegments(text: string, keyBase: string, renderRest: (chunk: string, kb: string) => ReactNode[]): ReactNode[] {
+  const out: ReactNode[] = []
+  let last = 0
+  let idx = 0
+  BADGE_INLINE_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = BADGE_INLINE_RE.exec(text)) !== null) {
+    if (match.index > last) {
+      out.push(...renderRest(text.slice(last, match.index), `${keyBase}-pre${idx++}`))
+    }
+    const variant = (match[1] ?? 'blue').toLowerCase()
+    const label = match[2]?.trim() ?? ''
+    out.push(
+      <span
+        key={`${keyBase}-badge-${idx++}`}
+        className={`chat-md-badge chat-md-badge--${
+          variant === 'green' || variant === 'orange' || variant === 'gray' || variant === 'teal'
+            ? variant
+            : 'blue'
+        }`}
+      >
+        {label ? renderInlineMarkdown(label) : null}
+      </span>,
+    )
+    last = match.index + match[0].length
+  }
+  if (last < text.length) {
+    out.push(...renderRest(text.slice(last), `${keyBase}-post${idx++}`))
+  }
+  if (out.length === 0) {
+    return renderRest(text, keyBase)
+  }
+  return out
+}
+
+function renderPlainBoldUrlsAndEmailsWithoutMath(text: string, keyBase: string): ReactNode[] {
+  return renderBadgeSegments(text, keyBase, (chunk, kb) => {
+    const urlRe = /https?:\/\/[^\s<]+/gi
+    const out: ReactNode[] = []
+    let last = 0
+    let m: RegExpExecArray | null
+    let idx = 0
+
+    while ((m = urlRe.exec(chunk)) !== null) {
+      if (m.index > last) {
+        const inner = chunk.slice(last, m.index)
+        out.push(...renderEmailsThenBold(inner, `${kb}-pre${idx++}`))
+      }
+      const href = trimTrailingPunctuation(m[0])
+      out.push(
+        <a
+          key={`${kb}-u${idx++}`}
+          className="chat-md-link-pill"
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {hostnameFromUrl(href)}
+        </a>,
+      )
+      last = m.index + m[0].length
+    }
+    if (last < chunk.length) {
+      out.push(...renderEmailsThenBold(chunk.slice(last), `${kb}-post${idx++}`))
+    }
+    return out
+  })
+}
+
+function renderPlainBoldUrlsAndEmails(text: string, keyBase: string): ReactNode[] {
+  return renderInlineMathNodes(text, renderPlainBoldUrlsAndEmailsWithoutMath, keyBase)
 }
 
 function assistantInlineImageEl(

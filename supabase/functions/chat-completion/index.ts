@@ -10,7 +10,7 @@ import {
   geminiChatCompletion,
   GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
 } from './geminiChat.ts'
-import { geminiGenerateText } from './geminiClient.ts'
+import { geminiGenerateText, isGeminiTransientFailure } from './geminiClient.ts'
 import {
   GEMINI_CONTEXT_CACHE_INTENT,
   GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
@@ -2791,8 +2791,14 @@ async function thinkingAnalyzeWithAi(
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
   if (isGeminiInstantEnabled()) {
-    await getProviderApiKey('gemini')
-    return thinkingAnalyzeWithGemini(userMessage, contextBlock)
+    try {
+      return await thinkingAnalyzeWithGemini(userMessage, contextBlock)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_analyze gemini unavailable, fallback openai', geminiErr)
+    }
   }
   const system = buildThinkingAnalyzeSystemPromptBase('gpt-5-mini')
   const userParts = [
@@ -2822,8 +2828,14 @@ async function thinkingDraftWithAi(
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ draft: string; usage: AiCallResult }> {
   if (isGeminiInstantEnabled()) {
-    await getProviderApiKey('gemini')
-    return thinkingDraftWithGemini(userMessage, contextBlock, analyzeBriefing)
+    try {
+      return await thinkingDraftWithGemini(userMessage, contextBlock, analyzeBriefing)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_draft gemini unavailable, fallback openai', geminiErr)
+    }
   }
   const system = [
     'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
@@ -2873,8 +2885,14 @@ async function thinkingReviewWithAi(
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
   if (isGeminiInstantEnabled()) {
-    await getProviderApiKey('gemini')
-    return thinkingReviewWithGemini(userMessage, analyzeBriefing, draftText)
+    try {
+      return await thinkingReviewWithGemini(userMessage, analyzeBriefing, draftText)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_review gemini unavailable, fallback openai', geminiErr)
+    }
   }
   const system = [
     'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
@@ -2976,7 +2994,14 @@ async function instantAnalyzeWithAi(
   openAiPromptCache?: OpenAiPromptCacheOptions,
 ): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
   if (isGeminiInstantEnabled()) {
-    return instantAnalyzeWithGemini(userMessage, contextBlock)
+    try {
+      return await instantAnalyzeWithGemini(userMessage, contextBlock)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] instant_analyze gemini unavailable, fallback openai', geminiErr)
+    }
   }
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
@@ -3701,21 +3726,20 @@ serve(async (req) => {
       if (!analyzePayload) {
         return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Instant-Einordnung.' }, 400)
       }
-      const useGemini = isGeminiInstantEnabled() || provider === 'gemini'
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'instant_analyze',
         clientPromptCacheKey,
         clientPromptCacheRetention,
       )
-      const { analyze, usage } = useGemini
-        ? await instantAnalyzeWithGemini(analyzePayload.userMessage, analyzePayload.contextBlock)
-        : await instantAnalyzeWithAi(
-            await getProviderApiKey('openai'),
-            analyzePayload.userMessage,
-            analyzePayload.contextBlock,
-            openAiPc,
-          )
-      await tryLogTokenUsage(admin, user.id, useGemini ? 'gemini' : 'openai', mode, usage)
+      const openAiKey = await getProviderApiKey('openai')
+      const { analyze, usage } = await instantAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        openAiPc,
+      )
+      const loggedProvider = usage.model.includes('gemini') ? 'gemini' : 'openai'
+      await tryLogTokenUsage(admin, user.id, loggedProvider, mode, usage)
       return jsonResponse({ analyze })
     }
 
@@ -3930,26 +3954,33 @@ serve(async (req) => {
         geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_THINKING_REPLY
           ? GEMINI_CONTEXT_CACHE_THINKING_REPLY
           : geminiPromptCacheKey ?? GEMINI_CONTEXT_CACHE_THINKING_REPLY
-      const geminiResult = await geminiChatCompletion(chatMessages, {
-        model: geminiModelOverride,
-        maxOutputTokens: chatMaxTokens,
-        contextCacheKey: thinkingCacheKey,
-      })
-      await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
-        text: geminiResult.text,
-        model: geminiResult.model,
-        inputTokens: geminiResult.inputTokens,
-        outputTokens: geminiResult.outputTokens,
-        ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
-          ? { cachedPromptTokens: geminiResult.cachedInputTokens }
-          : {}),
-      })
-      return jsonResponse({
-        assistantMessage: {
-          role: 'assistant',
-          content: geminiResult.text,
-        },
-      })
+      try {
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: geminiModelOverride,
+          maxOutputTokens: chatMaxTokens,
+          contextCacheKey: thinkingCacheKey,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] thinking chat gemini unavailable, fallback openai', geminiErr)
+      }
     }
 
     const useGeminiMainChat =
@@ -3961,29 +3992,36 @@ serve(async (req) => {
 
     if (useGeminiMainChat) {
       await getProviderApiKey('gemini')
-      const geminiResult = await geminiChatCompletion(chatMessages, {
-        model: geminiModelOverride,
-        maxOutputTokens: chatMaxTokens,
-        contextCacheKey:
-          geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
-            ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
-            : geminiPromptCacheKey ?? undefined,
-      })
-      await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
-        text: geminiResult.text,
-        model: geminiResult.model,
-        inputTokens: geminiResult.inputTokens,
-        outputTokens: geminiResult.outputTokens,
-        ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
-          ? { cachedPromptTokens: geminiResult.cachedInputTokens }
-          : {}),
-      })
-      return jsonResponse({
-        assistantMessage: {
-          role: 'assistant',
-          content: geminiResult.text,
-        },
-      })
+      try {
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: geminiModelOverride,
+          maxOutputTokens: chatMaxTokens,
+          contextCacheKey:
+            geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+              ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+              : geminiPromptCacheKey ?? undefined,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] main chat gemini unavailable, fallback openai', geminiErr)
+      }
     }
 
     if (body.stream === true && mode === 'chat' && provider === 'openai') {
