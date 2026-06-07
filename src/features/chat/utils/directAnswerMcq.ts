@@ -1,3 +1,5 @@
+import { normalizeDocumentIntentUserText } from '../constants/documentAttachmentIntent'
+
 export type DirectAnswerMcqOption = { letter: string; text: string }
 
 export type DirectAnswerMcqPreviewData = {
@@ -101,10 +103,7 @@ const ANSWER_TEXT_LINE_RE =
   /(?:\*\*)?(?:Antwort|Answer|Richtige\s+Antwort)(?:\*\*)?\s*:\s*(.+?)(?:\s*[-–—]\s*|$)/i
 
 function stripAttachmentBlocks(text: string): string {
-  return text
-    .replace(/\[Datei:[^\]]+\]/gi, '')
-    .replace(/@chat-media:[^\s]+/gi, '')
-    .trim()
+  return normalizeDocumentIntentUserText(text)
 }
 
 function parseOptionLine(line: string): { text: string; explicitLetter?: string } | null {
@@ -332,8 +331,9 @@ export function resolveMcqUserContentFromThread(
     if (m.role !== 'user') {
       continue
     }
-    if (parseMcqQuestionFromUserMessage(m.content)) {
-      return m.content
+    const routingContent = stripAttachmentBlocks(m.content)
+    if (routingContent && parseMcqQuestionFromUserMessage(routingContent)) {
+      return routingContent
     }
   }
   return null

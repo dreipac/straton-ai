@@ -56,7 +56,7 @@ export function useChatComposer({
 }: UseChatComposerArgs) {
   const isMobileComposer = useMediaQuery(CHAT_WINDOW_MOBILE_COMPOSER_MQ)
   const mobileComposerCompact = useMobileComposerCompact()
-  const isMobileCompactComposer = isMobileComposer && mobileComposerCompact
+  const isMobileCompactComposer = mobileComposerCompact
   const { push: pushToast } = useToast()
 
   const [draft, setDraft] = useState('')

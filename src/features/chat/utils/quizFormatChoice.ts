@@ -78,6 +78,34 @@ export function shouldPromptQuizFormatChoice(
   return detectExplicitQuizFormatInText(text) === null
 }
 
+/** Strukturhinweis an die Analyze-KI, wenn der Client Quiz-Generierung erkannt hat. */
+export function buildInstantAnalyzeQuizGenerateStructuralHint(userMessage: string): string | null {
+  if (!matchQuizPracticeIntent(userMessage)) {
+    return null
+  }
+  const explicit = detectExplicitQuizFormatInText(userMessage)
+  return [
+    '[Struktur erkannt: Nutzer will Quiz / Übungsfragen mit Auswahloptionen erzeugen — Antwort muss in der Chat-UI als MC-Karten renderbar sein]',
+    explicit === 'interactive'
+      ? 'Gewünschtes Format: interaktives Quiz mit STRATON_QUIZ_JSON-Block (Freitext, keine A–D-Checkboxen).'
+      : 'Gewünschtes Format: Markdown-Multiple-Choice — pro Frage eine Zeile `1. Fragentext`, direkt darunter je eine Zeile `A) …` `B) …` `C) …` `D) …` (nicht in einen Absatz).',
+    'Einordnung: category chat, action answer, task_type quiz_generate, reply_mode normal.',
+    '',
+  ].join('\n')
+}
+
+export const QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING = [
+  'Quiz erzeugen — Multiple-Choice-Karten (verbindlich):',
+  '- Nach Einleitung optional `## Fragen`, dann pro Frage:',
+  '  `1. Fragentext`',
+  '  `A) …`',
+  '  `B) …`',
+  '  `C) …`',
+  '  `D) …`',
+  '- Jede Option **eigene Zeile** (mit oder ohne `-` davor) — die App rendert Checkbox-Karten.',
+  '- Kein Quiz-JSON, keine Marker, keine lose formatierten Absätze mit A) B) C) in einer Zeile.',
+].join('\n')
+
 export function getQuizFormatGenerationInstruction(choice: QuizFormatChoice): string {
   if (choice === 'markdown_mcq') {
     return [

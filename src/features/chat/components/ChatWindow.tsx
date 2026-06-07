@@ -583,6 +583,7 @@ export function ChatWindow({
         pendingPdfGeneration={pendingPdfGeneration}
         pendingChartGeneration={pendingChartGeneration}
         pendingStatusLabel={pendingStatusLabel}
+        sendPhase={sendPhase}
         showLatestAssistantOrbitLoader={showLatestAssistantOrbitLoader}
         streamingStatusLabel={streamingStatusLabel}
         userMessageLongPress={userMessageLongPress}

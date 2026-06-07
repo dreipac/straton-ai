@@ -18,6 +18,10 @@ import {
   buildInstantAnalyzeDirectAnswerSection,
   userMessageRequestsDirectAnswer,
 } from './chatDirectAnswerInstruction'
+import {
+  buildDocumentVisibilityTurnBriefing,
+  userAsksDocumentVisibilityQuestion,
+} from './documentAttachmentIntent'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
 import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
 import {
@@ -137,6 +141,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — Name aus Konto, Persönliches aus Einführung.',
     '- Verbrauch, Limits, Guthaben, Abo, «was kann ich noch nutzen», «wie viel habe ich verbraucht», «sind die Verbrauchsdaten aktuell»: category "chat", action "answer", reply_mode "short_answer", clarity "clear" — Kurzantwort + Marker [[STRATON_SUBSCRIPTION_USAGE]] (App zeigt Karten); needs_live_web **false** (Daten aus Straton-Konto, keine Websuche).',
     '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
+    '- `[Datei:…]`-Anhang + «siehst du den Inhalt?», «kannst du lesen?» → category chat, action answer, task_type explanation, explanation_depth brief — **kein** summary, **kein** mc_solve.',
     '- Nutzer postet Multiple-Choice / Auswahlfrage mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → reply_mode "short_answer", action "short_answer", clarity "clear" — **nicht** normal mit Erklärblock.',
     '- Kurze Folge «bitte die richtige Antwort» / «correct answer only» nach MC-Frage im Verlauf → reply_mode "short_answer".',
     '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste», sowie **Straton-Verbrauch/Limits/Guthaben** auch bei «aktuell/derzeit/momentan».',
@@ -407,12 +412,40 @@ export function applyTaskSolveHeuristic(
   })
 }
 
+/** «Siehst du den Inhalt?» + Anhang — kurze Bestätigung, kein Summary/Quiz. */
+export function applyDocumentVisibilityHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  hasDocumentFileAttachment = false,
+): InstantAnalyzeResult {
+  if (!hasDocumentFileAttachment || !userAsksDocumentVisibilityQuestion(userMessage)) {
+    return analyze
+  }
+  return syncReplyModeWithRoute({
+    ...analyze,
+    category: 'chat',
+    action: 'answer',
+    reply_mode: 'short_answer',
+    clarity: 'clear',
+    missing: [],
+    needs_live_web: false,
+    web_query: '',
+    web_reason: '',
+    task_type: 'explanation',
+    explanation_depth: 'brief',
+    intent: 'Anhang-Sichtbarkeit bestätigen',
+  })
+}
+
 /** MC / Zertifizierung / «nur die Antwort» → short_answer, nicht Erklär-Essay. */
 export function applyDirectAnswerHeuristic(
   userMessage: string,
   analyze: InstantAnalyzeResult,
   priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
 ): InstantAnalyzeResult {
+  if (userAsksDocumentVisibilityQuestion(userMessage)) {
+    return analyze
+  }
   if (analyze.category === 'document' || analyze.category === 'chart') {
     return analyze
   }
@@ -605,6 +638,11 @@ export function applyInstantAnalyzeHeuristics(
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
     priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
   })
+  result = applyDocumentVisibilityHeuristic(
+    userMessage,
+    result,
+    options?.hasDocumentFileAttachment === true,
+  )
   result = applyDirectAnswerHeuristic(userMessage, result, options?.priorTurns)
   result = applyInstantChatTaskTypeHeuristic(userMessage, result, {
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment,
@@ -741,6 +779,19 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
 
   if (isDocumentSummaryExport) {
     lines.push(buildDocumentExportSummaryTurnBriefing())
+  } else if (
+    analyze.task_type === 'explanation' &&
+    analyze.explanation_depth === 'brief' &&
+    /sichtbar|anhang|lesbar/i.test(analyze.intent)
+  ) {
+    lines.push(buildDocumentVisibilityTurnBriefing())
+  } else if (analyze.task_type === 'quiz_generate') {
+    lines.push(buildInstantTaskTypeTurnBriefing(analyze))
+    if (!/interaktiv/i.test(analyze.intent)) {
+      lines.push(
+        'Quiz-Ausgabe (UI): Markdown-MC mit `1. Frage` + `A)–D)` je eigene Zeile — sonst keine Checkbox-Karten in der App.',
+      )
+    }
   } else {
     lines.push(buildInstantTaskTypeTurnBriefing(analyze))
   }

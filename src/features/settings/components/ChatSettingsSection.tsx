@@ -10,8 +10,6 @@ type ChatSettingsSectionProps = {
   mobileComposerCompact: boolean
   onToggleMobileComposerCompact: () => void
   chatFoldersFeatureEnabled: boolean
-  mobileFoldersInSidebar: boolean
-  onToggleMobileFoldersInSidebar: () => void
   desktopFoldersInSidebar: boolean
   onToggleDesktopFoldersInSidebar: () => void
   autoRemoveEmptyChats: boolean
@@ -71,8 +69,6 @@ export function ChatSettingsSection({
   mobileComposerCompact,
   onToggleMobileComposerCompact,
   chatFoldersFeatureEnabled,
-  mobileFoldersInSidebar,
-  onToggleMobileFoldersInSidebar,
   desktopFoldersInSidebar,
   onToggleDesktopFoldersInSidebar,
   autoRemoveEmptyChats,
@@ -118,8 +114,8 @@ export function ChatSettingsSection({
         <div className="chat-setting-copy">
           <h3>Kompakte Nachrichtenbox</h3>
           <p>
-            Nur auf dem Handy: eine Zeile mit rundem Anhang-Button links, pill-förmiger Eingabe in der Mitte und Senden
-            rechts. KI-Modell, Antwortmodus und Thinking bleiben in der Leiste oben im Chat.
+            Eine Zeile mit rundem Anhang-Button links, pill-förmiger Eingabe in der Mitte und Senden rechts — auf Handy
+            und Desktop. KI-Modell, Antwortmodus und Thinking bleiben in der Leiste oben im Chat.
           </p>
         </div>
         <button
@@ -137,27 +133,6 @@ export function ChatSettingsSection({
       <div className="chat-setting-divider" />
       {chatFoldersFeatureEnabled ? (
         <>
-          <div className="chat-setting-row">
-            <div className="chat-setting-copy">
-              <h3>Ordner in der Sidebar (Mobile)</h3>
-              <p>
-                Standard: Ordner nur über den Tab «Ordner» in der unteren Leiste. Wenn aktiviert, erscheinen Ordner
-                zusätzlich in der Menü-Sidebar.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`ios-switch ${mobileFoldersInSidebar ? 'is-on' : ''}`}
-              aria-label="Ordner in der mobilen Sidebar anzeigen"
-              aria-pressed={mobileFoldersInSidebar}
-              onClick={onToggleMobileFoldersInSidebar}
-            >
-              <span className="ios-switch-track" aria-hidden="true">
-                <span className="ios-switch-thumb" />
-              </span>
-            </button>
-          </div>
-          <div className="chat-setting-divider" />
           <div className="chat-setting-row">
             <div className="chat-setting-copy">
               <h3>Ordner in der Sidebar (Desktop)</h3>

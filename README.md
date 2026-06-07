@@ -69,7 +69,11 @@ src/
 ## KI-Keys vorbereiten (empfohlen)
 
 1. In Supabase zu **Project Settings -> Edge Functions -> Secrets** gehen.
-2. Für den üblichen Betrieb **beide** Secrets setzen: `OPENAI_API_KEY` (Chat) und `ANTHROPIC_API_KEY` (Lernpfad / Claude Sonnet). Optional: Secret `ANTHROPIC_MODEL` in der Edge Function (Standard im Code: `claude-sonnet-4-6`; ältere Sonnet-IDs sind oft deaktiviert).
+2. Secrets in **Project Settings → Edge Functions → Secrets**:
+   - `OPENAI_API_KEY` — Thinking-Modus, Lernpfad, Titel, …
+   - `GEMINI_API_KEY` — **Smart Instant** (Hauptchat + Einordnung), Modell `gemini-3.1-flash-lite` ([Google AI Studio → API Keys](https://aistudio.google.com/apikey))
+   - `ANTHROPIC_API_KEY` — optional, falls du Features mit Claude nutzt
+   - Optional: `ANTHROPIC_MODEL` (Standard: `claude-sonnet-4-6`)
 3. In `.env` `VITE_AI_PROVIDER=openai` (oder `anthropic`, gleiche Bedeutung) — nicht `mock`.
 4. Edge Function `chat-completion` deployen (oder lokal neu starten).
 5. Chat verwenden - die Keys laufen serverseitig ueber Supabase Edge Functions.

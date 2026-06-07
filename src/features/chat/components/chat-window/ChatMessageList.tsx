@@ -18,6 +18,7 @@ import {
   stripExcelSpecBlock,
 } from '../../excel/excelSpec'
 import { userMessageHadDirectAnswerIntent } from '../../constants/chatDirectAnswerInstruction'
+import { stripComposerAttachmentBlocksForRouting } from '../../utils/chatRoutingText'
 import {
   messageContainsSubscriptionUsageMarker,
   stripSubscriptionUsageMarker,
@@ -58,7 +59,7 @@ import { canFinalizePdfExportFromThread } from '../../pdf/pdfOutline'
 import type { ChatThinkingMode } from '../../constants/chatThinkingMode'
 import type { useUserMessageLongPress } from '../../hooks/useUserMessageLongPress'
 import type { QuizAnswerState } from '../../hooks/useChatMessageList'
-import { getChatSendPhaseLabel } from '../../constants/chatSendPhase'
+import { getChatSendPhaseLabel, type ChatSendPhaseState } from '../../constants/chatSendPhase'
 import {
   EXCEL_GEN_MATRIX_CELLS,
   EXCEL_GEN_MATRIX_COLS,
@@ -101,6 +102,7 @@ export type ChatMessageListProps = {
   pendingPdfGeneration: boolean
   pendingChartGeneration: boolean
   pendingStatusLabel: string | undefined
+  sendPhase: ChatSendPhaseState
   showLatestAssistantOrbitLoader: boolean
   streamingStatusLabel: string
   userMessageLongPress: ReturnType<typeof useUserMessageLongPress>
@@ -147,6 +149,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     pendingPdfGeneration,
     pendingChartGeneration,
     pendingStatusLabel,
+    sendPhase,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,
     userMessageLongPress,
@@ -203,13 +206,20 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   precedingUserForWordPaper.metadata,
                 ),
             )
+          const precedingUserRoutingText = precedingUserForWordPaper
+            ? stripComposerAttachmentBlocksForRouting(precedingUserForWordPaper.content)
+            : ''
           const isDirectAnswerAssistantTurn =
             isAssistant &&
             Boolean(
               precedingUserForWordPaper &&
                 userMessageHadDirectAnswerIntent(
-                  precedingUserForWordPaper.content,
+                  precedingUserRoutingText,
                   precedingUserForWordPaper.metadata,
+                  messages
+                    .slice(0, messageIndex)
+                    .filter((m) => m.role === 'user' || m.role === 'assistant')
+                    .map((m) => ({ role: m.role, content: m.content })),
                 ),
             )
           const isSubscriptionUsageAssistantTurn =
@@ -221,7 +231,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const directAnswerMcq =
             isDirectAnswerAssistantTurn && precedingUserForWordPaper
               ? buildDirectAnswerMcqPreview(
-                  precedingUserForWordPaper.content,
+                  precedingUserRoutingText,
                   rawContent,
                   messages,
                   messageIndex,
@@ -495,7 +505,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                     {displayContent ? <p>{renderInlineMarkdown(displayContent)}</p> : null}
                     {isMobileComposer && userMessageLongPress.shouldShowCopyMenu(message.id) ? (
                       <ChatUserMessageActionMenu
+                        key={userMessageLongPress.menuState?.nonce}
                         anchorRef={userMessageMenuAnchorRef}
+                        menuNonce={userMessageLongPress.menuState?.nonce ?? 0}
                         onCopy={() => {
                           const text = userMessageLongPress.getMenuCopyText()
                           if (!text) {
@@ -521,7 +533,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
             >
               {showOrbitLoader ? (
                 <div className="chat-message-orbit-loader-wrap">
-                  <ChatPendingReplyLoader statusLabel={streamingStatusLabel} />
+                  <ChatPendingReplyLoader statusLabel={streamingStatusLabel} sendPhase={sendPhase} />
                 </div>
               ) : null}
               {showAssistantAuthor ? (
@@ -914,7 +926,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
         })}
           {showBootstrapPendingRow ? (
             <div className="chat-message-bootstrap-pending" aria-live="polite" aria-busy="true">
-              <ChatPendingReplyLoader statusLabel={bootstrapStatusLabel} />
+              <ChatPendingReplyLoader statusLabel={bootstrapStatusLabel} sendPhase={sendPhase} />
             </div>
           ) : null}
           {showPendingAssistantRow ? (
@@ -936,7 +948,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
               {pendingImageSearch ? (
                 <>
                   <strong className="chat-message-author">Straton AI</strong>
-                  <ChatPendingReplyLoader statusLabel={getChatSendPhaseLabel('image_search')} />
+                  <ChatPendingReplyLoader sendPhase="image_search" />
                 </>
               ) : null}
               {pendingImageGeneration ? (
@@ -1019,7 +1031,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 </div>
                 </>
               ) : (
-                <ChatPendingReplyLoader statusLabel={pendingStatusLabel} />
+                <ChatPendingReplyLoader statusLabel={pendingStatusLabel} sendPhase={sendPhase} />
               )}
             </div>
           ) : null}

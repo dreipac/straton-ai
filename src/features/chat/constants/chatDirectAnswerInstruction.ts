@@ -1,5 +1,6 @@
 import { countMcOptionLines, parseMcqQuestionFromUserMessage } from '../utils/directAnswerMcq'
 import { matchQuizPracticeIntent } from '../utils/quizFormatChoice'
+import { normalizeDocumentIntentUserText, userAsksDocumentVisibilityQuestion } from './documentAttachmentIntent'
 
 /** Nutzer will nur die richtige Option — keine Erklärung, keine Verbesserungen. */
 const DIRECT_ANSWER_REQUEST_RE =
@@ -51,8 +52,11 @@ export function userMessageRequestsDirectAnswer(
   userMessage: string,
   priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
 ): boolean {
-  const t = userMessage.trim()
+  const t = normalizeDocumentIntentUserText(userMessage)
   if (!t) {
+    return false
+  }
+  if (userAsksDocumentVisibilityQuestion(t)) {
     return false
   }
   if (userWantsQuizGeneration(t)) {

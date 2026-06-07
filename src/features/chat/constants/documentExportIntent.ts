@@ -1,13 +1,11 @@
 import type { InstantAnalyzeDocumentAction } from './instantAnalyzeRoute'
 import { EXCEL_EXPORT_INSTRUCTION } from './excelExportPrompt'
 import type { InstantAnalyzeResult } from './instantAnalyze'
+import { userMessageWantsDocumentSummary } from './documentAttachmentIntent'
 
 /** PDF/Word-Export mit Summary-Tiefe (ausführlich, zusammenfassend, …). */
 const DOCUMENT_EXPORT_SUMMARY_RE =
   /\b((?:ausführlich(?:e|es|er)?|zusammenfassend(?:e|es|er)?)\s+(?:pdf|word|docx|dokument)|(?:pdf|word|docx|dokument).{0,48}(?:ausführlich|zusammenfass)|zusammenfassend(?:e|es|er)?\s+(?:pdf|word|docx))\b/i
-
-const SUMMARY_KEYWORD_RE =
-  /\b(fasse\s+zusammen|zusammenfassung|zusammenfassen|überblick|ausführliche?\s+zusammenfassung|zusammenfass(?:e|en)\s+(?:mir|bitte|das|den|die|zu|von))\b/i
 
 export function userWantsSummaryDocumentExport(
   text: string,
@@ -17,13 +15,10 @@ export function userWantsSummaryDocumentExport(
   if (!t) {
     return false
   }
-  if (DOCUMENT_EXPORT_SUMMARY_RE.test(t) || SUMMARY_KEYWORD_RE.test(t)) {
+  if (DOCUMENT_EXPORT_SUMMARY_RE.test(t)) {
     return true
   }
-  if (hasDocumentFileAttachment && /\b(fass|zusammenfass|überblick|inhalt|lies|lese|auswert)\b/i.test(t)) {
-    return true
-  }
-  return false
+  return userMessageWantsDocumentSummary(t, hasDocumentFileAttachment)
 }
 
 export function isSummaryStyleDocumentExport(
@@ -79,7 +74,8 @@ export function buildInstantAnalyzeDocumentGenerateSection(): string {
   return [
     'Dokumente generieren (category "document" — nur bei explizitem Export-Wunsch):',
     '- Trennung Lesen vs. Erzeugen:',
-    '  - `[Datei:…]`-Anhang + «was siehst du», «fasse zusammen», «was steht drin», «analysiere» **ohne** «erstelle/exportiere Word/PDF/Excel» → category **chat**, action **answer** (nur Inhalt lesen).',
+    '  - `[Datei:…]`-Anhang + «siehst du den Inhalt?», «kannst du lesen?» → category **chat**, action **answer**, task_type **explanation**, explanation_depth **brief** (nur Sichtbarkeit — **kein** summary).',
+    '  - `[Datei:…]`-Anhang + «fasse zusammen», «was steht drin», «analysiere» **ohne** «erstelle/exportiere Word/PDF/Excel» → category **chat**, action **answer**.',
     '  - «Word/Docx erstellen», «als Word», /Word → document.**word_generate**.',
     '  - «PDF erstellen», «als PDF», /PDF → document.**pdf_generate**.',
     '  - «Excel/XLSX», «Tabelle exportieren», /Excel → document.**excel_generate**.',

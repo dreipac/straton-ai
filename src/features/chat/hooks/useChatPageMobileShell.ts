@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { COMPACT_MOBILE_SIDEBAR_MAX_PX } from '../components/chat-page/chatPageConstants'
-import { readMobileFoldersInSidebar } from '../constants/mobileFoldersInSidebar'
 import { readDesktopFoldersInSidebar } from '../constants/desktopFoldersInSidebar'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
 type UseChatPageMobileShellArgs = {
@@ -15,9 +14,6 @@ export function useChatPageMobileShell({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isMobileFoldersOpen, setIsMobileFoldersOpen] = useState(false)
-  const [mobileFoldersInSidebarEnabled, setMobileFoldersInSidebarEnabled] = useState(() =>
-    readMobileFoldersInSidebar(),
-  )
   const [desktopFoldersInSidebarEnabled, setDesktopFoldersInSidebarEnabled] = useState(() =>
     readDesktopFoldersInSidebar(),
   )
@@ -44,8 +40,7 @@ export function useChatPageMobileShell({
 
   const chatTourOverlayActive = chatTourEligible && (!isCompactMobileSidebarLayout || compactTourReveal)
   const showFoldersInSidebar =
-    chatFoldersFeatureEnabled &&
-    (isCompactMobileSidebarLayout ? mobileFoldersInSidebarEnabled : desktopFoldersInSidebarEnabled)
+    chatFoldersFeatureEnabled && !isCompactMobileSidebarLayout && desktopFoldersInSidebarEnabled
   const isMobileFoldersTabDisabled = !chatFoldersFeatureEnabled
 
   const computedMobileBottomNavTabIndex = isMobileSidebarOpen ? 0 : isMobileFoldersOpen ? 2 : 1
@@ -57,7 +52,6 @@ export function useChatPageMobileShell({
 
   useEffect(() => {
     const syncFolderSidebarPref = () => {
-      setMobileFoldersInSidebarEnabled(readMobileFoldersInSidebar())
       setDesktopFoldersInSidebarEnabled(readDesktopFoldersInSidebar())
     }
     window.addEventListener('focus', syncFolderSidebarPref)

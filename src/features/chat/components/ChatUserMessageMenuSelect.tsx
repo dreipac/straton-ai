@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 type ChatUserMessageActionMenuProps = {
   anchorRef: RefObject<HTMLElement | null>
+  menuNonce: number
   onCopy: () => boolean | Promise<boolean>
   onClose: () => void
 }
@@ -13,11 +14,15 @@ type ChatUserMessageActionMenuProps = {
  */
 export function ChatUserMessageActionMenu({
   anchorRef,
+  menuNonce,
   onCopy,
   onClose,
 }: ChatUserMessageActionMenuProps) {
   const [open, setOpen] = useState(false)
+  const [backdropInteractive, setBackdropInteractive] = useState(false)
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const openFrameRef = useRef<number | null>(null)
+  const openTimerRef = useRef<number | null>(null)
 
   const updatePosition = useCallback(() => {
     const anchor = anchorRef.current
@@ -29,12 +34,61 @@ export function ChatUserMessageActionMenu({
   }, [anchorRef])
 
   useLayoutEffect(() => {
+    setOpen(false)
+    setBackdropInteractive(false)
     updatePosition()
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setOpen(true))
+    void anchorRef.current?.offsetHeight
+
+    openFrameRef.current = requestAnimationFrame(() => {
+      openFrameRef.current = requestAnimationFrame(() => {
+        openFrameRef.current = null
+        setOpen(true)
+      })
     })
-    return () => cancelAnimationFrame(id)
-  }, [updatePosition])
+
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      setOpen(true)
+    }, 48)
+
+    return () => {
+      if (openFrameRef.current !== null) {
+        cancelAnimationFrame(openFrameRef.current)
+        openFrameRef.current = null
+      }
+      if (openTimerRef.current !== null) {
+        window.clearTimeout(openTimerRef.current)
+        openTimerRef.current = null
+      }
+      setOpen(false)
+      setBackdropInteractive(false)
+    }
+  }, [anchorRef, menuNonce, updatePosition])
+
+  useEffect(() => {
+    function enableBackdrop() {
+      requestAnimationFrame(() => {
+        setBackdropInteractive(true)
+      })
+    }
+
+    function onTouchRelease() {
+      document.removeEventListener('touchend', onTouchRelease, true)
+      document.removeEventListener('touchcancel', onTouchRelease, true)
+      enableBackdrop()
+    }
+
+    document.addEventListener('touchend', onTouchRelease, true)
+    document.addEventListener('touchcancel', onTouchRelease, true)
+
+    const fallbackTimer = window.setTimeout(enableBackdrop, 420)
+
+    return () => {
+      window.clearTimeout(fallbackTimer)
+      document.removeEventListener('touchend', onTouchRelease, true)
+      document.removeEventListener('touchcancel', onTouchRelease, true)
+    }
+  }, [menuNonce])
 
   useEffect(() => {
     updatePosition()
@@ -61,7 +115,9 @@ export function ChatUserMessageActionMenu({
     <div className="chat-user-message-menu-layer">
       <button
         type="button"
-        className={`chat-user-message-menu-backdrop${open ? ' is-open' : ''}`}
+        className={`chat-user-message-menu-backdrop${open ? ' is-open' : ''}${
+          backdropInteractive ? '' : ' is-touch-deferred'
+        }`}
         aria-label="Menü schließen"
         onClick={onClose}
       />

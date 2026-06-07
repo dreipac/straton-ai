@@ -1,8 +1,12 @@
 import { matchQuizPracticeIntent } from '../utils/quizFormatChoice'
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
 import {
-  userWantsSummaryDocumentExport,
-} from './documentExportIntent'
+  buildDocumentVisibilityTurnBriefing,
+  normalizeDocumentIntentUserText,
+  userAsksDocumentVisibilityQuestion,
+  userMessageWantsDocumentSummary,
+} from './documentAttachmentIntent'
+import { userWantsSummaryDocumentExport } from './documentExportIntent'
 import type { InstantAnalyzeResult } from './instantAnalyze'
 import { syncReplyModeWithRoute } from './instantAnalyzeRoute'
 
@@ -18,12 +22,6 @@ export const INSTANT_CHAT_TASK_TYPES: InstantChatTaskType[] = [
   'summary',
 ]
 
-const SUMMARY_REQUEST_RE =
-  /\b(fasse\s+zusammen|zusammenfassung|zusammenfassen|überblick|überblicks|stichwortartig|in\s+kapiteln|hauptpunkte\s+im\s+überblick|ausführliche?\s+zusammenfassung|zusammenfass(?:e|en)\s+(?:mir|bitte|das|den|die|zu|von))\b/i
-
-const SUMMARY_TOPIC_REQUEST_RE =
-  /\b(mach(?:e)?|erstell(?:e)?|schreib(?:e)?).{0,48}(ausführlich(?:e)?|zusammenfassung|zusammenfass(?:en|e))\b/i
-
 const DETAILED_EXPLANATION_RE =
   /\b(ausführlich|detailliert|gründlich|im\s+detail|schritt\s+für\s+schritt|unterschiede?\s+zwischen|vergleich(?:e)?|alles\s+erklären|gut\s+erklären|was\s+sind\s+die\s+unterschiede)\b/i
 
@@ -32,8 +30,6 @@ const COMPLEX_EXPLANATION_TOPIC_RE =
 
 const QUIZ_GENERATION_VERB_RE =
   /\b(?:erstell|generier|mach|schreib|erzeug|stell\s+.+\s+(?:fragen|quiz)|teste?\s+mich|frag(?:e|en)?\s+mich\s+ab)\b/i
-
-const FILE_ATTACHMENT_RE = /\[Datei:[^\]]+\][\s\S]*?\[\/Datei\]/i
 
 /** Thema/Inhalt fragen — kein Zusammenfassungsauftrag («fasse zusammen»). */
 const DOCUMENT_TOPIC_QUESTION_RE =
@@ -67,24 +63,11 @@ function userWantsQuizGeneration(text: string): boolean {
 }
 
 export function userMessageWantsSummary(text: string, hasDocumentFileAttachment = false): boolean {
-  const t = text.trim()
-  if (!t) {
-    return false
-  }
-  if (SUMMARY_REQUEST_RE.test(t) || SUMMARY_TOPIC_REQUEST_RE.test(t)) {
-    return true
-  }
-  if (hasDocumentFileAttachment && /\b(fass|zusammenfass|überblick|inhalt|lies|lese|auswert)\b/i.test(t)) {
-    return true
-  }
-  if (FILE_ATTACHMENT_RE.test(t) && /\b(fass|zusammenfass|überblick|inhalt)\b/i.test(t)) {
-    return true
-  }
-  return false
+  return userMessageWantsDocumentSummary(text, hasDocumentFileAttachment)
 }
 
 export function userAsksDocumentTopicQuestion(text: string): boolean {
-  const t = text.trim()
+  const t = normalizeDocumentIntentUserText(text)
   if (!t) {
     return false
   }
@@ -98,9 +81,12 @@ export function inferInstantExplanationDepth(
   if (taskType !== 'explanation') {
     return 'standard'
   }
-  const t = userMessage.trim()
+  const t = normalizeDocumentIntentUserText(userMessage)
   if (!t) {
     return 'standard'
+  }
+  if (userAsksDocumentVisibilityQuestion(t)) {
+    return 'brief'
   }
   if (userAsksDocumentTopicQuestion(t) && !userMessageWantsSummary(t)) {
     return 'brief'
@@ -128,9 +114,12 @@ export function classifyInstantChatTaskType(
     priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>
   },
 ): InstantChatTaskType {
-  const t = userMessage.trim()
+  const t = normalizeDocumentIntentUserText(userMessage)
   if (userMessageRequestsDirectAnswer(t, options?.priorTurns)) {
     return 'mc_solve'
+  }
+  if (userAsksDocumentVisibilityQuestion(t)) {
+    return 'explanation'
   }
   if (userAsksDocumentTopicQuestion(t) && !userMessageWantsSummary(t, options?.hasDocumentFileAttachment === true)) {
     return 'explanation'
@@ -210,6 +199,22 @@ export function applyInstantChatTaskTypeHeuristic(
     })
   }
 
+  if (options?.hasDocumentFileAttachment && userAsksDocumentVisibilityQuestion(userMessage)) {
+    next = syncReplyModeWithRoute({
+      ...next,
+      category: 'chat',
+      action: 'answer',
+      reply_mode: 'short_answer',
+      clarity: 'clear',
+      missing: [],
+      needs_live_web: false,
+      web_query: '',
+      task_type: 'explanation',
+      explanation_depth: 'brief',
+      intent: 'Anhang-Sichtbarkeit bestätigen',
+    })
+  }
+
   return next
 }
 
@@ -275,8 +280,9 @@ export function buildInstantAnalyzeTaskTypePromptSection(): string {
     'task_type — Regeln:',
     '- mc_solve: Nutzer postet MC/Auswahlfrage mit Optionen oder will nur die richtige Antwort → reply_mode short_answer.',
     '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve.',
-    '- summary: «fasse zusammen», «Zusammenfassung», «überblick», «ausführliche Zusammenfassung zu …», [Datei:…] + zusammenfassen → reply_mode normal, clarity clear.',
+    '- summary: nur **explizit** («fasse zusammen», «Zusammenfassung», «überblick», «lies/lese den Inhalt») — **nicht** «siehst du den Inhalt?» / «kannst du lesen?».',
     '- summary + document (PDF/Word): «ausführliches/zusammenfassendes PDF/Word», «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
+    '- explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → **nur** Sichtbarkeit bestätigen, **kein** summary/mc_solve.',
     '- explanation: offene Fragen, Erklären, Vergleiche, How-to — auch «über was geht es im Dokument?» / Thema-Fragen **ohne** Zusammenfassungswunsch (task_type explanation, depth brief).',
     '',
     'explanation_depth:',
@@ -299,8 +305,10 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
       return [
         'Aufgabentyp Quiz erzeugen (verbindlich):',
         '- Wenn «Gewähltes Quiz-Format» im System-Prompt steht: **nur dieses** Format.',
-        '- Ohne Formatwahl: kurz beide Optionen nennen (Markdown-MC vs. interaktives Quiz) — nicht beides mischen.',
-        '- MC: `1. Frage`, darunter `A) …` `B) …` usw.; interaktives Quiz: STRATON_QUIZ_JSON-Block laut System-Prompt.',
+        '- Ohne explizite Formatwahl: **Markdown-Multiple-Choice** (Checkbox-Karten in der App) — nicht beide Formate mischen.',
+        '- Pflicht pro Frage: Zeile `1. Fragentext`, darunter je eine Zeile `A) …` `B) …` `C) …` `D) …` (mind. 2 Optionen).',
+        '- Optional `## Fragen` vor der ersten Frage; Einleitungstext davor ist erlaubt.',
+        '- Nur bei explizitem Wunsch «interaktives Quiz»: STRATON_QUIZ_JSON-Block laut System-Prompt.',
       ].join('\n')
     case 'summary':
       return [
@@ -315,6 +323,9 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
     case 'explanation':
     default:
       if (analyze.explanation_depth === 'brief') {
+        if (/sichtbar|anhang|lesbar/i.test(analyze.intent)) {
+          return buildDocumentVisibilityTurnBriefing()
+        }
         return [
           'Aufgabentyp Erklärung — kurz (verbindlich):',
           '- Eine `##`-Überschrift, dann 1–3 klare Sätze oder eine kompakte Liste.',

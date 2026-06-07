@@ -1098,7 +1098,102 @@ function promoteShellCommandsToCodeBlocks(blocks: Block[]): Block[] {
 
 function isFragenHeading(text: string): boolean {
   const t = stripBoldMarkers(text).trim().replace(/:$/, '').trim()
-  return /^fragen$/i.test(t)
+  return /^(fragen|übungsfragen|verständnisfragen|prüfungsfragen|wissensfragen)$/i.test(t)
+}
+
+function parseMcqQuestionFromText(
+  text: string,
+): { questionNumber: number; prompt: string } | null {
+  const plain = stripBoldMarkers(text.trim())
+  const qm = plain.match(/^(\d{1,2})[.)]\s+(.+)$/s)
+  if (!qm) {
+    return null
+  }
+  return {
+    questionNumber: Math.max(1, Number.parseInt(qm[1], 10) || 1),
+    prompt: qm[2].trim(),
+  }
+}
+
+function tryParseMcqFromOlItem(
+  item: OlListItem,
+  fallbackQuestionNumber: number,
+): Extract<Block, { type: 'mcq' }> | null {
+  const bullets = olItemBullets(item)
+  if (bullets.length < 2 || !isMcqOptionsList(bullets)) {
+    return null
+  }
+  const options = parseMcqOptions(bullets)
+  if (options.length < 2) {
+    return null
+  }
+  const plain = olItemPlainText(item).trim()
+  const parsedQuestion = parseMcqQuestionFromText(plain)
+  const prompt = parsedQuestion?.prompt ?? plain
+  if (!prompt) {
+    return null
+  }
+  return {
+    type: 'mcq',
+    questionNumber: parsedQuestion?.questionNumber ?? fallbackQuestionNumber,
+    prompt,
+    options,
+  }
+}
+
+function tryParseMcqBatchFromOlBlock(
+  block: Extract<Block, { type: 'ol' }>,
+  questionOffset: number,
+): Extract<Block, { type: 'mcq' }>[] | null {
+  const mcqs: Extract<Block, { type: 'mcq' }>[] = []
+  for (let itemIndex = 0; itemIndex < block.items.length; itemIndex += 1) {
+    const mcq = tryParseMcqFromOlItem(block.items[itemIndex]!, questionOffset + mcqs.length + 1)
+    if (!mcq) {
+      break
+    }
+    mcqs.push(mcq)
+  }
+  return mcqs.length > 0 ? mcqs : null
+}
+
+function tryParseMcqFromParagraphOptions(
+  blocks: Block[],
+  index: number,
+): { block: Extract<Block, { type: 'mcq' }>; end: number } | null {
+  const p = blocks[index]
+  if (p?.type !== 'p') {
+    return null
+  }
+  const parsedQuestion = parseMcqQuestionFromText(p.text)
+  if (!parsedQuestion) {
+    return null
+  }
+  const options: McqOption[] = []
+  let j = index + 1
+  while (j < blocks.length) {
+    const next = blocks[j]
+    if (next?.type !== 'p') {
+      break
+    }
+    const opt = parseMcqOptionLine(next.text)
+    if (!opt) {
+      break
+    }
+    options.push(opt)
+    j += 1
+  }
+  if (options.length < 2) {
+    return null
+  }
+  return {
+    block: {
+      type: 'mcq',
+      questionNumber: parsedQuestion.questionNumber,
+      prompt: parsedQuestion.prompt,
+      options,
+    },
+    end: j,
+  }
 }
 
 function parseMcqOptionLine(raw: string): McqOption | null {
@@ -1128,6 +1223,44 @@ function tryParseSingleMcqBlock(
 ): { block: Extract<Block, { type: 'mcq' }>; end: number } | null {
   const ol = blocks[index]
   const ul = blocks[index + 1]
+
+  /** `- A) …` wird beim Lexen oft in die nummerierte Frage eingebettet — ein `ol`-Block ohne separates `ul`. */
+  if (ol?.type === 'ol' && ol.items.length === 1) {
+    const embedded = tryParseMcqFromOlItem(ol.items[0]!, 1)
+    if (embedded) {
+      return { block: embedded, end: index + 1 }
+    }
+  }
+
+  /** Selten: Optionen-`ul` steht vor der nummerierten Frage. */
+  const maybeUl = blocks[index]
+  const maybeOl = blocks[index + 1]
+  if (
+    maybeUl?.type === 'ul' &&
+    isMcqOptionsList(maybeUl.items) &&
+    maybeOl?.type === 'ol' &&
+    maybeOl.items.length === 1
+  ) {
+    const options = parseMcqOptions(maybeUl.items)
+    const prompt = olItemPlainText(maybeOl.items[0] ?? '').trim()
+    if (options.length >= 2 && prompt) {
+      const parsedQuestion = parseMcqQuestionFromText(prompt)
+      return {
+        block: {
+          type: 'mcq',
+          questionNumber: parsedQuestion?.questionNumber ?? 1,
+          prompt: parsedQuestion?.prompt ?? prompt,
+          options,
+        },
+        end: index + 2,
+      }
+    }
+  }
+
+  const paragraphMcq = tryParseMcqFromParagraphOptions(blocks, index)
+  if (paragraphMcq) {
+    return paragraphMcq
+  }
 
   if (ol?.type === 'ol' && ol.items.length === 1 && ul?.type === 'ul' && isMcqOptionsList(ul.items)) {
     const options = parseMcqOptions(ul.items)
@@ -1228,6 +1361,22 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
     const mcqBatch: Extract<Block, { type: 'mcq' }>[] = []
     let cursor = scan
     while (cursor < blocks.length) {
+      const olCandidate = blocks[cursor]
+      if (olCandidate?.type === 'ol' && olCandidate.items.length > 1) {
+        const batch = tryParseMcqBatchFromOlBlock(olCandidate, questionCounter)
+        if (batch) {
+          batch.forEach((mcq) => {
+            questionCounter += 1
+            mcqBatch.push({
+              ...mcq,
+              questionNumber: mcq.questionNumber > 1 ? mcq.questionNumber : questionCounter,
+            })
+          })
+          cursor += 1
+          continue
+        }
+      }
+
       const parsed = tryParseSingleMcqBlock(blocks, cursor)
       if (!parsed) {
         break

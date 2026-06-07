@@ -21,6 +21,12 @@ import {
   userMessageRequestsDirectAnswer,
 } from '../constants/chatDirectAnswerInstruction'
 import {
+  buildDocumentVisibilityTurnBriefing,
+  buildInstantAnalyzeVisibilityHintForUserMessage,
+  userAsksDocumentVisibilityQuestion,
+} from '../constants/documentAttachmentIntent'
+import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
+import {
   getAssistantExerciseSolutionToneInstruction,
   getAssistantTableExerciseInstruction,
   shouldApplyTableExerciseTurnBriefing,
@@ -88,7 +94,10 @@ import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier
 import { buildMainChatOpenAiModelChain } from '../constants/chatDailyOpenAiTier'
 import type { ChatReplyMode } from '../constants/chatReplyMode'
 import type { ChatThinkingMode } from '../constants/chatThinkingMode'
-import { getQuizFormatGenerationInstruction } from '../utils/quizFormatChoice'
+import {
+  buildInstantAnalyzeQuizGenerateStructuralHint,
+  getQuizFormatGenerationInstruction,
+} from '../utils/quizFormatChoice'
 import { formatUserContentForGateway } from '../utils/assistantSectionReply'
 import {
   buildThinkingDocumentUserContextBlock,
@@ -684,6 +693,15 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   if (isMainChat && !thinking && instantAnalyze) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
   }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    instantAnalyze?.task_type === 'quiz_generate' &&
+    !lastUserMessage.metadata?.userQuizFormat
+  ) {
+    lastUserTurnContextBlocks.push(getQuizFormatGenerationInstruction('markdown_mcq'))
+  }
   if (isMainChat && !thinking && options?.userRequestedChart) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeChartBriefing())
   }
@@ -731,7 +749,20 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     !thinking &&
     lastUserMessage?.role === 'user' &&
-    shouldApplyDirectAnswerTurnBriefing(lastUserMessage.content, priorTurnsForFollowUp)
+    userAsksDocumentVisibilityQuestion(
+      stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+    )
+  ) {
+    lastUserTurnContextBlocks.push(buildDocumentVisibilityTurnBriefing())
+  }
+  if (
+    isMainChat &&
+    !thinking &&
+    lastUserMessage?.role === 'user' &&
+    shouldApplyDirectAnswerTurnBriefing(
+      stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+      priorTurnsForFollowUp,
+    )
   ) {
     lastUserTurnContextBlocks.push(
       userMessageIsDirectAnswerFollowUp(lastUserMessage.content, priorTurnsForFollowUp)
@@ -2024,8 +2055,13 @@ export async function instantAnalyzeUserMessage(params: {
   const contextBlock = params.priorTurns?.length
     ? formatInstantAnalyzeContextLines(params.priorTurns)
     : ''
-  const structuralHint = buildInstantAnalyzeStructuralHintForUserMessage(trimmed)
-  const userMessageForAnalyze = structuralHint ? `${structuralHint}${trimmed}` : trimmed
+  const structuralHints = [
+    buildInstantAnalyzeStructuralHintForUserMessage(trimmed),
+    buildInstantAnalyzeVisibilityHintForUserMessage(trimmed),
+    buildInstantAnalyzeQuizGenerateStructuralHint(trimmed),
+  ].filter(Boolean)
+  const userMessageForAnalyze =
+    structuralHints.length > 0 ? `${structuralHints.join('')}${trimmed}` : trimmed
 
   try {
     const supabase = getSupabaseClient()

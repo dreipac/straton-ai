@@ -34,10 +34,6 @@ import {
   getAppFeatureFlags,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
-  readMobileFoldersInSidebar,
-  writeMobileFoldersInSidebar,
-} from '../features/chat/constants/mobileFoldersInSidebar'
-import {
   readDesktopFoldersInSidebar,
   writeDesktopFoldersInSidebar,
 } from '../features/chat/constants/desktopFoldersInSidebar'
@@ -182,7 +178,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   )
   const [assistantEmojisEnabled, setAssistantEmojisEnabled] = useState(() => readAssistantEmojisEnabled())
   const [mobileComposerCompact, setMobileComposerCompact] = useState(() => readMobileComposerCompact())
-  const [mobileFoldersInSidebar, setMobileFoldersInSidebar] = useState(() => readMobileFoldersInSidebar())
   const [desktopFoldersInSidebar, setDesktopFoldersInSidebar] = useState(() => readDesktopFoldersInSidebar())
   const [chatFoldersFeatureEnabled, setChatFoldersFeatureEnabled] = useState(true)
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
@@ -550,7 +545,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     setLearnPathTitleColorMode(s.learnPathTitleColorMode)
     setAssistantEmojisEnabled(s.assistantEmojis)
     setMobileComposerCompact(s.mobileComposerCompact)
-    setMobileFoldersInSidebar(s.mobileFoldersInSidebar)
     setDesktopFoldersInSidebar(s.desktopFoldersInSidebar)
     setUiSettingsHydrated(true)
   }, [user, profile])
@@ -573,7 +567,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       learnPathTitleColorMode,
       assistantEmojis: assistantEmojisEnabled,
       mobileComposerCompact,
-      mobileFoldersInSidebar,
       desktopFoldersInSidebar,
     }
     const timerId = window.setTimeout(() => {
@@ -594,7 +587,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     learnPathTitleColorMode,
     assistantEmojisEnabled,
     mobileComposerCompact,
-    mobileFoldersInSidebar,
     desktopFoldersInSidebar,
     updateUiSettings,
   ])
@@ -606,10 +598,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   useEffect(() => {
     writeMobileComposerCompact(mobileComposerCompact)
   }, [mobileComposerCompact])
-
-  useEffect(() => {
-    writeMobileFoldersInSidebar(mobileFoldersInSidebar)
-  }, [mobileFoldersInSidebar])
 
   useEffect(() => {
     writeDesktopFoldersInSidebar(desktopFoldersInSidebar)
@@ -849,10 +837,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     setMobileComposerCompact((v) => !v)
   }
 
-  function handleToggleMobileFoldersInSidebar() {
-    setMobileFoldersInSidebar((v) => !v)
-  }
-
   function handleToggleDesktopFoldersInSidebar() {
     setDesktopFoldersInSidebar((v) => !v)
   }
@@ -1090,8 +1074,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             mobileComposerCompact={mobileComposerCompact}
             onToggleMobileComposerCompact={handleToggleMobileComposerCompact}
             chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
-            mobileFoldersInSidebar={mobileFoldersInSidebar}
-            onToggleMobileFoldersInSidebar={handleToggleMobileFoldersInSidebar}
             desktopFoldersInSidebar={desktopFoldersInSidebar}
             onToggleDesktopFoldersInSidebar={handleToggleDesktopFoldersInSidebar}
             autoRemoveEmptyChats={autoRemoveEmptyChats}
