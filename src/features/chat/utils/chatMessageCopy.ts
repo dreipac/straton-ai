@@ -1,5 +1,6 @@
 import { stripSectionRefBlock } from './assistantSectionReply'
 import { stripChartSpecBlock } from '../chart/chartSpec'
+import { stripDiagramSpecBlock } from '../diagram/diagramSpec'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import { stripGeneratedImageModelFooter } from './markdownInline'
 import { stripThinkingClarifyMarkersForDisplay } from './thinkingClarify'
@@ -23,7 +24,9 @@ function stripMarkdownHeadingMarkers(text: string): string {
 export function extractAssistantMessageCopyText(content: string): string {
   return stripMarkdownHeadingMarkers(
     stripThinkingClarifyMarkersForDisplay(
-      stripGeneratedImageModelFooter(stripChartSpecBlock(stripExcelSpecBlock(content))),
+      stripGeneratedImageModelFooter(
+        stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(content))),
+      ),
     ),
   )
     .replace(/\n{3,}/g, '\n\n')

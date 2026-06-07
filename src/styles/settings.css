@@ -16,6 +16,13 @@
   backdrop-filter: blur(6px);
 }
 
+/* Modals in chat-app-shell / learn-shell: sonst Grid-Zelle links unter der Sidebar */
+.chat-app-shell > .settings-overlay,
+.chat-app-shell-guest > .settings-overlay {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
 /* Abo anlegen/bearbeiten: eigenes Overlay über dem Admin-Dialog (Portal → body) */
 .settings-overlay.subscription-plan-editor-overlay {
   z-index: 80;
@@ -2761,13 +2768,13 @@
   box-shadow: var(--input-field-shadow-focus);
 }
 
-.settings-overlay .rename-actions button {
+.settings-overlay .rename-actions button:not(.ui-button) {
   background: var(--color-surface);
   color: var(--color-text-app);
   border: 1px solid var(--color-border-strong);
 }
 
-.settings-overlay .rename-actions button:hover:enabled {
+.settings-overlay .rename-actions button:not(.ui-button):hover:enabled {
   border-color: var(--interactive-hover-border);
   background: var(--interactive-hover-bg);
 }
@@ -3486,13 +3493,13 @@
   color: var(--input-field-text);
 }
 
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button {
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button:not(.ui-button) {
   border-color: rgba(249, 168, 212, 0.35);
   background: rgba(72, 22, 52, 0.48);
   color: #f8fafc;
 }
 
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button:hover:enabled {
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button:not(.ui-button):hover:enabled {
   border-color: rgba(249, 168, 212, 0.52);
   background: rgba(236, 72, 153, 0.32);
 }

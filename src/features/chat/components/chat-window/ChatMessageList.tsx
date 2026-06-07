@@ -25,17 +25,23 @@ import {
   userMessageRequestsSubscriptionUsage,
 } from '../../constants/chatSubscriptionUsageMarker'
 import type { AccountSubscriptionDisplay } from '../../../settings/utils/accountSubscriptionDisplay'
-import { userMessageRequestsChart } from '../../constants/instantAnalyzeRoute'
+import { userMessageRequestsChart, userMessageRequestsDiagram } from '../../constants/instantAnalyzeRoute'
 import { DirectAnswerMcqPreview } from '../DirectAnswerMcqPreview'
 import { ChatSubscriptionUsagePreview } from '../ChatSubscriptionUsagePreview'
 import { buildDirectAnswerMcqPreview } from '../../utils/directAnswerMcq'
 import { ChartSpecPreview, ChartSpecPreviewBuilding } from '../ChartSpecPreview'
+import { DiagramSpecPreview, DiagramSpecPreviewBuilding } from '../DiagramSpecPreview'
 import { ExcelSpecPreview, ExcelSpecPreviewBuilding } from '../ExcelSpecPreview'
 import {
   hasChartSpecMarkers,
   parseChartSpecFromContent,
   stripChartSpecBlock,
 } from '../../chart/chartSpec'
+import {
+  hasDiagramSpecMarkers,
+  parseDiagramSpecFromContent,
+  stripDiagramSpecBlock,
+} from '../../diagram/diagramSpec'
 import type { ChatMessage } from '../../types'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
 import { renderAssistantRichContent } from '../../utils/renderAssistantRichContent'
@@ -101,6 +107,7 @@ export type ChatMessageListProps = {
   pendingWordGeneration: boolean
   pendingPdfGeneration: boolean
   pendingChartGeneration: boolean
+  pendingDiagramGeneration: boolean
   pendingStatusLabel: string | undefined
   sendPhase: ChatSendPhaseState
   showLatestAssistantOrbitLoader: boolean
@@ -148,6 +155,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     pendingWordGeneration,
     pendingPdfGeneration,
     pendingChartGeneration,
+    pendingDiagramGeneration,
     pendingStatusLabel,
     sendPhase,
     showLatestAssistantOrbitLoader,
@@ -206,6 +214,15 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   precedingUserForWordPaper.metadata,
                 ),
             )
+          const isDiagramAssistantTurn =
+            isAssistant &&
+            Boolean(
+              precedingUserForWordPaper &&
+                userMessageRequestsDiagram(
+                  precedingUserForWordPaper.content,
+                  precedingUserForWordPaper.metadata,
+                ),
+            )
           const precedingUserRoutingText = precedingUserForWordPaper
             ? stripComposerAttachmentBlocksForRouting(precedingUserForWordPaper.content)
             : ''
@@ -246,19 +263,22 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const chartSpecForPreview = isChartAssistantTurn
             ? parseChartSpecFromContent(rawContent).spec
             : null
+          const diagramSpecForPreview = isDiagramAssistantTurn
+            ? parseDiagramSpecFromContent(rawContent).spec
+            : null
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
-            ? stripChartSpecBlock(stripExcelSpecBlock(rawContent))
+            ? stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawContent)))
             : message.metadata?.excelExport || message.metadata?.wordExport || message.metadata?.pdfExport
               ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor den Spec-Markern. */
           const assistantAfterExcel = stripSubscriptionUsageMarker(
-            stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay)),
+            stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))),
           )
           const thinkingClarifyStreaming =
             isAssistant &&
@@ -345,6 +365,17 @@ export function ChatMessageList(props: ChatMessageListProps) {
             isChartAssistantTurn &&
             !chartSpecForPreview &&
             !showChartSpecPreviewBuilding &&
+            !isSending
+          const showDiagramSpecPreviewBuilding =
+            isDiagramAssistantTurn &&
+            !diagramSpecForPreview &&
+            (isStreamingAssistant ||
+              Boolean(message.metadata?.liveStream) ||
+              hasDiagramSpecMarkers(rawContent))
+          const showDiagramSpecMissingHint =
+            isDiagramAssistantTurn &&
+            !diagramSpecForPreview &&
+            !showDiagramSpecPreviewBuilding &&
             !isSending
           const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
           const assistantCopySource = hasInteractiveQuiz ? parsed?.cleanText || '' : rawContent
@@ -776,6 +807,16 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   Bitte die Anfrage erneut senden.
                 </p>
               ) : null}
+              {diagramSpecForPreview ? (
+                <DiagramSpecPreview spec={diagramSpecForPreview} />
+              ) : showDiagramSpecPreviewBuilding ? (
+                <DiagramSpecPreviewBuilding />
+              ) : showDiagramSpecMissingHint ? (
+                <p className="chat-message-body chat-excel-fallback-text">
+                  Das Struktur-Diagramm konnte nicht geladen werden — die KI hat keinen gültigen Mermaid-Block
+                  geliefert. Bitte die Anfrage erneut senden.
+                </p>
+              ) : null}
               {showExcelFinalizeHint ? (
                 <ChatExportActionHint
                   label={
@@ -983,7 +1024,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
               ) : pendingExcelGeneration ||
                 pendingWordGeneration ||
                 pendingPdfGeneration ||
-                pendingChartGeneration ? (
+                pendingChartGeneration ||
+                pendingDiagramGeneration ? (
                 <>
                 <strong className="chat-message-author">Straton AI</strong>
                 <div className="chat-pending-orbit-wrap chat-pending-special-loader">
@@ -997,7 +1039,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         ? 'PDF-Vorschau wird erstellt'
                         : pendingChartGeneration
                           ? 'Diagramm wird erstellt'
-                          : 'Excel-Vorschau wird erstellt'
+                          : pendingDiagramGeneration
+                            ? 'Struktur-Diagramm wird erstellt'
+                            : 'Excel-Vorschau wird erstellt'
                   }
                 >
                   <div
@@ -1025,7 +1069,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         ? 'pdf'
                         : pendingChartGeneration
                           ? 'chart'
-                          : 'excel',
+                          : pendingDiagramGeneration
+                            ? 'diagram'
+                            : 'excel',
                   )}
                 </p>
                 </div>

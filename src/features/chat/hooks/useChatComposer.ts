@@ -11,11 +11,7 @@ import {
   uploadChatDocumentAttachment,
 } from '../services/chat.documentStorage'
 import { hapticLightImpact } from '../../../utils/haptics'
-import {
-  detectExplicitQuizFormatInText,
-  shouldPromptQuizFormatChoice,
-  type QuizFormatChoice,
-} from '../utils/quizFormatChoice'
+import { detectExplicitQuizFormatInText, type QuizFormatChoice } from '../utils/quizFormatChoice'
 import {
   buildPastedImagePendingAttachments,
   getImageFilesFromClipboard,
@@ -67,7 +63,6 @@ export function useChatComposer({
   const [isAttachingFiles, setIsAttachingFiles] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<ChatWindowPendingAttachment[]>([])
   const [sentPastedImagePreviews, setSentPastedImagePreviews] = useState<Record<string, string>>({})
-  const [quizFormatPending, setQuizFormatPending] = useState<{ content: string } | null>(null)
   const [composerSectionReply, setComposerSectionReply] = useState<AssistantSectionReference | null>(null)
   const onClearSectionReplyEmbedRef = useRef(onClearSectionReplyEmbed)
   onClearSectionReplyEmbedRef.current = onClearSectionReplyEmbed
@@ -167,7 +162,6 @@ export function useChatComposer({
     setDraft('')
     const { documentAttachments, pendingDocumentFiles } = collectDocumentSendRefs(pendingAttachments)
     setPendingAttachments([])
-    setQuizFormatPending(null)
     const payload = buildUserMessageWithSectionRef(content, composerSectionReply)
     setComposerSectionReply(null)
     await onSendMessage(payload, {
@@ -195,28 +189,11 @@ export function useChatComposer({
     const textPart = draft.trim()
     const attachmentPart = buildAttachmentMessageBlocks(pendingAttachments)
     const content = [textPart, attachmentPart].filter(Boolean).join('\n\n')
-    if (
-      shouldPromptQuizFormatChoice(textPart, {
-        thinkingMode: chatThinkingMode === 'thinking',
-      })
-    ) {
-      setQuizFormatPending({ content })
-      return
-    }
-
     const explicitQuizFormat = detectExplicitQuizFormatInText(textPart)
     await deliverComposerMessage(
       content,
       explicitQuizFormat ? { quizFormat: explicitQuizFormat } : undefined,
     )
-  }
-
-  function handleQuizFormatChosen(format: QuizFormatChoice) {
-    if (!quizFormatPending) {
-      return
-    }
-    const { content } = quizFormatPending
-    void deliverComposerMessage(content, { quizFormat: format })
   }
 
   function handleDraftChange(nextValue: string) {
@@ -394,12 +371,9 @@ export function useChatComposer({
     pendingAttachments,
     composerSectionReply,
     setComposerSectionReply,
-    quizFormatPending,
-    setQuizFormatPending,
     sentPastedImagePreviews,
     composePlaceholder,
     handleSubmit,
-    handleQuizFormatChosen,
     handleDraftChange,
     openMobileAttachSheet,
     openDocumentFilePicker,

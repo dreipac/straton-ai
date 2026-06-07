@@ -1,8 +1,9 @@
 /** Intent-Routing: Kategorie «chart» für Diagramme im Chat. */
 export function buildInstantAnalyzeChartGenerateSection(): string {
   return [
-    'Diagramme im Chat (category "chart" — Einordnung vor der Antwort):',
-    '- «Erstelle ein Diagramm», «Chart», «Grafik», Prozent-/Zahlenverteilung visualisieren, «als Balkendiagramm» → chart.**chart_generate** (nicht chat.answer).',
+    'Zahlen-Diagramme im Chat (category "chart" — Einordnung vor der Antwort):',
+    '- Balken-/Kreis-/Liniendiagramm, «Chart», Prozent-/Zahlenverteilung, Statistik visualisieren, «als Balkendiagramm» → chart.**chart_generate** (nicht chat.answer).',
+    '- Stammbaum, Ablauf, Prozess, Workflow, Mindmap → **diagram**.diagram_generate (nicht chart).',
     '- Folgenachricht «mache das als Balkendiagramm» nach Diagramm-Thema → chart.chart_generate.',
     '- Nicht verwechseln mit «Bild generieren» / Fotorealismus → image.generate.',
     '- Nicht Excel/Word/PDF-Export → document.*.',

@@ -7,23 +7,27 @@ type ChatPendingReplyLoaderProps = {
   sendPhase?: ChatSendPhaseState
 }
 
-type VisibleSubStep = {
+type SubStepFrame = {
   key: string
   label: string
-  phase: 'active' | 'leaving'
 }
 
-const SUB_STEP_INTERVAL_MS = 1300
-const SUB_STEP_FADE_MS = 380
+const SUB_STEP_HOLD_MS = 1300
+const SUB_STEP_CROSSFADE_MS = 520
 
-function useAnimatedSubSteps(subSteps: string[], resetKey: string): VisibleSubStep[] {
-  const [items, setItems] = useState<VisibleSubStep[]>([])
+function useRotatingSubStep(
+  subSteps: string[],
+  resetKey: string,
+): { current: SubStepFrame | null; previous: SubStepFrame | null } {
+  const [current, setCurrent] = useState<SubStepFrame | null>(null)
+  const [previous, setPrevious] = useState<SubStepFrame | null>(null)
   const subStepsKey = subSteps.join('\u0000')
 
   useEffect(() => {
     const steps = subStepsKey ? subStepsKey.split('\u0000') : []
     if (steps.length === 0) {
-      setItems([])
+      setCurrent(null)
+      setPrevious(null)
       return
     }
 
@@ -40,34 +44,34 @@ function useAnimatedSubSteps(subSteps: string[], resetKey: string): VisibleSubSt
       )
     }
 
-    const addStep = () => {
-      const idx = nextIndex % steps.length
+    const showStep = (label: string) => {
       const key = `${resetKey}-${tickCount}`
       tickCount += 1
 
-      setItems((prev) => {
-        const withLeaving = prev.map((item) =>
-          item.phase === 'active' ? { ...item, phase: 'leaving' as const } : item,
-        )
-        return [
-          ...withLeaving,
-          { key, label: steps[idx], phase: 'active' as const },
-        ].slice(-3)
+      setCurrent((cur) => {
+        if (cur) {
+          setPrevious(cur)
+        }
+        return { key, label }
       })
 
       schedule(() => {
-        setItems((prev) => prev.filter((item) => item.phase !== 'leaving'))
-      }, SUB_STEP_FADE_MS)
+        setPrevious(null)
+      }, SUB_STEP_CROSSFADE_MS)
+    }
 
+    const advance = () => {
+      const idx = nextIndex % steps.length
+      showStep(steps[idx]!)
       nextIndex += 1
     }
 
-    addStep()
+    advance()
     const loop = () => {
-      addStep()
-      schedule(loop, SUB_STEP_INTERVAL_MS)
+      advance()
+      schedule(loop, SUB_STEP_HOLD_MS)
     }
-    schedule(loop, SUB_STEP_INTERVAL_MS)
+    schedule(loop, SUB_STEP_HOLD_MS)
 
     return () => {
       cancelled = true
@@ -75,7 +79,7 @@ function useAnimatedSubSteps(subSteps: string[], resetKey: string): VisibleSubSt
     }
   }, [resetKey, subStepsKey])
 
-  return items
+  return { current, previous }
 }
 
 function ChatPendingStatusShimmer({
@@ -103,8 +107,14 @@ export function ChatPendingReplyLoader({ statusLabel, sendPhase }: ChatPendingRe
   const mainLabel = status?.mainLabel ?? 'Antwort wird generiert'
   const subSteps = status?.subSteps ?? []
   const resetKey = sendPhase ?? mainLabel
-  const visibleSubSteps = useAnimatedSubSteps(subSteps, resetKey)
-  const ariaLabel = [mainLabel, ...visibleSubSteps.map((step) => step.label)].join('. ')
+  const { current: currentSubStep, previous: previousSubStep } = useRotatingSubStep(subSteps, resetKey)
+  const ariaLabel = [
+    mainLabel,
+    currentSubStep?.label,
+    previousSubStep?.label,
+  ]
+    .filter(Boolean)
+    .join('. ')
 
   return (
     <div className="chat-pending-orbit-wrap">
@@ -119,19 +129,27 @@ export function ChatPendingReplyLoader({ statusLabel, sendPhase }: ChatPendingRe
           <ChatPendingStatusShimmer label={mainLabel} variant="main" />
           <span className="chat-pending-status-fallback">{mainLabel}</span>
         </p>
-        {visibleSubSteps.length > 0 ? (
-          <ul className="chat-pending-status-sub-list">
-            {visibleSubSteps.map((step) => (
-              <li
-                key={step.key}
-                className={`chat-pending-status-sub-item${
-                  step.phase === 'leaving' ? ' is-leaving' : ''
+        {currentSubStep || previousSubStep ? (
+          <div className="chat-pending-status-sub-slot">
+            {previousSubStep ? (
+              <p
+                key={previousSubStep.key}
+                className="chat-pending-status-sub-layer is-leaving"
+              >
+                <ChatPendingStatusShimmer label={previousSubStep.label} variant="sub" />
+              </p>
+            ) : null}
+            {currentSubStep ? (
+              <p
+                key={currentSubStep.key}
+                className={`chat-pending-status-sub-layer${
+                  previousSubStep ? ' is-entering' : ' is-entering-first'
                 }`}
               >
-                <ChatPendingStatusShimmer label={step.label} variant="sub" />
-              </li>
-            ))}
-          </ul>
+                <ChatPendingStatusShimmer label={currentSubStep.label} variant="sub" />
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>

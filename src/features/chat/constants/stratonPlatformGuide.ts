@@ -14,7 +14,7 @@ export function getStratonPlatformGuideInstruction(): string {
     '- **Konto:** Name, E-Mail, Profilbild; Abo-Plan; Verbrauch/Limits (Tokens, Bilder, Websuche, Thinking, Dateien).',
     '- **Einführung:** Freitext oder Fragebogen für KI-Kontext (Hobbys, Beruf, Ziele).',
     '- **Allgemein:** App-Sprache.',
-    '- **Chat Einstellungen:** Emoji in KI-Antworten; kompakte Nachrichtenbox; Ordner in Desktop-Sidebar; persönlicher KI-Speicher; Auto-Löschen leerer Chats.',
+    '- **Chat Einstellungen:** Emoji in KI-Antworten; kompakte Nachrichtenbox; Ordner in Desktop-Sidebar; Auto-Löschen leerer Chats.',
     '- **Einladungen:** Geteilte Chats — Einladungen verwalten.',
     '- **Archiv:** Archivierte Chats wiederherstellen oder löschen.',
     '- **Personalisieren:** Theme (White/Dark/Pink Glass/Black); Sidebar-Skalierung; Akzentfarbe; Hover-Farbton; Message-Box-Farbton; Lernpfad-Titel-Farbe.',

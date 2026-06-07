@@ -112,6 +112,8 @@ export type ChatMessage = {
     userPdfCommand?: boolean
     /** User-Nachricht: Diagramm/Chart-Befehl (Marker entfernt). */
     userChartCommand?: boolean
+    /** User-Nachricht: Struktur-Diagramm (Stammbaum, Ablauf, Mermaid). */
+    userDiagramCommand?: boolean
     /** User-Nachricht: Multiple-Choice / Direktantwort (nur richtige Option). */
     userDirectAnswerCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */

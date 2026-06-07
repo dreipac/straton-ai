@@ -59,6 +59,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userChartCommand = true
   }
 
+  if (o.userDiagramCommand === true) {
+    out.userDiagramCommand = true
+  }
+
   if (o.userDirectAnswerCommand === true) {
     out.userDirectAnswerCommand = true
   }

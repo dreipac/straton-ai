@@ -11,6 +11,7 @@ import {
   deleteLearningPathById,
   getLearningPathById,
   listLearningPathsByUserId,
+  updateLearningPathById,
   type LearningPathRecord,
   type LearningPathSummary,
 } from '../services/learn.persistence'
@@ -247,6 +248,38 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
     ],
   )
 
+  const handleRenameLearningPath = useCallback(
+    async (pathId: string, nextTitle: string) => {
+      const title = nextTitle.trim()
+      if (!title || isPendingLearningPathId(pathId)) {
+        return
+      }
+
+      closePathMenu()
+      setError(null)
+
+      try {
+        const updated = await updateLearningPathById(pathId, { title })
+        pathCacheRef.current[pathId] = updated
+        setLearningPaths((prev) =>
+          prev.map((path) =>
+            path.id === pathId
+              ? {
+                  ...path,
+                  title: updated.title,
+                  updatedAt: updated.updatedAt,
+                }
+              : path,
+          ),
+        )
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht umbenannt werden.')
+        throw err
+      }
+    },
+    [closePathMenu, pathCacheRef, setError, setLearningPaths],
+  )
+
   const handleDeleteLearningPath = useCallback(
     async (pathId: string) => {
       if (!userId) {
@@ -328,6 +361,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
   return {
     handleCreateLearningPath,
     handleSelectLearningPath,
+    handleRenameLearningPath,
     handleDeleteLearningPath,
     isLearningPathWorkspaceLoading,
   }

@@ -7,7 +7,7 @@ export function getChatThinkingWorkflowInstruction(): string {
   return [
     getSecretSafetyInstruction(),
     'Thinking-Modus (Hybrid: Pipeline Gemini 3.1 Flash Lite; finale Lieferung teils gpt-5-mini):',
-    'Persönlicher Nutzer-Speicher ist ausgeschaltet — nutze nur den sichtbaren Chatverlauf in dieser Unterhaltung.',
+    'Persönlicher Kontext kommt aus Profil und Einführung — in Thinking nur den sichtbaren Chatverlauf dieser Unterhaltung nutzen.',
     '',
     'Ablauf (verbindlich):',
     '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse» (Gemini Flash Lite).',

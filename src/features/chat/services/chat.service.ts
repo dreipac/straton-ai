@@ -1,12 +1,6 @@
 import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
 import {
   getAssistantEmojiStyleInstruction,
-  getAssistantMainChatBrevityFinalReminder,
-  getAssistantMainChatBrevityInstruction,
-  getAssistantMainChatGuidedDiagnosisInstruction,
-  getAssistantMainChatMandatoryFollowUpInstruction,
-  getAssistantMainChatSolveDirectlyInstruction,
-  getAssistantMainChatStepByStepIntakeInstruction,
   getAssistantMainChatThreadContinuityInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
@@ -15,7 +9,6 @@ import {
   DIRECT_ANSWER_HARD_GUARD,
   DIRECT_ANSWER_TURN_BRIEFING,
   buildInstantAnalyzeStructuralHintForUserMessage,
-  getAssistantDirectAnswerInstruction,
   shouldApplyDirectAnswerTurnBriefing,
   userMessageIsDirectAnswerFollowUp,
   userMessageRequestsDirectAnswer,
@@ -27,8 +20,6 @@ import {
 } from '../constants/documentAttachmentIntent'
 import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
 import {
-  getAssistantExerciseSolutionToneInstruction,
-  getAssistantTableExerciseInstruction,
   shouldApplyTableExerciseTurnBriefing,
   TABLE_EXERCISE_TEXT_TURN_BRIEFING,
   userTurnHasVisionAttachment,
@@ -38,7 +29,6 @@ import {
   GENERATED_IMAGE_ATTRIBUTION_TURN_BRIEFING,
   GENERATED_IMAGE_REFERENCE_TURN_BRIEFING,
   UPLOADED_IMAGE_ATTRIBUTION_TURN_BRIEFING,
-  getAssistantVisionCapabilityInstruction,
 } from '../constants/chatVisionCapability'
 import {
   matchImageAttributionQuestion,
@@ -46,12 +36,7 @@ import {
   threadHasStratonGeneratedImage,
   userMessageHasUploadedImage,
 } from '../utils/referencedImageVision'
-import {
-  shouldRouteSummaryInstantToOpenAi,
-  shouldSuppressInstantBrevityForAnalyze,
-  shouldSuppressInstantMandatoryFollowUpForAnalyze,
-  shouldSuppressInstantSolveDirectlyForAnalyze,
-} from '../constants/chatInstantTaskType'
+import { shouldRouteSummaryInstantToOpenAi } from '../constants/chatInstantTaskType'
 import {
   applyInstantAnalyzeHeuristics,
   buildInstantAnalyzeBriefingInstruction,
@@ -82,6 +67,8 @@ import { getSupabaseClient } from '../../../integrations/supabase/client'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
 import { CHART_CHAT_DOCUMENT_JSON_HINT } from '../constants/chartExportPrompt'
 import { buildInstantAnalyzeChartBriefing } from '../constants/chartExportIntent'
+import { DIAGRAM_CHAT_DOCUMENT_JSON_HINT } from '../constants/diagramExportPrompt'
+import { buildInstantAnalyzeDiagramBriefing } from '../constants/diagramExportIntent'
 import { EXCEL_CHAT_DOCUMENT_JSON_HINT } from '../constants/documentExportIntent'
 import {
   buildExcelSpecSonnetSystemPrompt,
@@ -97,6 +84,7 @@ import type { ChatThinkingMode } from '../constants/chatThinkingMode'
 import {
   buildInstantAnalyzeQuizGenerateStructuralHint,
   getQuizFormatGenerationInstruction,
+  QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING,
 } from '../utils/quizFormatChoice'
 import { formatUserContentForGateway } from '../utils/assistantSectionReply'
 import {
@@ -144,32 +132,25 @@ import {
   getChatStrictToneInstruction,
   getChatTruthfulnessInstruction,
 } from '../constants/chatTruthAndTone'
-import { getStratonProductContextInstruction } from '../constants/chatProductContext'
 import {
   buildChatBackgroundNotAvailableBriefing,
   buildStratonPlatformNavigationTurnBriefing,
-  getStratonPlatformGuideInstruction,
   userMessageAsksChatBackgroundChange,
   userMessageAsksStratonPlatformNavigation,
 } from '../constants/stratonPlatformGuide'
+import {
+  buildPromptCacheDynamicTurnBlocks,
+  buildPromptCacheSuppressTurnBlocks,
+  resolveMainChatSystemPromptModules,
+} from '../constants/chatPromptModules'
 import { getSwissGermanOrthographyInstruction } from '../constants/chatSwissOrthography'
 import {
   getSecretSafetyInstruction,
   redactSecretsInAiText,
 } from '../constants/chatSecretSafety'
-import { getChatCurrentDateContextInstruction } from '../constants/chatCurrentDateContext'
-import {
-  getChatProfileIdentityInstruction,
-  type ChatProfileIdentity,
-} from '../constants/chatProfileIdentityContext'
-import {
-  getChatUserIntroductionInstruction,
-  type ChatUserIntroduction,
-} from '../constants/chatUserIntroductionContext'
-import {
-  getChatSubscriptionUsageInstruction,
-  type ChatSubscriptionUsageContext,
-} from '../constants/chatSubscriptionUsageContext'
+import type { ChatProfileIdentity } from '../constants/chatProfileIdentityContext'
+import type { ChatUserIntroduction } from '../constants/chatUserIntroductionContext'
+import type { ChatSubscriptionUsageContext } from '../constants/chatSubscriptionUsageContext'
 import {
   clipChatMessagesToEstimatedTokenBudget,
   computeVisionTokenReserve,
@@ -240,6 +221,8 @@ export type SendMessageOptions = {
   userRequestedPdf?: boolean
   /** Nutzer hat Diagramm/Chart angefragt: Chart-Spec-JSON für Vorschau im Chat. */
   userRequestedChart?: boolean
+  /** Nutzer hat Struktur-Diagramm angefragt: Mermaid für Vorschau im Chat. */
+  userRequestedDiagram?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -296,11 +279,11 @@ export type SendMessageOptions = {
    * Wird nicht in der DB gespeichert.
    */
   visionInlineDataUrl?: string
-  /** Hauptchat: Prompt-Cache pro Thread (`straton-main-v4-{threadId}`). */
+  /** Hauptchat: Thread-ID (Routing/Logging; Prompt-Cache-Key ist global). */
   mainChatThreadId?: string | null
   /**
    * Hauptchat: Vor-/Nachname aus dem Profil (Auth-Context, kein Extra-Request).
-   * Im System-Prompt vor dem Datum — für Prompt-Cache und «Wer bin ich?».
+   * Im Turn-Kontext der letzten Nutzernachricht — nicht im gecachten System-Prefix.
    */
   profileIdentity?: ChatProfileIdentity | null
   /** Hauptchat: Einführung aus Profil (Einstellungen → Einführung). */
@@ -494,12 +477,8 @@ function selectMainChatMessagesForGateway(messages: ChatMessage[]): ChatMessage[
   return messages
 }
 
-function mainChatPromptCacheKey(threadId?: string | null): string {
-  const tid = typeof threadId === 'string' ? threadId.trim() : ''
-  if (!tid) {
-    return OPENAI_PROMPT_CACHE_KEY_MAIN
-  }
-  return `straton-main-v4-${tid}`
+function mainChatPromptCacheKey(_threadId?: string | null): string {
+  return OPENAI_PROMPT_CACHE_KEY_MAIN
 }
 
 /** Gleiche Auswahl wie beim Senden (Vision, RAG ab 200, Token-Clip). */
@@ -596,6 +575,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
   const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
+  const diagramChatHint = options?.userRequestedDiagram ? DIAGRAM_CHAT_DOCUMENT_JSON_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
@@ -621,26 +601,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     !options?.userRequestedWord &&
     !options?.userRequestedPdf &&
     !options?.userRequestedChart &&
+    !options?.userRequestedDiagram &&
     !thinking
-  const suppressInstantBrevity = shouldSuppressInstantBrevityForAnalyze(options?.instantAnalyze)
-  const suppressInstantFollowUp = shouldSuppressInstantMandatoryFollowUpForAnalyze(options?.instantAnalyze)
-  const suppressInstantSolveDirectly = shouldSuppressInstantSolveDirectlyForAnalyze(options?.instantAnalyze)
-  const mainChatBrevity =
-    mainChatInstantPrompts && !suppressInstantBrevity ? getAssistantMainChatBrevityInstruction() : ''
-  const mainChatGuidedDiagnosis = mainChatInstantPrompts
-    ? getAssistantMainChatGuidedDiagnosisInstruction()
-    : ''
-  const mainChatStepByStepIntake = mainChatInstantPrompts
-    ? getAssistantMainChatStepByStepIntakeInstruction()
-    : ''
-  const mainChatMandatoryFollowUp =
-    mainChatInstantPrompts && !suppressInstantFollowUp
-      ? getAssistantMainChatMandatoryFollowUpInstruction()
-      : ''
-  const mainChatSolveDirectly =
-    mainChatInstantPrompts && !suppressInstantSolveDirectly
-      ? getAssistantMainChatSolveDirectlyInstruction()
-      : ''
   const mainChatThreadContinuity = mainChatInstantPrompts
     ? getAssistantMainChatThreadContinuityInstruction()
     : ''
@@ -682,13 +644,31 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
             : '- Annahme → **fertige Lösung** → optional Verbesserungen + **eine** konkrete Anpassungsfrage am Ende.',
         ].join('\n')
       : ''
-  const mainChatWebGrounding =
-    isMainChat && !thinking ? getChatWebSearchGroundingInstruction() : ''
-
-  const lastUserTurnContextBlocks: string[] = []
   const priorTurnsForFollowUp = lastUserMessage
     ? threadMessages.filter((m) => m.id !== lastUserMessage.id)
     : threadMessages
+  const lastUserRoutingText =
+    lastUserMessage?.role === 'user'
+      ? stripComposerAttachmentBlocksForRouting(lastUserMessage.content)
+      : ''
+
+  const { modules: systemPromptModules } = resolveMainChatSystemPromptModules({
+    isMainChat,
+    thinking,
+    mainChatInstantPrompts,
+    instantAnalyze: options?.instantAnalyze,
+    routingText: lastUserRoutingText,
+    lastUserContent: lastUserMessage?.role === 'user' ? lastUserMessage.content : undefined,
+    priorTurns: priorTurnsForFollowUp,
+    visionInlineDataUrl: options?.visionInlineDataUrl,
+    webSearchContext: options?.webSearchContext,
+    webSearchRequestedButMissing: options?.webSearchRequestedButMissing,
+  })
+
+  const mainChatWebGrounding =
+    isMainChat && systemPromptModules.webGrounding ? getChatWebSearchGroundingInstruction() : ''
+
+  const lastUserTurnContextBlocks: string[] = []
   if (
     isMainChat &&
     !thinking &&
@@ -704,13 +684,21 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     !thinking &&
     lastUserMessage?.role === 'user' &&
-    instantAnalyze?.task_type === 'quiz_generate' &&
-    !lastUserMessage.metadata?.userQuizFormat
+    instantAnalyze?.task_type === 'quiz_generate'
   ) {
-    lastUserTurnContextBlocks.push(getQuizFormatGenerationInstruction('markdown_mcq'))
+    const quizFormat = lastUserMessage.metadata?.userQuizFormat ?? 'markdown_mcq'
+    if (!lastUserMessage.metadata?.userQuizFormat) {
+      lastUserTurnContextBlocks.push(getQuizFormatGenerationInstruction('markdown_mcq'))
+    }
+    if (quizFormat === 'markdown_mcq') {
+      lastUserTurnContextBlocks.push(QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING)
+    }
   }
   if (isMainChat && !thinking && options?.userRequestedChart) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeChartBriefing())
+  }
+  if (isMainChat && !thinking && options?.userRequestedDiagram) {
+    lastUserTurnContextBlocks.push(buildInstantAnalyzeDiagramBriefing())
   }
   if (
     isMainChat &&
@@ -867,6 +855,27 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       buildThinkingTaskTypeTurnBriefing(options.thinkingAnalyze, lastUserMessage.content),
     )
   }
+  const includePromptCacheDynamicBlocks =
+    isMainChat &&
+    lastUserMessage?.role === 'user' &&
+    (!thinking || thinkingClarifyPhase === 'final')
+  if (includePromptCacheDynamicBlocks) {
+    lastUserTurnContextBlocks.unshift(
+      ...buildPromptCacheDynamicTurnBlocks({
+        isMainChat,
+        mainChatInstantPrompts,
+        modules: systemPromptModules,
+        profileIdentity: options?.profileIdentity,
+        userIntroduction: options?.userIntroduction,
+        subscriptionUsage: options?.subscriptionUsage,
+        webGroundingInstruction: mainChatWebGrounding,
+      }),
+      ...buildPromptCacheSuppressTurnBlocks({
+        mainChatInstantPrompts,
+        instantAnalyze: options?.instantAnalyze,
+      }),
+    )
+  }
   const thinkingBlock = thinking
     ? [
         getChatThinkingWorkflowInstruction(),
@@ -896,24 +905,13 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     baseQuiz,
     getSecretSafetyInstruction(),
     getSwissGermanOrthographyInstruction(),
-    isMainChat ? getAssistantVisionCapabilityInstruction() : '',
-    isMainChat ? getStratonProductContextInstruction() : '',
-    isMainChat ? getStratonPlatformGuideInstruction() : '',
     options?.systemPrompt?.trim() ?? '',
     excelChatHint,
     wordChatHint,
     pdfChatHint,
     chartChatHint,
-    mainChatWebGrounding,
-    mainChatSolveDirectly,
-    mainChatBrevity,
-    mainChatGuidedDiagnosis,
-    mainChatStepByStepIntake,
-    mainChatMandatoryFollowUp,
+    diagramChatHint,
     mainChatThreadContinuity,
-    mainChatInstantPrompts ? getAssistantTableExerciseInstruction() : '',
-    mainChatInstantPrompts ? getAssistantExerciseSolutionToneInstruction() : '',
-    mainChatInstantPrompts ? getAssistantDirectAnswerInstruction() : '',
     truthBlock,
     toneBlock,
     thinkingBlock,
@@ -929,14 +927,6 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         ? getAssistantEmojiStyleInstruction({ replyTone })
         : '',
     thinkingClarifyUiReminder,
-    mainChatBrevity && !thinkingClarifyUiReminder && !suppressInstantBrevity
-      ? getAssistantMainChatBrevityFinalReminder()
-      : '',
-    /* Profil + Zeit zuletzt: grosser statischer Prefix darüber bleibt prompt-cache-fähig; Datum ganz am Ende. */
-    isMainChat ? getChatProfileIdentityInstruction(options?.profileIdentity) : '',
-    isMainChat ? getChatUserIntroductionInstruction(options?.userIntroduction) : '',
-    isMainChat ? getChatSubscriptionUsageInstruction(options?.subscriptionUsage) : '',
-    isMainChat ? getChatCurrentDateContextInstruction() : '',
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -969,6 +959,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         const turnBlocks: string[] = []
         if (message.metadata?.userQuizFormat) {
           turnBlocks.push(getQuizFormatGenerationInstruction(message.metadata.userQuizFormat))
+          if (message.metadata.userQuizFormat === 'markdown_mcq') {
+            turnBlocks.push(QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING)
+          }
         }
         if (lastUserMessage && message.id === lastUserMessage.id) {
           turnBlocks.push(...lastUserTurnContextBlocks)
@@ -1193,7 +1186,7 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v4'
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v5'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
@@ -1414,7 +1407,7 @@ function buildChatCompletionRequestBody(
     mode: 'chat',
     provider: meta.provider,
     messages: gatewayMessages,
-    includeProfileMemory: thinking ? false : true,
+    includeProfileMemory: false,
   }
   if (custom) {
     body.chatCustomMode = true
@@ -1428,7 +1421,12 @@ function buildChatCompletionRequestBody(
       body.thinkingTaskType = options.thinkingAnalyze.task_type
     }
   }
-  if (mainProvider === 'gemini') {
+  const routesGeminiInstantMain =
+    !thinking &&
+    !summaryInstantOpenAi &&
+    !custom &&
+    isGeminiInstantEnabled()
+  if (mainProvider === 'gemini' || routesGeminiInstantMain) {
     body.geminiModel = thinking
       ? GEMINI_DEFAULT_CHAT_MODEL
       : resolveGeminiModelForInstantReply(options?.instantAnalyze)

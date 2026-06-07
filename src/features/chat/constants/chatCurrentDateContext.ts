@@ -3,7 +3,7 @@ export const CHAT_CURRENT_DATE_TIMEZONE = 'Europe/Zurich'
 
 /**
  * Aktuelles Datum/Uhrzeit für die KI (Hauptchat).
- * Im System-Prompt **am Ende** einhängen, damit der grosse statische Prefix prompt-cache-fähig bleibt.
+ * Nur im **Turn-Kontext** der letzten Nutzernachricht — nicht im gecachten System-Prefix.
  */
 export function getChatCurrentDateContextInstruction(now: Date = new Date()): string {
   const dateFmt = new Intl.DateTimeFormat('de-CH', {

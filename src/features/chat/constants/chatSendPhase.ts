@@ -15,6 +15,7 @@ export type ChatSendPhase =
   | 'word'
   | 'pdf'
   | 'chart'
+  | 'diagram'
 
 export type ChatSendPhaseState = ChatSendPhase | null
 
@@ -109,6 +110,11 @@ export function getChatSendPhaseStatus(
         mainLabel: 'Diagramm wird erstellt …',
         subSteps: ['Daten werden eingeordnet', 'Darstellung wird gewählt', 'Diagramm wird gerendert'],
       }
+    case 'diagram':
+      return {
+        mainLabel: 'Struktur-Diagramm wird erstellt …',
+        subSteps: ['Knoten werden geplant', 'Verbindungen werden gesetzt', 'Grafik wird gerendert'],
+      }
     default: {
       const label = fallbackLabel?.trim()
       if (!label) return undefined
@@ -149,6 +155,8 @@ export function getChatSendPhaseLabel(phase: ChatSendPhaseState | undefined): st
       return 'PDF wird vorbereitet …'
     case 'chart':
       return 'Diagramm wird erstellt …'
+    case 'diagram':
+      return 'Struktur-Diagramm wird erstellt …'
     default:
       return undefined
   }

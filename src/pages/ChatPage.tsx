@@ -161,8 +161,7 @@ export function ChatPage() {
     liveInstantAnalyzeDebug,
     liveThinkingAnalyzeDebug,
   } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, chatModelPolicy, {
-    persistAiChatMemory: profile?.ai_chat_memory_enabled !== false,
-    onProfileMemoryUpdated: refreshProfile,
+    persistAiChatMemory: false,
     mainChatUsedTokensToday: user ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
     mainChatDailyTierConfig: user ? mainChatDailyTierConfig : undefined,
     mainChatThinkingTierConfig: user ? mainChatThinkingTierConfig : undefined,

@@ -61,23 +61,6 @@ export function detectExplicitQuizFormatInText(text: string): QuizFormatChoice |
   return null
 }
 
-export type QuizFormatPromptContext = {
-  thinkingMode: boolean
-}
-
-export function shouldPromptQuizFormatChoice(
-  text: string,
-  context: QuizFormatPromptContext,
-): boolean {
-  if (context.thinkingMode) {
-    return false
-  }
-  if (!matchQuizPracticeIntent(text)) {
-    return false
-  }
-  return detectExplicitQuizFormatInText(text) === null
-}
-
 /** Strukturhinweis an die Analyze-KI, wenn der Client Quiz-Generierung erkannt hat. */
 export function buildInstantAnalyzeQuizGenerateStructuralHint(userMessage: string): string | null {
   if (!matchQuizPracticeIntent(userMessage)) {
@@ -85,10 +68,14 @@ export function buildInstantAnalyzeQuizGenerateStructuralHint(userMessage: strin
   }
   const explicit = detectExplicitQuizFormatInText(userMessage)
   return [
-    '[Struktur erkannt: Nutzer will Quiz / Übungsfragen mit Auswahloptionen erzeugen — Antwort muss in der Chat-UI als MC-Karten renderbar sein]',
+    '[Struktur erkannt: Nutzer will Quiz / Übungsfragen erzeugen]',
     explicit === 'interactive'
       ? 'Gewünschtes Format: interaktives Quiz mit STRATON_QUIZ_JSON-Block (Freitext, keine A–D-Checkboxen).'
-      : 'Gewünschtes Format: Markdown-Multiple-Choice — pro Frage eine Zeile `1. Fragentext`, direkt darunter je eine Zeile `A) …` `B) …` `C) …` `D) …` (nicht in einen Absatz).',
+      : [
+          'Gewünschtes Format: Markdown-Multiple-Choice — **jede Frage braucht einen Fragentext**.',
+          'Pflicht pro Frage: Zeile `1. Fragentext`, darunter je eine Zeile `A) …` `B) …` `C) …` `D) …`.',
+          'Nicht nur A–D-Listen ohne Frage — die App rendert sonst keine Checkbox-Karten.',
+        ].join(' '),
     'Einordnung: category chat, action answer, task_type quiz_generate, reply_mode normal.',
     '',
   ].join('\n')
@@ -96,12 +83,15 @@ export function buildInstantAnalyzeQuizGenerateStructuralHint(userMessage: strin
 
 export const QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING = [
   'Quiz erzeugen — Multiple-Choice-Karten (verbindlich):',
-  '- Nach Einleitung optional `## Fragen`, dann pro Frage:',
+  '- Nach Einleitung optional `## Fragen`, dann **pro Frage direkt nacheinander**:',
   '  `1. Fragentext`',
   '  `A) …`',
   '  `B) …`',
   '  `C) …`',
   '  `D) …`',
+  '  `2. Nächster Fragentext`',
+  '  `A) …` …',
+  '- Fragentext **über** den Optionen derselben Frage — **nicht** alle Fragen gesammelt am Ende.',
   '- Jede Option **eigene Zeile** (mit oder ohne `-` davor) — die App rendert Checkbox-Karten.',
   '- Kein Quiz-JSON, keine Marker, keine lose formatierten Absätze mit A) B) C) in einer Zeile.',
 ].join('\n')
@@ -111,7 +101,8 @@ export function getQuizFormatGenerationInstruction(choice: QuizFormatChoice): st
     return [
       'Gewähltes Quiz-Format (verbindlich für diese Anfrage): **Multiple-Choice im Chat**.',
       'Liefere den gewünschten Inhalt (z. B. Geschichte, Erklärung) und danach Fragen als Markdown.',
-      'Pflicht-Struktur pro Frage (exakt so, damit die UI Checkboxen rendert):',
+      'Pflicht-Struktur pro Frage (exakt so, damit die UI Checkbox-Karten rendert):',
+      '- **Jede Frage braucht einen sichtbaren Fragentext** — nicht nur A–D-Listen.',
       '- Eine eigene Zeile: `1. Fragentext` (bei mehreren Fragen fortlaufend nummerieren: 1., 2., 3., …).',
       '- Direkt darunter je **eine Zeile pro Option**: `A) …`, `B) …`, `C) …`, `D) …` (mind. 2 Optionen) — nicht in einen Absatz quetschen.',
       '- Optional Überschrift `## Fragen` oder Zeile `Fragen:` vor der ersten Frage.',
@@ -129,16 +120,3 @@ export function getQuizFormatGenerationInstruction(choice: QuizFormatChoice): st
   ].join('\n')
 }
 
-export const QUIZ_FORMAT_CHOICE_LABELS: Record<
-  QuizFormatChoice,
-  { title: string; description: string }
-> = {
-  markdown_mcq: {
-    title: 'Multiple Choice (Chat)',
-    description: 'Fragen mit A–D und Checkboxen in der Antwort — zum Ankreuzen, ohne Bewertung.',
-  },
-  interactive: {
-    title: 'Interaktiv (Freitext)',
-    description: 'Quiz mit Eingabefeld; die KI prüft deine Antworten.',
-  },
-}

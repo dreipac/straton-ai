@@ -1217,6 +1217,150 @@ function parseMcqOptions(items: string[]): McqOption[] {
   return items.map(parseMcqOptionLine).filter((x): x is McqOption => x !== null)
 }
 
+/** Eine `ul` mit mehreren A–D-Sätzen (Modell liefert oft nur Optionen ohne Fragentext). */
+function splitUlItemsIntoMcqOptionGroups(items: string[]): string[][] {
+  const groups: string[][] = []
+  let current: string[] = []
+
+  for (const item of items) {
+    const opt = parseMcqOptionLine(item)
+    if (opt?.letter === 'A' && current.length > 0) {
+      groups.push(current)
+      current = [item]
+    } else {
+      current.push(item)
+    }
+  }
+  if (current.length > 0) {
+    groups.push(current)
+  }
+  return groups.filter((group) => isMcqOptionsList(group))
+}
+
+function isGenericMcqPlaceholderPrompt(prompt: string, questionNumber: number): boolean {
+  const t = prompt.trim()
+  return t === `Frage ${questionNumber}` || /^Frage\s+\d+$/i.test(t)
+}
+
+function parseNumberedQuestionItem(text: string): { questionNumber: number; prompt: string } | null {
+  if (parseMcqOptionLine(text)) {
+    return null
+  }
+  return parseMcqQuestionFromText(text)
+}
+
+/** Modell liefert oft alle Fragentexte am Ende als nummerierte Liste ohne Optionen. */
+function parseNumberedQuestionsOnlyList(
+  block: Extract<Block, { type: 'ul' | 'ol' }>,
+): Array<{ questionNumber: number; prompt: string }> {
+  const items =
+    block.type === 'ul'
+      ? block.items
+      : block.items.map((item) => olItemPlainText(item).trim()).filter(Boolean)
+  if (items.length === 0) {
+    return []
+  }
+  const questions = items
+    .map((item) => parseNumberedQuestionItem(item))
+    .filter((entry): entry is { questionNumber: number; prompt: string } => entry !== null)
+  if (questions.length === 0 || questions.length < Math.ceil(items.length * 0.75)) {
+    return []
+  }
+  return questions
+}
+
+function findTrailingQuestionsListBlock(
+  blocks: Block[],
+  startIndex: number,
+  maxLookahead = 5,
+): { block: Extract<Block, { type: 'ul' | 'ol' }>; index: number } | null {
+  for (let j = startIndex; j < Math.min(blocks.length, startIndex + maxLookahead); j += 1) {
+    const candidate = blocks[j]
+    if (!candidate) {
+      break
+    }
+    if (candidate.type === 'hr') {
+      continue
+    }
+    if (candidate.type === 'p') {
+      const plain = stripBoldMarkers(candidate.text.trim())
+      if (!plain || isFragenHeading(plain)) {
+        continue
+      }
+      break
+    }
+    if (candidate.type === 'ol' || candidate.type === 'ul') {
+      if (isMcqOptionsList(candidate.type === 'ul' ? candidate.items : [])) {
+        break
+      }
+      if (parseNumberedQuestionsOnlyList(candidate).length > 0) {
+        return { block: candidate, index: j }
+      }
+    }
+    break
+  }
+  return null
+}
+
+function mergeTrailingQuestionPromptsIntoMcqBatch(
+  mcqBatch: Extract<Block, { type: 'mcq' }>[],
+  tailBlock: Block | undefined,
+): { mcqBatch: Extract<Block, { type: 'mcq' }>[]; consumedTail: boolean } {
+  if (mcqBatch.length === 0 || (tailBlock?.type !== 'ol' && tailBlock?.type !== 'ul')) {
+    return { mcqBatch, consumedTail: false }
+  }
+  if (tailBlock.type === 'ul' && isMcqOptionsList(tailBlock.items)) {
+    return { mcqBatch, consumedTail: false }
+  }
+  const questions = parseNumberedQuestionsOnlyList(tailBlock)
+  if (questions.length === 0) {
+    return { mcqBatch, consumedTail: false }
+  }
+
+  const updated = mcqBatch.map((mcq, idx) => {
+    const byNumber = questions.find((q) => q.questionNumber === mcq.questionNumber)
+    const byIndex = questions[idx]
+    const match = byNumber ?? byIndex
+    if (!match?.prompt) {
+      return mcq
+    }
+    if (!isGenericMcqPlaceholderPrompt(mcq.prompt, mcq.questionNumber) && mcq.prompt.trim().length > 0) {
+      return mcq
+    }
+    return {
+      ...mcq,
+      questionNumber: match.questionNumber,
+      prompt: match.prompt,
+    }
+  })
+
+  return { mcqBatch: updated, consumedTail: true }
+}
+
+function tryParseMcqGroupsFromOptionsUl(
+  ul: Extract<Block, { type: 'ul' }>,
+  questionOffset: number,
+): Extract<Block, { type: 'mcq' }>[] | null {
+  const groups = splitUlItemsIntoMcqOptionGroups(ul.items)
+  if (groups.length === 0) {
+    return null
+  }
+  const mcqs: Extract<Block, { type: 'mcq' }>[] = []
+  for (const group of groups) {
+    const options = parseMcqOptions(group)
+    if (options.length < 2) {
+      continue
+    }
+    mcqs.push({
+      type: 'mcq',
+      questionNumber: questionOffset + mcqs.length + 1,
+      prompt: `Frage ${questionOffset + mcqs.length + 1}`,
+      options,
+    })
+  }
+  return mcqs.length > 0 ? mcqs : null
+}
+
 function tryParseSingleMcqBlock(
   blocks: Block[],
   index: number,
@@ -1296,6 +1440,25 @@ function tryParseSingleMcqBlock(
         end: index + 2,
       }
     }
+    if (
+      !parseMcqOptionLine(plain) &&
+      plain.length > 2 &&
+      !isFragenHeading(plain) &&
+      !/^fragen\s*:/i.test(plain)
+    ) {
+      const options = parseMcqOptions(ul.items)
+      if (options.length >= 2) {
+        return {
+          block: {
+            type: 'mcq',
+            questionNumber: 1,
+            prompt: plain,
+            options,
+          },
+          end: index + 2,
+        }
+      }
+    }
   }
 
   /**
@@ -1349,18 +1512,25 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
       scan++
     }
 
-    /**
-     * Manche Antworten listen nach `Fragen:` fälschlich erst `A) … B) …` ohne Prompt.
-     * Das ist für die UI wertlos und verwirrt (doppelte Frage-Listen). Wenn direkt nach dem
-     * Fragen-Heading eine reine Optionsliste kommt, überspringen wir sie.
-     */
-    if (title && blocks[scan]?.type === 'ul' && isMcqOptionsList((blocks[scan] as Extract<Block, { type: 'ul' }>).items)) {
-      scan++
-    }
-
     const mcqBatch: Extract<Block, { type: 'mcq' }>[] = []
     let cursor = scan
     while (cursor < blocks.length) {
+      const ulCandidate = blocks[cursor]
+      if (ulCandidate?.type === 'ul' && isMcqOptionsList(ulCandidate.items)) {
+        const optionOnlyBatch = tryParseMcqGroupsFromOptionsUl(ulCandidate, questionCounter)
+        if (optionOnlyBatch) {
+          optionOnlyBatch.forEach((mcq) => {
+            questionCounter += 1
+            mcqBatch.push({
+              ...mcq,
+              questionNumber: mcq.questionNumber > 1 ? mcq.questionNumber : questionCounter,
+            })
+          })
+          cursor += 1
+          continue
+        }
+      }
+
       const olCandidate = blocks[cursor]
       if (olCandidate?.type === 'ol' && olCandidate.items.length > 1) {
         const batch = tryParseMcqBatchFromOlBlock(olCandidate, questionCounter)
@@ -1390,25 +1560,39 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
     }
 
     if (mcqBatch.length > 0) {
-      mcqBatch.forEach((mcq, idx) => {
+      const trailingQuestions = findTrailingQuestionsListBlock(blocks, cursor)
+      const merged = mergeTrailingQuestionPromptsIntoMcqBatch(
+        mcqBatch,
+        trailingQuestions?.block ?? blocks[cursor],
+      )
+
+      merged.mcqBatch.forEach((mcq, idx) => {
         out.push({
           ...mcq,
           title: idx === 0 ? title : undefined,
         })
       })
-      /**
-       * Häufiges Tail-Artifact nach MCQ: eine einzelne nummerierte Frage ohne Optionen (z. B. „1. …?“).
-       * Das kommt aus der Modell-Antwort, ist aber für MCQ-UI wertlos → nicht als nackte Liste rendern.
-       */
-      const tail = blocks[cursor]
-      const tailNext = blocks[cursor + 1]
-      const isOrphanedNumberedQuestion =
-        tail?.type === 'ol' &&
-        tail.items.length === 1 &&
-        /[?？]\s*$/.test(stripBoldMarkers(olItemPlainText(tail.items[0] ?? '').trim())) &&
-        !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
 
-      i = cursor + (isOrphanedNumberedQuestion ? 1 : 0)
+      let skipTailBlocks = 0
+      if (merged.consumedTail && trailingQuestions) {
+        skipTailBlocks = trailingQuestions.index - cursor + 1
+      } else {
+        const tail = blocks[cursor]
+        const tailNext = blocks[cursor + 1]
+        /**
+         * Einzelne nummerierte Frage ohne Optionen (z. B. „1. …?“) — nicht als nackte Liste rendern.
+         */
+        const isOrphanedNumberedQuestion =
+          tail?.type === 'ol' &&
+          tail.items.length === 1 &&
+          /[?？]\s*$/.test(stripBoldMarkers(olItemPlainText(tail.items[0] ?? '').trim())) &&
+          !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
+        if (isOrphanedNumberedQuestion) {
+          skipTailBlocks = 1
+        }
+      }
+
+      i = cursor + skipTailBlocks
       continue
     }
 

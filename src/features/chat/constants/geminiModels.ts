@@ -16,7 +16,7 @@ export const GEMINI_DEFAULT_CHAT_MODEL: GeminiChatModelId = GEMINI_MODEL_FLASH_L
 export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v1' as const
 
 /** Hauptchat-Antwort (Instant, statischer Systemteil). */
-export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v1' as const
+export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v2' as const
 
 /** Thinking-Pipeline (Analyse, Entwurf, Review, finale Antwort). */
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1' as const

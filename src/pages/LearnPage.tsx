@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
+import editIcon from '../assets/icons/edit.svg'
 import addIcon from '../assets/icons/add.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import learnOutlinedIcon from '../assets/icons/learn-outlined.svg'
@@ -13,9 +22,12 @@ import paperOutlinedIcon from '../assets/icons/paper-outlined.svg'
 import paperFilledIcon from '../assets/icons/paper-filled.svg'
 import statisticsOutlinedIcon from '../assets/icons/statistics-outlined.svg'
 import statisticsFilledIcon from '../assets/icons/statistics-filled.svg'
+import { RenameBottomSheet, type RenameBottomSheetHandle } from '../components/ui/bottom-sheet/RenameBottomSheet'
 import { ContextMenu } from '../components/ui/menu/ContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
+import { ModalHeader } from '../components/ui/modal/ModalHeader'
+import { isMobileViewport } from '../utils/mobile'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { useAuth } from '../features/auth/context/useAuth'
@@ -252,6 +264,12 @@ export function LearnPage() {
   const [openPathMenuId, setOpenPathMenuId] = useState<string | null>(null)
   const [pathMenuPosition, setPathMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const pathMenuRef = useRef<HTMLDivElement | null>(null)
+  const [renamingPathId, setRenamingPathId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [isRenameVisible, setIsRenameVisible] = useState(false)
+  const renameSheetRef = useRef<RenameBottomSheetHandle | null>(null)
+  const renameCloseTimerRef = useRef<number | null>(null)
+  const LEARN_RENAME_MODAL_ANIMATION_MS = 220
   const mobileTabsTouchStartRef = useRef<number>(0)
   const mobileTabsReleaseTimerRef = useRef<number | null>(null)
   const mobileSidebarButtonTouchStartRef = useRef<number>(0)
@@ -596,6 +614,7 @@ export function LearnPage() {
   const {
     handleCreateLearningPath,
     handleSelectLearningPath,
+    handleRenameLearningPath,
     handleDeleteLearningPath,
     isLearningPathWorkspaceLoading,
   } = useLearningPathActions({
@@ -1011,6 +1030,9 @@ export function LearnPage() {
       }
       if (worksheetModalCloseTimerRef.current) {
         window.clearTimeout(worksheetModalCloseTimerRef.current)
+      }
+      if (renameCloseTimerRef.current) {
+        window.clearTimeout(renameCloseTimerRef.current)
       }
       if (settingsCloseTimerRef.current) {
         window.clearTimeout(settingsCloseTimerRef.current)
@@ -2187,6 +2209,63 @@ export function LearnPage() {
       x: event.clientX,
       y: event.clientY,
     })
+  }
+
+  function openRenameLearningPathModal(pathId: string) {
+    const path = learningPaths.find((item) => item.id === pathId)
+    if (!path || isPendingLearningPathId(pathId)) {
+      return
+    }
+    setOpenPathMenuId(null)
+    setPathMenuPosition(null)
+    if (renameCloseTimerRef.current !== null) {
+      window.clearTimeout(renameCloseTimerRef.current)
+      renameCloseTimerRef.current = null
+    }
+    setRenamingPathId(pathId)
+    setRenameDraft(getDisplayPathTitle(path.title))
+    setIsRenameVisible(false)
+    window.requestAnimationFrame(() => {
+      setIsRenameVisible(true)
+    })
+  }
+
+  function handleRenameSheetClosed() {
+    if (renameCloseTimerRef.current !== null) {
+      window.clearTimeout(renameCloseTimerRef.current)
+      renameCloseTimerRef.current = null
+    }
+    setRenamingPathId(null)
+    setIsRenameVisible(false)
+  }
+
+  function closeRenameLearningPathModal() {
+    if (isMobileViewport()) {
+      renameSheetRef.current?.requestClose()
+      return
+    }
+    setIsRenameVisible(false)
+    renameCloseTimerRef.current = window.setTimeout(() => {
+      setRenamingPathId(null)
+      renameCloseTimerRef.current = null
+    }, LEARN_RENAME_MODAL_ANIMATION_MS)
+  }
+
+  async function handleRenameLearningPathSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!renamingPathId || !renameDraft.trim()) {
+      return
+    }
+    try {
+      await handleRenameLearningPath(renamingPathId, renameDraft)
+      if (isMobileViewport()) {
+        renameSheetRef.current?.requestClose()
+      } else {
+        closeRenameLearningPathModal()
+      }
+    } catch {
+      /* Fehlermeldung wird im Hook gesetzt */
+    }
   }
 
   async function handleUploadMaterials(fileList: FileList | null) {
@@ -3429,6 +3508,14 @@ export function LearnPage() {
           style={{ left: pathMenuPosition.x, top: pathMenuPosition.y }}
         >
           <MenuItem
+            iconSrc={editIcon}
+            onClick={() => {
+              openRenameLearningPathModal(openPathMenuId)
+            }}
+          >
+            Umbenennen
+          </MenuItem>
+          <MenuItem
             iconSrc={deleteIcon}
             danger
             onClick={() => {
@@ -3438,6 +3525,52 @@ export function LearnPage() {
             {'L\u00F6schen'}
           </MenuItem>
         </ContextMenu>
+      ) : null}
+      {renamingPathId && isMobileViewport() ? (
+        <RenameBottomSheet
+          ref={renameSheetRef}
+          open
+          onClose={handleRenameSheetClosed}
+          heading="Lernpfad bearbeiten"
+          inputLabel="Name"
+          inputId="learn-path-title-input"
+          value={renameDraft}
+          onChange={setRenameDraft}
+          placeholder="Neuer Lernpfadname"
+          onSubmit={handleRenameLearningPathSubmit}
+        />
+      ) : renamingPathId ? (
+        <ModalShell isOpen={isRenameVisible} onRequestClose={closeRenameLearningPathModal}>
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Lernpfad umbenennen">
+            <ModalHeader
+              title="Lernpfad bearbeiten"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={closeRenameLearningPathModal}
+              closeLabel="Lernpfad bearbeiten schließen"
+            />
+            <form className="rename-form" onSubmit={handleRenameLearningPathSubmit}>
+              <label htmlFor="learn-path-title-input">Name</label>
+              <input
+                id="learn-path-title-input"
+                type="text"
+                value={renameDraft}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                placeholder="Neuer Lernpfadname"
+                maxLength={120}
+                autoFocus
+              />
+              <div className="rename-actions">
+                <SecondaryButton type="button" onClick={closeRenameLearningPathModal}>
+                  Abbrechen
+                </SecondaryButton>
+                <PrimaryButton type="submit" disabled={!renameDraft.trim()}>
+                  Speichern
+                </PrimaryButton>
+              </div>
+            </form>
+          </section>
+        </ModalShell>
       ) : null}
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}

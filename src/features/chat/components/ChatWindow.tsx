@@ -32,7 +32,6 @@ import { copyTextToClipboard } from '../../../utils/copyTextToClipboard'
 import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
 import type { AccountSubscriptionDisplay } from '../../settings/utils/accountSubscriptionDisplay'
 import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
-import { QuizFormatChoiceModal } from './QuizFormatChoiceModal'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
 import { CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS } from './chat-window/chatWindowConstants'
 import { ChatMessageList } from './chat-window/ChatMessageList'
@@ -165,6 +164,7 @@ export function ChatWindow({
     pendingWordGeneration,
     pendingPdfGeneration,
     pendingChartGeneration,
+    pendingDiagramGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,
@@ -355,14 +355,6 @@ export function ChatWindow({
     />
   )
 
-  const quizFormatOverlay = composer.quizFormatPending ? (
-    <QuizFormatChoiceModal
-      previewText={composer.quizFormatPending.content.split('\n\n')[0]?.slice(0, 280)}
-      onDismiss={() => composer.setQuizFormatPending(null)}
-      onChoose={composer.handleQuizFormatChosen}
-    />
-  ) : null
-
   const thinkingClarifyOverlay =
     thinkingClarifyDialog?.kind === 'structured' ? (
       <ThinkingClarifyModal
@@ -523,7 +515,6 @@ export function ChatWindow({
             animationKey={threadKey ?? 'new'}
           />
           {error ? <p className="error-text">{error}</p> : null}
-          {quizFormatOverlay}
           {thinkingClarifyOverlay}
           {thinkingCreditsHintEl}
           {showInstantAnalyzeDebug && liveInstantAnalyzeDebug ? (
@@ -582,6 +573,7 @@ export function ChatWindow({
         pendingWordGeneration={pendingWordGeneration}
         pendingPdfGeneration={pendingPdfGeneration}
         pendingChartGeneration={pendingChartGeneration}
+        pendingDiagramGeneration={pendingDiagramGeneration}
         pendingStatusLabel={pendingStatusLabel}
         sendPhase={sendPhase}
         showLatestAssistantOrbitLoader={showLatestAssistantOrbitLoader}
@@ -610,7 +602,6 @@ export function ChatWindow({
       {error ? <p className="error-text">{error}</p> : null}
 
       <div className="chat-composer-stack">
-        {quizFormatOverlay}
         {thinkingClarifyOverlay}
         {composer.isMobileComposer ? thinkingCreditsHintEl : null}
         {showInstantAnalyzeDebug && liveInstantAnalyzeDebug && isSending ? (

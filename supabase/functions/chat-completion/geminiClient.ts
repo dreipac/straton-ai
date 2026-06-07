@@ -222,7 +222,13 @@ async function createCachedContentName(
     )
     return typeof created.name === 'string' ? created.name : null
   } catch (err) {
-    console.warn('[gemini] context cache create failed', cacheKey, err)
+    const estTokens = Math.ceil(systemInstruction.length / 4)
+    console.warn(
+      '[gemini] context cache create failed',
+      cacheKey,
+      `~${estTokens} est. tokens`,
+      err,
+    )
     return null
   }
 }
@@ -343,6 +349,13 @@ export async function geminiGenerateText(
     body.cachedContent = cachedContent
   } else if (systemInstruction) {
     body.systemInstruction = { parts: [{ text: systemInstruction }] }
+    if (options?.contextCacheKey) {
+      console.warn(
+        '[gemini] context cache unavailable — inline system',
+        options.contextCacheKey,
+        `~${Math.ceil(systemInstruction.length / 4)} est. tokens`,
+      )
+    }
   }
 
   const data = await geminiJson<GenerateContentResponse>(
@@ -356,7 +369,20 @@ export async function geminiGenerateText(
     throw new Error('Gemini hat keine Textantwort geliefert.')
   }
 
-  return { text, usage: parseUsageFromResponse(data), model }
+  const usage = parseUsageFromResponse(data)
+  if (options?.contextCacheKey) {
+    if (!cachedContent) {
+      console.warn('[gemini] context cache miss (0 cached tokens)', options.contextCacheKey)
+    } else if (!(usage.cachedInputTokens && usage.cachedInputTokens > 0)) {
+      console.warn(
+        '[gemini] context cache hit resource but 0 cached tokens in usage',
+        options.contextCacheKey,
+        cachedContent,
+      )
+    }
+  }
+
+  return { text, usage, model }
 }
 
 /** Mehrturn-Chat inkl. `inlineData` (Fotos) über Gemini REST. */

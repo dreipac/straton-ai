@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { evaluateQuizAnswerWithAi } from '../services/chat.service'
 import type { ChatMessage } from '../types'
 import { parseChartSpecFromContent } from '../chart/chartSpec'
+import { parseDiagramSpecFromContent } from '../diagram/diagramSpec'
 import { stripExcelSpecBlock } from '../excel/excelSpec'
 import { parseInteractiveContentWithFallback } from '../utils/interactiveQuiz'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
@@ -140,6 +141,35 @@ export function useChatMessageList({
     lastChartUserIndex >= 0 &&
     !assistantHasChartSpecAfterLastChartUser
 
+  const lastDiagramUserIndex = (() => {
+    for (let i = messageList.length - 1; i >= 0; i -= 1) {
+      if (messageList[i].role === 'user' && messageList[i].metadata?.userDiagramCommand) {
+        return i
+      }
+    }
+    return -1
+  })()
+  const assistantHasDiagramSpecAfterLastDiagramUser =
+    lastDiagramUserIndex >= 0 &&
+    messageList
+      .slice(lastDiagramUserIndex + 1)
+      .some(
+        (m) =>
+          m.role === 'assistant' &&
+          !m.metadata?.liveStream &&
+          Boolean(parseDiagramSpecFromContent(m.content).spec),
+      )
+  const pendingDiagramGeneration =
+    isSending &&
+    !pendingImageGeneration &&
+    !pendingImageSearch &&
+    !pendingExcelGeneration &&
+    !pendingWordGeneration &&
+    !pendingPdfGeneration &&
+    !pendingChartGeneration &&
+    lastDiagramUserIndex >= 0 &&
+    !assistantHasDiagramSpecAfterLastDiagramUser
+
   const showBootstrapPendingRow = isSending && messageList.length === 0
   const bootstrapStatusLabel =
     getChatSendPhaseLabel(sendPhase) ?? (isSending ? 'Denkt nach …' : undefined)
@@ -151,7 +181,8 @@ export function useChatMessageList({
     !pendingExcelGeneration &&
     !pendingWordGeneration &&
     !pendingPdfGeneration &&
-    !pendingChartGeneration
+    !pendingChartGeneration &&
+    !pendingDiagramGeneration
   const showPendingAssistantRow =
     showPendingTextOrbitRow ||
     pendingImageSearch ||
@@ -159,7 +190,8 @@ export function useChatMessageList({
     pendingExcelGeneration ||
     pendingWordGeneration ||
     pendingPdfGeneration ||
-    pendingChartGeneration
+    pendingChartGeneration ||
+    pendingDiagramGeneration
   const pendingStatusLabel =
     getChatSendPhaseLabel(sendPhase) ??
     (isSending && showPendingTextOrbitRow ? 'Denkt nach …' : undefined)
@@ -202,19 +234,29 @@ export function useChatMessageList({
       ? `${messageList[messageList.length - 1].id}:${safeMessageContent(messageList[messageList.length - 1].content).length}`
       : ''
 
-  /** Liste immer ohne Scroll-Animation ans Ende (Chat öffnen, Laden, neue Nachricht). */
+  /** Liste immer ohne Scroll-Animation ans Ende (Chat öffnen, Laden, neue Nachricht, Pending-Loader). */
   useEffect(() => {
     const el = messagesScrollRef.current
-    if (!el || messageList.length === 0) {
+    if (!el || (messageList.length === 0 && !showPendingAssistantRow)) {
       return
     }
-    requestAnimationFrame(() => {
+    const scrollToEnd = () => {
       el.scrollTo({
         top: el.scrollHeight,
         behavior: 'auto',
       })
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToEnd)
     })
-  }, [threadKey, lastMessageFingerprint, isSending, messageList.length])
+  }, [
+    threadKey,
+    lastMessageFingerprint,
+    isSending,
+    sendPhase,
+    showPendingAssistantRow,
+    messageList.length,
+  ])
 
   useEffect(() => {
     return () => {
@@ -545,6 +587,7 @@ export function useChatMessageList({
     pendingWordGeneration,
     pendingPdfGeneration,
     pendingChartGeneration,
+    pendingDiagramGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,

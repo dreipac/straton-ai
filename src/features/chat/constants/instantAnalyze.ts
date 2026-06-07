@@ -24,6 +24,7 @@ import {
 } from './documentAttachmentIntent'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
 import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
+import { buildInstantAnalyzeDiagramBriefing } from './diagramExportIntent'
 import {
   buildDocumentExportSummaryTurnBriefing,
   buildInstantAnalyzeDocumentExportBriefing,
@@ -135,6 +136,7 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
     '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only — **ausser** Diagramm-Umstellung («als Balkendiagramm») → chart.chart_generate.',
     '- «Erstelle (ein) Diagramm» mit Prozent-/Zahlenwerten → category "chart", action "chart_generate", clarity "clear", reply_mode "normal".',
+    '- Stammbaum, Familienbaum, Ablauf, Prozess, Workflow, Flussdiagramm, Mindmap, Organigramm → category "diagram", action "diagram_generate", clarity "clear", reply_mode "normal".',
     '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
     '- Verlauf mit «[Straton hat zuvor ein Bild generiert]» oder Assistenten-Bild: Nutzer bezieht sich darauf («wer/was ist das auf dem Bild», «was siehst du», «dein Bild») → category "image", action "reference" (nicht generate).',
     '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
@@ -356,8 +358,8 @@ export function applyConversationalFollowUpHeuristic(
   priorTurns: ReadonlyArray<{ role: string; content?: string | null }> | undefined,
   analyze: InstantAnalyzeResult,
 ): InstantAnalyzeResult {
-  const chartRoute = detectRouteHeuristic(userMessage, false, priorTurns as ImageSearchPriorTurn[] | undefined, false)
-  if (chartRoute?.category === 'chart') {
+  const mediaRoute = detectRouteHeuristic(userMessage, false, priorTurns as ImageSearchPriorTurn[] | undefined, false)
+  if (mediaRoute?.category === 'chart' || mediaRoute?.category === 'diagram') {
     return analyze
   }
   if (!priorTurns?.length || !isConversationalFollowUp(userMessage, priorTurns)) {
@@ -446,7 +448,7 @@ export function applyDirectAnswerHeuristic(
   if (userAsksDocumentVisibilityQuestion(userMessage)) {
     return analyze
   }
-  if (analyze.category === 'document' || analyze.category === 'chart') {
+  if (analyze.category === 'document' || analyze.category === 'chart' || analyze.category === 'diagram') {
     return analyze
   }
   if (analyze.category === 'image' && analyze.action !== 'describe') {
@@ -841,6 +843,9 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
   }
   if (analyze.category === 'chart') {
     lines.push(buildInstantAnalyzeChartBriefing())
+  }
+  if (analyze.category === 'diagram') {
+    lines.push(buildInstantAnalyzeDiagramBriefing())
   }
   if (
     analyze.category === 'chat' &&

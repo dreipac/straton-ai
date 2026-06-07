@@ -4,6 +4,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8'
 import { handleDocumentExtract } from './documentExtractRoute.ts'
 import { buildInstantAnalyzeChartGenerateSection } from './chartExportPrompts.ts'
+import { buildInstantAnalyzeDiagramGenerateSection } from './diagramExportPrompts.ts'
 import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportPrompts.ts'
 import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 import {
@@ -66,13 +67,33 @@ function sanitizeInputMessages(messages: InputMessage[]): InputMessage[] {
  * Wenn der Nutzer /Word ausgelöst hat: Systemhinweis für die #### / ##### / ######-Konvention,
  * damit die KI nicht nur «normales» Markdown (#–###) liefert.
  */
+function prependBlockToLastUserMessage(messages: InputMessage[], block: string): InputMessage[] {
+  const extra = block.trim()
+  if (!extra) {
+    return messages
+  }
+  let lastUserIdx = -1
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      lastUserIdx = i
+      break
+    }
+  }
+  if (lastUserIdx < 0) {
+    return messages
+  }
+  const last = messages[lastUserIdx]!
+  const base = last.content.trim()
+  const content = base ? `${extra}\n\n---\n\n${base}` : extra
+  return messages.map((m, i) => (i === lastUserIdx ? { ...m, content } : m))
+}
+
 function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[]): InputMessage[] {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')
   if (!lastUser?.content.includes(STRATON_WORD_EXPORT_COMMAND_MARKER)) {
     return messages
   }
   const block = [
-    '',
     '## Word-Dokument (Straton)',
     'Der Nutzer hat den Word-Export angefragt (Marker im User-Text). Der sichtbare Text ist die **Vorschau des späteren .docx** — schreibe ihn wie **fertigen Dokumentinhalt für Leser**, nicht wie Tutorial zum Ausfüllen.',
     '**Streng verboten:** Einleitungen über «diese Vorlage» oder «empfohlene Kapitelstruktur»; Sätze wie «In diesem Kapitel beschreiben Sie…», «Hier wird erklärt…», «Dieser Abschnitt soll…», «Tragen Sie ein…»; reine Leitfragen ohne Antworttext (z. B. nur «Warum? Wer?»); Platzhalter-Unterkapitel («Schritt 1», «Schritt 2» ohne Beschreibung); zusätzliche Blöcke «Direkt nutzbare Vorlage» oder ähnliche Meta-Bereiche.',
@@ -88,13 +109,7 @@ function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[
     'Keine langen Meta-Vorreden — beginne direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments.',
     'Die .docx erzeugt die App erst nach Bestätigung in der UI; du lieferst nur Text/JSON für die Vorschau.',
   ].join('\n')
-  if (messages.length > 0 && messages[0]!.role === 'system') {
-    return [
-      { ...messages[0]!, content: `${messages[0]!.content}\n\n${block}` },
-      ...messages.slice(1),
-    ]
-  }
-  return [{ role: 'system', content: block.trim() }, ...messages]
+  return prependBlockToLastUserMessage(messages, block)
 }
 
 /** Schweizer Orthografie — kein ß, immer ss (sichtbarer Text + deutsche JSON-Strings). */
@@ -125,7 +140,7 @@ type OpenAiPromptCacheOptions = {
 }
 
 /** Gleicher Default wie Client `chat.service.ts` (`OPENAI_PROMPT_CACHE_KEY_MAIN`). */
-const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v4'
+const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v5'
 
 function sanitizePromptCacheKey(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -2255,7 +2270,7 @@ const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as 
 const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
 const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
-type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart'
+type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart' | 'diagram'
 type InstantAnalyzeActionEdge =
   | 'answer'
   | 'short_answer'
@@ -2269,6 +2284,7 @@ type InstantAnalyzeActionEdge =
   | 'pdf_generate'
   | 'excel_generate'
   | 'chart_generate'
+  | 'diagram_generate'
 
 const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
   InstantAnalyzeCategoryEdge,
@@ -2278,13 +2294,20 @@ const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
   image: ['generate', 'describe', 'search', 'reference'],
   document: ['word_generate', 'pdf_generate', 'excel_generate'],
   chart: ['chart_generate'],
+  diagram: ['diagram_generate'],
 }
 
 function isAllowedInstantCategoryAction(
   category: string,
   action: string,
 ): category is InstantAnalyzeCategoryEdge {
-  if (category !== 'chat' && category !== 'image' && category !== 'document' && category !== 'chart') {
+  if (
+    category !== 'chat' &&
+    category !== 'image' &&
+    category !== 'document' &&
+    category !== 'chart' &&
+    category !== 'diagram'
+  ) {
     return false
   }
   return (INSTANT_ANALYZE_ACTIONS_BY_CATEGORY[category] as readonly string[]).includes(action)
@@ -2935,7 +2958,7 @@ async function instantAnalyzeWithGemini(
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: category ("chat"|"image"|"document"|"chart"), action (passend zur category),',
+    'Felder: category ("chat"|"image"|"document"|"chart"|"diagram"), action (passend zur category),',
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web),',
@@ -2949,11 +2972,13 @@ async function instantAnalyzeWithGemini(
     'explanation: «über was geht es im Dokument?», Thema-Frage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
     'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
+    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate; diagram → diagram_generate.',
     '',
     buildInstantAnalyzeDocumentGenerateSection(),
     '',
     buildInstantAnalyzeChartGenerateSection(),
+    '',
+    buildInstantAnalyzeDiagramGenerateSection(),
     '',
     '[Datei:…]-Anhang + nur Lesen/Zusammenfassen → chat.answer, nicht document.*.',
     'Multiple-Choice mit Optionen (Zertifizierung, «which of the following») → chat.short_answer.',
@@ -3007,7 +3032,7 @@ async function instantAnalyzeWithAi(
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: category ("chat"|"image"|"document"|"chart"), action (passend zur category),',
+    'Felder: category ("chat"|"image"|"document"|"chart"|"diagram"), action (passend zur category),',
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
@@ -3015,10 +3040,10 @@ async function instantAnalyzeWithAi(
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
     'mc_solve → chat.short_answer; quiz_generate → chat.answer; summary → chat.answer, reply_mode normal.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate.',
+    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate; diagram → diagram_generate.',
     '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
     '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel → document.*.',
-    '«Erstelle Diagramm», Prozentverteilung, «als Balkendiagramm» → chart.chart_generate (nicht chat.answer).',
+    'Balken/Kreis/Prozent/Statistik → chart.chart_generate. Stammbaum/Ablauf/Prozess/Workflow/Mindmap → diagram.diagram_generate.',
     'Anhang + beschreiben ohne Neuerstellung → image.describe.',
     'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
     'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
@@ -3382,18 +3407,13 @@ function stripOuterMarkdownFence(raw: string): string {
 }
 
 function injectAiChatMemoryIntoMessages(messages: InputMessage[], memoryText: string): InputMessage[] {
-  const block: InputMessage = {
-    role: 'system',
-    content: [
-      'Langfristiger Nutzerkontext (über Chats gespeichert; vertraulich behandeln):',
-      memoryText,
-      'Nutze diese Angaben nur, wenn sie zur aktuellen Frage passen; wiederhole sie nicht in jeder Antwort wortwörtlich.',
-    ].join('\n\n'),
-  }
-  if (messages.length > 0 && messages[0].role === 'system') {
-    return [messages[0], block, ...messages.slice(1)]
-  }
-  return [block, ...messages]
+  const block = [
+    '## Kontext für diese Anfrage (Langzeit-Memory, nicht vom Nutzer geschrieben)',
+    'Langfristiger Nutzerkontext (über Chats gespeichert; vertraulich behandeln):',
+    memoryText,
+    'Nutze diese Angaben nur, wenn sie zur aktuellen Frage passen; wiederhole sie nicht in jeder Antwort wortwörtlich.',
+  ].join('\n\n')
+  return prependBlockToLastUserMessage(messages, block)
 }
 
 async function handleMergeAiChatMemory(
@@ -3994,13 +4014,14 @@ serve(async (req) => {
     if (useGeminiMainChat) {
       await getProviderApiKey('gemini')
       try {
+        const mainChatCacheKey =
+          geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            : geminiPromptCacheKey ?? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
         const geminiResult = await geminiChatCompletion(chatMessages, {
           model: geminiModelOverride,
           maxOutputTokens: chatMaxTokens,
-          contextCacheKey:
-            geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
-              ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
-              : geminiPromptCacheKey ?? undefined,
+          contextCacheKey: mainChatCacheKey,
         })
         await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
           text: geminiResult.text,

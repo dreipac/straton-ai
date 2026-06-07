@@ -7,6 +7,7 @@ import {
   type ChatThreadsRefreshDetail,
 } from '../constants/events'
 import { stripChartCommandMarker, userWantsChartExport } from '../constants/chartExportPrompt'
+import { stripDiagramCommandMarker, userWantsDiagramExport } from '../constants/diagramExportPrompt'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
 import { stripPdfCommandMarker, userWantsPdfExport } from '../constants/pdfExportPrompt'
@@ -127,6 +128,7 @@ import {
   parseExcelSpecFromContent,
 } from '../excel/excelSpec'
 import { parseChartSpecFromContent } from '../chart/chartSpec'
+import { parseDiagramSpecFromContent } from '../diagram/diagramSpec'
 import { userMessageRequestsDirectAnswer } from '../constants/chatDirectAnswerInstruction'
 import {
   canFinalizePdfExportFromThread,
@@ -1312,7 +1314,9 @@ export function useChat(
     let wantsPdf = !wantsWord && userWantsPdfExport(content)
     let wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
     let wantsChart = !wantsWord && !wantsPdf && !wantsExcel && userWantsChartExport(content)
-    let trimmed = stripChartCommandMarker(content)
+    let wantsDiagram =
+      !wantsWord && !wantsPdf && !wantsExcel && !wantsChart && userWantsDiagramExport(content)
+    let trimmed = stripDiagramCommandMarker(stripChartCommandMarker(content))
     trimmed = stripExcelCommandMarker(trimmed)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
@@ -1352,15 +1356,17 @@ export function useChat(
           : {}),
       }))
 
-    if (!wantsChart && routingText) {
-      const chartRoute = detectRouteHeuristic(
+    if (!wantsChart && !wantsDiagram && routingText) {
+      const mediaRoute = detectRouteHeuristic(
         routingText,
         hasAttachedVision,
         priorTurnsEarly,
         hasDocumentFileAttachment,
       )
-      if (chartRoute?.category === 'chart') {
+      if (mediaRoute?.category === 'chart') {
         wantsChart = true
+      } else if (mediaRoute?.category === 'diagram') {
+        wantsDiagram = true
       }
     }
     const wantsDirectAnswer = userMessageRequestsDirectAnswer(routingText, priorTurnsEarly)
@@ -1370,7 +1376,12 @@ export function useChat(
 
     if (chatThinkingMode === 'thinking') {
       const composerRouteLockedEarly =
-        wantsWord || wantsPdf || wantsExcel || wantsChart || isComposerImageGenRequest(routingText)
+        wantsWord ||
+        wantsPdf ||
+        wantsExcel ||
+        wantsChart ||
+        wantsDiagram ||
+        isComposerImageGenRequest(routingText)
       const thinkingMediaEarly = resolveThinkingMediaRouteFromHeuristics(routingText, {
         hasVisionAttachment: hasAttachedVision,
         hasDocumentFileAttachment,
@@ -1388,21 +1399,31 @@ export function useChat(
         wantsPdf = false
         wantsExcel = false
         wantsChart = false
+        wantsDiagram = false
       } else if (thinkingMediaEarly.wantsPdf) {
         wantsPdf = true
         wantsWord = false
         wantsExcel = false
         wantsChart = false
+        wantsDiagram = false
       } else if (thinkingMediaEarly.wantsExcel) {
         wantsExcel = true
         wantsWord = false
         wantsPdf = false
         wantsChart = false
+        wantsDiagram = false
       } else if (thinkingMediaEarly.wantsChart) {
         wantsChart = true
         wantsWord = false
         wantsPdf = false
         wantsExcel = false
+        wantsDiagram = false
+      } else if (thinkingMediaEarly.wantsDiagram) {
+        wantsDiagram = true
+        wantsWord = false
+        wantsPdf = false
+        wantsExcel = false
+        wantsChart = false
       }
       if (thinkingMediaEarly.imageSearchQuery) {
         imageSearchQuery = thinkingMediaEarly.imageSearchQuery
@@ -1415,6 +1436,7 @@ export function useChat(
       chatThinkingMode === 'thinking' &&
       !wantsExcel &&
       !wantsChart &&
+      !wantsDiagram &&
       !wantsWord &&
       !wantsPdf &&
       !imageGenPrompt &&
@@ -1567,6 +1589,7 @@ export function useChat(
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
+        ...(wantsDiagram ? { userDiagramCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
         ...(docAttachments.length > 0
@@ -1688,6 +1711,7 @@ export function useChat(
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
+        ...(wantsDiagram ? { userDiagramCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
         ...(documentAttachments.length > 0
@@ -1718,6 +1742,7 @@ export function useChat(
         !wantsPdf &&
         !wantsExcel &&
         !wantsChart &&
+        !wantsDiagram &&
         (Boolean(routingText) || hasDocumentFileAttachment) &&
         !hasAttachedVision
 
@@ -1778,6 +1803,7 @@ export function useChat(
             wantsPdf ||
             wantsExcel ||
             wantsChart ||
+            wantsDiagram ||
             isComposerImageGenRequest(routingText)
           const routeOverrides = resolveInstantRouteOverrides(instantAnalyze, routingText, {
             composerRouteLocked,
@@ -1799,21 +1825,31 @@ export function useChat(
             wantsPdf = false
             wantsExcel = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsChart) {
             wantsChart = true
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsDiagram = false
+          } else if (routeOverrides.wantsDiagram) {
+            wantsDiagram = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
+            wantsChart = false
           }
           if (routeOverrides.imageSearchQuery) {
             imageSearchQuery = routeOverrides.imageSearchQuery
@@ -1836,7 +1872,15 @@ export function useChat(
               }
             }
           }
-          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart) {
+          if (
+            !imageGenPrompt &&
+            !imageSearchQuery &&
+            !wantsWord &&
+            !wantsPdf &&
+            !wantsExcel &&
+            !wantsChart &&
+            !wantsDiagram
+          ) {
             const genFallback = resolveHeuristicImageGenFallback(routingText)
             if (genFallback.imageGenEmpty) {
               setMessagesByThreadId((prev) => ({
@@ -1876,8 +1920,18 @@ export function useChat(
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
             delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userDiagramCommand
             if (!trimmed) {
               userContent = 'Diagramm erstellen'
+            }
+          } else if (wantsDiagram) {
+            userMetadataBase.userDiagramCommand = true
+            delete userMetadataBase.userWordCommand
+            delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userChartCommand
+            if (!trimmed) {
+              userContent = 'Struktur-Diagramm erstellen'
             }
           }
 
@@ -1957,6 +2011,7 @@ export function useChat(
         !wantsPdf &&
         !wantsExcel &&
         !wantsChart &&
+        !wantsDiagram &&
         !imageGenPrompt &&
         !imageSearchQuery &&
         Boolean(routingText)
@@ -1991,21 +2046,31 @@ export function useChat(
             wantsPdf = false
             wantsExcel = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
             wantsChart = false
+            wantsDiagram = false
           } else if (routeOverrides.wantsChart) {
             wantsChart = true
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsDiagram = false
+          } else if (routeOverrides.wantsDiagram) {
+            wantsDiagram = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
+            wantsChart = false
           }
           if (routeOverrides.imageSearchQuery) {
             imageSearchQuery = routeOverrides.imageSearchQuery
@@ -2028,7 +2093,15 @@ export function useChat(
               }
             }
           }
-          if (!imageGenPrompt && !imageSearchQuery && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart) {
+          if (
+            !imageGenPrompt &&
+            !imageSearchQuery &&
+            !wantsWord &&
+            !wantsPdf &&
+            !wantsExcel &&
+            !wantsChart &&
+            !wantsDiagram
+          ) {
             const genFallback = resolveHeuristicImageGenFallback(routingText)
             if (genFallback.imageGenEmpty) {
               setMessagesByThreadId((prev) => ({
@@ -2049,6 +2122,7 @@ export function useChat(
             chatThinkingMode === 'thinking' &&
             !wantsExcel &&
             !wantsChart &&
+            !wantsDiagram &&
             !wantsWord &&
             !wantsPdf &&
             !imageGenPrompt &&
@@ -2375,7 +2449,15 @@ export function useChat(
         }
       }
 
-      if (wantsThinkingTurn && !wantsWord && !wantsPdf && !wantsExcel && !wantsChart && trimmed) {
+      if (
+        wantsThinkingTurn &&
+        !wantsWord &&
+        !wantsPdf &&
+        !wantsExcel &&
+        !wantsChart &&
+        !wantsDiagram &&
+        trimmed
+      ) {
         const clarifyFollowUp = isThinkingClarifyFollowUp(nextMessages)
         let session = thinkingIntakeByThreadRef.current[targetThreadId] ?? null
 
@@ -2575,6 +2657,7 @@ export function useChat(
             userRequestedWord: wantsWord,
             userRequestedPdf: wantsPdf,
             userRequestedChart: wantsChart,
+            userRequestedDiagram: wantsDiagram,
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
@@ -2641,6 +2724,7 @@ export function useChat(
           userRequestedWord: wantsWord,
           userRequestedPdf: wantsPdf,
           userRequestedChart: wantsChart,
+          userRequestedDiagram: wantsDiagram,
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
@@ -2695,6 +2779,11 @@ export function useChat(
           'Das Diagramm konnte nicht dargestellt werden — die KI hat kein gültiges Chart-JSON geliefert. Bitte erneut versuchen.',
         )
       }
+      if (usesGatewayAi() && wantsDiagram && !parseDiagramSpecFromContent(finalAssistantContent).spec) {
+        setError(
+          'Das Struktur-Diagramm konnte nicht dargestellt werden — die KI hat keinen gültigen Mermaid-Block geliefert. Bitte erneut versuchen.',
+        )
+      }
 
       setMessagesByThreadId((prev) => {
         const list = prev[targetThreadId] ?? []
@@ -2721,6 +2810,7 @@ export function useChat(
         chatThinkingMode === 'thinking' &&
         !wantsExcel &&
         !wantsChart &&
+        !wantsDiagram &&
         !wantsWord &&
         !wantsPdf
       ) {

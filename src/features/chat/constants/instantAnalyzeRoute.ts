@@ -1,5 +1,6 @@
 import type { InstantAnalyzeReplyMode, InstantAnalyzeResult } from './instantAnalyze'
 import { buildInstantAnalyzeChartGenerateSection } from './chartExportIntent'
+import { buildInstantAnalyzeDiagramGenerateSection } from './diagramExportIntent'
 import { buildInstantAnalyzeDirectAnswerSection } from './chatDirectAnswerInstruction'
 import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportIntent'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
@@ -11,18 +12,20 @@ import {
   type ImageSearchPriorTurn,
 } from '../utils/imageSearchIntent'
 
-export type InstantAnalyzeCategory = 'chat' | 'image' | 'document' | 'chart'
+export type InstantAnalyzeCategory = 'chat' | 'image' | 'document' | 'chart' | 'diagram'
 
 export type InstantAnalyzeChatAction = 'answer' | 'short_answer' | 'clarify' | 'one_step'
 export type InstantAnalyzeImageAction = 'generate' | 'describe' | 'search' | 'reference'
 export type InstantAnalyzeDocumentAction = 'word_generate' | 'pdf_generate' | 'excel_generate'
 export type InstantAnalyzeChartAction = 'chart_generate'
+export type InstantAnalyzeDiagramAction = 'diagram_generate'
 
 export type InstantAnalyzeAction =
   | InstantAnalyzeChatAction
   | InstantAnalyzeImageAction
   | InstantAnalyzeDocumentAction
   | InstantAnalyzeChartAction
+  | InstantAnalyzeDiagramAction
 
 const CHAT_ACTIONS: InstantAnalyzeChatAction[] = ['answer', 'short_answer', 'clarify', 'one_step']
 const IMAGE_ACTIONS: InstantAnalyzeImageAction[] = ['generate', 'describe', 'search', 'reference']
@@ -32,19 +35,27 @@ const DOCUMENT_ACTIONS: InstantAnalyzeDocumentAction[] = [
   'excel_generate',
 ]
 const CHART_ACTIONS: InstantAnalyzeChartAction[] = ['chart_generate']
+const DIAGRAM_ACTIONS: InstantAnalyzeDiagramAction[] = ['diagram_generate']
 
 const ACTIONS_BY_CATEGORY: Record<InstantAnalyzeCategory, readonly InstantAnalyzeAction[]> = {
   chat: CHAT_ACTIONS,
   image: IMAGE_ACTIONS,
   document: DOCUMENT_ACTIONS,
   chart: CHART_ACTIONS,
+  diagram: DIAGRAM_ACTIONS,
 }
 
 export function isAllowedCategoryAction(
   category: string,
   action: string,
 ): category is InstantAnalyzeCategory {
-  if (category !== 'chat' && category !== 'image' && category !== 'document' && category !== 'chart') {
+  if (
+    category !== 'chat' &&
+    category !== 'image' &&
+    category !== 'document' &&
+    category !== 'chart' &&
+    category !== 'diagram'
+  ) {
     return false
   }
   const cat = category as InstantAnalyzeCategory
@@ -154,13 +165,21 @@ const EXCEL_EXPORT_TEXT_RE =
 const EXCEL_EXPORT_VERB_RE =
   /\b(?:erstell|generier|exportier|mach).{0,40}\b(?:excel|xlsx)\b|\b(?:excel|xlsx).{0,40}\b(?:erstell|generier|exportier)\b/i
 
-const CHART_EXPORT_TEXT_RE =
-  /\b(?:diagramm|chart|grafik|balkendiagramm|liniendiagramm|kreisdiagramm|tortendiagramm|visualisier(?:e|en|ung))\b/i
+const NUMERIC_CHART_TEXT_RE =
+  /\b(?:balkendiagramm|liniendiagramm|kreisdiagramm|tortendiagramm|donutdiagramm|säulendiagramm|chart|grafik|visualisier(?:e|en|ung)|prozent|statistik|datenvisualisierung)\b/i
 const CHART_EXPORT_VERB_RE =
-  /\b(?:erstell|generier|zeichne|mach|visualisier).{0,40}\b(?:diagramm|chart|grafik|balkendiagramm)\b|\b(?:diagramm|chart|grafik).{0,40}\b(?:erstell|generier|zeichne)\b/i
+  /\b(?:erstell|generier|zeichne|mach|visualisier).{0,40}\b(?:balkendiagramm|liniendiagramm|kreisdiagramm|chart|grafik)\b|\b(?:balkendiagramm|liniendiagramm|kreisdiagramm|chart|grafik).{0,40}\b(?:erstell|generier|zeichne)\b/i
 /** Folgenachricht nach Diagramm-Wunsch: «mache das als Balkendiagramm». */
 const CHART_REFINEMENT_RE =
   /\b(?:als|statt)\s+(?:ein(?:en|e|em)?\s+)?(?:balken|linien|kreis|torten|säulen|donut)?\s*(?:diagramm|chart)\b|\b(?:mach(?:e)?|zeig(?:e)?|stell(?:e)?)\s+(?:das|es)\s+als\b/i
+
+const DIAGRAM_STRUCTURE_TEXT_RE =
+  /\b(?:stammbaum|familienbaum|genealogie|ablauf(?:diagramm|plan|skizze)?|prozess(?:diagramm|ablauf)?|workflow|flussdiagramm|flowchart|organigramm|mindmap|gedankenkarte|entscheidungsbaum|sequenzdiagramm|zustandsdiagramm|übersichts(?:grafik|diagramm)|schritte?\s+(?:als|in)\s+(?:skizze|übersicht|grafik)|skizze\s+(?:des|vom|vom)\s+ablauf)\b/i
+const DIAGRAM_EXPORT_VERB_RE =
+  /\b(?:erstell|generier|zeichne|skizzier|darstell|visualisier|mach).{0,40}\b(?:stammbaum|familienbaum|ablauf|prozess|workflow|flussdiagramm|organigramm|mindmap|sequenzdiagramm)\b|\b(?:stammbaum|familienbaum|ablauf|prozess|workflow|flussdiagramm|organigramm|mindmap).{0,40}\b(?:erstell|generier|zeichne|skizzier)\b/i
+const DIAGRAM_SKETCH_RE =
+  /\b(?:skizze|überblick)\b/i
+const NUMERIC_DATA_HINT_RE = /\b(?:prozent|zahl|daten|statistik|umsatz|verteilung|anteil)\b/i
 
 const IMAGE_DESCRIBE_RE =
   /\b(?:was\s+siehst|was\s+steht|beschreib|erkläre|erklär|analysier|lies|lesen|erkenn|ocr|inhalt).{0,30}\b(?:bild|foto|screenshot|anhang)\b/i
@@ -186,6 +205,22 @@ export function userMessageRequestsChart(
   }
   const detected = detectRouteHeuristic(t, false, undefined, false)
   return detected?.category === 'chart' && detected.action === 'chart_generate'
+}
+
+/** User-Nachricht war Struktur-Diagramm-Job (Stammbaum, Ablauf, …). */
+export function userMessageRequestsDiagram(
+  userMessage: string,
+  metadata?: { userDiagramCommand?: boolean } | null,
+): boolean {
+  if (metadata?.userDiagramCommand === true) {
+    return true
+  }
+  const t = userMessage.trim()
+  if (!t) {
+    return false
+  }
+  const detected = detectRouteHeuristic(t, false, undefined, false)
+  return detected?.category === 'diagram' && detected.action === 'diagram_generate'
 }
 
 export function userRequestsDocumentExport(userMessage: string): boolean {
@@ -249,7 +284,14 @@ export function detectRouteHeuristic(
   if (EXCEL_EXPORT_TEXT_RE.test(t) || EXCEL_EXPORT_VERB_RE.test(t)) {
     return { category: 'document', action: 'excel_generate' }
   }
-  if (CHART_EXPORT_TEXT_RE.test(t) || CHART_EXPORT_VERB_RE.test(t) || CHART_REFINEMENT_RE.test(t)) {
+  if (
+    DIAGRAM_STRUCTURE_TEXT_RE.test(t) ||
+    DIAGRAM_EXPORT_VERB_RE.test(t) ||
+    (DIAGRAM_SKETCH_RE.test(t) && !NUMERIC_DATA_HINT_RE.test(t))
+  ) {
+    return { category: 'diagram', action: 'diagram_generate' }
+  }
+  if (NUMERIC_CHART_TEXT_RE.test(t) || CHART_EXPORT_VERB_RE.test(t) || CHART_REFINEMENT_RE.test(t)) {
     return { category: 'chart', action: 'chart_generate' }
   }
 
@@ -284,15 +326,19 @@ export function applyRouteHeuristics(
   if (detected) {
     const documentFromAi = category === 'document'
     const chartFromAi = category === 'chart'
+    const diagramFromAi = category === 'diagram'
     const imageGenerateFromAi = category === 'image' && action === 'generate'
     const imageSearchFromAi = category === 'image' && action === 'search'
-    if (!documentFromAi && !chartFromAi && !imageGenerateFromAi && !imageSearchFromAi) {
+    if (!documentFromAi && !chartFromAi && !diagramFromAi && !imageGenerateFromAi && !imageSearchFromAi) {
       category = detected.category
       action = detected.action
     } else if (detected.category === 'document') {
       category = detected.category
       action = detected.action
     } else if (detected.category === 'chart') {
+      category = detected.category
+      action = detected.action
+    } else if (detected.category === 'diagram') {
       category = detected.category
       action = detected.action
     } else if (detected.category === 'image' && (detected.action === 'generate' || detected.action === 'search')) {
@@ -306,7 +352,7 @@ export function applyRouteHeuristics(
     action = 'answer'
   }
 
-  if (category === 'document' || category === 'chart' || category === 'image') {
+  if (category === 'document' || category === 'chart' || category === 'diagram' || category === 'image') {
     return syncReplyModeWithRoute({
       ...analyze,
       category,
@@ -326,6 +372,7 @@ export type InstantRouteOverrides = {
   wantsPdf: boolean
   wantsExcel: boolean
   wantsChart: boolean
+  wantsDiagram: boolean
   imageGenPrompt: string | null
   imageGenEmpty: boolean
   imageSearchQuery: string | null
@@ -348,6 +395,7 @@ export function resolveInstantRouteOverrides(
     wantsPdf: false,
     wantsExcel: false,
     wantsChart: false,
+    wantsDiagram: false,
     imageGenPrompt: null,
     imageGenEmpty: false,
     imageSearchQuery: null,
@@ -378,6 +426,10 @@ export function resolveInstantRouteOverrides(
 
   if (category === 'chart' && action === 'chart_generate') {
     return { ...none, wantsChart: true }
+  }
+
+  if (category === 'diagram' && action === 'diagram_generate') {
+    return { ...none, wantsDiagram: true }
   }
 
   if (category === 'image' && action === 'search') {
@@ -433,16 +485,19 @@ export function resolveHeuristicImageGenFallback(userMessage: string): Pick<
 export function buildInstantAnalyzeRoutePromptSection(): string {
   return [
     'Routing (verbindlich):',
-    '- category: "chat" | "image" | "document" | "chart"',
+    '- category: "chat" | "image" | "document" | "chart" | "diagram"',
     '- action (nur passend zur category):',
     '  - chat: "answer" | "short_answer" | "clarify" | "one_step"',
     '  - image: "generate" | "describe" | "search" | "reference"',
     '  - document: "word_generate" | "pdf_generate" | "excel_generate"',
     '  - chart: "chart_generate"',
+    '  - diagram: "diagram_generate"',
     '',
     buildInstantAnalyzeDocumentGenerateSection(),
     '',
     buildInstantAnalyzeChartGenerateSection(),
+    '',
+    buildInstantAnalyzeDiagramGenerateSection(),
     '',
     buildInstantAnalyzeDirectAnswerSection(),
     '',
