@@ -85,6 +85,7 @@ import {
   shouldUseMixedLearnMaterial,
   validateGeneratedChapter,
   validateGeneratedEntryQuiz,
+  trimOutlineForWorksheetGeneration,
   WORKSHEET_EXERCISE_FIDELITY_RULES,
   worksheetChapterDisplayLabel,
 } from '../features/learn/utils/learnPageHelpers'
@@ -1857,14 +1858,15 @@ export function LearnPage() {
           learnFlashcardSets,
           learnWorksheets,
         )
-    const outlineForApi =
+    const outlineForApi = trimOutlineForWorksheetGeneration(
       personalization === 'personalized' && materials.length > 0
         ? mergeOutlineWithPersonalMaterialContext(
             outline,
             `${effectiveTopic} ${selectedTopic} Lernblatt Originalunterlagen`,
             materials,
           )
-        : outline
+        : outline,
+    )
     setWorksheetError(null)
     setIsWorksheetModalMounted(true)
     window.requestAnimationFrame(() => {

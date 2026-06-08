@@ -3178,8 +3178,28 @@ type FlashcardPayload = {
   answer: string
 }
 
-type WorksheetPromptPayload = {
+type WorksheetItemPayload = {
+  id?: string
   prompt: string
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
+  options?: string[]
+  matchLeft?: string[]
+  matchRight?: string[]
+  expectedAnswer?: string
+  acceptableAnswers?: string[]
+  hint?: string
+  explanation?: string
+  evaluation?: 'exact' | 'contains'
+}
+
+const WORKSHEET_OUTLINE_MAX_CHARS = 8000
+
+function worksheetUserPromptFromBody(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+  const o = payload as { userPrompt?: unknown }
+  return typeof o.userPrompt === 'string' ? o.userPrompt.trim() : ''
 }
 
 function stripLeadingMarkdownCodeFence(raw: string): string {
@@ -3208,7 +3228,64 @@ function worksheetPromptFromEntry(o: Record<string, unknown>): string {
   return ''
 }
 
-function parseWorksheetPromptsFromRaw(raw: string): WorksheetPromptPayload[] {
+function parseStringArrayEdge(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): WorksheetItemPayload | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+  const o = entry as Record<string, unknown>
+  const prompt = worksheetPromptFromEntry(o)
+  if (!prompt) {
+    return null
+  }
+
+  const rawType = o.questionType ?? o.type
+  const questionType =
+    rawType === 'mcq' || rawType === 'text' || rawType === 'match' || rawType === 'true_false'
+      ? rawType
+      : undefined
+  const expectedAnswer =
+    typeof o.expectedAnswer === 'string' && o.expectedAnswer.trim() ? o.expectedAnswer.trim() : undefined
+  const hint = typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim() : undefined
+  const explanation =
+    typeof o.explanation === 'string' && o.explanation.trim() ? o.explanation.trim() : undefined
+  const evaluation = o.evaluation === 'contains' ? 'contains' : o.evaluation === 'exact' ? 'exact' : undefined
+  const acceptableAnswers = parseStringArrayEdge(o.acceptableAnswers)
+  const options = parseStringArrayEdge(o.options)
+  const matchLeft = parseStringArrayEdge(o.matchLeft)
+  const matchRight = parseStringArrayEdge(o.matchRight)
+  const id =
+    typeof o.id === 'string' && o.id.trim() ? o.id.trim() : `ws${index + 1}`
+
+  if (questionType || expectedAnswer) {
+    return {
+      id,
+      prompt,
+      ...(questionType ? { questionType } : {}),
+      ...(options.length > 0 ? { options } : {}),
+      ...(matchLeft.length > 0 ? { matchLeft } : {}),
+      ...(matchRight.length > 0 ? { matchRight } : {}),
+      ...(expectedAnswer ? { expectedAnswer } : {}),
+      ...(acceptableAnswers.length > 0 ? { acceptableAnswers } : {}),
+      ...(hint ? { hint } : {}),
+      ...(explanation ? { explanation } : {}),
+      ...(evaluation ? { evaluation } : {}),
+    }
+  }
+
+  return { id, prompt, questionType: 'text' }
+}
+
+function parseWorksheetItemsFromRaw(raw: string): WorksheetItemPayload[] {
   const trimmed = stripLeadingMarkdownCodeFence(raw.trim())
   const start = trimmed.indexOf('[')
   const end = trimmed.lastIndexOf(']')
@@ -3220,18 +3297,14 @@ function parseWorksheetPromptsFromRaw(raw: string): WorksheetPromptPayload[] {
     if (!Array.isArray(parsed)) {
       return []
     }
-    const out: WorksheetPromptPayload[] = []
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== 'object') {
-        continue
-      }
-      const o = entry as Record<string, unknown>
-      const prompt = worksheetPromptFromEntry(o)
-      if (prompt) {
-        out.push({ prompt })
+    const out: WorksheetItemPayload[] = []
+    for (let index = 0; index < parsed.length; index += 1) {
+      const item = sanitizeWorksheetItemFromEntry(parsed[index], index)
+      if (item) {
+        out.push(item)
       }
     }
-    return out.slice(0, 12)
+    return out.slice(0, 8)
   } catch {
     return []
   }
@@ -3317,8 +3390,9 @@ async function generateWorksheetWithAi(
   apiKey: string,
   openAiModels: string[],
   openAiPromptCache?: OpenAiPromptCacheOptions,
-): Promise<{ prompts: WorksheetPromptPayload[]; usage: AiCallResult }> {
-  const outline = chapterOutline.trim()
+  userPromptOverride?: string,
+): Promise<{ items: WorksheetItemPayload[]; usage: AiCallResult }> {
+  const outline = chapterOutline.trim().slice(0, WORKSHEET_OUTLINE_MAX_CHARS)
   if (!outline) {
     throw new Error('Keine Kapiteldaten für Arbeitsblatt.')
   }
@@ -3328,18 +3402,24 @@ async function generateWorksheetWithAi(
       role: 'system',
       content: withSwissOrthography(
         [
-          'Du erstellst ein Arbeitsblatt mit Aufgaben (nur Fragen/Aufgabenstellungen, keine Musterlösung im JSON).',
-          'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+          'Du erstellst ein digitales Lernblatt mit strukturierten Übungsaufgaben für Berufsfachschule EFZ (KV-Lehre).',
+          'Nutze NUR den mitgelieferten Kontext — erfinde keine neuen Themen.',
           'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-          'Schema: [{"prompt":"klare Aufgabenstellung in 1-3 Sätzen"}]',
-          'Lege die Anzahl der Aufgaben selbst fest (mindestens 4, höchstens 12) — passend zum Umfang der Schwachstellen im Text.',
-          'Auf Deutsch, fachlich korrekt, zum handschriftlichen Bearbeiten geeignet.',
+          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false","options":[…],"matchLeft":[…],"matchRight":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…"}',
+          'Erzeuge genau 6–8 Aufgaben.',
+          'KOMPAKT: prompt max. 2 kurze Sätze (~280 Zeichen), genau EIN Lernziel pro Aufgabe — keine Sammel-/Glossar-Listen.',
+          'Mix: mindestens 2× mcq, 1× text (kurze Antwort), 1× match oder true_false.',
+          'MCQ: 3–5 Optionen. Jede Aufgabe braucht expectedAnswer und hint.',
+          'Bei Übungsinhalten im Kontext: konkrete Zahlen/Szenarien spiegeln, nicht nur Definitionen abfragen.',
+          'Auf Deutsch, fachlich korrekt.',
         ].join('\n'),
       ),
     },
     {
       role: 'user',
-      content: `Gespeicherte Kapitelinhalte (Auszug):\n\n${outline.slice(0, 28000)}`,
+      content:
+        userPromptOverride?.trim() ||
+        `Erstelle ein Lernblatt als JSON-Array (6–8 Aufgaben).\n\nKontext:\n\n${outline}`,
     },
   ]
 
@@ -3348,11 +3428,11 @@ async function generateWorksheetWithAi(
       ? await callAnthropic(worksheetMessages, apiKey, { maxTokens: 4096 })
       : await callOpenAi(worksheetMessages, apiKey, openAiModels, openAiPromptCache)
 
-  const items = parseWorksheetPromptsFromRaw(usage.text)
+  const items = parseWorksheetItemsFromRaw(usage.text)
   if (items.length === 0) {
     throw new Error('Arbeitsblatt konnte nicht aus der KI-Antwort gelesen werden.')
   }
-  return { prompts: items, usage }
+  return { items, usage }
 }
 
 async function generateTopicSuggestionsWithAi(
@@ -3735,15 +3815,17 @@ serve(async (req) => {
       const openAiPc = provider === 'openai'
         ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
         : undefined
-      const { prompts, usage } = await generateWorksheetWithAi(
+      const userPromptOverride = worksheetUserPromptFromBody(body.payload)
+      const { items, usage } = await generateWorksheetWithAi(
         provider,
         outline,
         apiKey,
         openAiModels,
         openAiPc,
+        userPromptOverride,
       )
       await tryLogTokenUsage(admin, user.id, provider, mode, usage)
-      return jsonResponse({ worksheetItems: prompts })
+      return jsonResponse({ worksheetItems: items })
     }
 
     /** Payload-only — kein `body.messages` (z. B. Dokument-Extraktion vor dem Chat-Send). */

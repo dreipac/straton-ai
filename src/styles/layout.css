@@ -285,29 +285,39 @@
   color: var(--interactive-hover-text);
 }
 
-.chat-dev-badge {
-  margin-left: auto;
-  font-size: 0.68rem;
-  font-weight: 700;
+.ui-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  border: none;
   line-height: 1;
-  padding: 0.25rem 0.42rem;
-  border-radius: 999px;
-  background: rgba(59, 130, 246, 0.14);
-  color: #2563eb;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.chat-beta-badge {
-  margin-left: 0.35rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  padding: 0.2rem 0.38rem;
-  border-radius: 999px;
-  background: rgba(139, 92, 246, 0.16);
+.ui-pill-badge--blue {
+  color: #2563eb;
+  background: color-mix(in srgb, #3b82f6 22%, transparent);
+}
+
+.ui-pill-badge--red {
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 22%, transparent);
+}
+
+.ui-pill-badge--purple {
   color: #7c3aed;
-  border: 1px solid rgba(139, 92, 246, 0.32);
+  background: color-mix(in srgb, #8b5cf6 22%, transparent);
+}
+
+.chat-sidebar-top .chat-sidebar-nav-button .ui-pill-badge {
+  margin-left: auto;
 }
 
 .chat-beta-badge-button {
@@ -318,21 +328,25 @@
   min-height: 0 !important;
   flex: 0 0 auto;
   text-align: center !important;
-  padding: 0.2rem 0.38rem !important;
-  border-radius: 999px !important;
-  background: rgba(139, 92, 246, 0.16) !important;
-  color: #7c3aed !important;
-  border: 1px solid rgba(139, 92, 246, 0.32) !important;
+  margin-left: 0.35rem;
 }
 
-.chat-beta-badge-button:hover {
-  filter: brightness(0.97);
+.chat-sidebar-top .chat-beta-badge-button {
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 6px !important;
+  border: none !important;
+  background: color-mix(in srgb, #8b5cf6 22%, transparent) !important;
+  color: #7c3aed !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
 }
 
 .chat-sidebar-top .chat-beta-badge-button:hover:enabled {
-  background: rgba(139, 92, 246, 0.22) !important;
+  filter: brightness(0.97);
+  background: color-mix(in srgb, #8b5cf6 30%, transparent) !important;
   color: #6d28d9 !important;
-  border-color: rgba(139, 92, 246, 0.42) !important;
 }
 
 .chat-sidebar-top-button-icon {
@@ -1330,9 +1344,9 @@
     gap: 0.52rem;
   }
 
-  .chat-sidebar-top .chat-dev-badge {
+  .chat-sidebar-top .chat-sidebar-nav-button .ui-pill-badge {
     font-size: 0.72rem;
-    padding: 0.28rem 0.46rem;
+    padding: 0.17rem 0.48rem;
   }
 
   .chat-thread-item {

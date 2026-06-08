@@ -236,7 +236,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
                 )}
                 <p className="profile-full-sheet-name">{displayName}</p>
                 {subscriptionPlanName ? <p className="profile-full-sheet-plan">{subscriptionPlanName}</p> : null}
-                {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                {profile?.is_superadmin ? <span className="ui-pill-badge ui-pill-badge--red">Admin</span> : null}
               </div>
               <nav className="profile-full-sheet-nav" aria-label="Einstellungen">
                 {PROFILE_SETTINGS_SHEET_SECTIONS.map(({ id, label }) => (
@@ -271,7 +271,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
                 >
                   <span className="profile-full-sheet-row-label">
                     Lernpfade
-                    <span className="chat-dev-badge">In Entwicklung</span>
+                    <span className="ui-pill-badge ui-pill-badge--blue">Beta</span>
                   </span>
                   <span className="profile-full-sheet-row-chevron" aria-hidden="true">
                     ›

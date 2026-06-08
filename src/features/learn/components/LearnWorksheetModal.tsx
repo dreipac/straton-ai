@@ -2,8 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { TextArea } from '../../../components/ui/inputs/TextArea'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
+import { isMatchQuestion } from '../../chat/utils/interactiveQuiz'
 import type { LearnWorksheetItem } from '../services/learn.persistence'
-import type { InteractiveQuizQuestion } from '../../chat/utils/interactiveQuiz'
+import {
+  canSubmitWorksheetAnswer,
+  worksheetItemToInteractiveQuestion,
+  worksheetQuestionKindLabel,
+} from '../utils/learnPageHelpers'
+import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
 
 export type LearnWorksheetModalProps = {
   isMounted: boolean
@@ -21,6 +27,8 @@ export type LearnWorksheetModalProps = {
   onSubmitWorksheet?: () => void
   submittedCount?: number
 }
+
+const ITEMS_PER_PAGE = 4
 
 function seedAnswersFromItems(workItems: LearnWorksheetItem[]): Record<string, string> {
   const seed: Record<string, string> = {}
@@ -45,16 +53,10 @@ function displayPrompt(raw: string): string {
   return t
 }
 
-function worksheetItemToEvalQuestion(item: LearnWorksheetItem): InteractiveQuizQuestion {
-  return {
-    id: item.id,
-    prompt: item.prompt,
-    questionType: 'text',
-    expectedAnswer:
-      'Die Antwort soll die Aufgabenstellung inhaltlich angemessen und fachlich plausibel bearbeiten (je nach Aufgabe: Begriffe, Beispiele, kurze Begründung oder Rechenschritte).',
-    acceptableAnswers: [],
-    evaluation: 'contains',
-  }
+function worksheetHasChoiceOptions(item: LearnWorksheetItem): boolean {
+  return (
+    (item.questionType === 'mcq' || item.questionType === 'true_false') && (item.options?.length ?? 0) > 0
+  )
 }
 
 export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
@@ -71,10 +73,8 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     onSavedAnswerChange,
     onSubmitWorksheet,
     submittedCount = 0,
-  } =
-    props
-  const ITEMS_PER_PAGE = 6
-  const ITEMS_PER_COLUMN = 3
+  } = props
+
   const [answersById, setAnswersById] = useState<Record<string, string>>({})
   const [checkingId, setCheckingId] = useState<string | null>(null)
   const [feedbackById, setFeedbackById] = useState<Record<string, string>>({})
@@ -98,6 +98,11 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
       onSavedAnswerChange?.(itemId, text)
       delete persistTimersRef.current[itemId]
     }, 650)
+  }
+
+  function setAnswer(itemId: string, value: string) {
+    setAnswersById((prev) => ({ ...prev, [itemId]: value }))
+    schedulePersistSavedAnswer(itemId, value)
   }
 
   useEffect(() => {
@@ -146,12 +151,9 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
   const safePageIndex = Math.min(pageIndex, totalPages - 1)
   const pageStart = safePageIndex * ITEMS_PER_PAGE
   const pageItems = items.slice(pageStart, pageStart + ITEMS_PER_PAGE)
-  const leftItems = pageItems.slice(0, ITEMS_PER_COLUMN)
-  const rightItems = pageItems.slice(ITEMS_PER_COLUMN)
-  const canSubmitWorksheet = items.length > 0 && items.some((item) => {
-    const text = answersById[item.id] ?? item.savedAnswer ?? ''
-    return text.trim().length > 0
-  })
+  const canSubmitWorksheet =
+    items.length > 0 &&
+    items.some((item) => canSubmitWorksheetAnswer(item, answersById[item.id] ?? item.savedAnswer ?? ''))
 
   useEffect(() => {
     if (safePageIndex !== pageIndex) {
@@ -160,26 +162,26 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
   }, [pageIndex, safePageIndex])
 
   async function handleCheckItem(item: LearnWorksheetItem) {
-    const answer = (answersById[item.id] ?? '').trim()
-    if (!answer || checkingId) {
+    const answer = answersById[item.id] ?? ''
+    if (!canSubmitWorksheetAnswer(item, answer) || checkingId) {
       return
     }
     setCheckingId(item.id)
     try {
       const result = await evaluateQuizAnswerWithAi({
-        question: worksheetItemToEvalQuestion(item),
-        userAnswer: answer,
+        question: worksheetItemToInteractiveQuestion(item),
+        userAnswer: answer.trim(),
       })
       setCorrectById((prev) => ({ ...prev, [item.id]: result.isCorrect }))
       setFeedbackById((prev) => ({ ...prev, [item.id]: result.feedback }))
-      onItemEvaluated?.(item.id, { correct: result.isCorrect, answer })
+      onItemEvaluated?.(item.id, { correct: result.isCorrect, answer: answer.trim() })
     } catch {
       setCorrectById((prev) => ({ ...prev, [item.id]: false }))
       setFeedbackById((prev) => ({
         ...prev,
         [item.id]: 'Prüfung ist fehlgeschlagen. Bitte später erneut versuchen.',
       }))
-      onItemEvaluated?.(item.id, { correct: false, answer })
+      onItemEvaluated?.(item.id, { correct: false, answer: answer.trim() })
     } finally {
       setCheckingId(null)
     }
@@ -189,9 +191,64 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     return null
   }
 
+  function renderWorksheetAnswer(item: LearnWorksheetItem, n: number) {
+    const label = `Antwort zu Aufgabe ${n}`
+    const answer = answersById[item.id] ?? ''
+    const isChecking = checkingId === item.id
+    const question = worksheetItemToInteractiveQuestion(item)
+
+    if (isMatchQuestion(question) && question.matchLeft && question.matchRight) {
+      return (
+        <LearnEntryQuizMatch
+          questionId={item.id}
+          matchLeft={question.matchLeft}
+          matchRight={question.matchRight}
+          value={answer}
+          disabled={isChecking}
+          onChange={(next) => setAnswer(item.id, next)}
+        />
+      )
+    }
+
+    if (worksheetHasChoiceOptions(item)) {
+      return (
+        <div className="learn-entry-test-options learn-worksheet-options" role="radiogroup" aria-label={label}>
+          {item.options?.map((option) => {
+            const isSelected = answer.trim() === option
+            return (
+              <button
+                key={option}
+                type="button"
+                className={`learn-entry-test-option ${isSelected ? 'is-selected' : ''}`}
+                onClick={() => setAnswer(item.id, option)}
+                disabled={isChecking}
+              >
+                <span className="learn-entry-test-option-radio" aria-hidden="true" />
+                <span className="learn-entry-test-option-text">{option}</span>
+              </button>
+            )
+          })}
+        </div>
+      )
+    }
+
+    const isLegacyLongText = !item.questionType
+    return (
+      <TextArea
+        className={`learn-worksheet-answer-field${isLegacyLongText ? '' : ' learn-worksheet-answer-field--compact'}`}
+        rows={isLegacyLongText ? 3 : 2}
+        placeholder={item.questionType === 'text' ? 'Kurze Antwort (1–3 Sätze)…' : 'Antwort eingeben…'}
+        autoComplete="off"
+        value={answer}
+        onChange={(e) => setAnswer(item.id, e.target.value)}
+        aria-label={label}
+        disabled={isChecking}
+      />
+    )
+  }
+
   function renderWorksheetItem(item: LearnWorksheetItem, absoluteIndex: number) {
     const n = absoluteIndex + 1
-    const label = `Antwort zu Aufgabe ${n}`
     const feedback = feedbackById[item.id]
     const isChecking = checkingId === item.id
     const hasLiveFeedback = feedback !== undefined
@@ -203,13 +260,18 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     const doneCorrect =
       (item.evaluated === true && (item.lastCorrect === true || correctById[item.id] === true)) ||
       (hasLiveFeedback && correctById[item.id] === true)
-    const checkDisabled = isChecking || doneCorrect || (!(answersById[item.id] ?? '').trim() && !doneCorrect)
+    const answer = answersById[item.id] ?? ''
+    const checkDisabled =
+      isChecking || doneCorrect || (!canSubmitWorksheetAnswer(item, answer) && !doneCorrect)
 
     return (
       <div key={item.id} className="learn-worksheet-item" role="listitem">
         <div className="learn-worksheet-prompt-row">
           <span className="learn-worksheet-num">{n}</span>
-          <p className="learn-worksheet-prompt">{displayPrompt(item.prompt)}</p>
+          <div className="learn-worksheet-prompt-copy">
+            <p className="learn-worksheet-kind">{worksheetQuestionKindLabel(item)}</p>
+            <p className="learn-worksheet-prompt">{displayPrompt(item.prompt)}</p>
+          </div>
           <button
             type="button"
             className={`learn-worksheet-check-circle ${
@@ -242,19 +304,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
             ) : null}
           </button>
         </div>
-        <TextArea
-          className="learn-worksheet-answer-field"
-          rows={4}
-          placeholder="Antwort eingeben…"
-          autoComplete="off"
-          value={answersById[item.id] ?? ''}
-          onChange={(e) => {
-            const v = e.target.value
-            setAnswersById((prev) => ({ ...prev, [item.id]: v }))
-            schedulePersistSavedAnswer(item.id, v)
-          }}
-          aria-label={label}
-        />
+        {renderWorksheetAnswer(item, n)}
         {feedback ? (
           <p
             className={`learn-worksheet-eval-feedback ${
@@ -291,8 +341,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
                 <p className="learn-worksheet-content-subtitle">{chapterLabel}</p>
               </header>
               <div className="learn-worksheet-list" role="list">
-                <div className="learn-worksheet-column">{leftItems.map((item, idx) => renderWorksheetItem(item, pageStart + idx))}</div>
-                <div className="learn-worksheet-column">{rightItems.map((item, idx) => renderWorksheetItem(item, pageStart + ITEMS_PER_COLUMN + idx))}</div>
+                {pageItems.map((item, idx) => renderWorksheetItem(item, pageStart + idx))}
               </div>
               {totalPages > 1 ? (
                 <div className="learn-worksheet-pagination">

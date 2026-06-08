@@ -84,7 +84,7 @@ export function ChatPageGuestView({
                 <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
                 <h2>Straton</h2>
                 {!isCompactMobileSidebarLayout ? (
-                  <button type="button" className="chat-beta-badge chat-beta-badge-button" onClick={onOpenBetaNotice}>
+                  <button type="button" className="ui-pill-badge ui-pill-badge--purple chat-beta-badge-button" onClick={onOpenBetaNotice}>
                     Beta
                   </button>
                 ) : null}

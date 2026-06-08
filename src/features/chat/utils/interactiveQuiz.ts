@@ -108,7 +108,8 @@ export function coerceQuizScalarToString(raw: unknown): string {
   return ''
 }
 
-function sanitizeQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
+/** Normalisiert ein rohes JSON-Frageobjekt (Lernblatt, Quiz, Kapitel). */
+export function sanitizeInteractiveQuestion(input: unknown, index: number): InteractiveQuizQuestion | null {
   if (!input || typeof input !== 'object') {
     return null
   }
@@ -257,7 +258,7 @@ function sanitizeQuizPayload(input: unknown): InteractiveQuizPayload | null {
   const candidate = input as Record<string, unknown>
   const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : []
   const questions = rawQuestions
-    .map((entry, index) => sanitizeQuestion(entry, index))
+    .map((entry, index) => sanitizeInteractiveQuestion(entry, index))
     .filter((entry): entry is InteractiveQuizQuestion => entry !== null)
 
   if (questions.length === 0) {

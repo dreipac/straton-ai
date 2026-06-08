@@ -68,7 +68,15 @@ import { env } from '../../../config/env'
 import { errorMessageFromUnknown, parseApiErrorField, sanitizeUserFacingAiError } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import {
+  buildWorksheetGenerationUserPrompt,
+  learnWorksheetItemFromQuestion,
+  LEARN_WORKSHEET_MAX_GENERATION_ATTEMPTS,
+  LEARN_WORKSHEET_MAX_QUESTIONS,
+  validateGeneratedWorksheet,
+} from '../../learn/utils/learnPageHelpers'
 import type { LearnFlashcard, LearnWorksheetItem } from '../../learn/services/learn.persistence'
+import { sanitizeInteractiveQuestion } from '../utils/interactiveQuiz'
 import { CHART_CHAT_DOCUMENT_JSON_HINT } from '../constants/chartExportPrompt'
 import { buildInstantAnalyzeChartBriefing } from '../constants/chartExportIntent'
 import { DIAGRAM_CHAT_DOCUMENT_JSON_HINT } from '../constants/diagramExportPrompt'
@@ -2618,12 +2626,36 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
   )
 }
 
-/** Extrahiert Aufgaben aus der Edge-Response (toleriert alte Deploys und abweichende JSON-Keys). */
+/** Extrahiert Aufgaben aus der Edge-Response (strukturiertes JSON + Legacy nur prompt). */
 function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] {
   if (!data || typeof data !== 'object') {
     return []
   }
   const root = data as Record<string, unknown>
+
+  const extractArray = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) {
+      return value
+    }
+    if (value && typeof value === 'object') {
+      const o = value as Record<string, unknown>
+      if (Array.isArray(o.questions)) {
+        return o.questions
+      }
+    }
+    return []
+  }
+
+  const fromStructuredArray = (arr: unknown[]): LearnWorksheetItem[] => {
+    const out: LearnWorksheetItem[] = []
+    for (let index = 0; index < arr.length; index += 1) {
+      const parsed = sanitizeInteractiveQuestion(arr[index], index)
+      if (parsed) {
+        out.push(learnWorksheetItemFromQuestion(parsed))
+      }
+    }
+    return out
+  }
 
   const promptFromObject = (o: Record<string, unknown>): string => {
     const keys = ['prompt', 'question', 'task', 'text', 'aufgabe', 'content', 'title'] as const
@@ -2636,10 +2668,7 @@ function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] 
     return ''
   }
 
-  const fromArray = (arr: unknown): LearnWorksheetItem[] => {
-    if (!Array.isArray(arr)) {
-      return []
-    }
+  const fromLegacyArray = (arr: unknown[]): LearnWorksheetItem[] => {
     const out: LearnWorksheetItem[] = []
     for (const entry of arr) {
       if (!entry || typeof entry !== 'object') {
@@ -2647,21 +2676,36 @@ function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] 
       }
       const prompt = promptFromObject(entry as Record<string, unknown>)
       if (prompt) {
-        out.push({ id: crypto.randomUUID(), prompt })
+        out.push({ id: crypto.randomUUID(), prompt, questionType: 'text' })
       }
     }
     return out
   }
 
-  let items = fromArray(root.worksheetItems)
-  if (items.length === 0) {
-    items = fromArray(root.items)
+  const candidateArrays = [
+    root.worksheetItems,
+    root.items,
+    root.tasks,
+    root.questions,
+    root.worksheet,
+  ]
+
+  for (const candidate of candidateArrays) {
+    const arr = extractArray(candidate)
+    if (arr.length === 0) {
+      continue
+    }
+    const structured = fromStructuredArray(arr)
+    if (structured.length > 0) {
+      return structured.slice(0, LEARN_WORKSHEET_MAX_QUESTIONS)
+    }
+    const legacy = fromLegacyArray(arr)
+    if (legacy.length > 0) {
+      return legacy.slice(0, LEARN_WORKSHEET_MAX_QUESTIONS)
+    }
   }
-  if (items.length === 0) {
-    items = fromArray(root.tasks)
-  }
-  /** Ältere/kaputte Edge-Route: Request mit Kapiteltext landet im Lernkarten-Zweig und liefert nur «flashcards». */
-  if (items.length === 0 && Array.isArray(root.flashcards)) {
+
+  if (Array.isArray(root.flashcards)) {
     const fromCards: LearnWorksheetItem[] = []
     for (const entry of root.flashcards) {
       if (!entry || typeof entry !== 'object') {
@@ -2670,25 +2714,39 @@ function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] 
       const o = entry as Record<string, unknown>
       const q = typeof o.question === 'string' ? o.question.trim() : ''
       if (q) {
-        fromCards.push({ id: crypto.randomUUID(), prompt: q })
+        fromCards.push({ id: crypto.randomUUID(), prompt: q, questionType: 'text' })
       }
     }
-    items = fromCards
+    if (fromCards.length > 0) {
+      return fromCards.slice(0, LEARN_WORKSHEET_MAX_QUESTIONS)
+    }
   }
 
-  return items.slice(0, 12)
+  return []
 }
 
 function mockWorksheetFromOutline(outline: string): LearnWorksheetItem[] {
-  const topic = outline.split('\n').find((l) => l.startsWith('### '))?.replace(/^###\s+/, '').slice(0, 48) || 'Thema'
+  const topic =
+    outline.split('\n').find((l) => l.startsWith('### '))?.replace(/^###\s+/, '').slice(0, 48) || 'Thema'
   return [
     {
       id: 'w1',
-      prompt: `Erkläre in eigenen Worten einen zentralen Begriff aus «${topic}».`,
+      prompt: `Welche Aussage zu «${topic}» trifft am ehesten zu?`,
+      questionType: 'mcq',
+      options: ['Kernbegriffe korrekt anwenden', 'Nur auswendig lernen', 'Ohne Beispiele arbeiten', 'Thema ignorieren'],
+      expectedAnswer: 'Kernbegriffe korrekt anwenden',
+      acceptableAnswers: [],
+      evaluation: 'exact',
+      hint: 'Denk an Verständnis plus Anwendung.',
     },
     {
       id: 'w2',
-      prompt: 'Im Mock-Modus gibt es keine KI. Bitte OpenAI in .env aktivieren für echte Arbeitsblatt-Aufgaben.',
+      prompt: 'Im Mock-Modus gibt es keine KI. Bitte OpenAI in .env aktivieren für echte Lernblatt-Aufgaben.',
+      questionType: 'text',
+      expectedAnswer: 'mock',
+      acceptableAnswers: ['mock'],
+      evaluation: 'contains',
+      hint: 'Entwicklungsmodus.',
     },
   ]
 }
@@ -2703,11 +2761,16 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
     return mockWorksheetFromOutline(trimmed)
   }
 
-  return getOrSetCachedResponse(
-    'learn-worksheet',
-    [trimmed],
-    AI_CACHE_TTL.learnWorksheet,
-    async () => {
+  let validationReason = ''
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= LEARN_WORKSHEET_MAX_GENERATION_ATTEMPTS; attempt += 1) {
+    const userPrompt = buildWorksheetGenerationUserPrompt({
+      outline: trimmed,
+      validationHint: validationReason || undefined,
+    })
+
+    try {
       const supabase = getSupabaseClient()
       const { data, error, response } = await supabase.functions.invoke('chat-completion', {
         body: {
@@ -2716,24 +2779,41 @@ export async function generateLearnWorksheet(chapterOutline: string): Promise<Le
           openAiModels: [...LEARN_PATH_OPENAI_MODELS],
           payload: {
             chapterOutline: trimmed,
+            userPrompt,
+            validationHint: validationReason || undefined,
           },
         },
       })
 
       if (error) {
-        throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+        lastError = new Error(await messageFromFunctionsInvokeFailure(error, response))
+        validationReason = lastError.message
+        continue
       }
 
       const items = parseWorksheetItemsFromInvokeData(data)
-
       if (items.length === 0) {
-        throw new Error(
-          'Keine Aufgaben von der KI erhalten. Häufig: Edge-Function «chat-completion» ist nicht mit dem Modus «generate_worksheet» deployt — bitte deployen oder erneut versuchen.',
-        )
+        validationReason = 'Kein gültiges JSON-Array mit Aufgaben erhalten.'
+        continue
+      }
+
+      const validation = validateGeneratedWorksheet(items)
+      if (!validation.valid) {
+        validationReason = validation.reason
+        continue
       }
 
       return items
-    },
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      validationReason = lastError.message
+    }
+  }
+
+  throw new Error(
+    validationReason
+      ? `Lernblatt ungültig: ${validationReason}`
+      : lastError?.message ?? 'Kein gültiges Lernblatt von der KI erhalten.',
   )
 }
 

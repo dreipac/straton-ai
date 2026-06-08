@@ -64,10 +64,19 @@ export type LearnFlashcardSet = {
   cards: LearnFlashcard[]
 }
 
-/** Arbeitsblatt: nur Aufgabenstellungen (Antworten handschriftlich / separat). */
+/** Arbeitsblatt-Aufgabe (strukturiert wie Kapitel-/Quiz-Fragen; alte Einträge nur mit prompt = Freitext). */
 export type LearnWorksheetItem = {
   id: string
   prompt: string
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
+  matchLeft?: string[]
+  matchRight?: string[]
+  options?: string[]
+  expectedAnswer?: string
+  acceptableAnswers?: string[]
+  hint?: string
+  explanation?: string
+  evaluation?: 'exact' | 'contains'
   chapterIndex?: number
   /** Mindestens einmal per Kreis geprüft */
   evaluated?: boolean
@@ -971,10 +980,41 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
       const clipped = rawSaved.length > 16000 ? `${rawSaved.slice(0, 16000)}…` : rawSaved
       const savedAnswer = clipped.length > 0 ? clipped : undefined
       const submittedAt = submittedAtRaw.length > 0 ? submittedAtRaw : undefined
+      const rawQType = o.questionType ?? o.type
+      const questionType =
+        rawQType === 'mcq' || rawQType === 'text' || rawQType === 'match' || rawQType === 'true_false'
+          ? rawQType
+          : undefined
+      const parseStringArray = (value: unknown): string[] | undefined => {
+        if (!Array.isArray(value)) {
+          return undefined
+        }
+        const arr = value
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+        return arr.length > 0 ? arr : undefined
+      }
+      const expectedAnswer =
+        typeof o.expectedAnswer === 'string' && o.expectedAnswer.trim() ? o.expectedAnswer.trim() : undefined
+      const acceptableAnswers = parseStringArray(o.acceptableAnswers)
+      const hint = typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim() : undefined
+      const explanation =
+        typeof o.explanation === 'string' && o.explanation.trim() ? o.explanation.trim() : undefined
+      const evaluation = o.evaluation === 'contains' ? 'contains' : o.evaluation === 'exact' ? 'exact' : undefined
       out.push({
         id,
         prompt: rawPrompt,
         chapterIndex,
+        ...(questionType ? { questionType } : {}),
+        ...(parseStringArray(o.options) ? { options: parseStringArray(o.options) } : {}),
+        ...(parseStringArray(o.matchLeft) ? { matchLeft: parseStringArray(o.matchLeft) } : {}),
+        ...(parseStringArray(o.matchRight) ? { matchRight: parseStringArray(o.matchRight) } : {}),
+        ...(expectedAnswer ? { expectedAnswer } : {}),
+        ...(acceptableAnswers ? { acceptableAnswers } : {}),
+        ...(hint ? { hint } : {}),
+        ...(explanation ? { explanation } : {}),
+        ...(evaluation ? { evaluation } : {}),
         ...(evaluated ? { evaluated: true } : {}),
         ...(typeof lastCorrect === 'boolean' ? { lastCorrect } : {}),
         ...(savedAnswer !== undefined && savedAnswer.length > 0 ? { savedAnswer } : {}),

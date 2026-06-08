@@ -911,7 +911,7 @@
   color: var(--color-text-muted, #64748b);
 }
 
-.profile-full-sheet-hero .account-admin-badge {
+.profile-full-sheet-hero .ui-pill-badge {
   margin-top: 0.2rem;
 }
 

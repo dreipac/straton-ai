@@ -11,6 +11,7 @@ import type {
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
+  isMatchAnswerComplete,
   resolveMcqExpectedAnswer,
   type InteractiveQuizPayload,
   type InteractiveQuizQuestion,
@@ -107,7 +108,248 @@ export function isLearningPathEmpty(input: LearningPathEmptyCheckInput): boolean
 }
 
 /** Max. Aufgaben pro KI-Lernblatt (Anzahl wählt die KI bis zu diesem Limit). */
-export const LEARN_WORKSHEET_MAX_QUESTIONS = 12
+export const LEARN_WORKSHEET_MIN_QUESTIONS = 6
+export const LEARN_WORKSHEET_MAX_QUESTIONS = 8
+export const LEARN_WORKSHEET_MAX_GENERATION_ATTEMPTS = 3
+export const LEARN_WORKSHEET_MIN_MCQ = 2
+export const LEARN_WORKSHEET_MIN_TEXT = 1
+export const LEARN_WORKSHEET_MAX_PROMPT_CHARS = 280
+/** Kürzerer Kontext als Flashcards — fokussiert auf Schwachstellen statt Volltext. */
+export const LEARN_WORKSHEET_OUTLINE_MAX_CHARS = 8000
+
+export const WORKSHEET_COMPACT_RULES = [
+  'KOMPAKT-REGELN (verbindlich):',
+  'Erzeuge 6–8 Aufgaben — jede Aufgabe genau EIN prüfbares Lernziel.',
+  'prompt: maximal 2 kurze Sätze, höchstens 280 Zeichen — keine Aufzählungslisten mit vielen Begriffen in EINER Aufgabe.',
+  'VERBOTEN: «Erkläre/Nenne folgende Begriffe: …» mit mehr als 3 Begriffen; nummerierte Mega-Listen; Glossar-Wiederholung des ganzen Kapitels.',
+  'Fragetypen mischen: mindestens 2× mcq, 1× text (kurze Antwort, 1–3 Sätze), 1× match oder true_false.',
+  'Freitext (text): prompt verlangt explizit kurze Antwort (1–3 Sätze), nicht Essay.',
+  'Jede Aufgabe braucht expectedAnswer, hint (1 Satz ohne Lösung), evaluation ("exact" oder "contains").',
+  'MCQ: 3–5 Optionen; true_false: expectedAnswer «Wahr» oder «Falsch»; match: gleich lange matchLeft/matchRight.',
+].join('\n')
+
+export const WORKSHEET_JSON_SCHEMA_EXAMPLE =
+  '[{"id":"ws1","prompt":"Welche Aussage zur MWSt in der Schweiz trifft zu?","questionType":"mcq","options":["8.1% Normalsteuersatz","2.6% auf alle Leistungen","Keine MWSt auf Dienstleistungen","Nur Export MWSt-pflichtig"],"expectedAnswer":"8.1% Normalsteuersatz","acceptableAnswers":[],"evaluation":"exact","hint":"Denk an den üblichen Normalsteuersatz.","explanation":"..."},{"id":"ws2","prompt":"Ordne Begriff und Definition zu.","questionType":"match","matchLeft":["Steuerhoheit","Mehrwertsteuer"],"matchRight":["Hoheitliche Erhebung","Umsatzbesteuerung"],"expectedAnswer":"0,1","evaluation":"exact","hint":"..."}]'
+
+const WORKSHEET_PRIORITY_SECTION_MARKERS = [
+  'ANWEISUNG:',
+  '### Dein Lernverlauf',
+  '### Falsch beantwortet',
+  '### Konkrete Fehlermuster',
+  '### Adaptives Schwächen-Kapitel',
+  '### Lernkarten mit Unsicherheit',
+  '### Abgegebene Arbeitsblatt-Antworten',
+  'PERSÖNLICHE UNTERLAGEN',
+  'Dateiauszüge',
+] as const
+
+/** Outline für Lernblatt-Generierung: Schwachstellen/Material zuerst, Gesamtlänge begrenzen. */
+export function trimOutlineForWorksheetGeneration(outline: string): string {
+  const trimmed = outline.trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (trimmed.length <= LEARN_WORKSHEET_OUTLINE_MAX_CHARS) {
+    return trimmed
+  }
+
+  const sections: string[] = []
+  let current = ''
+  for (const line of trimmed.split('\n')) {
+    if (line.startsWith('### ') || line.startsWith('ANWEISUNG:') || line.startsWith('---')) {
+      if (current.trim()) {
+        sections.push(current.trim())
+      }
+      current = line
+    } else {
+      current = current ? `${current}\n${line}` : line
+    }
+  }
+  if (current.trim()) {
+    sections.push(current.trim())
+  }
+
+  const scoreSection = (section: string): number => {
+    for (let i = 0; i < WORKSHEET_PRIORITY_SECTION_MARKERS.length; i += 1) {
+      if (section.startsWith(WORKSHEET_PRIORITY_SECTION_MARKERS[i]!)) {
+        return WORKSHEET_PRIORITY_SECTION_MARKERS.length - i
+      }
+    }
+    if (section.includes('Dateiauszüge') || section.includes('PERSÖNLICHE UNTERLAGEN')) {
+      return WORKSHEET_PRIORITY_SECTION_MARKERS.length
+    }
+    return 0
+  }
+
+  const sorted = [...sections].sort((a, b) => scoreSection(b) - scoreSection(a))
+  const picked: string[] = []
+  let used = 0
+  for (const section of sorted) {
+    const nextLen = used + section.length + (picked.length > 0 ? 2 : 0)
+    if (nextLen > LEARN_WORKSHEET_OUTLINE_MAX_CHARS) {
+      const remaining = LEARN_WORKSHEET_OUTLINE_MAX_CHARS - used - (picked.length > 0 ? 2 : 0)
+      if (remaining > 400) {
+        picked.push(`${section.slice(0, remaining)}\n[…gekürzt]`)
+      }
+      break
+    }
+    picked.push(section)
+    used = nextLen
+  }
+
+  const result = picked.join('\n\n').trim()
+  return result || `${trimmed.slice(0, LEARN_WORKSHEET_OUTLINE_MAX_CHARS)}\n\n[…gekürzt]`
+}
+
+function worksheetLooksLikeLaundryList(prompt: string): boolean {
+  const numbered = (prompt.match(/\d+[.)]\s/g) ?? []).length
+  if (numbered >= 4) {
+    return true
+  }
+  const lower = prompt.toLowerCase()
+  if (/folgende|alle begriffe|nennen sie|erkläre alle|liste der/.test(lower)) {
+    const separators = prompt.split(/[,;]/).length
+    if (separators >= 5) {
+      return true
+    }
+  }
+  return false
+}
+
+export function validateGeneratedWorksheet(items: LearnWorksheetItem[]): { valid: boolean; reason: string } {
+  if (items.length < LEARN_WORKSHEET_MIN_QUESTIONS) {
+    return {
+      valid: false,
+      reason: `Das Lernblatt braucht mindestens ${LEARN_WORKSHEET_MIN_QUESTIONS} Aufgaben.`,
+    }
+  }
+  if (items.length > LEARN_WORKSHEET_MAX_QUESTIONS) {
+    return {
+      valid: false,
+      reason: `Das Lernblatt darf höchstens ${LEARN_WORKSHEET_MAX_QUESTIONS} Aufgaben haben.`,
+    }
+  }
+
+  const typed = items.filter((item) => item.questionType)
+  if (typed.length < items.length) {
+    return {
+      valid: false,
+      reason: 'Jede Aufgabe braucht questionType (mcq, text, match oder true_false).',
+    }
+  }
+
+  const mcqCount = items.filter((item) => item.questionType === 'mcq').length
+  if (mcqCount < LEARN_WORKSHEET_MIN_MCQ) {
+    return {
+      valid: false,
+      reason: `Das Lernblatt braucht mindestens ${LEARN_WORKSHEET_MIN_MCQ} Multiple-Choice-Aufgaben.`,
+    }
+  }
+
+  const textCount = items.filter((item) => item.questionType === 'text').length
+  if (textCount < LEARN_WORKSHEET_MIN_TEXT) {
+    return {
+      valid: false,
+      reason: 'Das Lernblatt braucht mindestens eine kurze Freitext-Aufgabe (questionType "text").',
+    }
+  }
+
+  const matchOrTfCount = items.filter(
+    (item) => item.questionType === 'match' || item.questionType === 'true_false',
+  ).length
+  if (matchOrTfCount < 1) {
+    return {
+      valid: false,
+      reason: 'Das Lernblatt braucht mindestens eine Zuordnungs- (match) oder Wahr/Falsch-Aufgabe.',
+    }
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
+    const prompt = item.prompt.trim()
+    if (!prompt) {
+      return { valid: false, reason: `Aufgabe ${index + 1} braucht einen prompt.` }
+    }
+    if (prompt.length > LEARN_WORKSHEET_MAX_PROMPT_CHARS) {
+      return {
+        valid: false,
+        reason: `Aufgabe ${index + 1} ist zu lang (${prompt.length} Zeichen, max ${LEARN_WORKSHEET_MAX_PROMPT_CHARS}).`,
+      }
+    }
+    if (worksheetLooksLikeLaundryList(prompt)) {
+      return {
+        valid: false,
+        reason: `Aufgabe ${index + 1} ist eine Sammel-/Listen-Aufgabe — pro Aufgabe nur ein Lernziel.`,
+      }
+    }
+    if (!item.expectedAnswer?.trim()) {
+      return { valid: false, reason: `Aufgabe ${index + 1} braucht expectedAnswer.` }
+    }
+    if (!item.hint?.trim()) {
+      return { valid: false, reason: `Aufgabe ${index + 1} braucht hint.` }
+    }
+
+    if (item.questionType === 'match') {
+      const left = item.matchLeft ?? []
+      const right = item.matchRight ?? []
+      if (left.length < 2 || left.length !== right.length) {
+        return {
+          valid: false,
+          reason: `Zuordnungsaufgabe ${index + 1} braucht gleich lange matchLeft/matchRight (mindestens 2 Paare).`,
+        }
+      }
+      continue
+    }
+
+    if (item.questionType === 'mcq') {
+      const optionCount = item.options?.length ?? 0
+      if (optionCount < 3 || optionCount > 5) {
+        return {
+          valid: false,
+          reason: `MCQ Aufgabe ${index + 1} muss 3-5 Antwortoptionen haben.`,
+        }
+      }
+    }
+  }
+
+  return { valid: true, reason: '' }
+}
+
+export function learnWorksheetItemFromQuestion(question: InteractiveQuizQuestion): LearnWorksheetItem {
+  return {
+    id: question.id,
+    prompt: question.prompt,
+    questionType: question.questionType,
+    matchLeft: question.matchLeft,
+    matchRight: question.matchRight,
+    options: question.options,
+    expectedAnswer: question.expectedAnswer,
+    acceptableAnswers: question.acceptableAnswers,
+    hint: question.hint,
+    explanation: question.explanation,
+    evaluation: question.evaluation,
+  }
+}
+
+export function buildWorksheetGenerationUserPrompt(args: {
+  outline: string
+  validationHint?: string
+}): string {
+  const lines = [
+    'Erstelle jetzt ein Lernblatt (Arbeitsblatt) als JSON-Array mit 6–8 Aufgaben.',
+    'Antwortformat: NUR valides JSON-Array — kein Markdown, kein Fliesstext davor oder danach.',
+    `Schema pro Aufgabe (Beispiel): ${WORKSHEET_JSON_SCHEMA_EXAMPLE}`,
+    WORKSHEET_EXERCISE_FIDELITY_RULES,
+    WORKSHEET_COMPACT_RULES,
+    CHAPTER_LEARNING_FIDELITY_RULES,
+    'Beziehe dich auf die Schwachstellen und Auszüge unten — wiederhole nicht breit den ganzen Stoff.',
+    args.validationHint
+      ? `Der vorige Versuch war ungültig: ${args.validationHint} Halte dich strikt an alle Regeln.`
+      : 'Halte dich strikt an alle Regeln.',
+    `Kontext:\n${args.outline}`,
+  ]
+  return lines.join('\n\n')
+}
 
 /** Kapitel-Index für gemischte Lernblätter nach Lernstand (nicht ein einzelnes Pfad-Kapitel). */
 export const MIXED_LEARN_MATERIAL_CHAPTER_INDEX = -1
@@ -663,6 +905,93 @@ export function chapterQuestionToInteractiveQuestion(
     hint: step.hint,
     explanation: step.explanation,
   }
+}
+
+export function worksheetQuestionKindLabel(item: LearnWorksheetItem): string {
+  switch (item.questionType) {
+    case 'mcq':
+      return 'Multiple Choice'
+    case 'true_false':
+      return 'Wahr oder Falsch'
+    case 'match':
+      return 'Zuordnung'
+    case 'text':
+      return 'Kurzantwort'
+    default:
+      return 'Freitext'
+  }
+}
+
+/** Lernblatt-Aufgabe für Auswertung (MCQ/Match lokal, Text per KI). */
+export function worksheetItemToInteractiveQuestion(item: LearnWorksheetItem): InteractiveQuizQuestion {
+  const expectedAnswer =
+    item.expectedAnswer?.trim() ||
+    'Die Antwort soll die Aufgabenstellung inhaltlich angemessen und fachlich plausibel bearbeiten.'
+
+  if (item.questionType === 'match' && item.matchLeft && item.matchRight) {
+    return {
+      id: item.id,
+      prompt: item.prompt,
+      questionType: 'match',
+      matchLeft: item.matchLeft,
+      matchRight: item.matchRight,
+      expectedAnswer,
+      acceptableAnswers: item.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: item.hint,
+      explanation: item.explanation,
+    }
+  }
+
+  if (item.questionType === 'true_false') {
+    return {
+      id: item.id,
+      prompt: item.prompt,
+      questionType: 'true_false',
+      options: item.options ?? ['Wahr', 'Falsch'],
+      expectedAnswer,
+      acceptableAnswers: item.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: item.hint,
+      explanation: item.explanation,
+    }
+  }
+
+  if (item.questionType === 'mcq') {
+    const opts = item.options ?? []
+    return {
+      id: item.id,
+      prompt: item.prompt,
+      questionType: 'mcq',
+      options: opts,
+      expectedAnswer: opts.length > 0 ? resolveMcqExpectedAnswer(expectedAnswer, opts) : expectedAnswer,
+      acceptableAnswers:
+        opts.length > 0
+          ? (item.acceptableAnswers ?? []).map((a) => resolveMcqExpectedAnswer(a, opts))
+          : item.acceptableAnswers ?? [],
+      evaluation: item.evaluation === 'contains' ? 'contains' : 'exact',
+      hint: item.hint,
+      explanation: item.explanation,
+    }
+  }
+
+  return {
+    id: item.id,
+    prompt: item.prompt,
+    questionType: item.questionType ?? 'text',
+    expectedAnswer,
+    acceptableAnswers: item.acceptableAnswers ?? [],
+    evaluation: item.evaluation ?? 'contains',
+    hint: item.hint,
+    explanation: item.explanation,
+  }
+}
+
+export function canSubmitWorksheetAnswer(item: LearnWorksheetItem, answer: string): boolean {
+  if (item.questionType === 'match' && item.matchLeft && item.matchRight) {
+    return isMatchAnswerComplete(worksheetItemToInteractiveQuestion(item), answer)
+  }
+  return answer.trim().length > 0
 }
 
 export const DEFAULT_CHAPTER_SESSION: ChapterSession = {

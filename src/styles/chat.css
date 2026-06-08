@@ -2326,6 +2326,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-bottom: 1px solid color-mix(in srgb, #cbd5e1 85%, #64748b);
 }
 
@@ -2367,6 +2371,8 @@
   font-weight: 650;
   line-height: 1.5;
   color: inherit;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-mcq-options {
@@ -2376,6 +2382,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.38rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: none;
   background: transparent;
 }
@@ -2383,10 +2393,15 @@
 .chat-mcq-option-item {
   margin: 0;
   padding: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-mcq-option {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -2462,6 +2477,8 @@
   font-size: 0.98em;
   line-height: 1.45;
   font-weight: var(--font-weight-body);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 :root[data-theme='dark'] .chat-mcq-option {
@@ -2628,6 +2645,10 @@
 }
 
 @media (max-width: 860px) {
+  .chat-md-section {
+    padding-right: 0.12rem;
+  }
+
   .chat-md-section--mobile-reply:not(.chat-md-section--swipe-host) {
     padding-right: 0.12rem;
     touch-action: pan-y;
@@ -2643,8 +2664,8 @@
     --section-swipe-progress: 0;
     position: relative;
     overflow: hidden;
-    margin-left: -0.15rem;
-    margin-right: -0.15rem;
+    margin-left: 0;
+    margin-right: 0;
     padding: 0;
     touch-action: pan-y;
     isolation: isolate;
@@ -2697,7 +2718,11 @@
   .chat-md-section-swipe-body {
     position: relative;
     z-index: 1;
-    padding: 0.12rem 0.2rem 0.12rem 0;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 0.12rem 0.1rem 0.12rem 0;
     background: transparent;
     transform: translate3d(var(--section-swipe-x, 0), 0, 0);
     transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);

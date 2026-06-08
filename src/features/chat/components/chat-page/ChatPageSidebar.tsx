@@ -117,7 +117,7 @@ export function ChatPageSidebar({
               <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
               <h2>Straton</h2>
               {!isCompactMobileSidebarLayout ? (
-                <button type="button" className="chat-beta-badge chat-beta-badge-button" onClick={onOpenBetaNotice}>
+                <button type="button" className="ui-pill-badge ui-pill-badge--purple chat-beta-badge-button" onClick={onOpenBetaNotice}>
                   Beta
                 </button>
               ) : null}
@@ -197,7 +197,7 @@ export function ChatPageSidebar({
           {!isSidebarCollapsed ? (
             <>
               Lernpfade
-              <span className="chat-dev-badge">In Entwicklung</span>
+              <span className="ui-pill-badge ui-pill-badge--blue">Beta</span>
             </>
           ) : null}
         </button>
@@ -318,7 +318,7 @@ export function ChatPageSidebar({
                         {isCompactMobileSidebarLayout ? greetingName : displayName}
                       </p>
                       {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
-                        <span className="account-admin-badge">Admin</span>
+                        <span className="ui-pill-badge ui-pill-badge--red">Admin</span>
                       ) : null}
                     </div>
                     {subscriptionPlanName ? (
