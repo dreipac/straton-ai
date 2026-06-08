@@ -4,7 +4,7 @@ import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
 import { messageContainsCompleteThinkingClarifyBlock } from '../utils/thinkingClarify'
 import { detectLiveWebHeuristic } from './instantAnalyze'
 import { userMessageAsksAboutPriorSubscriptionUsage } from './chatSubscriptionUsageMarker'
-import type { ThinkingAnalyzeResult } from './thinkingAnalyze'
+import { enrichThinkingAnalyzeDocumentCoverage, type ThinkingAnalyzeResult } from './thinkingAnalyze'
 import { buildThinkingReviewBriefingForGateway, type ThinkingReviewResult } from './thinkingReview'
 
 /** OpenAI-Kette für alle Thinking-Schritte (Analyze, Entwurf, Review, Generate). */
@@ -129,7 +129,10 @@ export function applyThinkingAnalyzeHeuristics(
     }
   }
 
-  return applyThinkingLiveWebHeuristic(userMessage, result)
+  return enrichThinkingAnalyzeDocumentCoverage(
+    userMessage,
+    applyThinkingLiveWebHeuristic(userMessage, result),
+  )
 }
 
 export function buildThinkingDraftBriefingForGateway(draft: string): string {
@@ -162,8 +165,8 @@ export function buildThinkingDraftSystemPrompt(): string {
     'Nutze die Aufgabenanalyse: vollständige inhaltliche Lösung, alle wichtigen Schritte/Fakten, passend zu task_type.',
     'Struktur grob mit ##-Überschriften; zwischen Hauptteilen `---`.',
     'Kein Meta («Hier ist dein Entwurf»), kein Clarify-Block, keine Anpassungsfrage am Ende.',
-    'Bei Dokumenten/Anhängen: **inhaltliche** Zusammenfassung aus dem [Datei:…]-Text — Fakten, Ziele, Aufgaben, Begriffe; nicht nur aufzählen, was das Dokument «deckt».',
-    'VERBOTEN im Entwurf: «Das Dossier thematisiert…», reine Themenlisten ohne Erklärung.',
+    'Bei Dokumenten/Anhängen: **integriertes Lernskript** — alle Themen/Fragen inhaltlich ausarbeiten; bei Arbeitsblättern **ohne** «Aufgabe:/Lösung:»-Labels.',
+    'VERBOTEN im Entwurf: «Das Dossier thematisiert…», reine Themenlisten, «Aufgabe:»/«Lösung (Muster):»-Paare, Aufgaben nur aufzählen.',
     'Antworte nur mit dem Entwurf-Markdown (kein JSON).',
   ].join('\n')
 }
@@ -179,6 +182,8 @@ export function buildThinkingReviewSystemPrompt(): string {
     '- summary (string, max 280 Zeichen): ein Satz Urteil',
     'Sei streng bei leeren, generischen oder falschen Entwürfen.',
     'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur «Dossier deckt/thematisiert…» ohne Fakten aus dem Anhang.',
-    'gaps/rewrite_hints: fehlende **Inhalte** aus dem Anhang nachfordern, nicht nur Struktur.',
+    'Bei Arbeitsblatt/Übungen: fits_intent false, wenn nur «Aufgabe/Lösung»-Format statt integriertem Lerninhalt, oder Themen nicht ausgearbeitet.',
+    'fits_intent false bei abgeschnittenem Text (Callout/Lückentext/Frage ohne Antwort, Satz endet mitten im Wort).',
+    'gaps/rewrite_hints: fehlende **Inhalte**, **fehlende Aufgabenlösungen** und **unvollständige Abschnitte** nachfordern; mehr ```cards``` statt Fliesstext.',
   ].join('\n')
 }

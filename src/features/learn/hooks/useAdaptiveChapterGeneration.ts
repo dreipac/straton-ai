@@ -7,15 +7,19 @@ import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
   ADAPTIVE_CHAPTER_GENERATED_ID,
+  CHAPTER_GENERATION_MAX_ATTEMPTS,
   CHAPTER_GENERATION_TIMEOUT_MS,
-  CHAPTER_LEARNING_FIDELITY_RULES,
-  WORKSHEET_EXERCISE_FIDELITY_RULES,
+  CHAPTER_MIN_QUESTIONS_ADAPTIVE,
   buildAdaptiveChallengeFallback,
   buildAdaptiveChapterPlaceholder,
+  buildChapterGenerationUserPrompt,
+  buildChapterMaterialSearchQuery,
   collectWeakQuestionSteps,
   ensureMinimumChapterDepth,
+  getChapterMaterialRagOptions,
   getDisplayPathTitle,
   parseChapterBlueprintsFromText,
+  validateGeneratedChapter,
 } from '../utils/learnPageHelpers'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 
@@ -82,61 +86,69 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
               .join('\n')
           : 'Keine explizit falschen Antworten vorhanden. Erzeuge adaptive Fragen auf Basis typischer Stolpersteine im Thema.'
 
+      const chapterTopic = selectedTopic || effectiveTopic || 'KV Grundlagen'
       const adaptiveMaterialContext = formatRelevantMaterialContext(
-        `${effectiveTopic || getDisplayPathTitle(activePathTitle ?? '')} ${selectedTopic} Schwachstellen Training Übung Aufgabe Berechnung`,
+        buildChapterMaterialSearchQuery(
+          effectiveTopic || getDisplayPathTitle(activePathTitle ?? ''),
+          selectedTopic,
+          `${chapterTopic} Schwachstellen Training`,
+        ),
         materials,
-        materials.length > 0
-          ? {
-              maxChunks: materials.length > 2 ? 10 : 7,
-              maxChars: materials.length > 2 ? 7200 : 5600,
-              denseChunks: true,
-              emphasizePersonalSources: true,
-            }
-          : { maxChunks: 6, maxChars: 3200 },
+        getChapterMaterialRagOptions(materials.length),
       )
 
-      const request: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: [
-          'Erstelle genau EIN Abschlusskapitel für Schwachstellen als JSON-Array mit genau 1 Kapitelobjekt.',
-          'Nur JSON ohne Erklärung.',
-          'Das Kapitel muss 1 kurze Einführung, dann 6-10 Fragen und am Ende 1 Recap enthalten.',
-          'In Erklärungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Sätze) oder in den bullets.',
-          'Fokussiere auf erkannte Schwachstellen aus den falsch beantworteten Fragen.',
-          'Nutze vorhandene Unterlagen als primäre Quelle: mindestens die Hälfte der Fragen soll Inhalte aus den Materialauszügen aufgreifen (Begriffe, Zusammenhänge, Zuordnungen).',
-          WORKSHEET_EXERCISE_FIDELITY_RULES,
-          CHAPTER_LEARNING_FIDELITY_RULES,
-          `Thema: ${selectedTopic || effectiveTopic || 'KV Grundlagen'}`,
-          `Schwachstellen aus bisherigem Lernverlauf:\n${weaknessSummary}`,
-          adaptiveMaterialContext
-            ? `Materialauszüge (Fragen und Erklärungen hierauf beziehen):\n${adaptiveMaterialContext}`
-            : 'Materialauszüge: keine — nutze realistische KV-Beispiele (kaufmännischer Alltag) in Erklärungen und Aufgaben.',
-          'Fragetypen mischen: mcq, text, match und/oder true_false (expectedAnswer "Wahr" oder "Falsch").',
-          'Schema pro Kapitel (Beispiele): {"id":"adaptive-1","title":"...","description":"...","steps":[{"id":"...","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"...","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"...","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"...","type":"recap","title":"...","content":"...","bullets":["..."]}]}',
-          'Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).',
-        ].join('\n\n'),
-        createdAt: new Date().toISOString(),
+      let validationHint = ''
+      let generatedAdaptive: ChapterBlueprint | null = null
+
+      for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+        const request: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: buildChapterGenerationUserPrompt({
+            pathTitle: getDisplayPathTitle(activePathTitle ?? ''),
+            chapterTopic,
+            aiGuidance: '',
+            proficiencyLevel: '',
+            materialContext: adaptiveMaterialContext,
+            entryQuizInsight: 'Adaptives Abschlusskapitel — fokussiere auf Schwachstellen aus dem Lernverlauf.',
+            validationHint,
+            attempt,
+            adaptive: true,
+            weaknessSummary,
+          }),
+          createdAt: new Date().toISOString(),
+        }
+
+        const response = await Promise.race([
+          sendMessage([request], {
+            systemPrompt: getPrompt('learn_tutor'),
+            useLearnPathModel: true,
+            learnTelemetryMode: 'learn_tutor',
+            learnPathSystemPromptMode: 'tutor_only',
+          }),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(() => reject(new Error('Adaptive Kapitelgenerierung dauert zu lange.')), CHAPTER_GENERATION_TIMEOUT_MS)
+          }),
+        ])
+
+        const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
+        const parsedContent = parsed.cleanText || response.assistantMessage.content
+        const candidate = parseChapterBlueprintsFromText(parsedContent)[0]
+        if (!candidate) {
+          validationHint = 'Kein auslesbares Kapitel-JSON erhalten'
+          continue
+        }
+        const validation = validateGeneratedChapter(candidate, { minQuestions: CHAPTER_MIN_QUESTIONS_ADAPTIVE })
+        if (!validation.valid) {
+          validationHint = validation.reason
+          continue
+        }
+        generatedAdaptive =
+          namespaceChapterStepIds(ensureMinimumChapterDepth([candidate]), {
+            chapterIndexOffset: chapterBlueprints.length,
+          })[0] ?? null
+        break
       }
-
-      const response = await Promise.race([
-        sendMessage([request], {
-          interactiveQuizPrompt: getPrompt('interactive_quiz'),
-          systemPrompt: getPrompt('learn_tutor'),
-          useLearnPathModel: true,
-        }),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error('Adaptive Kapitelgenerierung dauert zu lange.')), CHAPTER_GENERATION_TIMEOUT_MS)
-        }),
-      ])
-
-      const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
-      const parsedContent = parsed.cleanText || response.assistantMessage.content
-      const parsedBlueprints = namespaceChapterStepIds(
-        ensureMinimumChapterDepth(parseChapterBlueprintsFromText(parsedContent)),
-        { chapterIndexOffset: chapterBlueprints.length },
-      )
-      const generatedAdaptive = parsedBlueprints[0] ?? null
 
       if (generatedAdaptive) {
         setAdaptiveChapterBlueprint({

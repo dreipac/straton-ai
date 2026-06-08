@@ -1,7 +1,10 @@
 import type { InstantAnalyzeDocumentAction } from './instantAnalyzeRoute'
 import { EXCEL_EXPORT_INSTRUCTION } from './excelExportPrompt'
 import type { InstantAnalyzeResult } from './instantAnalyze'
-import { userMessageWantsDocumentSummary } from './documentAttachmentIntent'
+import {
+  buildDocumentSummaryPlaybook,
+  userMessageWantsDocumentSummary,
+} from './documentAttachmentIntent'
 
 /** PDF/Word-Export mit Summary-Tiefe (ausführlich, zusammenfassend, …). */
 const DOCUMENT_EXPORT_SUMMARY_RE =
@@ -40,8 +43,10 @@ export function isSummaryStyleDocumentExport(
 
 export function buildDocumentExportSummaryTurnBriefing(): string {
   return [
+    buildDocumentSummaryPlaybook(),
+    '',
     'Dokument-Export + Zusammenfassung (verbindlich — gleicher Mix wie Chat-Summary):',
-    '- Der JSON-Inhalt entspricht der **Chat-Zusammenfassung** (Fliesstext + Stichpunkte + Tabellen) — nur als `blocks` statt Markdown.',
+    '- Der JSON-Inhalt entspricht der **Chat-Zusammenfassung** (Stoff + gelöste Aufgaben, Fliesstext + Stichpunkte + Tabellen) — nur als `blocks` statt Markdown.',
     '- `title`: z. B. «Zusammenfassung: [Thema]» oder «[Thema]: Ein umfassender Leitfaden».',
     '- **6–12+** Hauptkapitel als `heading` (level 1–2).',
     '- **Rhythmus pro Kapitel (Pflicht — nicht nur ein langer paragraph):**',

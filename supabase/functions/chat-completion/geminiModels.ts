@@ -11,6 +11,34 @@ export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-g
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT = 'straton-thinking-draft-gemini-v1'
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW = 'straton-thinking-review-gemini-v1'
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY = 'straton-thinking-reply-gemini-v1'
+export const GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC = 'straton-learn-setup-topic-gemini-v1'
+export const GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ = 'straton-learn-entry-quiz-gemini-v1'
+export const GEMINI_CONTEXT_CACHE_LEARN_TUTOR = 'straton-learn-tutor-gemini-v1'
+export const GEMINI_CONTEXT_CACHE_LEARN_HELP = 'straton-learn-help-gemini-v1'
+
+export type LearnTelemetryModeEdge = 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
+
+export function resolveLearnGeminiContextCacheKey(
+  mode: LearnTelemetryModeEdge,
+  clientKey?: string,
+): string {
+  const trimmed = typeof clientKey === 'string' ? clientKey.trim() : ''
+  if (
+    trimmed === GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC ||
+    trimmed === GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ ||
+    trimmed === GEMINI_CONTEXT_CACHE_LEARN_TUTOR ||
+    trimmed === GEMINI_CONTEXT_CACHE_LEARN_HELP
+  ) {
+    return trimmed
+  }
+  if (mode === 'learn_setup_topic') {
+    return GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC
+  }
+  if (mode === 'learn_entry_quiz') {
+    return GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ
+  }
+  return GEMINI_CONTEXT_CACHE_LEARN_TUTOR
+}
 
 function isGeminiInstantEnabledFromEnv(): boolean {
   const v = (Deno.env.get('GEMINI_INSTANT_ENABLED') ?? 'false').trim().toLowerCase()

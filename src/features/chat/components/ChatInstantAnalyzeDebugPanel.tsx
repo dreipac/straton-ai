@@ -1,4 +1,5 @@
 import type { InstantAnalyzeDebugMeta } from '../types'
+import { ChatPresentationProfileDebugSection } from './ChatPresentationProfileDebugSection'
 
 type ChatInstantAnalyzeDebugPanelProps = {
   debug: InstantAnalyzeDebugMeta
@@ -100,6 +101,16 @@ export function ChatInstantAnalyzeDebugPanel({ debug, compact = false }: ChatIns
             <dd>{debug.missing.join(' · ')}</dd>
           </div>
         ) : null}
+        {debug.document_coverage_topics && debug.document_coverage_topics.length > 0 ? (
+          <div>
+            <dt>Pflicht-Themen</dt>
+            <dd>{debug.document_coverage_topics.join(' · ')}</dd>
+          </div>
+        ) : null}
+        <ChatPresentationProfileDebugSection
+          profile={debug.presentation_profile}
+          layoutMetrics={debug.layout_metrics}
+        />
       </dl>
     </details>
   )

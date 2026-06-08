@@ -5,8 +5,8 @@
 /** Instant: adaptiver Umfang (einfach kurz, komplex tiefer); Obergrenze für lange Diagnosen. */
 export const MAIN_CHAT_MAX_OUTPUT_TOKENS = 2048
 
-/** Instant — Aufgabentyp summary: ausführliche Kapitel-Zusammenfassungen. */
-export const MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS = 8000
+/** Instant — Aufgabentyp summary: ausführliche Kapitel-Zusammenfassungen (Schulblätter mit vielen Aufgaben). */
+export const MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS = 16384
 
 /** Experiment/Test: Summary-Instant über OpenAI statt Gemini Flash Lite. */
 export const MAIN_CHAT_SUMMARY_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const

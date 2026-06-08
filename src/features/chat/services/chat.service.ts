@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_PROMPTS } from '../../../config/systemPromptDefaults'
+import { DEFAULT_SYSTEM_PROMPTS, LEARN_CHAPTER_JSON_SYSTEM_SUPPLEMENT } from '../../../config/systemPromptDefaults'
 import {
   getAssistantEmojiStyleInstruction,
   getAssistantMainChatThreadContinuityInstruction,
@@ -14,8 +14,10 @@ import {
   userMessageRequestsDirectAnswer,
 } from '../constants/chatDirectAnswerInstruction'
 import {
+  buildDocumentSummaryCoverageBriefing,
   buildDocumentVisibilityTurnBriefing,
   buildInstantAnalyzeVisibilityHintForUserMessage,
+  resolveDocumentCoverageTopics,
   userAsksDocumentVisibilityQuestion,
 } from '../constants/documentAttachmentIntent'
 import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
@@ -56,6 +58,8 @@ import {
   GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
   GEMINI_CONTEXT_CACHE_THINKING_REPLY,
   GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+  resolveLearnGeminiPromptCacheKey,
+  resolveLearnOpenAiPromptCacheKey,
   GEMINI_DEFAULT_CHAT_MODEL,
   resolveGeminiModelForInstantReply,
 } from '../constants/geminiModels'
@@ -143,6 +147,12 @@ import {
   buildPromptCacheSuppressTurnBlocks,
   resolveMainChatSystemPromptModules,
 } from '../constants/chatPromptModules'
+import {
+  buildPresentationLayoutBriefing,
+  resolveInstantPresentationProfile,
+  resolveThinkingPresentationProfile,
+  type PresentationProfile,
+} from '../constants/presentationProfile'
 import { getSwissGermanOrthographyInstruction } from '../constants/chatSwissOrthography'
 import {
   getSecretSafetyInstruction,
@@ -213,6 +223,10 @@ export type SendMessageOptions = {
   useLearnPathModel?: boolean
   /** Audit-Label für Admin-Protokoll (z. B. `learn_entry_quiz`, `learn_setup_topic`). */
   learnTelemetryMode?: 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
+  /**
+   * Lernpfad Kapitel-JSON: nur `learn_tutor` + JSON-Regeln — ohne `interactive_quiz` (Zusammenfassungs-Bias).
+   */
+  learnPathSystemPromptMode?: 'default' | 'tutor_only'
   /** Nutzer hat Excel/XLSX angefragt: Modell liefert Spec-JSON (Vorschau); Datei erst nach «Excel generieren». */
   userRequestedExcel?: boolean
   /** Nutzer hat /Word gewählt: Dokumenttext ohne Meta-Erklärungen; schaltet Kürze-Hinweis ab. */
@@ -571,8 +585,11 @@ function prependMainChatTurnContextToUserContent(userContent: string, contextBlo
 }
 
 function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOptions): GatewayMessage[] {
-  const baseQuiz =
-    options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
+  const tutorOnlyChapter = options?.learnPathSystemPromptMode === 'tutor_only'
+  const baseQuiz = tutorOnlyChapter
+    ? ''
+    : options?.interactiveQuizPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.interactive_quiz
+  const learnChapterJsonRules = tutorOnlyChapter ? LEARN_CHAPTER_JSON_SYSTEM_SUPPLEMENT : ''
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
   const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
   const diagramChatHint = options?.userRequestedDiagram ? DIAGRAM_CHAT_DOCUMENT_JSON_HINT : ''
@@ -679,6 +696,29 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   }
   if (isMainChat && !thinking && instantAnalyze) {
     lastUserTurnContextBlocks.push(buildInstantAnalyzeBriefingInstruction(instantAnalyze))
+  }
+
+  const skipPresentationLayoutBriefing =
+    options?.userRequestedWord ||
+    options?.userRequestedPdf ||
+    options?.userRequestedExcel ||
+    options?.userRequestedChart ||
+    options?.userRequestedDiagram
+
+  let presentationProfileForTurn: PresentationProfile | undefined
+  if (
+    isMainChat &&
+    !skipPresentationLayoutBriefing &&
+    !thinking &&
+    instantAnalyze &&
+    instantAnalyze.category === 'chat' &&
+    !instantAskOnly
+  ) {
+    presentationProfileForTurn = resolveInstantPresentationProfile({
+      analyze: instantAnalyze,
+      userMessage: lastUserRoutingText,
+      modules: systemPromptModules,
+    })
   }
   if (
     isMainChat &&
@@ -854,6 +894,32 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     lastUserTurnContextBlocks.push(
       buildThinkingTaskTypeTurnBriefing(options.thinkingAnalyze, lastUserMessage.content),
     )
+    if (!skipPresentationLayoutBriefing) {
+      presentationProfileForTurn = resolveThinkingPresentationProfile({
+        analyze: options.thinkingAnalyze,
+        userMessage: stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+        phase: 'final',
+      })
+    }
+  }
+  if (presentationProfileForTurn) {
+    lastUserTurnContextBlocks.push(buildPresentationLayoutBriefing(presentationProfileForTurn))
+  }
+  const isDocumentSummaryTurn =
+    presentationProfileForTurn?.variant === 'document_summary' ||
+    instantAnalyze?.task_type === 'summary' ||
+    options?.thinkingAnalyze?.task_type === 'document_summary'
+  if (isDocumentSummaryTurn && lastUserMessage?.role === 'user') {
+    const coverageTopics = resolveDocumentCoverageTopics({
+      userMessage: lastUserMessage.content,
+      analyzeTopics:
+        options?.thinkingAnalyze?.document_coverage_topics ??
+        instantAnalyze?.document_coverage_topics,
+    })
+    const coverageBriefing = buildDocumentSummaryCoverageBriefing(coverageTopics)
+    if (coverageBriefing) {
+      lastUserTurnContextBlocks.push(coverageBriefing)
+    }
   }
   const includePromptCacheDynamicBlocks =
     isMainChat &&
@@ -906,6 +972,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     getSecretSafetyInstruction(),
     getSwissGermanOrthographyInstruction(),
     options?.systemPrompt?.trim() ?? '',
+    learnChapterJsonRules,
     excelChatHint,
     wordChatHint,
     pdfChatHint,
@@ -919,7 +986,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       ? ''
       : getAssistantMarkdownFormattingInstruction({
           replyTone,
-          compact: false,
+          compact: presentationProfileForTurn?.compact === true,
         }),
     thinking
       ? getChatThinkingEmojiStyleInstruction()
@@ -1192,7 +1259,6 @@ const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v1'
-const OPENAI_PROMPT_CACHE_KEY_LEARN = 'straton-learn-v3'
 const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v4'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
@@ -1347,8 +1413,14 @@ function buildChatCompletionRequestBody(
       provider: providerForLearnPath(),
       mode: learnMode,
       messages: gatewayMessages,
-      promptCacheKey: OPENAI_PROMPT_CACHE_KEY_LEARN,
+      promptCacheKey: resolveLearnOpenAiPromptCacheKey(learnMode, {
+        learnPathSystemPromptMode: options.learnPathSystemPromptMode,
+      }),
       promptCacheRetention: '24h',
+      geminiPromptCacheKey: resolveLearnGeminiPromptCacheKey(learnMode, {
+        learnPathSystemPromptMode: options.learnPathSystemPromptMode,
+      }),
+      learnPathSystemPromptMode: options.learnPathSystemPromptMode ?? 'default',
       includeProfileMemory: false,
       maxTokens: LEARN_PATH_MAX_OUTPUT_TOKENS,
       openAiModels: options.openAiModels?.length

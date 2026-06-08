@@ -2,6 +2,34 @@ export type ChatRole = 'user' | 'assistant'
 
 /** Admin-Debug: Ergebnis von Smart-Instant Schritt 1 (an User-Nachricht). */
 /** Admin-Debug: Thinking-Aufgabenanalyse (task_type = Kategorie für Generierung). */
+export type PresentationProfileDebugMeta = {
+  density: string
+  layout: string
+  compact: boolean
+  chapter_style: string
+  required_blocks: string[]
+  forbidden_blocks: string[]
+  reason: string
+}
+
+export type PresentationLayoutMetricsMeta = {
+  tables: number
+  cards: number
+  card_tiles: number
+  hr: number
+  definitions: number
+  callouts: number
+  divided_lists: number
+  divided_list_items: number
+  mcq: number
+  headings: number
+  lists: number
+  paragraphs: number
+  code_blocks: number
+  layout_satisfied?: string[]
+  layout_missing?: string[]
+}
+
 export type ThinkingAnalyzeDebugMeta = {
   source: 'edge' | 'fallback'
   task_type: string
@@ -16,6 +44,9 @@ export type ThinkingAnalyzeDebugMeta = {
   web_reason: string
   heuristic_applied: boolean
   analysis_summary: string
+  document_coverage_topics?: string[]
+  presentation_profile?: PresentationProfileDebugMeta
+  layout_metrics?: PresentationLayoutMetricsMeta
 }
 
 export type InstantAnalyzeDebugMeta = {
@@ -39,6 +70,9 @@ export type InstantAnalyzeDebugMeta = {
   web_reason: string
   auto_web_planned: boolean
   auto_web_ran: boolean
+  document_coverage_topics?: string[]
+  presentation_profile?: PresentationProfileDebugMeta
+  layout_metrics?: PresentationLayoutMetricsMeta
 }
 
 export type ChatMessageExcelExport = {
@@ -128,6 +162,8 @@ export type ChatMessage = {
     thinkingAnalyzeDebug?: ThinkingAnalyzeDebugMeta
     /** Assistant-Stream: Thinking Klärung vs. finale Antwort. */
     thinkingStreamKind?: 'clarify' | 'final'
+    /** Assistant: Layout-Metriken (Admin-Debug, nach Antwort). */
+    presentationLayoutMetrics?: PresentationLayoutMetricsMeta
     /** User-Nachricht: gewähltes Quiz-Format vor Generierung (MC-Chat vs. interaktiv). */
     userQuizFormat?: 'markdown_mcq' | 'interactive'
     /** User-Nachricht: Foto in Storage (`chat-media`), Inhalt nur `@chat-media:`-Referenz. */

@@ -72,41 +72,37 @@ export function buildInstantAnalyzeQuizGenerateStructuralHint(userMessage: strin
     explicit === 'interactive'
       ? 'Gewünschtes Format: interaktives Quiz mit STRATON_QUIZ_JSON-Block (Freitext, keine A–D-Checkboxen).'
       : [
-          'Gewünschtes Format: Markdown-Multiple-Choice — **jede Frage braucht einen Fragentext**.',
-          'Pflicht pro Frage: Zeile `1. Fragentext`, darunter je eine Zeile `A) …` `B) …` `C) …` `D) …`.',
-          'Nicht nur A–D-Listen ohne Frage — die App rendert sonst keine Checkbox-Karten.',
+          'Gewünschtes Format: Markdown-Multiple-Choice — **jede Frage braucht einen Fragentext direkt über den Optionen**.',
+          'Pflicht pro Frage: `1. Fragentext`, darunter `A) …` `B) …` `C) …` `D) …` je eigene Zeile.',
+          'Nicht nur A–D-Listen ohne Frage und **nicht** alle Fragentexte gesammelt am Ende.',
         ].join(' '),
     'Einordnung: category chat, action answer, task_type quiz_generate, reply_mode normal.',
     '',
   ].join('\n')
 }
 
+/** Gemeinsame MC-Strukturregeln — ein Briefing, kein Widerspruch zwischen System- und Turn-Prompt. */
+export const MARKDOWN_MCQ_STRUCTURE_RULES = [
+  'Pflicht-Struktur pro Frage (exakt so — die App rendert Checkbox-Karten):',
+  '- Optional **ein** kurzer Einleitungssatz (ohne `1.` — kein Fragentext), dann **sofort** `1. Fragentext` + Optionen.',
+  '- Einleitung **niemals** nummerieren und **nicht** direkt über `A)–D)` setzen.',
+  '- **Pro Frage ein Block:** `1. Fragentext` → direkt darunter `A) …` `B) …` `C) …` `D) …` (mind. 2 Optionen, je **eigene Zeile**).',
+  '- Danach `2. Nächster Fragentext` → wieder `A) …` `B) …` … — fortlaufend nummerieren.',
+  '- Fragentext **über** den Optionen **derselben** Frage — **nicht** zuerst alle A–D-Listen und **nicht** alle Fragentexte gesammelt am Ende.',
+  '- Kein Quiz-JSON, keine Marker, keine A) B) C) D) in einem Absatz.',
+].join('\n')
+
 export const QUIZ_GENERATE_MARKDOWN_MCQ_TURN_BRIEFING = [
   'Quiz erzeugen — Multiple-Choice-Karten (verbindlich):',
-  '- Nach Einleitung optional `## Fragen`, dann **pro Frage direkt nacheinander**:',
-  '  `1. Fragentext`',
-  '  `A) …`',
-  '  `B) …`',
-  '  `C) …`',
-  '  `D) …`',
-  '  `2. Nächster Fragentext`',
-  '  `A) …` …',
-  '- Fragentext **über** den Optionen derselben Frage — **nicht** alle Fragen gesammelt am Ende.',
-  '- Jede Option **eigene Zeile** (mit oder ohne `-` davor) — die App rendert Checkbox-Karten.',
-  '- Kein Quiz-JSON, keine Marker, keine lose formatierten Absätze mit A) B) C) in einer Zeile.',
+  MARKDOWN_MCQ_STRUCTURE_RULES,
 ].join('\n')
 
 export function getQuizFormatGenerationInstruction(choice: QuizFormatChoice): string {
   if (choice === 'markdown_mcq') {
     return [
       'Gewähltes Quiz-Format (verbindlich für diese Anfrage): **Multiple-Choice im Chat**.',
-      'Liefere den gewünschten Inhalt (z. B. Geschichte, Erklärung) und danach Fragen als Markdown.',
-      'Pflicht-Struktur pro Frage (exakt so, damit die UI Checkbox-Karten rendert):',
-      '- **Jede Frage braucht einen sichtbaren Fragentext** — nicht nur A–D-Listen.',
-      '- Eine eigene Zeile: `1. Fragentext` (bei mehreren Fragen fortlaufend nummerieren: 1., 2., 3., …).',
-      '- Direkt darunter je **eine Zeile pro Option**: `A) …`, `B) …`, `C) …`, `D) …` (mind. 2 Optionen) — nicht in einen Absatz quetschen.',
-      '- Optional Überschrift `## Fragen` oder Zeile `Fragen:` vor der ersten Frage.',
-      'Kein Quiz-JSON, keine Marker <<<STRATON_QUIZ_JSON>>>, kein Hinweis «sag mach ein Quiz».',
+      MARKDOWN_MCQ_STRUCTURE_RULES,
+      'Kein Hinweis «sag mach ein Quiz» — direkt die Fragen liefern.',
     ].join('\n')
   }
 

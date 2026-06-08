@@ -50,8 +50,10 @@ type Block =
   | { type: 'table'; rows: string[][] }
   /** Konzept-Karten (```cards … ```) */
   | { type: 'cards'; cards: ChatVisualCard[] }
-  /** Einleitung mit Akzent-Rand (`> ! …`) */
-  | { type: 'callout'; lines: string[] }
+  /** Einleitung mit Akzent-Rand (`> !` / `> ?` / `> !!` / `> ✓`) */
+  | { type: 'callout'; lines: string[]; variant: ChatCalloutVariant }
+  /** Aufzählung mit Trennlinien zwischen Punkten (```divided-list```) */
+  | { type: 'dividedList'; title?: string; items: string[] }
   /** Erklärung/Definition — Karte mit Badge «Definition» */
   | { type: 'definition'; title: string; body: string }
   /** Multiple-Choice (Frage + A–D), getrennt von Standard-Listen */
@@ -61,23 +63,84 @@ type Block =
 
 type McqOption = { letter: string; text: string }
 
+export type ChatBadgeVariant = 'blue' | 'green' | 'orange' | 'gray' | 'teal' | 'purple' | 'indigo'
+
+export type ChatCardTone = ChatBadgeVariant
+
 export type ChatVisualCard = {
   label: string
   title: string
   body: string
   badges: Array<{ text: string; variant: ChatBadgeVariant }>
+  tone: ChatCardTone
 }
 
-export type ChatBadgeVariant = 'blue' | 'green' | 'orange' | 'gray' | 'teal'
+export type ChatCalloutVariant = 'info' | 'tip' | 'warning' | 'success'
 
-const BADGE_VARIANTS: ChatBadgeVariant[] = ['blue', 'green', 'orange', 'teal', 'gray']
+const CALLOUT_LABELS: Record<ChatCalloutVariant, string> = {
+  info: 'Hinweis',
+  tip: 'Tipp',
+  warning: 'Achtung',
+  success: 'Ergebnis',
+}
+
+const BADGE_VARIANTS: ChatBadgeVariant[] = [
+  'blue',
+  'teal',
+  'green',
+  'orange',
+  'purple',
+  'indigo',
+  'gray',
+]
+
+const CARD_TONE_VARIANTS: ChatCardTone[] = ['blue', 'teal', 'green', 'orange', 'purple', 'indigo']
 
 function normalizeBadgeVariant(raw: string | undefined): ChatBadgeVariant {
   const v = (raw ?? 'blue').trim().toLowerCase()
-  if (v === 'green' || v === 'orange' || v === 'gray' || v === 'teal' || v === 'blue') {
+  if (
+    v === 'green' ||
+    v === 'orange' ||
+    v === 'gray' ||
+    v === 'teal' ||
+    v === 'blue' ||
+    v === 'purple' ||
+    v === 'indigo'
+  ) {
     return v
   }
   return 'blue'
+}
+
+function normalizeCardTone(raw: string | undefined, index: number): ChatCardTone {
+  const normalized = normalizeBadgeVariant(raw)
+  if (raw?.trim()) {
+    return normalized
+  }
+  return CARD_TONE_VARIANTS[index % CARD_TONE_VARIANTS.length] ?? 'blue'
+}
+
+/** Kompakt-Prompts liefern oft «· Punkt A · Punkt B» in einer Zeile — für die UI aufteilen. */
+function splitCardBodyIntoDisplayLines(body: string): string[] {
+  const lines: string[] = []
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) {
+      continue
+    }
+    if (line.includes(' · ')) {
+      const parts = line
+        .split(/\s+·\s+/)
+        .map((part) => part.replace(/^·\s*/, '').trim())
+        .filter(Boolean)
+      if (parts.length > 1) {
+        lines.push(...parts)
+        continue
+      }
+    }
+    lines.push(line.replace(/^·\s*/, ''))
+  }
+  return lines
 }
 
 /** ```cards`-Block: Karten durch `---`, Felder label/title/body/badges. */
@@ -90,13 +153,14 @@ export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
 
   const cards: ChatVisualCard[] = []
   for (const section of sections) {
-    const card: ChatVisualCard = { label: '', title: '', body: '', badges: [] }
+    const card: ChatVisualCard = { label: '', title: '', body: '', badges: [], tone: 'blue' }
     const bodyLines: string[] = []
     let inBody = false
+    let toneRaw: string | undefined
 
     for (const line of section.split('\n')) {
       const trimmed = line.trim()
-      const field = trimmed.match(/^(label|title|body|badges):\s*(.*)$/i)
+      const field = trimmed.match(/^(label|title|body|badges|tone):\s*(.*)$/i)
       if (field) {
         inBody = field[1]!.toLowerCase() === 'body'
         const value = field[2]!.trim()
@@ -104,6 +168,8 @@ export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
           card.label = value
         } else if (field[1]!.toLowerCase() === 'title') {
           card.title = value
+        } else if (field[1]!.toLowerCase() === 'tone') {
+          toneRaw = value
         } else if (field[1]!.toLowerCase() === 'body') {
           if (value) {
             bodyLines.push(value)
@@ -135,6 +201,7 @@ export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
     }
 
     card.body = bodyLines.join('\n').trim()
+    card.tone = normalizeCardTone(toneRaw, cards.length)
     if (card.title || card.body || card.label) {
       cards.push(card)
     }
@@ -155,15 +222,28 @@ function ChatVisualCardGrid({
   }
   return (
     <div className="chat-md-cards">
-      {cards.map((card, index) => (
-        <article key={`card-${index}`} className="chat-md-card">
-          {card.label ? <p className="chat-md-card-label">{card.label}</p> : null}
+      {cards.map((card, index) => {
+        const bodyLines = card.body ? splitCardBodyIntoDisplayLines(card.body) : []
+        return (
+        <article
+          key={`card-${index}`}
+          className={`chat-md-card chat-md-card--${card.tone}`}
+        >
+          {card.label ? (
+            <span className={`chat-md-card-label chat-md-card-label--${card.tone}`}>
+              {card.label}
+            </span>
+          ) : null}
           {card.title ? (
             <h4 className="chat-md-card-title">{renderAssistantInline(card.title, options)}</h4>
           ) : null}
-          {card.body ? (
-            <div className="chat-md-card-body">
-              {card.body.split('\n').map((line, lineIndex) => (
+          {bodyLines.length > 0 ? (
+            <div
+              className={`chat-md-card-body${
+                bodyLines.length > 1 ? ' chat-md-card-body--stacked' : ''
+              }`}
+            >
+              {bodyLines.map((line, lineIndex) => (
                 <p key={`card-${index}-ln-${lineIndex}`} className="chat-md-card-body-line">
                   {renderAssistantInline(line, options)}
                 </p>
@@ -183,26 +263,129 @@ function ChatVisualCardGrid({
             </div>
           ) : null}
         </article>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
+/** `> !` / `> ?` / `> !!` / `> ✓` nach Blockzitat-Marker. */
+export function parseCalloutFromQuoteLines(
+  lines: string[],
+): { variant: ChatCalloutVariant; lines: string[] } | null {
+  if (lines.length === 0) {
+    return null
+  }
+  let index = 0
+  const prefix: string[] = []
+  while (index < lines.length && /^\*\*.+\*\*$/.test(lines[index]!.trim())) {
+    prefix.push(lines[index]!.trim())
+    index += 1
+  }
+  if (index >= lines.length) {
+    return null
+  }
+  const first = lines[index]!.trim()
+  let variant: ChatCalloutVariant | null = null
+  let firstBody = ''
+  if (/^!!/.test(first) || /^⚠/.test(first)) {
+    variant = 'warning'
+    firstBody = first.replace(/^!!\s*/, '').replace(/^⚠\s*/, '').trim()
+  } else if (/^\?/.test(first)) {
+    variant = 'tip'
+    firstBody = first.replace(/^\?\s*/, '').trim()
+  } else if (/^✓/.test(first) || /^check\b/i.test(first)) {
+    variant = 'success'
+    firstBody = first.replace(/^✓\s*/, '').replace(/^check\s+/i, '').trim()
+  } else if (/^!/.test(first)) {
+    variant = 'info'
+    firstBody = first.replace(/^!\s*/, '').trim()
+  }
+  if (!variant) {
+    return null
+  }
+  const body = [...prefix, firstBody, ...lines.slice(index + 1)].filter((line) => line.trim())
+  return { variant, lines: body }
+}
+
+/** ```divided-list``` — optionales `title:` + Bullet-Zeilen. */
+export function parseDividedListBlock(raw: string): { title?: string; items: string[] } {
+  let title: string | undefined
+  const items: string[] = []
+  for (const line of raw.replace(/\r\n/g, '\n').split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      continue
+    }
+    const titleMatch = trimmed.match(/^title:\s*(.+)$/i)
+    if (titleMatch) {
+      title = titleMatch[1]!.trim()
+      continue
+    }
+    const bullet = trimmed.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/)
+    if (bullet) {
+      items.push(bullet[1]!.trim())
+      continue
+    }
+    if (items.length > 0) {
+      items[items.length - 1] = `${items[items.length - 1]}\n${trimmed}`
+    }
+  }
+  return { title, items }
+}
+
 function CalloutBlock({
   lines,
+  variant,
   options,
 }: {
   lines: string[]
+  variant: ChatCalloutVariant
   options?: AssistantRichContentOptions
 }) {
   return (
-    <aside className="chat-md-callout">
-      {lines.map((line, index) => (
-        <p key={`callout-${index}`} className="chat-md-callout-line">
-          {renderAssistantInline(line, options)}
-        </p>
-      ))}
+    <aside className={`chat-md-callout chat-md-callout--${variant}`}>
+      <span className="chat-md-callout-badge">{CALLOUT_LABELS[variant]}</span>
+      <div className="chat-md-callout-body">
+        {lines.map((line, index) => (
+          <p key={`callout-${index}`} className="chat-md-callout-line">
+            {renderAssistantInline(line, options)}
+          </p>
+        ))}
+      </div>
     </aside>
+  )
+}
+
+function DividedListBlock({
+  title,
+  items,
+  options,
+}: {
+  title?: string
+  items: string[]
+  options?: AssistantRichContentOptions
+}) {
+  if (items.length === 0) {
+    return null
+  }
+  return (
+    <div className="chat-md-divided-list">
+      {title ? (
+        <p className="chat-md-divided-list-title">{renderAssistantInline(title, options)}</p>
+      ) : null}
+      <ul className="chat-md-divided-list-items">
+        {items.map((item, index) => (
+          <li key={`divided-${index}`} className="chat-md-divided-list-item">
+            {item.split('\n').map((part, partIndex) => (
+              <p key={`divided-${index}-p-${partIndex}`} className="chat-md-divided-list-item-line">
+                {renderAssistantInline(part, options)}
+              </p>
+            ))}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -283,6 +466,7 @@ function blockStopsDefinitionBody(block: Block): boolean {
     block.type === 'definition' ||
     block.type === 'cards' ||
     block.type === 'callout' ||
+    block.type === 'dividedList' ||
     block.type === 'table' ||
     block.type === 'code' ||
     block.type === 'math' ||
@@ -762,11 +946,9 @@ function parseBlocks(raw: string): Block[] {
 
   function flushQuote() {
     if (quoteLines && quoteLines.length) {
-      const firstLine = quoteLines[0]?.trim() ?? ''
-      if (firstLine.startsWith('!')) {
-        const lines = [...quoteLines]
-        lines[0] = firstLine.replace(/^!\s*/, '')
-        blocks.push({ type: 'callout', lines })
+      const callout = parseCalloutFromQuoteLines(quoteLines)
+      if (callout) {
+        blocks.push({ type: 'callout', lines: callout.lines, variant: callout.variant })
       } else {
         const kind = classifyScriptureBlockquote(quoteLines, quoteParseContext)
         blocks.push({ type: 'blockquote', lines: [...quoteLines], quoteKind: kind })
@@ -788,6 +970,19 @@ function parseBlocks(raw: string): Block[] {
         const parsed = parseDefinitionBlockRaw(raw)
         if (parsed) {
           blocks.push({ type: 'definition', title: parsed.title, body: parsed.body })
+        }
+      } else if (
+        lang === 'divided-list' ||
+        lang === 'dividedlist' ||
+        lang === 'list-divided'
+      ) {
+        const parsed = parseDividedListBlock(raw)
+        if (parsed.items.length > 0) {
+          blocks.push({
+            type: 'dividedList',
+            title: parsed.title,
+            items: parsed.items,
+          })
         }
       } else {
         blocks.push({ type: 'code', language: normalizeCodeLanguage(codeLanguage), code: raw })
@@ -1242,11 +1437,117 @@ function isGenericMcqPlaceholderPrompt(prompt: string, questionNumber: number): 
   return t === `Frage ${questionNumber}` || /^Frage\s+\d+$/i.test(t)
 }
 
+/** Einleitungs-/Meta-Absatz — kein echter Fragentext (darf nicht an Optionen gekoppelt werden). */
+function isMcqIntroOrMetaParagraph(text: string): boolean {
+  const plain = stripBoldMarkers(text.trim())
+  if (!plain || isFragenHeading(plain) || /^fragen\s*:/i.test(plain)) {
+    return true
+  }
+  if (parseMcqQuestionFromText(plain)) {
+    return false
+  }
+  if (/[?？]\s*$/.test(plain)) {
+    return false
+  }
+  if (/^(was|wo|wann|wer|wie|welche|welcher|welches|wofür|wofuer|warum)\b/i.test(plain)) {
+    return false
+  }
+  return /\b(hier\s+(?:sind|folgen)|folgende\s+fragen|quiz\s+über|quiz\s+ueber|übungsfragen|verständnisfragen|prüfungsfragen|fragen\s+zu|fragen\s+über|fragen\s+zum|einige\s+fragen|\d+\s+fragen)\b/i.test(
+    plain,
+  )
+}
+
+function looksLikeMcqQuestionPrompt(text: string): boolean {
+  const plain = stripBoldMarkers(text.trim())
+  if (!plain || isMcqIntroOrMetaParagraph(plain)) {
+    return false
+  }
+  if (parseMcqQuestionFromText(plain)) {
+    return true
+  }
+  if (/[?？]\s*$/.test(plain)) {
+    return true
+  }
+  return /^(was|wo|wann|wer|wie|welche|welcher|welches|wofür|wofuer|warum)\b/i.test(plain)
+}
+
+function shouldReplaceMcqPromptWithTrailing(
+  currentPrompt: string,
+  questionNumber: number,
+): boolean {
+  const prompt = currentPrompt.trim()
+  if (!prompt) {
+    return true
+  }
+  if (isGenericMcqPlaceholderPrompt(prompt, questionNumber)) {
+    return true
+  }
+  if (/^Frage\s+\d+$/i.test(prompt)) {
+    return true
+  }
+  return isMcqIntroOrMetaParagraph(prompt)
+}
+
 function parseNumberedQuestionItem(text: string): { questionNumber: number; prompt: string } | null {
-  if (parseMcqOptionLine(text)) {
+  const plain = stripBoldMarkers(text.trim().replace(/^[-*]\s+/, ''))
+  if (parseMcqOptionLine(plain)) {
     return null
   }
-  return parseMcqQuestionFromText(text)
+  return parseMcqQuestionFromText(plain)
+}
+
+/** Mehrere `1. …` / `2. …` in einem Absatz oder Fliesstext (häufig am Ende des Quiz). */
+function extractNumberedQuestionsFromParagraphText(text: string): NumberedQuestionPrompt[] {
+  const plain = stripBoldMarkers(text.trim())
+  if (!plain) {
+    return []
+  }
+
+  const lineQuestions = plain
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => parseNumberedQuestionItem(line))
+    .filter((entry): entry is NumberedQuestionPrompt => entry !== null)
+
+  if (lineQuestions.length >= 2) {
+    return lineQuestions
+  }
+
+  const inlineQuestions: NumberedQuestionPrompt[] = []
+  const inlineRe = /(?:^|\n)\s*(\d{1,2})[.)]\s+([^\n]+?)(?=(?:\n\s*\d{1,2}[.)]\s+)|$)/g
+  let match: RegExpExecArray | null
+  while ((match = inlineRe.exec(plain)) !== null) {
+    const prompt = (match[2] ?? '').trim()
+    if (!prompt || parseMcqOptionLine(prompt)) {
+      continue
+    }
+    inlineQuestions.push({
+      questionNumber: Math.max(1, Number.parseInt(match[1] ?? '1', 10) || 1),
+      prompt,
+    })
+  }
+
+  if (inlineQuestions.length >= 2) {
+    return inlineQuestions
+  }
+
+  const single = parseNumberedQuestionItem(plain)
+  return single ? [single] : []
+}
+
+function isQuestionsOnlyTrailingMatch(
+  questions: NumberedQuestionPrompt[],
+  mcqCount: number,
+): boolean {
+  if (questions.length === 0 || mcqCount === 0) {
+    return false
+  }
+  return (
+    questions.length >= mcqCount ||
+    questions.length >= Math.max(2, mcqCount - 1) ||
+    (mcqCount >= 2 && questions.length >= 2)
+  )
 }
 
 /** Modell liefert oft alle Fragentexte am Ende als nummerierte Liste ohne Optionen. */
@@ -1261,7 +1562,20 @@ function parseNumberedQuestionsOnlyList(
     return []
   }
   const questions = items
-    .map((item) => parseNumberedQuestionItem(item))
+    .map((item, idx) => {
+      const parsed = parseNumberedQuestionItem(item)
+      if (parsed) {
+        return parsed
+      }
+      // Markdown-`ol`: Nummer steht nicht im Item-Text, nur implizit über die Reihenfolge.
+      if (block.type === 'ol') {
+        const plain = stripBoldMarkers(item.trim())
+        if (plain && looksLikeMcqQuestionPrompt(plain) && !parseMcqOptionLine(plain)) {
+          return { questionNumber: idx + 1, prompt: plain }
+        }
+      }
+      return null
+    })
     .filter((entry): entry is { questionNumber: number; prompt: string } => entry !== null)
   if (questions.length === 0 || questions.length < Math.ceil(items.length * 0.75)) {
     return []
@@ -1269,72 +1583,271 @@ function parseNumberedQuestionsOnlyList(
   return questions
 }
 
-function findTrailingQuestionsListBlock(
-  blocks: Block[],
-  startIndex: number,
-  maxLookahead = 5,
-): { block: Extract<Block, { type: 'ul' | 'ol' }>; index: number } | null {
-  for (let j = startIndex; j < Math.min(blocks.length, startIndex + maxLookahead); j += 1) {
-    const candidate = blocks[j]
-    if (!candidate) {
-      break
+type NumberedQuestionPrompt = { questionNumber: number; prompt: string }
+
+type TrailingQuestionsMatch =
+  | {
+      kind: 'list'
+      block: Extract<Block, { type: 'ul' | 'ol' }>
+      index: number
+      questions: NumberedQuestionPrompt[]
     }
-    if (candidate.type === 'hr') {
-      continue
+  | {
+      kind: 'paragraphs'
+      startIndex: number
+      endIndex: number
+      questions: NumberedQuestionPrompt[]
     }
-    if (candidate.type === 'p') {
-      const plain = stripBoldMarkers(candidate.text.trim())
-      if (!plain || isFragenHeading(plain)) {
-        continue
-      }
-      break
-    }
-    if (candidate.type === 'ol' || candidate.type === 'ul') {
-      if (isMcqOptionsList(candidate.type === 'ul' ? candidate.items : [])) {
-        break
-      }
-      if (parseNumberedQuestionsOnlyList(candidate).length > 0) {
-        return { block: candidate, index: j }
-      }
-    }
-    break
+
+function isSkippableMcqTailSeparator(block: Block | undefined): boolean {
+  if (!block) {
+    return false
   }
-  return null
+  if (block.type === 'hr') {
+    return true
+  }
+  if (
+    block.type === 'h1' ||
+    block.type === 'h2' ||
+    block.type === 'h3' ||
+    block.type === 'h4' ||
+    block.type === 'h5' ||
+    block.type === 'h6'
+  ) {
+    return isFragenHeading(block.text) || /^fragen\s*$/i.test(stripBoldMarkers(block.text.trim()))
+  }
+  if (block.type === 'p') {
+    const plain = stripBoldMarkers(block.text.trim())
+    return !plain || isFragenHeading(plain) || /^fragen\s*:/i.test(plain)
+  }
+  return false
 }
 
-function mergeTrailingQuestionPromptsIntoMcqBatch(
-  mcqBatch: Extract<Block, { type: 'mcq' }>[],
-  tailBlock: Block | undefined,
-): { mcqBatch: Extract<Block, { type: 'mcq' }>[]; consumedTail: boolean } {
-  if (mcqBatch.length === 0 || (tailBlock?.type !== 'ol' && tailBlock?.type !== 'ul')) {
-    return { mcqBatch, consumedTail: false }
+/** Platzhalter «Frage N» oder leere Zeile zwischen Optionen-Gruppen. */
+function isMcqOptionGroupSeparator(block: Block | undefined): boolean {
+  if (!block) {
+    return false
   }
-  if (tailBlock.type === 'ul' && isMcqOptionsList(tailBlock.items)) {
-    return { mcqBatch, consumedTail: false }
+  if (isSkippableMcqTailSeparator(block)) {
+    return true
   }
-  const questions = parseNumberedQuestionsOnlyList(tailBlock)
-  if (questions.length === 0) {
-    return { mcqBatch, consumedTail: false }
+  if (block.type === 'p' || block.type === 'h3' || block.type === 'h4') {
+    const plain = stripBoldMarkers(block.text.trim())
+    return /^Frage\s+\d+$/i.test(plain)
+  }
+  return false
+}
+
+function tryParseNumberedQuestionsParagraphRunAt(
+  blocks: Block[],
+  endIndex: number,
+  minIndex: number,
+): { startIndex: number; endIndex: number; questions: NumberedQuestionPrompt[] } | null {
+  if (blocks[endIndex]?.type !== 'p') {
+    return null
   }
 
+  const multiline = extractNumberedQuestionsFromParagraphText(blocks[endIndex]!.text)
+  if (multiline.length >= 2) {
+    return { startIndex: endIndex, endIndex, questions: multiline }
+  }
+
+  const questions: NumberedQuestionPrompt[] = []
+  let j = endIndex
+  while (j >= minIndex) {
+    const block = blocks[j]
+    if (block?.type !== 'p') {
+      break
+    }
+    const parsed = parseMcqQuestionFromText(block.text)
+    if (!parsed?.prompt) {
+      break
+    }
+    questions.unshift(parsed)
+    j -= 1
+  }
+  if (questions.length === 0) {
+    return null
+  }
+  return { startIndex: j + 1, endIndex, questions }
+}
+
+/** Modell-Fail: Fragentexte gesammelt nach den Optionen — vorwärts bis Ende suchen. */
+function findTrailingQuestionsMatch(
+  blocks: Block[],
+  startIndex: number,
+  mcqCount: number,
+): TrailingQuestionsMatch | null {
+  let best: TrailingQuestionsMatch | null = null
+
+  for (let j = startIndex; j < blocks.length; j += 1) {
+    const candidate = blocks[j]
+    if (!candidate) {
+      continue
+    }
+
+    if (isSkippableMcqTailSeparator(candidate)) {
+      continue
+    }
+
+    if (candidate.type === 'ul' && isMcqOptionsList(candidate.items)) {
+      continue
+    }
+
+    if (candidate.type === 'ol' || candidate.type === 'ul') {
+      const questions = parseNumberedQuestionsOnlyList(candidate)
+      if (isQuestionsOnlyTrailingMatch(questions, mcqCount)) {
+        best = { kind: 'list', block: candidate, index: j, questions }
+      }
+      continue
+    }
+
+    if (candidate.type === 'p') {
+      const multiline = extractNumberedQuestionsFromParagraphText(candidate.text)
+      if (isQuestionsOnlyTrailingMatch(multiline, mcqCount)) {
+        best = {
+          kind: 'paragraphs',
+          startIndex: j,
+          endIndex: j,
+          questions: multiline,
+        }
+        continue
+      }
+
+      const run = tryParseNumberedQuestionsParagraphRunAt(blocks, j, startIndex)
+      if (run && isQuestionsOnlyTrailingMatch(run.questions, mcqCount)) {
+        best = {
+          kind: 'paragraphs',
+          startIndex: run.startIndex,
+          endIndex: run.endIndex,
+          questions: run.questions,
+        }
+        j = run.endIndex
+      }
+    }
+  }
+
+  return best
+}
+
+function applyQuestionPromptsToMcqBatch(
+  mcqBatch: Extract<Block, { type: 'mcq' }>[],
+  questions: NumberedQuestionPrompt[],
+): { mcqBatch: Extract<Block, { type: 'mcq' }>[]; mergedCount: number } {
+  let mergedCount = 0
+  const indexAligned = questions.length === mcqBatch.length
   const updated = mcqBatch.map((mcq, idx) => {
     const byNumber = questions.find((q) => q.questionNumber === mcq.questionNumber)
     const byIndex = questions[idx]
-    const match = byNumber ?? byIndex
+    const match = indexAligned ? (byIndex ?? byNumber) : (byNumber ?? byIndex)
     if (!match?.prompt) {
       return mcq
     }
-    if (!isGenericMcqPlaceholderPrompt(mcq.prompt, mcq.questionNumber) && mcq.prompt.trim().length > 0) {
+    const trailingLooksValid = looksLikeMcqQuestionPrompt(match.prompt)
+    const shouldReplace =
+      indexAligned && trailingLooksValid
+        ? true
+        : shouldReplaceMcqPromptWithTrailing(mcq.prompt, mcq.questionNumber)
+    if (!shouldReplace) {
       return mcq
     }
+    mergedCount += 1
     return {
       ...mcq,
       questionNumber: match.questionNumber,
       prompt: match.prompt,
     }
   })
+  return { mcqBatch: updated, mergedCount }
+}
 
-  return { mcqBatch: updated, consumedTail: true }
+function mergeTrailingQuestionPromptsIntoMcqBatch(
+  mcqBatch: Extract<Block, { type: 'mcq' }>[],
+  trailing: TrailingQuestionsMatch | null,
+): { mcqBatch: Extract<Block, { type: 'mcq' }>[]; consumedFrom: number; consumedTo: number } {
+  if (mcqBatch.length === 0 || !trailing || trailing.questions.length === 0) {
+    return { mcqBatch, consumedFrom: -1, consumedTo: -1 }
+  }
+
+  const applied = applyQuestionPromptsToMcqBatch(mcqBatch, trailing.questions)
+  const indexAligned = trailing.questions.length === mcqBatch.length
+  const shouldConsumeTail =
+    applied.mergedCount > 0 ||
+    (indexAligned && isQuestionsOnlyTrailingMatch(trailing.questions, mcqBatch.length))
+  if (!shouldConsumeTail) {
+    return { mcqBatch, consumedFrom: -1, consumedTo: -1 }
+  }
+
+  if (trailing.kind === 'list') {
+    return {
+      mcqBatch: applied.mcqBatch,
+      consumedFrom: trailing.index,
+      consumedTo: trailing.index,
+    }
+  }
+
+  return {
+    mcqBatch: applied.mcqBatch,
+    consumedFrom: trailing.startIndex,
+    consumedTo: trailing.endIndex,
+  }
+}
+
+/** Entfernt redundante Fragenlisten unterhalb bereits gerenderter MCQ-Karten. */
+function stripRedundantTrailingQuestionLists(blocks: Block[]): Block[] {
+  let lastMcqIndex = -1
+  for (let idx = blocks.length - 1; idx >= 0; idx -= 1) {
+    if (blocks[idx]?.type === 'mcq') {
+      lastMcqIndex = idx
+      break
+    }
+  }
+  if (lastMcqIndex < 0) {
+    return blocks
+  }
+
+  const mcqCount = blocks.filter((block) => block.type === 'mcq').length
+  const tailStart = lastMcqIndex + 1
+  const trailing = findTrailingQuestionsMatch(blocks, tailStart, mcqCount)
+  if (!trailing) {
+    return blocks
+  }
+
+  const mcqBatch = blocks.filter(
+    (block): block is Extract<Block, { type: 'mcq' }> => block.type === 'mcq',
+  )
+  const applied = applyQuestionPromptsToMcqBatch(mcqBatch, trailing.questions)
+  const indexAligned = trailing.questions.length === mcqBatch.length
+  const shouldStrip =
+    applied.mergedCount > 0 ||
+    (indexAligned && isQuestionsOnlyTrailingMatch(trailing.questions, mcqBatch.length))
+  if (!shouldStrip) {
+    return blocks
+  }
+
+  const out: Block[] = []
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i]!
+    if (block.type === 'mcq') {
+      const mcqIndex = out.filter((entry) => entry.type === 'mcq').length
+      out.push(applied.mcqBatch[mcqIndex] ?? block)
+      continue
+    }
+    if (trailing.kind === 'list') {
+      if (i === trailing.index) {
+        continue
+      }
+    } else if (i >= trailing.startIndex && i <= trailing.endIndex) {
+      continue
+    }
+    if (i > tailStart && i < (trailing.kind === 'list' ? trailing.index : trailing.startIndex)) {
+      if (isSkippableMcqTailSeparator(block)) {
+        continue
+      }
+    }
+    out.push(block)
+  }
+  return out
 }
 
 function tryParseMcqGroupsFromOptionsUl(
@@ -1440,19 +1953,15 @@ function tryParseSingleMcqBlock(
         end: index + 2,
       }
     }
-    if (
-      !parseMcqOptionLine(plain) &&
-      plain.length > 2 &&
-      !isFragenHeading(plain) &&
-      !/^fragen\s*:/i.test(plain)
-    ) {
+    if (looksLikeMcqQuestionPrompt(plain)) {
       const options = parseMcqOptions(ul.items)
       if (options.length >= 2) {
+        const parsedQuestion = parseMcqQuestionFromText(plain)
         return {
           block: {
             type: 'mcq',
-            questionNumber: 1,
-            prompt: plain,
+            questionNumber: parsedQuestion?.questionNumber ?? 1,
+            prompt: parsedQuestion?.prompt ?? plain,
             options,
           },
           end: index + 2,
@@ -1500,6 +2009,13 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
   let questionCounter = 0
 
   while (i < blocks.length) {
+    const introCandidate = blocks[i]
+    if (introCandidate?.type === 'p' && isMcqIntroOrMetaParagraph(introCandidate.text)) {
+      out.push(introCandidate)
+      i += 1
+      continue
+    }
+
     let title: string | undefined
     let scan = i
     const head = blocks[scan]
@@ -1515,6 +2031,12 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
     const mcqBatch: Extract<Block, { type: 'mcq' }>[] = []
     let cursor = scan
     while (cursor < blocks.length) {
+      const betweenCandidate = blocks[cursor]
+      if (isMcqOptionGroupSeparator(betweenCandidate)) {
+        cursor += 1
+        continue
+      }
+
       const ulCandidate = blocks[cursor]
       if (ulCandidate?.type === 'ul' && isMcqOptionsList(ulCandidate.items)) {
         const optionOnlyBatch = tryParseMcqGroupsFromOptionsUl(ulCandidate, questionCounter)
@@ -1560,11 +2082,8 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
     }
 
     if (mcqBatch.length > 0) {
-      const trailingQuestions = findTrailingQuestionsListBlock(blocks, cursor)
-      const merged = mergeTrailingQuestionPromptsIntoMcqBatch(
-        mcqBatch,
-        trailingQuestions?.block ?? blocks[cursor],
-      )
+      const trailing = findTrailingQuestionsMatch(blocks, cursor, mcqBatch.length)
+      const merged = mergeTrailingQuestionPromptsIntoMcqBatch(mcqBatch, trailing)
 
       merged.mcqBatch.forEach((mcq, idx) => {
         out.push({
@@ -1573,34 +2092,27 @@ function transformBlocksWithMcq(blocks: Block[]): Block[] {
         })
       })
 
-      let skipTailBlocks = 0
-      if (merged.consumedTail && trailingQuestions) {
-        skipTailBlocks = trailingQuestions.index - cursor + 1
-      } else {
-        const tail = blocks[cursor]
-        const tailNext = blocks[cursor + 1]
-        /**
-         * Einzelne nummerierte Frage ohne Optionen (z. B. „1. …?“) — nicht als nackte Liste rendern.
-         */
-        const isOrphanedNumberedQuestion =
-          tail?.type === 'ol' &&
-          tail.items.length === 1 &&
-          /[?？]\s*$/.test(stripBoldMarkers(olItemPlainText(tail.items[0] ?? '').trim())) &&
-          !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
-        if (isOrphanedNumberedQuestion) {
-          skipTailBlocks = 1
-        }
+      if (merged.consumedFrom >= 0) {
+        i = merged.consumedTo + 1
+        continue
       }
 
-      i = cursor + skipTailBlocks
+      const tail = blocks[cursor]
+      const tailNext = blocks[cursor + 1]
+      const isOrphanedNumberedQuestion =
+        tail?.type === 'ol' &&
+        tail.items.length === 1 &&
+        /[?？]\s*$/.test(stripBoldMarkers(olItemPlainText(tail.items[0] ?? '').trim())) &&
+        !(tailNext?.type === 'ul' && isMcqOptionsList(tailNext.items))
+      i = cursor + (isOrphanedNumberedQuestion ? 1 : 0)
       continue
     }
 
-    out.push(blocks[i])
+    out.push(blocks[i]!)
     i++
   }
 
-  return out
+  return stripRedundantTrailingQuestionLists(out)
 }
 
 function splitBetreffFromEmailBody(body: string): { subject?: string; rest: string } {
@@ -2106,7 +2618,23 @@ function renderBlock(
     case 'cards':
       return <ChatVisualCardGrid key={key} cards={block.cards} options={options} />
     case 'callout':
-      return <CalloutBlock key={key} lines={block.lines} options={options} />
+      return (
+        <CalloutBlock
+          key={key}
+          lines={block.lines}
+          variant={block.variant}
+          options={options}
+        />
+      )
+    case 'dividedList':
+      return (
+        <DividedListBlock
+          key={key}
+          title={block.title}
+          items={block.items}
+          options={options}
+        />
+      )
     case 'definition':
       return (
         <DefinitionCard key={key} title={block.title} body={block.body} options={options} />
@@ -2130,6 +2658,22 @@ function wrapAssistantRichWithSourceBadges(
       <AssistantSourceBadges sources={sources} leadText={leadText} />
     </>
   )
+}
+
+export type AssistantRichBlock = Block
+
+/** Markdown-Assistententext in UI-Blöcke (ohne React-Rendering). */
+export function parseAssistantRichBlocks(content: string): Block[] {
+  const trimmed = stripGeneratedImageModelFooter(content).trim()
+  if (!trimmed) {
+    return []
+  }
+  const { body } = splitAssistantContentSources(trimmed)
+  const bodyTrimmed = body.trim()
+  if (!bodyTrimmed) {
+    return []
+  }
+  return parseBlocks(bodyTrimmed)
 }
 
 /** Strukturierter Assistententext: Markdown-ähnliche Blöcke (Überschriften, Listen, ---, Links). */

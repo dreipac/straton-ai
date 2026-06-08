@@ -16,8 +16,13 @@ export type ThinkingAnalyzeDimension = {
   question_hint: string
 }
 
-import type { ThinkingAnalyzeDebugMeta } from '../types'
+import type {
+  PresentationLayoutMetricsMeta,
+  PresentationProfileDebugMeta,
+  ThinkingAnalyzeDebugMeta,
+} from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
+import { resolveDocumentCoverageTopics } from './documentSummaryPlaybook'
 import { buildThinkingAnalyzeIntentPromptSection } from './thinkingTaskRouting'
 
 export type ThinkingAnalyzeResult = {
@@ -35,6 +40,8 @@ export type ThinkingAnalyzeResult = {
   needs_live_web: boolean
   web_query: string
   web_reason: string
+  /** Pflicht-Themen aus dem Anhang (Analyze + Heuristik) — nur bei document_summary. */
+  document_coverage_topics?: string[]
 }
 
 const TASK_TYPES: ThinkingTaskType[] = [
@@ -152,6 +159,11 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
     clarify_rounds_planned = Math.max(1, Math.min(1, clarify_rounds_planned))
   }
 
+  const document_coverage_topics =
+    task_type === 'document_summary'
+      ? asStringArray(o.document_coverage_topics, 20, 100)
+      : []
+
   return {
     task_type,
     complexity,
@@ -165,7 +177,22 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
     needs_live_web,
     web_query,
     web_reason,
+    ...(document_coverage_topics.length > 0 ? { document_coverage_topics } : {}),
   }
+}
+
+export function enrichThinkingAnalyzeDocumentCoverage(
+  userMessage: string,
+  analyze: ThinkingAnalyzeResult,
+): ThinkingAnalyzeResult {
+  if (analyze.task_type !== 'document_summary') {
+    return analyze
+  }
+  const topics = resolveDocumentCoverageTopics({
+    userMessage,
+    analyzeTopics: analyze.document_coverage_topics,
+  })
+  return topics.length > 0 ? { ...analyze, document_coverage_topics: topics } : analyze
 }
 
 function defaultDimensionsForTask(taskType: ThinkingTaskType): ThinkingAnalyzeDimension[] {
@@ -285,6 +312,7 @@ export function buildThinkingAnalyzeSystemPrompt(): string {
     '- task_type: "server_setup" | "software_setup" | "troubleshooting" | "document_summary" | "process_howto" | "decision_planning" | "general_howto" | "other"',
     '- complexity: "low" | "medium" | "high"',
     '- intent, assumptions[], risks[], needs_clarification (boolean), missing_dimensions[{id,label,question_hint}], clarify_rounds_planned (0 oder 1), analysis_summary',
+    '- document_coverage_topics: string[] — nur bei task_type document_summary und [Datei:…] mit Text: 4–20 **thematische** Pflichtpunkte aus dem Anhang (Kurztitel je Thema, nicht nur «Aufgabe 5»); sonst []',
     '- needs_live_web: true wenn aktuelle Web-Fakten nötig (Preise, Kurse, News, Gesetzes-/Rechtslage, «aktuell», Versionen, Termine)',
     '- web_query: optimierte Suchanfrage auf Deutsch (max. 120 Zeichen), nur wenn needs_live_web true, sonst ""',
     '- web_reason: kurzer Grund (max. 80 Zeichen), nur wenn needs_live_web true, sonst ""',
@@ -304,7 +332,9 @@ export function buildThinkingAnalyzeSystemPrompt(): string {
     '',
     'document_summary + [Datei:…]-Block mit Text:',
     '- analysis_summary: **inhaltlicher Kern** in 2–4 Sätzen (konkrete Themen, Fakten, Ziele aus dem Anhang) — **nicht** «Nutzer will PDF zusammenfassen».',
+    '- Bei Arbeitsblatt/Übungen im Anhang: analysis_summary = **integriertes Lernskript** (Themen ausgearbeitet), nicht «Aufgabe/Lösung-Format».',
     '- assumptions[]: nur echte Lücken (z. B. fehlende Seiten), **nicht** eine Aufzählung der Dokumentkapitel.',
+    '- document_coverage_topics: alle wesentlichen Themen/Aufträge/Kapitel aus dem Anhang — Reihenfolge beibehalten, je Eintrag ein kurzer thematischer Titel.',
   ].join('\n')
 }
 
@@ -335,7 +365,7 @@ export function buildThinkingAnalyzeBriefingForGateway(
   }
   if (analyze.task_type === 'document_summary') {
     lines.push(
-      'Lieferung Phase 2/3: **Inhaltszusammenfassung** aus dem [Datei:…]-Anhang (Fakten, Ziele, Aufgaben, Begriffe) — keine Meta-Beschreibung («das Dossier deckt…», «das Blatt enthält Kapitel über…»).',
+      'Lieferung Phase 2/3: **Lernzusammenfassung** aus dem [Datei:…]-Anhang — alle Themen inhaltlich; **kein** «Aufgabe:/Lösung:»-Format. Keine Meta-Beschreibung («das Dossier deckt…»).',
     )
   }
   return lines.join('\n')
@@ -368,6 +398,8 @@ export type ThinkingAnalyzeInvokeResult = {
 
 export function buildThinkingAnalyzeDebugMeta(params: {
   invoke: ThinkingAnalyzeInvokeResult
+  presentationProfile?: PresentationProfileDebugMeta
+  layoutMetrics?: PresentationLayoutMetricsMeta
 }): ThinkingAnalyzeDebugMeta {
   const { invoke } = params
   const fromAi = invoke.analyzeFromAi ?? invoke.analyze
@@ -395,5 +427,10 @@ export function buildThinkingAnalyzeDebugMeta(params: {
     web_reason: final.web_reason,
     heuristic_applied: heuristicApplied,
     analysis_summary: final.analysis_summary,
+    ...(final.document_coverage_topics?.length
+      ? { document_coverage_topics: [...final.document_coverage_topics] }
+      : {}),
+    ...(params.presentationProfile ? { presentation_profile: params.presentationProfile } : {}),
+    ...(params.layoutMetrics ? { layout_metrics: params.layoutMetrics } : {}),
   }
 }

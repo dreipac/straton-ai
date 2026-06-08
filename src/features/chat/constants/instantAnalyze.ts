@@ -2,7 +2,11 @@ export type InstantAnalyzeClarity = 'clear' | 'partial' | 'vague'
 
 export type InstantAnalyzeReplyMode = 'ask_only' | 'one_step' | 'short_answer' | 'normal'
 
-import type { InstantAnalyzeDebugMeta } from '../types'
+import type {
+  InstantAnalyzeDebugMeta,
+  PresentationLayoutMetricsMeta,
+  PresentationProfileDebugMeta,
+} from '../types'
 import {
   applyInstantChatTaskTypeHeuristic,
   buildInstantAnalyzeTaskTypePromptSection,
@@ -45,6 +49,7 @@ import {
   matchImageTopicClarification,
   type ImageSearchPriorTurn,
 } from '../utils/imageSearchIntent'
+import { resolveDocumentCoverageTopics } from './documentSummaryPlaybook'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 import {
   assistantMessageHasGeneratedImage,
@@ -84,6 +89,8 @@ export type InstantAnalyzeResult = {
   task_type: InstantChatTaskType
   /** Tiefe bei task_type explanation. */
   explanation_depth: InstantExplanationDepth
+  /** Pflicht-Themen aus dem Anhang — nur bei task_type summary. */
+  document_coverage_topics?: string[]
 }
 
 const REPLY_MODES: InstantAnalyzeReplyMode[] = ['ask_only', 'one_step', 'short_answer', 'normal']
@@ -214,6 +221,8 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     task_type === 'explanation'
       ? parseInstantExplanationDepth(o.explanation_depth)
       : 'standard'
+  const document_coverage_topics =
+    task_type === 'summary' ? asStringArray(o.document_coverage_topics, 20, 100) : []
 
   return syncReplyModeWithRoute({
     category,
@@ -227,8 +236,23 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     web_reason,
     task_type,
     explanation_depth,
+    ...(document_coverage_topics.length > 0 ? { document_coverage_topics } : {}),
     ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   })
+}
+
+export function enrichInstantAnalyzeDocumentCoverage(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+): InstantAnalyzeResult {
+  if (analyze.task_type !== 'summary') {
+    return analyze
+  }
+  const topics = resolveDocumentCoverageTopics({
+    userMessage,
+    analyzeTopics: analyze.document_coverage_topics,
+  })
+  return topics.length > 0 ? { ...analyze, document_coverage_topics: topics } : analyze
 }
 
 const ESCALATE_REASON_WHITELIST_RE =
@@ -650,6 +674,7 @@ export function applyInstantAnalyzeHeuristics(
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment,
     priorTurns: options?.priorTurns,
   })
+  result = enrichInstantAnalyzeDocumentCoverage(userMessage, result)
   result = applySubscriptionUsageHeuristic(userMessage, result, options?.priorTurns)
   return result
 }
@@ -791,7 +816,7 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     lines.push(buildInstantTaskTypeTurnBriefing(analyze))
     if (!/interaktiv/i.test(analyze.intent)) {
       lines.push(
-        'Quiz-Ausgabe (UI): Markdown-MC mit `1. Frage` + `A)–D)` je eigene Zeile — sonst keine Checkbox-Karten in der App.',
+        'Quiz-Ausgabe (UI): `1. Fragentext` direkt über `A)–D)` je eigene Zeile — nicht alle Fragen gesammelt am Ende.',
       )
     }
   } else {
@@ -862,6 +887,8 @@ export function buildInstantAnalyzeDebugMeta(params: {
   invoke: InstantAnalyzeInvokeResult
   autoWebPlanned: boolean
   autoWebRan: boolean
+  presentationProfile?: PresentationProfileDebugMeta
+  layoutMetrics?: PresentationLayoutMetricsMeta
 }): InstantAnalyzeDebugMeta {
   const { invoke, autoWebPlanned, autoWebRan } = params
   const fromAi = invoke.analyzeFromAi ?? invoke.analyze
@@ -899,6 +926,11 @@ export function buildInstantAnalyzeDebugMeta(params: {
     web_reason: final.web_reason,
     auto_web_planned: autoWebPlanned,
     auto_web_ran: autoWebRan,
+    ...(final.document_coverage_topics?.length
+      ? { document_coverage_topics: [...final.document_coverage_topics] }
+      : {}),
+    ...(params.presentationProfile ? { presentation_profile: params.presentationProfile } : {}),
+    ...(params.layoutMetrics ? { layout_metrics: params.layoutMetrics } : {}),
   }
 }
 

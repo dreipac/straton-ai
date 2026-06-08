@@ -4,6 +4,7 @@ import type {
   ChapterSession,
   ChapterStep,
   ChapterStepWithoutId,
+  EntryQuizResult,
   LearnFlashcardSet,
   LearnWorksheetItem,
   LearningPathSummary,
@@ -274,9 +275,114 @@ export const ENTRY_QUIZ_MIN_MCQ = 2
 export const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
 /** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
 export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
-export const CHAPTER_GENERATION_MAX_ATTEMPTS = 2
+export const CHAPTER_GENERATION_MAX_ATTEMPTS = 3
+export const CHAPTER_MIN_QUESTIONS = 4
+export const CHAPTER_MIN_QUESTIONS_ADAPTIVE = 6
+export const CHAPTER_MIN_MCQ = 2
+export const CHAPTER_MIN_TEXT = 1
 export const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
 export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
+
+/** JSON-Schema-Beispiel für Kapitelgenerierung (on-demand + adaptiv). */
+export const CHAPTER_JSON_SCHEMA_EXAMPLE =
+  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
+
+export function buildChapterMaterialSearchQuery(
+  effectiveTopic: string,
+  selectedTopic: string,
+  chapterTopic: string,
+): string {
+  return [effectiveTopic, selectedTopic, chapterTopic, 'Übung Aufgabe Berechnung Teilaufgabe Beispiel']
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+}
+
+export function getChapterMaterialRagOptions(materialCount: number) {
+  return materialCount > 0
+    ? {
+        maxChunks: materialCount > 2 ? 14 : 11,
+        maxChars: materialCount > 2 ? 10_000 : 8200,
+        denseChunks: true,
+        emphasizePersonalSources: true,
+      }
+    : { maxChunks: 10, maxChars: 6500 }
+}
+
+export function buildEntryQuizInsightForChapter(
+  entryQuiz: InteractiveQuizPayload | null,
+  entryQuizResult: EntryQuizResult | null,
+): string {
+  if (!entryQuiz || !entryQuizResult) {
+    return 'Einstiegstest: noch nicht ausgewertet — nutze Material und Thema als Grundlage.'
+  }
+  const lines = [`Einstiegstest-Ergebnis: ${entryQuizResult.score}/${entryQuizResult.total} richtig.`]
+  const wrong = entryQuiz.questions.filter((q) => entryQuizResult.correctnessByQuestionId?.[q.id] === false)
+  if (wrong.length > 0) {
+    lines.push('Schwachstellen aus Einstiegstest (falsch beantwortet — im Kapitel gezielt üben):')
+    wrong.slice(0, 8).forEach((q, index) => {
+      lines.push(`${index + 1}. ${q.prompt}`)
+    })
+  } else {
+    lines.push(
+      'Alle Einstiegstest-Fragen richtig — vertiefe mit anspruchsvolleren Aufgaben aus den Materialauszügen.',
+    )
+  }
+  return lines.join('\n')
+}
+
+export type BuildChapterGenerationPromptArgs = {
+  pathTitle: string
+  chapterTopic: string
+  aiGuidance: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  materialContext: string
+  entryQuizInsight: string
+  validationHint: string
+  attempt: number
+  /** Adaptives Abschlusskapitel */
+  adaptive?: boolean
+  weaknessSummary?: string
+}
+
+export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPromptArgs): string {
+  const questionRange = args.adaptive ? '6-10' : '4-8'
+  const lines = [
+    `Lernpfad: ${args.pathTitle}`,
+    `Thema: ${args.chapterTopic}`,
+    args.adaptive
+      ? 'Erstelle genau EIN Abschlusskapitel für Schwachstellen als JSON-Array mit genau einem Kapitelobjekt.'
+      : 'Erstelle genau 1 Lernkapitel als JSON-Array mit genau einem Kapitelobjekt.',
+    'Antwortformat: NUR valides JSON — kein Markdown, keine ##-Kapitel-Zusammenfassung, kein Fliesstext ausserhalb des JSON.',
+    `Das Kapitel braucht: 1 Erklärung, dann ${questionRange} Fragen, danach 1 Recap.`,
+    'Fragetypen mischen: mcq, text, match, true_false.',
+    'In Erklärungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Sätze) oder in den bullets.',
+    `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
+    `Schema pro Kapitel (Beispiel): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
+    WORKSHEET_EXERCISE_FIDELITY_RULES,
+    CHAPTER_LEARNING_FIDELITY_RULES,
+    args.aiGuidance.trim()
+      ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}`
+      : 'Zusatzhinweise des Lernenden: keine',
+    args.proficiencyLevel
+      ? `Selbsteinschätzung Niveau: ${
+          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
+        }`
+      : 'Selbsteinschätzung Niveau: unbekannt',
+    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
+    args.adaptive && args.weaknessSummary
+      ? `Schwachstellen aus bisherigem Lernverlauf:\n${args.weaknessSummary}`
+      : '',
+    args.materialContext
+      ? `Materialauszüge (mind. die Hälfte der Fragen muss sich hierauf beziehen):\n${args.materialContext}`
+      : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
+    args.attempt > 1
+      ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschließlich valides JSON-Array mit exakt einem Kapitelobjekt zurück.'
+      : '',
+    args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
+  ]
+  return lines.filter(Boolean).join('\n\n')
+}
 
 export function buildEntryQuizFallbackPayload(topic: string): InteractiveQuizPayload {
   const safeTopic = (topic || 'dem Thema').trim()
@@ -421,6 +527,79 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
       return {
         valid: false,
         reason: `MCQ Frage ${index + 1} muss 3-5 Antwortoptionen haben.`,
+      }
+    }
+  }
+
+  return { valid: true, reason: '' }
+}
+
+export function validateGeneratedChapter(
+  chapter: ChapterBlueprint,
+  options?: { minQuestions?: number },
+): { valid: boolean; reason: string } {
+  const minQuestions = options?.minQuestions ?? CHAPTER_MIN_QUESTIONS
+  const questions = chapter.steps.filter((step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question')
+  const explanations = chapter.steps.filter((step) => step.type === 'explanation')
+  const recaps = chapter.steps.filter((step) => step.type === 'recap')
+
+  if (!chapter.title.trim()) {
+    return { valid: false, reason: 'Das Kapitel braucht einen title.' }
+  }
+  if (explanations.length < 1) {
+    return { valid: false, reason: 'Das Kapitel braucht mindestens einen Erklärungs-Step (type "explanation").' }
+  }
+  if (recaps.length < 1) {
+    return { valid: false, reason: 'Das Kapitel braucht mindestens einen Recap-Step (type "recap").' }
+  }
+  if (questions.length < minQuestions) {
+    return {
+      valid: false,
+      reason: `Das Kapitel braucht mindestens ${minQuestions} Fragen (question-Steps), gefunden: ${questions.length}.`,
+    }
+  }
+
+  const mcqCount = questions.filter((q) => q.questionType === 'mcq').length
+  if (mcqCount < CHAPTER_MIN_MCQ) {
+    return {
+      valid: false,
+      reason: `Das Kapitel braucht mindestens ${CHAPTER_MIN_MCQ} MCQ-Fragen, gefunden: ${mcqCount}.`,
+    }
+  }
+
+  const textCount = questions.filter((q) => q.questionType === 'text').length
+  if (textCount < CHAPTER_MIN_TEXT) {
+    return {
+      valid: false,
+      reason: 'Das Kapitel braucht mindestens eine Freitext-Frage (questionType "text").',
+    }
+  }
+
+  for (let index = 0; index < questions.length; index += 1) {
+    const question = questions[index]!
+    if (!question.prompt.trim()) {
+      return { valid: false, reason: `Frage ${index + 1}: prompt fehlt.` }
+    }
+    if (!question.hint?.trim()) {
+      return { valid: false, reason: `Frage ${index + 1}: hint fehlt (1-2 Sätze Mini-Hilfe).` }
+    }
+    if (!question.expectedAnswer?.trim()) {
+      return { valid: false, reason: `Frage ${index + 1}: expectedAnswer fehlt.` }
+    }
+    if (question.questionType === 'mcq') {
+      const optionCount = question.options?.length ?? 0
+      if (optionCount < 2) {
+        return { valid: false, reason: `MCQ Frage ${index + 1}: mindestens 2 Optionen nötig.` }
+      }
+    }
+    if (question.questionType === 'match') {
+      const left = question.matchLeft ?? []
+      const right = question.matchRight ?? []
+      if (left.length < 2 || left.length !== right.length) {
+        return {
+          valid: false,
+          reason: `Zuordnungsfrage ${index + 1}: matchLeft/matchRight müssen gleich lang sein (mindestens 2 Paare).`,
+        }
       }
     }
   }

@@ -24,6 +24,46 @@ export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT = 'straton-thinking-draft-gemin
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW = 'straton-thinking-review-gemini-v1' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY = 'straton-thinking-reply-gemini-v1' as const
 
+/** Lernpfad: stabiler Systemprompt (Context Cache) — getrennt je Aufgabentyp. */
+export const GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC = 'straton-learn-setup-topic-gemini-v1' as const
+export const GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ = 'straton-learn-entry-quiz-gemini-v1' as const
+export const GEMINI_CONTEXT_CACHE_LEARN_TUTOR = 'straton-learn-tutor-gemini-v1' as const
+export const GEMINI_CONTEXT_CACHE_LEARN_HELP = 'straton-learn-help-gemini-v1' as const
+
+export type LearnTelemetryMode = 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
+
+export function resolveLearnGeminiPromptCacheKey(
+  mode: LearnTelemetryMode,
+  options?: { learnPathSystemPromptMode?: 'default' | 'tutor_only' },
+): string {
+  if (mode === 'learn_setup_topic') {
+    return GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC
+  }
+  if (mode === 'learn_entry_quiz') {
+    return GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ
+  }
+  if (options?.learnPathSystemPromptMode === 'tutor_only') {
+    return GEMINI_CONTEXT_CACHE_LEARN_TUTOR
+  }
+  return GEMINI_CONTEXT_CACHE_LEARN_HELP
+}
+
+export function resolveLearnOpenAiPromptCacheKey(
+  mode: LearnTelemetryMode,
+  options?: { learnPathSystemPromptMode?: 'default' | 'tutor_only' },
+): string {
+  if (mode === 'learn_setup_topic') {
+    return 'straton-learn-setup-openai-v1'
+  }
+  if (mode === 'learn_entry_quiz') {
+    return 'straton-learn-entry-quiz-openai-v1'
+  }
+  if (options?.learnPathSystemPromptMode === 'tutor_only') {
+    return 'straton-learn-tutor-openai-v1'
+  }
+  return 'straton-learn-help-openai-v1'
+}
+
 export { isGeminiInstantEnabled } from '../services/geminiInstantFlag'
 
 export function resolveGeminiModelForInstantReply(

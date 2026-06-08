@@ -1,14 +1,26 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 
+export type LearnAiProvider = 'openai' | 'anthropic' | 'gemini'
+
+export type LearnAiModelId =
+  | 'gpt-5.4'
+  | 'gpt-5.4-mini'
+  | 'gpt-5-mini'
+  | 'gpt-4o-mini'
+  | 'claude-sonnet-4-6'
+  | 'claude-3-5-haiku-latest'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3.1-flash-lite-preview'
+
 export type AppFeatureFlags = {
   show_beta_notice_on_first_login: boolean
   deployed_app_version: string | null
   learn_paths_enabled: boolean
   learn_path_create_enabled: boolean
-  learn_ai_provider_active: 'openai' | 'anthropic'
-  learn_ai_provider_draft: 'openai' | 'anthropic'
-  learn_ai_model_active: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
-  learn_ai_model_draft: 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
+  learn_ai_provider_active: LearnAiProvider
+  learn_ai_provider_draft: LearnAiProvider
+  learn_ai_model_active: LearnAiModelId
+  learn_ai_model_draft: LearnAiModelId
   learn_area_banner_enabled: boolean
   learn_area_banner_text: string
   instant_analyze_debug_enabled: boolean
@@ -16,13 +28,22 @@ export type AppFeatureFlags = {
   gemini_instant_enabled: boolean
 }
 
-function parseLearnAiModel(raw: unknown): AppFeatureFlags['learn_ai_model_active'] {
+function parseLearnAiProvider(raw: unknown): LearnAiProvider {
+  if (raw === 'anthropic' || raw === 'gemini') {
+    return raw
+  }
+  return 'openai'
+}
+
+function parseLearnAiModel(raw: unknown): LearnAiModelId {
   return raw === 'gpt-5.4' ||
     raw === 'gpt-5.4-mini' ||
     raw === 'gpt-5-mini' ||
     raw === 'gpt-4o-mini' ||
     raw === 'claude-sonnet-4-6' ||
-    raw === 'claude-3-5-haiku-latest'
+    raw === 'claude-3-5-haiku-latest' ||
+    raw === 'gemini-3.1-flash-lite' ||
+    raw === 'gemini-3.1-flash-lite-preview'
     ? raw
     : 'gpt-5.4-mini'
 }
@@ -44,8 +65,8 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
         : null,
     learn_paths_enabled: row?.learn_paths_enabled !== false,
     learn_path_create_enabled: row?.learn_path_create_enabled !== false,
-    learn_ai_provider_active: row?.learn_ai_provider_active === 'anthropic' ? 'anthropic' : 'openai',
-    learn_ai_provider_draft: row?.learn_ai_provider_draft === 'anthropic' ? 'anthropic' : 'openai',
+    learn_ai_provider_active: parseLearnAiProvider(row?.learn_ai_provider_active),
+    learn_ai_provider_draft: parseLearnAiProvider(row?.learn_ai_provider_draft),
     learn_ai_model_active: parseLearnAiModel(row?.learn_ai_model_active),
     learn_ai_model_draft: parseLearnAiModel(row?.learn_ai_model_draft),
     learn_area_banner_enabled: row?.learn_area_banner_enabled === true,
@@ -131,7 +152,7 @@ export async function adminSetLearnPathCreateEnabled(enabled: boolean): Promise<
   }
 }
 
-export async function adminSetLearnAiProviderDraft(provider: 'openai' | 'anthropic'): Promise<void> {
+export async function adminSetLearnAiProviderDraft(provider: LearnAiProvider): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.rpc('admin_set_learn_ai_provider_draft', {
     p_provider: provider,
@@ -149,9 +170,7 @@ export async function adminDeployLearnAiProviderDraft(): Promise<void> {
   }
 }
 
-export async function adminSetLearnAiModelDraft(
-  model: AppFeatureFlags['learn_ai_model_draft'],
-): Promise<void> {
+export async function adminSetLearnAiModelDraft(model: LearnAiModelId): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.rpc('admin_set_learn_ai_model_draft', {
     p_model: model,

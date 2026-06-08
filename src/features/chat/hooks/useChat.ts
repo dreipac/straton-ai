@@ -137,6 +137,14 @@ import {
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import { buildThinkingAnalyzeDebugMeta } from '../constants/thinkingAnalyze'
 import {
+  computeLayoutMetricsFromAssistantContent,
+  layoutMetricsToDebugMeta,
+  presentationProfileToDebugMeta,
+  resolveInstantPresentationProfileForMainChatTurn,
+  resolveThinkingPresentationProfileForTurn,
+  type PresentationProfile,
+} from '../constants/presentationProfile'
+import {
   resolveThinkingMediaRouteFromHeuristics,
   resolveThinkingMediaRouteFromInstantAnalyze,
 } from '../constants/thinkingMediaRoute'
@@ -1784,6 +1792,7 @@ export function useChat(
       let usedAutoWebSearch = false
       let wantedAutoWebSearch = false
       let instantAnalyzeDebug: InstantAnalyzeDebugMeta | undefined
+      let presentationProfileForDebug: PresentationProfile | undefined
       const persistInstantAnalyzeDebug =
         options?.isSuperadmin === true && options?.instantAnalyzeDebugEnabled === true
 
@@ -1966,11 +1975,19 @@ export function useChat(
             }
           }
 
-          if (persistInstantAnalyzeDebug) {
+          if (persistInstantAnalyzeDebug && instantAnalyze) {
+            presentationProfileForDebug = resolveInstantPresentationProfileForMainChatTurn({
+              analyze: instantAnalyze,
+              userMessage: routingText,
+              priorTurns: priorTurnsForContext,
+              visionInlineDataUrl,
+              webSearchContext,
+            })
             instantAnalyzeDebug = buildInstantAnalyzeDebugMeta({
               invoke: invokeResult,
               autoWebPlanned: wantedAutoWebSearch,
               autoWebRan: usedAutoWebSearch,
+              presentationProfile: presentationProfileToDebugMeta(presentationProfileForDebug),
             })
             setLiveInstantAnalyzeDebug(instantAnalyzeDebug)
           }
@@ -2482,7 +2499,15 @@ export function useChat(
               signal,
             })
             if (persistInstantAnalyzeDebug) {
-              thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({ invoke: thinkInvoke })
+              presentationProfileForDebug = resolveThinkingPresentationProfileForTurn({
+                analyze: thinkInvoke.analyze,
+                userMessage: userAnswer,
+                phase: 'clarify',
+              })
+              thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({
+                invoke: thinkInvoke,
+                presentationProfile: presentationProfileToDebugMeta(presentationProfileForDebug),
+              })
               setLiveThinkingAnalyzeDebug(thinkingAnalyzeDebug)
             }
             session = createThinkingIntakeSession(thinkInvoke.analyze)
@@ -2525,7 +2550,15 @@ export function useChat(
             signal,
           })
           if (persistInstantAnalyzeDebug) {
-            thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({ invoke: thinkInvoke })
+            presentationProfileForDebug = resolveThinkingPresentationProfileForTurn({
+              analyze: thinkInvoke.analyze,
+              userMessage: trimmed,
+              phase: thinkInvoke.analyze.needs_clarification ? 'clarify' : 'final',
+            })
+            thinkingAnalyzeDebug = buildThinkingAnalyzeDebugMeta({
+              invoke: thinkInvoke,
+              presentationProfile: presentationProfileToDebugMeta(presentationProfileForDebug),
+            })
             setLiveInstantAnalyzeDebug(null)
             setLiveThinkingAnalyzeDebug(thinkingAnalyzeDebug)
           }
@@ -2559,6 +2592,20 @@ export function useChat(
             roundsTotal: progress.roundsTotal,
           }
         } else if (thinkingConversationPhase === 'final' && thinkingAnalyzeResult) {
+          if (persistInstantAnalyzeDebug) {
+            presentationProfileForDebug = resolveThinkingPresentationProfileForTurn({
+              analyze: thinkingAnalyzeResult,
+              userMessage: trimmed,
+              phase: 'final',
+            })
+            const profileMeta = presentationProfileToDebugMeta(presentationProfileForDebug)
+            thinkingAnalyzeDebug = thinkingAnalyzeDebug
+              ? { ...thinkingAnalyzeDebug, presentation_profile: profileMeta }
+              : thinkingAnalyzeDebug
+            if (thinkingAnalyzeDebug) {
+              setLiveThinkingAnalyzeDebug(thinkingAnalyzeDebug)
+            }
+          }
           const shouldAutoWebThinking =
             thinkingAnalyzeResult.needs_live_web &&
             thinkingAnalyzeResult.web_query.trim().length > 0
@@ -2756,14 +2803,64 @@ export function useChat(
           markThinkingCreditConsumedLocally()
         }
       }
+      const layoutMetricsForDebug =
+        persistInstantAnalyzeDebug && presentationProfileForDebug
+          ? layoutMetricsToDebugMeta(
+              computeLayoutMetricsFromAssistantContent(finalAssistantContent),
+              presentationProfileForDebug,
+            )
+          : undefined
+
+      const assistantMetadataBase = {
+        ...(usedAutoWebSearch ? { assistantAutoWebSearch: true as const } : {}),
+        ...(layoutMetricsForDebug ? { presentationLayoutMetrics: layoutMetricsForDebug } : {}),
+      }
       const storedAssistantMessage = await createChatMessage(
         targetThreadId,
         'assistant',
         finalAssistantContent,
-        usedAutoWebSearch ? { assistantAutoWebSearch: true as const } : undefined,
+        Object.keys(assistantMetadataBase).length > 0 ? assistantMetadataBase : undefined,
       )
 
       const mergedAssistantMessage = storedAssistantMessage
+
+      if (layoutMetricsForDebug && storedUserMessage) {
+        const enrichedInstantDebug = storedUserMessage.metadata?.instantAnalyzeDebug
+          ? {
+              ...storedUserMessage.metadata.instantAnalyzeDebug,
+              layout_metrics: layoutMetricsForDebug,
+            }
+          : undefined
+        const enrichedThinkingDebug = storedUserMessage.metadata?.thinkingAnalyzeDebug
+          ? {
+              ...storedUserMessage.metadata.thinkingAnalyzeDebug,
+              layout_metrics: layoutMetricsForDebug,
+            }
+          : undefined
+        if (enrichedInstantDebug || enrichedThinkingDebug) {
+          setMessagesByThreadId((prev) => ({
+            ...prev,
+            [targetThreadId]: (prev[targetThreadId] ?? []).map((m) =>
+              m.id === storedUserMessage.id
+                ? {
+                    ...m,
+                    metadata: {
+                      ...m.metadata,
+                      ...(enrichedInstantDebug ? { instantAnalyzeDebug: enrichedInstantDebug } : {}),
+                      ...(enrichedThinkingDebug ? { thinkingAnalyzeDebug: enrichedThinkingDebug } : {}),
+                    },
+                  }
+                : m,
+            ),
+          }))
+          if (enrichedInstantDebug) {
+            setLiveInstantAnalyzeDebug(enrichedInstantDebug)
+          }
+          if (enrichedThinkingDebug) {
+            setLiveThinkingAnalyzeDebug(enrichedThinkingDebug)
+          }
+        }
+      }
       if (
         usesGatewayAi() &&
         wantsExcel &&

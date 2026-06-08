@@ -66,21 +66,26 @@ import {
 import { parseInteractiveContentWithFallback, type InteractiveQuizPayload } from '../features/chat/utils/interactiveQuiz'
 import { extractLearningMaterialText } from '../features/learn/utils/documentParser'
 import {
-  CHAPTER_LEARNING_FIDELITY_RULES,
+  CHAPTER_GENERATION_MAX_ATTEMPTS,
   DEFAULT_CHAPTER_SESSION,
   ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS,
   ENTRY_TEST_PREP_STEPS,
-  WORKSHEET_EXERCISE_FIDELITY_RULES,
   POST_ENTRY_PREP_STEPS,
+  buildChapterGenerationUserPrompt,
+  buildChapterMaterialSearchQuery,
   buildEntryQuizFallbackPayload,
+  buildEntryQuizInsightForChapter,
   ensureMinimumChapterDepth,
+  getChapterMaterialRagOptions,
   getDisplayPathTitle,
   getWorksheetChapterProgress,
   MIXED_LEARN_MATERIAL_CHAPTER_INDEX,
   parseChapterBlueprintsFromText,
   resolveWorksheetProgressChapterKey,
   shouldUseMixedLearnMaterial,
+  validateGeneratedChapter,
   validateGeneratedEntryQuiz,
+  WORKSHEET_EXERCISE_FIDELITY_RULES,
   worksheetChapterDisplayLabel,
 } from '../features/learn/utils/learnPageHelpers'
 import {
@@ -2318,46 +2323,36 @@ export function LearnPage() {
         setChapterGenerationPercent(8)
         let sawAnyRawChapterResponse = false
         const chapterMaterialContext = formatRelevantMaterialContext(
-          `${chapterTopic} Kapitel 1 Grundlagen Übung`,
+          buildChapterMaterialSearchQuery(effectiveTopic || getDisplayPathTitle(activePath?.title ?? ''), selectedTopic, chapterTopic),
           materials,
-          materials.length > 0
-            ? { maxChunks: materials.length > 2 ? 10 : 8, maxChars: materials.length > 2 ? 7000 : 5200, denseChunks: true, emphasizePersonalSources: true }
-            : { maxChunks: 6, maxChars: 2800 },
+          getChapterMaterialRagOptions(materials.length),
         )
+        const entryQuizInsight = buildEntryQuizInsightForChapter(entryQuiz, entryQuizResult)
         let validationHint = ''
         let generated: ChapterBlueprint[] = []
-        for (let attempt = 1; attempt <= 2; attempt += 1) {
+        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
           const chapterRequest: ChatMessage = {
             id: crypto.randomUUID(),
             role: 'user',
-            content: [
-              `Lernpfad: ${getDisplayPathTitle(activePath?.title ?? '')}`,
-              `Thema: ${chapterTopic}`,
-              'Erstelle genau 1 Lernkapitel als JSON-Array mit genau einem Kapitelobjekt.',
-              'Nur JSON ohne zusätzliche Erklärung.',
-              'Das Kapitel braucht: 1 Erklärung, dann 4-8 Fragen, danach 1 Recap.',
-              'Fragetypen mischen: mcq, text, match, true_false.',
-              WORKSHEET_EXERCISE_FIDELITY_RULES,
-              CHAPTER_LEARNING_FIDELITY_RULES,
-              chapterMaterialContext
-                ? `Materialauszüge:\n${chapterMaterialContext}`
-                : 'Keine Materialauszüge vorhanden, nutze praxisnahe kaufmännische Beispiele.',
-              attempt > 1
-                ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschließlich valides JSON-Array mit exakt einem Kapitelobjekt zurück.'
-                : '',
-              validationHint ? `Ungültigkeitsgrund im Vorversuch: ${validationHint}` : '',
-            ]
-              .filter(Boolean)
-              .join('\n\n'),
+            content: buildChapterGenerationUserPrompt({
+              pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
+              chapterTopic,
+              aiGuidance,
+              proficiencyLevel,
+              materialContext: chapterMaterialContext,
+              entryQuizInsight,
+              validationHint,
+              attempt,
+            }),
             createdAt: new Date().toISOString(),
           }
           let chapterTimeoutId: number | null = null
           const result = await Promise.race([
             sendMessage([chapterRequest], {
-              interactiveQuizPrompt: getPrompt('interactive_quiz'),
               systemPrompt: getPrompt('learn_tutor'),
               useLearnPathModel: true,
               learnTelemetryMode: 'learn_tutor',
+              learnPathSystemPromptMode: 'tutor_only',
             }),
             new Promise<never>((_, reject) => {
               chapterTimeoutId = window.setTimeout(() => {
@@ -2375,13 +2370,18 @@ export function LearnPage() {
           sawAnyRawChapterResponse = true
           const fromRaw = parseChapterBlueprintsFromText(rawResponse)
           const fromClean = parsed.cleanText ? parseChapterBlueprintsFromText(parsed.cleanText) : []
-          generated = namespaceChapterStepIds(
-            ensureMinimumChapterDepth(fromRaw.length > 0 ? fromRaw : fromClean),
-          )
-          if (generated[0]) {
-            break
+          const parsedChapter = (fromRaw.length > 0 ? fromRaw : fromClean)[0]
+          if (!parsedChapter) {
+            validationHint = 'Kein auslesbares Kapitel-JSON erhalten'
+            continue
           }
-          validationHint = 'Kein auslesbares Kapitel-JSON erhalten'
+          const validation = validateGeneratedChapter(parsedChapter)
+          if (!validation.valid) {
+            validationHint = validation.reason
+            continue
+          }
+          generated = namespaceChapterStepIds(ensureMinimumChapterDepth([parsedChapter]))
+          break
         }
         const firstChapter = generated[0]
         if (!firstChapter) {

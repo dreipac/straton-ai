@@ -66,6 +66,8 @@ import {
   adminSetGeminiInstantEnabled,
   adminSetChatFoldersEnabled,
   getAppFeatureFlags,
+  type LearnAiModelId,
+  type LearnAiProvider,
 } from '../features/auth/services/appFeatureFlags.service'
 import {
   estimateAiTokenCostsUsd,
@@ -145,15 +147,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
-function labelForLearnAiModel(
-  model:
-    | 'gpt-5.4'
-    | 'gpt-5.4-mini'
-    | 'gpt-5-mini'
-    | 'gpt-4o-mini'
-    | 'claude-sonnet-4-6'
-    | 'claude-3-5-haiku-latest',
-): string {
+function labelForLearnAiModel(model: LearnAiModelId): string {
   switch (model) {
     case 'gpt-5.4':
       return 'GPT-5.4'
@@ -167,9 +161,40 @@ function labelForLearnAiModel(
       return 'Claude Sonnet 4.6'
     case 'claude-3-5-haiku-latest':
       return 'Claude 3.5 Haiku'
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-3.1-flash-lite-preview':
+      return 'Gemini 3.1 Flash Lite (Preview)'
     default:
       return model
   }
+}
+
+function labelForLearnAiProvider(provider: LearnAiProvider): string {
+  switch (provider) {
+    case 'anthropic':
+      return 'Claude (Anthropic)'
+    case 'gemini':
+      return 'Gemini (Google)'
+    default:
+      return 'OpenAI'
+  }
+}
+
+function parseLearnAiModelDraftValue(value: string): LearnAiModelId {
+  if (
+    value === 'gpt-5.4' ||
+    value === 'gpt-5.4-mini' ||
+    value === 'gpt-5-mini' ||
+    value === 'gpt-4o-mini' ||
+    value === 'claude-sonnet-4-6' ||
+    value === 'claude-3-5-haiku-latest' ||
+    value === 'gemini-3.1-flash-lite' ||
+    value === 'gemini-3.1-flash-lite-preview'
+  ) {
+    return value
+  }
+  return 'gpt-5.4-mini'
 }
 
 type AdminSectionId =
@@ -318,14 +343,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [geminiInstantEnabled, setGeminiInstantEnabled] = useState(false)
   const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
   const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
-  const [learnAiProviderActive, setLearnAiProviderActive] = useState<'openai' | 'anthropic'>('openai')
-  const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<'openai' | 'anthropic'>('openai')
-  const [learnAiModelActive, setLearnAiModelActive] = useState<
-    'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
-  >('gpt-5.4-mini')
-  const [learnAiModelDraft, setLearnAiModelDraft] = useState<
-    'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o-mini' | 'claude-sonnet-4-6' | 'claude-3-5-haiku-latest'
-  >('gpt-5.4-mini')
+  const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
+  const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<LearnAiProvider>('openai')
+  const [learnAiModelActive, setLearnAiModelActive] = useState<LearnAiModelId>('gpt-5.4-mini')
+  const [learnAiModelDraft, setLearnAiModelDraft] = useState<LearnAiModelId>('gpt-5.4-mini')
   const [isSavingLearnAiProviderDraft, setIsSavingLearnAiProviderDraft] = useState(false)
   const [isDeployingLearnAiProvider, setIsDeployingLearnAiProvider] = useState(false)
   const [isSavingLearnAiModelDraft, setIsSavingLearnAiModelDraft] = useState(false)
@@ -1621,14 +1642,14 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
-  async function handleSaveLearnAiProviderDraft(nextProvider: 'openai' | 'anthropic') {
+  async function handleSaveLearnAiProviderDraft(nextProvider: LearnAiProvider) {
     setSubscriptionPlansError(null)
     setLearnAiProviderInfo(null)
     setIsSavingLearnAiProviderDraft(true)
     try {
       await adminSetLearnAiProviderDraft(nextProvider)
       setLearnAiProviderDraft(nextProvider)
-      setLearnAiProviderInfo(`Lern-KI-Entwurf gespeichert: ${nextProvider === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}`)
+      setLearnAiProviderInfo(`Lern-KI-Entwurf gespeichert: ${labelForLearnAiProvider(nextProvider)}`)
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Entwurf konnte nicht gespeichert werden.'))
     } finally {
@@ -1644,7 +1665,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       await adminDeployLearnAiProviderDraft()
       setLearnAiProviderActive(learnAiProviderDraft)
       setLearnAiProviderInfo(
-        `Lern-KI aktiv: ${learnAiProviderDraft === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'} (Deployment gespeichert)`,
+        `Lern-KI aktiv: ${labelForLearnAiProvider(learnAiProviderDraft)} (Deployment gespeichert)`,
       )
     } catch (err) {
       setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Deployment fehlgeschlagen.'))
@@ -1653,15 +1674,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
-  async function handleSaveLearnAiModelDraft(
-    nextModel:
-      | 'gpt-5.4'
-      | 'gpt-5.4-mini'
-      | 'gpt-5-mini'
-      | 'gpt-4o-mini'
-      | 'claude-sonnet-4-6'
-      | 'claude-3-5-haiku-latest',
-  ) {
+  async function handleSaveLearnAiModelDraft(nextModel: LearnAiModelId) {
     setSubscriptionPlansError(null)
     setLearnAiModelInfo(null)
     setIsSavingLearnAiModelDraft(true)
@@ -3043,8 +3056,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
               <article className="settings-card">
                 <p className="admin-subscriptions-field-label">Lernbereich KI deployen</p>
                 <p className="admin-users-hint">
-                  Aktiv: <strong>{learnAiProviderActive === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}</strong><br />
-                  Entwurf: <strong>{learnAiProviderDraft === 'anthropic' ? 'Claude Sonnet' : 'OpenAI'}</strong><br />
+                  Aktiv: <strong>{labelForLearnAiProvider(learnAiProviderActive)}</strong><br />
+                  Entwurf: <strong>{labelForLearnAiProvider(learnAiProviderDraft)}</strong><br />
                   Modell aktiv: <strong>{labelForLearnAiModel(learnAiModelActive)}</strong><br />
                   Modell Entwurf: <strong>{labelForLearnAiModel(learnAiModelDraft)}</strong>
                 </p>
@@ -3136,12 +3149,28 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     className="admin-user-subscription-select"
                     value={learnAiProviderDraft}
                     disabled={isSavingLearnAiProviderDraft}
-                    onChange={(event) =>
-                      setLearnAiProviderDraft(event.target.value === 'anthropic' ? 'anthropic' : 'openai')
-                    }
+                    onChange={(event) => {
+                      const nextProvider: LearnAiProvider =
+                        event.target.value === 'anthropic'
+                          ? 'anthropic'
+                          : event.target.value === 'gemini'
+                            ? 'gemini'
+                            : 'openai'
+                      setLearnAiProviderDraft(nextProvider)
+                      if (nextProvider === 'gemini' && !learnAiModelDraft.startsWith('gemini-')) {
+                        setLearnAiModelDraft('gemini-3.1-flash-lite')
+                      }
+                      if (nextProvider === 'anthropic' && learnAiModelDraft.startsWith('gpt-')) {
+                        setLearnAiModelDraft('claude-sonnet-4-6')
+                      }
+                      if (nextProvider === 'openai' && (learnAiModelDraft.startsWith('claude-') || learnAiModelDraft.startsWith('gemini-'))) {
+                        setLearnAiModelDraft('gpt-5.4-mini')
+                      }
+                    }}
                   >
                     <option value="openai">OpenAI</option>
-                    <option value="anthropic">Claude Sonnet (Anthropic)</option>
+                    <option value="gemini">Gemini (Google) — empfohlen für JSON-Kapitel</option>
+                    <option value="anthropic">Claude (Anthropic)</option>
                   </select>
                   <PrimaryButton
                     type="button"
@@ -3164,25 +3193,27 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     value={learnAiModelDraft}
                     disabled={isSavingLearnAiModelDraft}
                     onChange={(event) => {
-                      const v = event.target.value
-                      setLearnAiModelDraft(
-                        v === 'gpt-5.4' ||
-                          v === 'gpt-5.4-mini' ||
-                          v === 'gpt-5-mini' ||
-                          v === 'gpt-4o-mini' ||
-                          v === 'claude-sonnet-4-6' ||
-                          v === 'claude-3-5-haiku-latest'
-                          ? v
-                          : 'gpt-5.4-mini',
-                      )
+                      setLearnAiModelDraft(parseLearnAiModelDraftValue(event.target.value))
                     }}
                   >
-                    <option value="gpt-5.4">GPT-5.4 (OpenAI)</option>
-                    <option value="gpt-5.4-mini">GPT-5.4 mini (OpenAI)</option>
-                    <option value="gpt-5-mini">GPT-5 mini (OpenAI)</option>
-                    <option value="gpt-4o-mini">GPT-4 mini (4o mini, OpenAI)</option>
-                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
-                    <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (Anthropic)</option>
+                    {learnAiProviderDraft === 'gemini' ? (
+                      <>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite (Preview)</option>
+                      </>
+                    ) : learnAiProviderDraft === 'anthropic' ? (
+                      <>
+                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
+                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (Anthropic)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="gpt-5.4">GPT-5.4 (OpenAI)</option>
+                        <option value="gpt-5.4-mini">GPT-5.4 mini (OpenAI)</option>
+                        <option value="gpt-5-mini">GPT-5 mini (OpenAI)</option>
+                        <option value="gpt-4o-mini">GPT-4 mini (4o mini, OpenAI)</option>
+                      </>
+                    )}
                   </select>
                   <PrimaryButton
                     type="button"
@@ -3193,7 +3224,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   </PrimaryButton>
                 </div>
                 <p className="admin-users-hint">
-                  Enthält auch <strong>GPT-4 mini</strong>. Aktiv wird das Modell erst nach Deployment.
+                  Bei Provider <strong>Gemini</strong>: <code>gemini-3.1-flash-lite</code> empfohlen (JSON-Kapitel).
+                  Aktiv wird das Modell erst nach Deployment.
                 </p>
                 {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
               </div>
@@ -3206,8 +3238,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                     <strong>OPENAI_API_KEY</strong> — Hauptchat (z. B. GPT-5 mini)
                   </li>
                   <li>
-                    <strong>GEMINI_API_KEY</strong> — Dokument-Extraktion (PDF/DOCX/XLSX) und künftig Smart Instant (
-                    <code>gemini-3.1-flash-lite</code>, sparsam <code>gemini-2.5-flash</code>)
+                    <strong>GEMINI_API_KEY</strong> — Smart Instant, Dokument-Extraktion und Lernpfad (Gemini 3.1 Flash
+                    Lite)
                   </li>
                   <li>
                     <strong>GEMINI_INSTANT_ENABLED</strong> — optional Edge-Fallback; primär: Admin «Smart Instant:

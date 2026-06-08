@@ -83,6 +83,24 @@ export function buildInstantAnalyzeVisibilityHintForUserMessage(userMessage: str
   ].join('\n')
 }
 
+import {
+  buildDocumentSummaryPlaybook,
+  buildDocumentSummaryCoverageBriefing,
+  resolveDocumentCoverageTopics,
+} from './documentSummaryPlaybook'
+
+export { buildDocumentSummaryPlaybook, buildDocumentSummaryCoverageBriefing, resolveDocumentCoverageTopics }
+
+/** @deprecated Einmaliges Playbook — nur noch für Export-Pfade ohne Layout-Profil. */
+export function buildDocumentSummaryDeliverableBriefing(): string {
+  return buildDocumentSummaryPlaybook()
+}
+
+/** @deprecated Im Playbook enthalten — Aufrufe liefern absichtlich leer (keine Doppelung). */
+export function buildDocumentSummaryVisualFirstBriefing(): string {
+  return ''
+}
+
 export function buildDocumentVisibilityTurnBriefing(): string {
   return [
     'Anhang-Sichtbarkeit (verbindlich):',

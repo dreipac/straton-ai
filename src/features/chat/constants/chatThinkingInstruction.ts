@@ -70,7 +70,9 @@ export function getChatThinkingFinalAnswerTurnInstruction(
       : openAiFinal
         ? 'Kurz und präzise — keine ausführliche Essay-Struktur.'
         : 'NICHT die Kürze des Instant-Modus.',
-    'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
+    openAiFinal && taskType === 'document_summary'
+      ? 'Struktur: `## Zusammenfassung` + nummerierte Kapitel; max. 1 Einleitungssatz pro Kapitel, Rest als Kacheln/Listen/Callouts (siehe Playbook).'
+      : 'Struktur: nummerierte ##-Kapitel, zwischen Kapiteln `---`, pro Kapitel zuerst 1–2 Sätze Fließtext, dann optional Stichpunkte/Tabellen.',
     'Glossare/Begriffe nur als Tabelle; bei Dokumenten alles Wesentliche aus dem Material.',
     '## Annahmen am Anfang (1–3 Sätze), dann vollständig liefern.',
     getChatThinkingGenericDeliverableInstruction(),
@@ -107,7 +109,7 @@ export function getChatThinkingGenericDeliverableInstruction(): string {
     '- Antwort muss zur geklärten Nutzerabsicht passen — nicht ein generisches Server-Tutorial.',
     '- Schrittfolge nur wenn es eine How-to-/Setup-/Prozess-Aufgabe ist.',
     '- Bei Entscheidungen: Optionen vergleichen, Empfehlung mit Begründung.',
-    '- Bei Zusammenfassungen: **Inhalt** des Anhangs in eigenen Worten — keine Meta-Liste der Kapitel.',
+    '- Bei Zusammenfassungen: **Inhalt** des Anhangs in eigenen Worten — Stoff ausarbeiten; bei Übungen **Aufgaben lösen**, keine Meta-Liste der Kapitel.',
   ].join('\n')
 }
 
@@ -115,18 +117,10 @@ export function getChatThinkingGenericDeliverableInstruction(): string {
 export function getChatThinkingDocumentSummaryInstruction(): string {
   return [
     'Thinking — document_summary (Pflicht bei [Datei:…]-Anhang / Zusammenfassungswunsch):',
-    'Lies den vollständigen [Datei:…]…[/Datei]-Block in der Nutzernachricht. Fasse **den Inhalt** zusammen: Fakten, Lernziele, Aufgaben, Materialien, historische Punkte, Begriffe — in **eigenen Worten**.',
-    '',
-    'VERBOTEN als Hauptteil der Antwort:',
-    '- «Das Dossier/Blatt/Material/PDF thematisiert/deckt/enthält/listet/beschreibt…» ohne inhaltliche Ausarbeitung.',
-    '- Kapitel, die nur **Themenfelder aufzählen** (z. B. nur «Lernziele, Aufgaben, Mythen» unter **Deckt:**).',
-    '- Das Analyse-JSON (assumptions/risks) als Inhaltsverzeichnis wiedergeben.',
-    '',
-    'Pflicht:',
-    '- `## Zusammenfassung` + Themennamen; danach nummerierte `## 1. …`-Kapitel mit **ausgearbeitetem** Inhalt je Thema.',
-    '- Pro Kapitel: 1–3 Fließtext-Sätze mit konkretem Wissen aus dem Anhang, dann optional **Kernpunkte:** mit faktenbasierten Stichpunkten.',
-    '- Glossar/Begriffe aus dem Material als Tabelle | Begriff | Erklärung |.',
-    '- `## Annahmen` (falls nötig): höchstens 1–3 Sätze zu **fehlenden** Infos im Anhang — kein Kapitelverzeichnis.',
+    'Lies den vollständigen [Datei:…]…[/Datei]-Block in der Nutzernachricht.',
+    'Playbook und Pflicht-Themen stehen im Layout-Profil / Analyze-Checkliste — hier nicht wiederholen.',
+    '- Das Analyse-JSON (assumptions/risks) **nicht** als Inhaltsverzeichnis wiedergeben.',
+    '- Jedes Pflicht-Thema aus der Checkliste muss inhaltlich vollständig in Kacheln oder Kapiteln erscheinen.',
   ].join('\n')
 }
 
@@ -205,7 +199,9 @@ export function getChatThinkingMixedLayoutInstruction(): string {
     '— Zwischen Hauptabschnitten `---` setzen (visuelle Trennung).',
     '— Unterkapitel mit `###` wenn das Thema es braucht.',
     '— Vor Listen gern ein **fettes Label** mit Doppelpunkt (z. B. **Kernpunkte:**, **Ziel:**, **Ablauf:**) — Stichpunkte mit **konkreten Fakten**, nicht nur Themenüberschriften.',
-    '— Vergleiche und Typen-Übersichten als Markdown-Tabelle (| Spalte | Spalte |) mit `| --- | --- |`.',
+    '— **3+ parallele Typen/Arten/Kategorien:** ```cards``` (je Eintrag eine Kachel) — **nicht** `-`-Bullets und **nicht** Tabelle.',
+    '— Vergleiche mit Spaltenwerten: Markdown-Tabelle (| Spalte | Spalte |) — nur wenn echte Spaltenvergleiche nötig sind.',
+    '— Kernpunkte ohne eigene Typen: ```divided-list`; Leitfragen: ```cards```; Hinweise: `> !` / `> ?` / `> !!` / `> ✓`.',
     '— Prozessabläufe auch als Kurzsatz mit Pfeilen (z. B. «Prämien → Versicherer → Leistungen»).',
     '',
     'Glossar / Begriffe (verbindlich):',
@@ -216,7 +212,10 @@ export function getChatThinkingMixedLayoutInstruction(): string {
     '',
     'VERBOTEN in Phase 2:',
     '— Das gesamte Dokument nur aus `-`-Listen ohne Fließtext-Absätze.',
-    '— Drei gleiche Blöcke «nur 3 Bullets unter Überschrift» hintereinander — variiere: Satz + Bullets, Tabelle, zwei Sätze, ###-Unterkapitel.',
+    '— Drei gleiche Blöcke «nur Bullets unter Überschrift» hintereinander — variiere: Satz + ```cards```, ```divided-list`, Tabelle, ###-Unterkapitel.',
+    '— Typen/Arten/Kategorien als `-`-Liste statt ```cards```.',
+    '— Schulblatt nur **beschreiben** («enthält Übungen zu…») statt **inhaltlich ausarbeiten**.',
+    '— «Aufgabe:» / «Lösung:» / «Musterlösung» als Struktur — stattdessen **Lernskript** mit Themenüberschriften.',
     '— Leere Platzhalter oder Meta-Sätze («In diesem Abschnitt…», «Das Dossier deckt…»).',
     '— Glossar/Begriffserklärungen als Bullet-Liste statt Tabelle.',
     '— **Deckt:** nur mit ausformulierten Fakten — nie als reine Themenliste ohne Erklärung.',

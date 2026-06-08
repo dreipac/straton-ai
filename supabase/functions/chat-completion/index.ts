@@ -11,7 +11,7 @@ import {
   geminiChatCompletion,
   GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
 } from './geminiChat.ts'
-import { geminiGenerateText, isGeminiTransientFailure } from './geminiClient.ts'
+import { geminiGenerateText, isGeminiTransientFailure, type GeminiModelId } from './geminiClient.ts'
 import {
   GEMINI_CONTEXT_CACHE_INTENT,
   GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
@@ -21,6 +21,11 @@ import {
   GEMINI_DEFAULT_CHAT_MODEL,
   GEMINI_MODEL_FLASH,
   GEMINI_MODEL_FLASH_LITE,
+  GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC,
+  GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ,
+  GEMINI_CONTEXT_CACHE_LEARN_TUTOR,
+  GEMINI_CONTEXT_CACHE_LEARN_HELP,
+  resolveLearnGeminiContextCacheKey,
   fetchGeminiInstantEnabled,
   isGeminiInstantEnabled,
   setRequestGeminiInstantEnabled,
@@ -40,6 +45,8 @@ type LearnModelId =
   | 'gpt-4o-mini'
   | 'claude-sonnet-4-6'
   | 'claude-3-5-haiku-latest'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3.1-flash-lite-preview'
 
 type InputMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -191,6 +198,10 @@ function resolveOpenAiPromptCacheForRequest(
       key,
       retention: clientRetention ?? undefined,
     }
+  }
+  if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') {
+    const key = clientKey ?? 'straton-learn-openai-v1'
+    return { key, retention: clientRetention ?? '24h' }
   }
   return defaults[mode]
 }
@@ -1103,11 +1114,23 @@ function sanitizeLearnModelId(raw: unknown): LearnModelId {
     raw === 'gpt-5-mini' ||
     raw === 'gpt-4o-mini' ||
     raw === 'claude-sonnet-4-6' ||
-    raw === 'claude-3-5-haiku-latest'
+    raw === 'claude-3-5-haiku-latest' ||
+    raw === 'gemini-3.1-flash-lite' ||
+    raw === 'gemini-3.1-flash-lite-preview'
   ) {
     return raw
   }
   return 'gpt-5.4-mini'
+}
+
+function learnModelIdToGeminiModel(model: LearnModelId): GeminiModelId {
+  if (model === 'gemini-3.1-flash-lite-preview') {
+    return GEMINI_MODEL_FLASH_LITE
+  }
+  if (model === 'gemini-3.1-flash-lite') {
+    return GEMINI_MODEL_FLASH_LITE
+  }
+  return GEMINI_DEFAULT_CHAT_MODEL
 }
 
 type LearnAiConfig = { provider: Provider; model: LearnModelId }
@@ -1115,10 +1138,14 @@ type LearnAiConfig = { provider: Provider; model: LearnModelId }
 function normalizeLearnModelForProvider(provider: Provider, model: LearnModelId): LearnModelId {
   const isOpenAiModel =
     model === 'gpt-5.4' || model === 'gpt-5.4-mini' || model === 'gpt-5-mini' || model === 'gpt-4o-mini'
+  const isGeminiModel = model === 'gemini-3.1-flash-lite' || model === 'gemini-3.1-flash-lite-preview'
+  if (provider === 'gemini') {
+    return isGeminiModel ? model : 'gemini-3.1-flash-lite'
+  }
   if (provider === 'openai') {
     return isOpenAiModel ? model : 'gpt-5.4-mini'
   }
-  return isOpenAiModel ? 'claude-sonnet-4-6' : model
+  return isOpenAiModel || isGeminiModel ? 'claude-sonnet-4-6' : model
 }
 
 async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<LearnAiConfig> {
@@ -1138,7 +1165,8 @@ async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<L
       typeof (data as { learn_ai_provider_active?: unknown } | null)?.learn_ai_provider_active === 'string'
         ? String((data as { learn_ai_provider_active?: string }).learn_ai_provider_active).trim().toLowerCase()
         : ''
-    const provider: Provider = rawProvider === 'anthropic' ? 'anthropic' : 'openai'
+    const provider: Provider =
+      rawProvider === 'anthropic' ? 'anthropic' : rawProvider === 'gemini' ? 'gemini' : 'openai'
     const model = sanitizeLearnModelId(
       (data as { learn_ai_model_active?: unknown } | null)?.learn_ai_model_active,
     )
@@ -3599,13 +3627,14 @@ serve(async (req) => {
     }
 
     let provider = normalizeProvider(body.provider)
+    let activeLearnAiConfig: LearnAiConfig | null = null
     if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') {
-      const learnAiConfig = await fetchActiveLearnAiConfig(admin)
-      provider = learnAiConfig.provider
+      activeLearnAiConfig = await fetchActiveLearnAiConfig(admin)
+      provider = activeLearnAiConfig.provider
       if (provider === 'openai') {
-        openAiModels = [learnAiConfig.model, ...DEFAULT_OPENAI_CHAT_MODELS]
-      } else {
-        anthropicModelChat = learnAiConfig.model
+        openAiModels = [activeLearnAiConfig.model, ...DEFAULT_OPENAI_CHAT_MODELS]
+      } else if (provider === 'anthropic') {
+        anthropicModelChat = activeLearnAiConfig.model
       }
     }
 
@@ -3634,7 +3663,7 @@ serve(async (req) => {
       openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
     }
 
-    const apiKey = await getProviderApiKey(provider)
+    let apiKey = await getProviderApiKey(provider)
     const clientPromptCacheKey = sanitizePromptCacheKey(body.promptCacheKey)
     const clientPromptCacheRetention = sanitizePromptCacheRetention(body.promptCacheRetention)
 
@@ -4062,8 +4091,51 @@ serve(async (req) => {
 
     const openAiChatPc =
       provider === 'openai'
-        ? resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
         : undefined
+
+    const isLearnGeminiMode =
+      (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') &&
+      provider === 'gemini'
+
+    if (isLearnGeminiMode && activeLearnAiConfig) {
+      await getProviderApiKey('gemini')
+      const learnGeminiModel = learnModelIdToGeminiModel(activeLearnAiConfig.model)
+      const learnCacheKey = resolveLearnGeminiContextCacheKey(
+        mode,
+        typeof body.geminiPromptCacheKey === 'string' ? body.geminiPromptCacheKey : undefined,
+      )
+      try {
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: learnGeminiModel,
+          maxOutputTokens: chatMaxTokens ?? 12288,
+          contextCacheKey: learnCacheKey,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] learn gemini unavailable, fallback openai', geminiErr)
+        provider = 'openai'
+        openAiModels = ['gpt-5.4-mini', ...DEFAULT_OPENAI_CHAT_MODELS]
+        apiKey = await getProviderApiKey('openai')
+      }
+    }
 
     const chatUsage =
       provider === 'anthropic'

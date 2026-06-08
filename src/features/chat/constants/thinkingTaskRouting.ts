@@ -64,11 +64,8 @@ export function buildThinkingTaskTypeTurnBriefing(
   switch (analyze.task_type) {
     case 'document_summary':
       return [
-        'Thinking — Zusammenfassung (verbindlich, gpt-5-mini):',
-        '- Beginne mit `## Zusammenfassung: [Thema]` — kein «Gerne helfe ich…».',
-        '- Hauptteile als nummerierte Kapitel: `## 1. …`, `## 2. …` — **gesamten** Inhalt abdecken.',
-        '- Rhythmus pro Kapitel: 1–2 Fließtext-Sätze → optional **Label:** + Stichpunkte → optional Tabelle → `---` (ausser letztes Kapitel).',
-        '- **Inhalt** aus [Datei:…]/Bild in eigenen Worten — VERBOTEN: «Das Dossier deckt/thematisiert…» ohne Fakten.',
+        'Thinking — Zusammenfassung (verbindlich, gpt-5-mini — Playbook im Layout-Profil):',
+        '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken.',
         '- Kein `### Verbesserungen`, keine Pflicht-Anpassungsfrage am Schluss.',
       ].join('\n')
     case 'server_setup':

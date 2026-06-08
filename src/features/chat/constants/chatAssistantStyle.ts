@@ -208,9 +208,17 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
         'Visuelles Layout (Erklärungen, Lernstoff, Übersichten — nicht bei reiner MC-Zeile):',
         '- **Erklärung / Definition** (ein Begriff, eine Adresse, ein Konzept): Überschrift `### Erklärung zur …` oder fetter Absatz `**Erklärung zur …:**`, danach 1–4 Erklärsätze — die UI zeigt das als **Karte mit Badge «Definition»** (nicht als losen Fliesstext).',
         '- Optional stattdessen Codeblock ```definition mit Zeile `title: …` und Fliesstext darunter.',
-        '- **Mehrere Konzepte/Kategorien** nebeneinander: Codeblock ```cards … ``` — pro Karte Felder `label:`, `title:`, `body:`; optional `badges: Begriff1 | Begriff2`; Karten durch eigene Zeile `---` trennen.',
+        '- **3+ parallele Typen/Arten/Kategorien** (z. B. Steuerarten, Mythen, Kompetenzfelder): **immer** Codeblock ```cards … ``` — **je Eintrag eine Kachel** mit `label:`, `title:`, `body:`; optional `badges:`; Karten durch `---` trennen — **niemals** normale `-`-Bullet-Liste.',
+        '- **Mehrere Konzepte zum Vergleich** nebeneinander: ebenfalls ```cards``` (nicht Tabelle, ausser echte Spaltenvergleiche).',
         '- **Badges/Pills** in Tabellen oder Fließtext: `[badge:green]✓[/badge]`, `[badge:blue]IPv6[/badge]` (Varianten: blue, green, orange, teal, gray).',
-        '- **Mischform** bevorzugt: ## → `> !` Einleitung → Absatz oder Tabelle → `---` → ### Unterabschnitt → Liste oder ```cards — nicht alles als reine Bullet-Liste.',
+        '- **Callouts:** `> !` Hinweis/Lernziel · `> ?` Tipp · `> !!` Achtung · `> ✓` Ergebnis (UI-Badge + farbiger Rand).',
+        '- **Kernpunkte / Kompetenzen (4–8 Fakten ohne eigene Typen):** ```divided-list` mit `-` Zeilen — UI zeigt Trennlinien (nicht normale Bullet-Liste).',
+        '  ```divided-list',
+        '  title: Kernpunkte',
+        '  - **Punkt A:** …',
+        '  - **Punkt B:** …',
+        '  ```',
+        '- **Mischform** bevorzugt: ## → Callout → Absatz → ```divided-list` oder ```cards` → `---` → Definition/Tabelle — nicht alles als reine Bullet-Liste.',
       ]
 
   return [

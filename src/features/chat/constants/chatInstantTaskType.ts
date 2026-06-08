@@ -279,8 +279,10 @@ export function buildInstantAnalyzeTaskTypePromptSection(): string {
     '',
     'task_type — Regeln:',
     '- mc_solve: Nutzer postet MC/Auswahlfrage mit Optionen oder will nur die richtige Antwort → reply_mode short_answer.',
-    '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve.',
+    '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve; Ausgabe: `1. Fragentext` + `A)–D)` **pro Frage**, nicht Fragen am Ende.',
     '- summary: nur **explizit** («fasse zusammen», «Zusammenfassung», «überblick», «lies/lese den Inhalt») — **nicht** «siehst du den Inhalt?» / «kannst du lesen?».',
+    '- summary + [Datei:…] mit Übungsblatt: **integriertes Lernskript** (Themen ausgearbeitet, Fragen beantwortet) — **kein** «Aufgabe:/Lösung:»-Format.',
+    '- document_coverage_topics: string[] — nur bei task_type summary und [Datei:…] mit Text: 4–20 thematische Pflichtpunkte aus dem Anhang; sonst []',
     '- summary + document (PDF/Word): «ausführliches/zusammenfassendes PDF/Word», «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
     '- explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → **nur** Sichtbarkeit bestätigen, **kein** summary/mc_solve.',
     '- explanation: offene Fragen, Erklären, Vergleiche, How-to — auch «über was geht es im Dokument?» / Thema-Fragen **ohne** Zusammenfassungswunsch (task_type explanation, depth brief).',
@@ -306,19 +308,16 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
         'Aufgabentyp Quiz erzeugen (verbindlich):',
         '- Wenn «Gewähltes Quiz-Format» im System-Prompt steht: **nur dieses** Format.',
         '- Ohne explizite Formatwahl: **Markdown-Multiple-Choice** (Checkbox-Karten in der App) — nicht beide Formate mischen.',
-        '- Pflicht pro Frage: Zeile `1. Fragentext`, darunter je eine Zeile `A) …` `B) …` `C) …` `D) …` (mind. 2 Optionen).',
-        '- Optional `## Fragen` vor der ersten Frage; Einleitungstext davor ist erlaubt.',
+        '- Pflicht pro Frage: `1. Fragentext`, direkt darunter `A)–D)` je eigene Zeile — **Fragentext über den Optionen derselben Frage**.',
+        '- **VERBOTEN:** zuerst alle A–D-Listen, danach alle Fragentexte am Ende.',
+        '- Optional max. 1–2 Sätze Einleitung oder `## Fragen` vor der ersten Frage.',
         '- Nur bei explizitem Wunsch «interaktives Quiz»: STRATON_QUIZ_JSON-Block laut System-Prompt.',
       ].join('\n')
     case 'summary':
       return [
-        'Aufgabentyp Zusammenfassung (verbindlich):',
-        '- Beginne mit `## Zusammenfassung: [Thema]` — kein «Gerne helfe ich…».',
-        '- Hauptteile als nummerierte Kapitel: `## 1. …`, `## 2. …` — **gesamten** Inhalt abdecken, nichts Wichtiges weglassen.',
-        '- Rhythmus pro Kapitel: 1–2 Fließtext-Sätze → optional **Label:** + Stichpunkte → optional Tabelle → danach `---` (ausser beim letzten Kapitel).',
-        '- Ausführlich, aber einfach und verständlich; logische Reihenfolge beibehalten.',
+        'Aufgabentyp Zusammenfassung (verbindlich — Playbook im Layout-Profil):',
+        '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken.',
         '- Keine Informationen erfinden, die nicht im Material stehen.',
-        '- **Kein** `### Verbesserungen`, **keine** Anpassungsfrage am Schluss — optional 1 kurzer Satz wie «Hast du Fragen zu einem Kapitel?».',
       ].join('\n')
     case 'explanation':
     default:
@@ -338,7 +337,8 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
         return [
           'Aufgabentyp Erklärung — ausführlich (verbindlich):',
           '- `##`-Hauptüberschrift, dann Kapitel mit `###` oder nummerierten `## 1. …`-Abschnitten.',
-          '- Gemischter Aufbau: Fliesstext + Stichpunkte + Tabellen/Vergleiche + Codeblöcke wenn hilfreich.',
+          '- Gemischter Aufbau: Fliesstext + Kacheln/Callouts + Tabellen nur wenn nötig.',
+          '- **3+ parallele Typen/Arten/Kategorien** → ```cards``` (je Eintrag eine Kachel) — nicht `-`-Bullets.',
           '- Zwischen grösseren Abschnitten `---` für klare Trennung.',
           '- Gründlich erklären, mit Beispielen — nicht nur Stichwortlisten.',
           '- Kein `### Verbesserungen`, keine Pflicht-Rückfrage am Schluss.',

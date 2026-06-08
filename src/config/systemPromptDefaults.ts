@@ -4,6 +4,16 @@
  */
 export const SYSTEM_PROMPT_KEYS = ['interactive_quiz', 'learn_tutor', 'learn_setup_topic'] as const
 
+/** Ersetzt interactive_quiz bei Kapitel-JSON-Generierung (kein Zusammenfassungs-Modus). */
+export const LEARN_CHAPTER_JSON_SYSTEM_SUPPLEMENT = [
+  'Aufgabentyp (verbindlich für diese Anfrage): Lernkapitel als JSON mit Steps.',
+  'VERBOTEN: Markdown-Zusammenfassungen mit ##-Kapiteln, Fliesstext ausserhalb des JSON, reine Erklärungen ohne Fragen.',
+  'Antwortformat: ausschliesslich ein JSON-Array mit genau einem Kapitelobjekt.',
+  'Steps: mindestens 1 explanation, mehrere question (mcq, text, match, true_false gemischt), 1 recap.',
+  'Jeder question-Step braucht: prompt, expectedAnswer, hint (1-2 Sätze ohne Lösung), questionType.',
+  'MCQ: options mit 2-6 Einträgen; text: evaluation "exact" oder "contains"; true_false: expectedAnswer "Wahr" oder "Falsch".',
+].join('\n')
+
 export type SystemPromptKey = (typeof SYSTEM_PROMPT_KEYS)[number]
 
 export const SYSTEM_PROMPT_LABELS: Record<SystemPromptKey, { title: string; hint: string }> = {

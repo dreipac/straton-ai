@@ -426,6 +426,10 @@ export function buildPromptCacheSuppressTurnBlocks(params: {
 
   if (!suppressSolveDirectly) {
     blocks.push(getAssistantMainChatSolveDirectlyInstruction())
+  } else if (analyze?.task_type === 'summary') {
+    blocks.push(
+      'Arbeitsmodus Zusammenfassung (verbindlich): Alle Themen **inhaltlich ausarbeiten** in ```cards``` — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
+    )
   }
   if (!suppressBrevity) {
     blocks.push(getAssistantMainChatBrevityInstruction())

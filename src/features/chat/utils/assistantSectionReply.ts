@@ -137,6 +137,7 @@ type BlockExcerptInput =
   | { type: 'table'; rows: string[][] }
   | { type: 'cards'; cards: Array<{ title: string; body: string; label: string }> }
   | { type: 'callout'; lines: string[] }
+  | { type: 'dividedList'; title?: string; items: string[] }
   | { type: 'definition'; title: string; body: string }
   | { type: 'mcq'; prompt: string; options: { text: string }[] }
   | { type: 'math'; latex: string }
@@ -208,6 +209,15 @@ export function blockToReferenceExcerpt(block: BlockExcerptInput): {
     case 'callout': {
       const joined = block.lines.map((l) => stripBoldMarkers(l)).join(' ')
       return { excerpt: joined.slice(0, 420), previewTitle: 'Einleitung' }
+    }
+    case 'dividedList': {
+      const joined = block.items
+        .map((item) => stripBoldMarkers(item))
+        .join(' · ')
+      return {
+        excerpt: joined.slice(0, 420),
+        previewTitle: block.title?.slice(0, 56) || 'Liste',
+      }
     }
     case 'definition': {
       const joined = [block.title, block.body].filter(Boolean).join(': ')
