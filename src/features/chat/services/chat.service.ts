@@ -20,6 +20,8 @@ import {
   resolveDocumentCoverageTopics,
   userAsksDocumentVisibilityQuestion,
 } from '../constants/documentAttachmentIntent'
+import type { ChatThreadFolderContext } from '../constants/folderSourceIntent'
+import { buildInstantAnalyzeFolderSourcesHint } from '../constants/folderSourceIntent'
 import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
 import {
   shouldApplyTableExerciseTurnBriefing,
@@ -2118,16 +2120,21 @@ export async function instantAnalyzeUserMessage(params: {
   hasVisionAttachment?: boolean
   /** Aktueller Turn: `[Datei:…]`-Dokument (PDF/Word/…) — kein Export ohne explizite Bitte. */
   hasDocumentFileAttachment?: boolean
+  /** Ordner-Dateien des Threads (nur Metadaten — Inhalt wird bei Bedarf nachgeladen). */
+  folderContext?: ChatThreadFolderContext | null
   signal?: AbortSignal
 }): Promise<InstantAnalyzeInvokeResult> {
   throwIfAborted(params.signal)
   const trimmed = params.userMessage.trim()
   const hasVision = params.hasVisionAttachment === true
   const hasDocFile = params.hasDocumentFileAttachment === true
+  const folderFileNames = params.folderContext?.files.map((file) => file.name.trim()).filter(Boolean) ?? []
+  const hasFolderSourceFiles = folderFileNames.length > 0 && !hasDocFile
   const heuristicOpts = {
     priorTurns: params.priorTurns,
     hasVisionAttachment: hasVision,
-    hasDocumentFileAttachment: hasDocFile,
+    hasDocumentFileAttachment: hasDocFile || hasFolderSourceFiles,
+    availableFolderFileNames: folderFileNames,
   }
   if (!trimmed && !hasVision && !hasDocFile) {
     return { analyze: fallbackInstantAnalyzeResult('', params.priorTurns), source: 'fallback' }
@@ -2164,6 +2171,13 @@ export async function instantAnalyzeUserMessage(params: {
     buildInstantAnalyzeStructuralHintForUserMessage(trimmed),
     buildInstantAnalyzeVisibilityHintForUserMessage(trimmed),
     buildInstantAnalyzeQuizGenerateStructuralHint(trimmed),
+    params.folderContext
+      ? buildInstantAnalyzeFolderSourcesHint({
+          folderName: params.folderContext.folderName,
+          fileNames: folderFileNames,
+          userMessage: trimmed,
+        })
+      : null,
   ].filter(Boolean)
   const userMessageForAnalyze =
     structuralHints.length > 0 ? `${structuralHints.join('')}${trimmed}` : trimmed
@@ -2225,11 +2239,21 @@ export async function thinkingAnalyzeUserMessage(params: {
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
   isContinuationFollowUp?: boolean
   hasVisionAttachment?: boolean
+  folderContext?: ChatThreadFolderContext | null
   signal?: AbortSignal
 }): Promise<ThinkingAnalyzeInvokeResult> {
   throwIfAborted(params.signal)
   const trimmed = params.userMessage.trim()
   const hasVision = params.hasVisionAttachment === true
+  const folderFileNames = params.folderContext?.files.map((file) => file.name.trim()).filter(Boolean) ?? []
+  const folderHint = params.folderContext
+    ? buildInstantAnalyzeFolderSourcesHint({
+        folderName: params.folderContext.folderName,
+        fileNames: folderFileNames,
+        userMessage: trimmed,
+      })
+    : null
+  const userMessageForAnalyze = folderHint ? `${folderHint}${trimmed}` : trimmed
   if (!trimmed && !hasVision) {
     return { analyze: fallbackThinkingAnalyzeResult(''), source: 'fallback' }
   }
@@ -2268,7 +2292,7 @@ export async function thinkingAnalyzeUserMessage(params: {
               promptCacheRetention: '24h',
             }),
         payload: {
-          userMessage: trimmed,
+          userMessage: userMessageForAnalyze,
           contextBlock,
         },
       },
@@ -2286,6 +2310,7 @@ export async function thinkingAnalyzeUserMessage(params: {
       const final = applyThinkingAnalyzeHeuristics(trimmed, parsed, {
         isContinuationFollowUp: params.isContinuationFollowUp,
         hasVisionAttachment: hasVision,
+        availableFolderFileNames: folderFileNames,
       })
       return {
         analyze: final,
@@ -2302,6 +2327,7 @@ export async function thinkingAnalyzeUserMessage(params: {
     analyze: applyThinkingAnalyzeHeuristics(trimmed, fallback, {
       isContinuationFollowUp: params.isContinuationFollowUp,
       hasVisionAttachment: hasVision,
+      availableFolderFileNames: folderFileNames,
     }),
     source: 'fallback',
   }

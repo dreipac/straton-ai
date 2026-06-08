@@ -55,6 +55,8 @@ type ChatPageSidebarProps = {
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
   onCreateFolder: () => void
+  onOpenFolder: (folderId: string) => void
+  selectedFolderId?: string | null
   onFolderContextMenu: (folder: ChatFolder, event: React.MouseEvent) => void
   onFolderLongPressStart: (folder: ChatFolder, event: React.TouchEvent) => void
   onFolderLongPressMove: (event: React.TouchEvent) => void
@@ -100,8 +102,10 @@ export function ChatPageSidebar({
   onOpenNews,
   onOpenAdmin,
   onToggleCompactProfileSheet,
-  onCreateFolder,
-  onFolderContextMenu,
+    onCreateFolder,
+    onOpenFolder,
+    selectedFolderId = null,
+    onFolderContextMenu,
   onFolderLongPressStart,
   onFolderLongPressMove,
   onFolderLongPressEnd,
@@ -252,8 +256,10 @@ export function ChatPageSidebar({
               <ChatFolderSidebarSection
                 folders={chatFolders.folders}
                 threadsByFolderId={chatFolders.threadsByFolderId}
+                selectedFolderId={selectedFolderId}
                 openFolderMenuId={openFolderMenuId}
                 onCreateFolder={onCreateFolder}
+                onOpenFolder={onOpenFolder}
                 onFolderContextMenu={onFolderContextMenu}
                 onFolderLongPressStart={onFolderLongPressStart}
                 onFolderLongPressMove={onFolderLongPressMove}

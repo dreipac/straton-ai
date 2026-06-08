@@ -210,3 +210,20 @@ export type ChatFolder = {
   createdAt: string
   updatedAt: string
 }
+
+export type ChatFolderFile = {
+  id: string
+  userId: string
+  folderId: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  storageBucket: string
+  storagePath: string
+  excerpt: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type ChatFolderOverviewTab = 'chats' | 'files'

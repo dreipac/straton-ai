@@ -59,9 +59,13 @@ export function ChatLearningPathDraftSidebar({
           {step === 'proficiency' ? (
             <>
               <p className="chat-learnpath-draft-hint">
-                Die Chat-Informationen wurden für den Lernpfad gespeichert.
+                {context?.folderName
+                  ? `Inhalte aus Ordner «${context.folderName}» (Chats und Dateien) wurden für den Lernpfad gespeichert.`
+                  : 'Die Chat-Informationen wurden für den Lernpfad gespeichert.'}
               </p>
               <div className="chat-learnpath-draft-meta">
+                {context?.folderName ? <span>Ordner: {context.folderName}</span> : null}
+                {typeof context?.chatCount === 'number' ? <span>Chats: {context.chatCount}</span> : null}
                 <span>Dateien: {files.length}</span>
                 <span>Bilder: {imageCount}</span>
                 <span>Themen: {context?.topTerms.length ?? 0}</span>

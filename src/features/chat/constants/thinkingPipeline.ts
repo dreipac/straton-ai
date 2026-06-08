@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
+import { userMessageWantsFolderSources } from './folderSourceIntent'
 import { messageContainsCompleteThinkingClarifyBlock } from '../utils/thinkingClarify'
 import { detectLiveWebHeuristic } from './instantAnalyze'
 import { userMessageAsksAboutPriorSubscriptionUsage } from './chatSubscriptionUsageMarker'
@@ -77,11 +78,16 @@ function applyThinkingLiveWebHeuristic(
 export function applyThinkingAnalyzeHeuristics(
   userMessage: string,
   analyze: ThinkingAnalyzeResult,
-  opts?: { isContinuationFollowUp?: boolean; hasVisionAttachment?: boolean },
+  opts?: {
+    isContinuationFollowUp?: boolean
+    hasVisionAttachment?: boolean
+    availableFolderFileNames?: string[]
+  },
 ): ThinkingAnalyzeResult {
   const trimmed = userMessage.trim()
   const hasFile = userMessageHasThinkingFileAttachment(trimmed)
   const hasVision = opts?.hasVisionAttachment === true
+  const folderFileNames = opts?.availableFolderFileNames ?? []
 
   let result: ThinkingAnalyzeResult
 
@@ -102,6 +108,18 @@ export function applyThinkingAnalyzeHeuristics(
   } else if ((hasFile || hasVision) && analyze.task_type === 'document_summary') {
     result = {
       ...analyze,
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (
+    !hasFile &&
+    folderFileNames.length > 0 &&
+    userMessageWantsFolderSources(trimmed, folderFileNames)
+  ) {
+    result = {
+      ...analyze,
+      task_type: 'document_summary',
       needs_clarification: false,
       clarify_rounds_planned: 0,
       missing_dimensions: [],

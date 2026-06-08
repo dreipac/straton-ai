@@ -5,6 +5,8 @@ import type { ChatFolder, ChatThread } from '../types'
 type ChatFoldersMobilePanelProps = {
   folders: ChatFolder[]
   threadsByFolderId: Map<string, ChatThread[]>
+  selectedFolderId?: string | null
+  onOpenFolder: (folderId: string) => void
   onFolderContextMenu: (folder: ChatFolder, event: React.MouseEvent) => void
   onFolderLongPressStart: (folder: ChatFolder, event: React.TouchEvent) => void
   onFolderLongPressMove: (event: React.TouchEvent) => void
@@ -15,6 +17,8 @@ type ChatFoldersMobilePanelProps = {
 export function ChatFoldersMobilePanel({
   folders,
   threadsByFolderId,
+  selectedFolderId = null,
+  onOpenFolder,
   onFolderContextMenu,
   onFolderLongPressStart,
   onFolderLongPressMove,
@@ -48,30 +52,39 @@ export function ChatFoldersMobilePanel({
               return (
                 <li
                   key={folder.id}
-                  className={`chat-folders-mobile-item${isExpanded ? ' is-expanded' : ''}`}
+                  className={`chat-folders-mobile-item${isExpanded ? ' is-expanded' : ''}${
+                    selectedFolderId === folder.id ? ' is-selected' : ''
+                  }`}
                 >
-                  <button
-                    type="button"
-                    className="chat-folders-mobile-folder-toggle"
-                    aria-expanded={isExpanded}
-                    onClick={() => toggleFolder(folder.id)}
-                    onContextMenu={(event) => onFolderContextMenu(folder, event)}
-                    onTouchStart={(event) => onFolderLongPressStart(folder, event)}
-                    onTouchMove={onFolderLongPressMove}
-                    onTouchEnd={onFolderLongPressEnd}
-                    onTouchCancel={onFolderLongPressEnd}
-                  >
-                    <span className="chat-folders-mobile-folder-leading">
+                  <div className="chat-folders-mobile-folder-header-row">
+                    <button
+                      type="button"
+                      className="chat-folders-mobile-folder-chevron-btn"
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded ? 'Ordner einklappen' : 'Ordner ausklappen'}
+                      onClick={() => toggleFolder(folder.id)}
+                    >
                       <span className="chat-folders-mobile-folder-chevron" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-folders-mobile-folder-open-btn"
+                      onClick={() => onOpenFolder(folder.id)}
+                      onContextMenu={(event) => onFolderContextMenu(folder, event)}
+                      onTouchStart={(event) => onFolderLongPressStart(folder, event)}
+                      onTouchMove={onFolderLongPressMove}
+                      onTouchEnd={onFolderLongPressEnd}
+                      onTouchCancel={onFolderLongPressEnd}
+                    >
                       <span
                         className="chat-folders-mobile-folder-icon"
                         style={getChatFolderIconStyle(folder.color)}
                         aria-hidden="true"
                       />
-                    </span>
-                    <span className="chat-folders-mobile-folder-name">{folder.name}</span>
-                    <span className="chat-folders-mobile-folder-count">{threads.length}</span>
-                  </button>
+                      <span className="chat-folders-mobile-folder-name">{folder.name}</span>
+                      <span className="chat-folders-mobile-folder-count">{threads.length}</span>
+                    </button>
+                  </div>
                   {isExpanded ? (
                     <div className="chat-folders-mobile-folder-threads">
                       {threads.length === 0 ? (

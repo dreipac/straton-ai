@@ -5,8 +5,10 @@ import type { ChatFolder, ChatThread } from '../types'
 type ChatFolderSidebarSectionProps = {
   folders: ChatFolder[]
   threadsByFolderId: Map<string, ChatThread[]>
+  selectedFolderId?: string | null
   openFolderMenuId?: string | null
   onCreateFolder: () => void
+  onOpenFolder: (folderId: string) => void
   onFolderContextMenu: (folder: ChatFolder, event: React.MouseEvent) => void
   onFolderLongPressStart: (folder: ChatFolder, event: React.TouchEvent) => void
   onFolderLongPressMove: (event: React.TouchEvent) => void
@@ -17,8 +19,10 @@ type ChatFolderSidebarSectionProps = {
 export function ChatFolderSidebarSection({
   folders,
   threadsByFolderId,
+  selectedFolderId = null,
   openFolderMenuId = null,
   onCreateFolder,
+  onOpenFolder,
   onFolderContextMenu,
   onFolderLongPressStart,
   onFolderLongPressMove,
@@ -65,29 +69,40 @@ export function ChatFolderSidebarSection({
               key={folder.id}
               className={`chat-folder-group chat-thread-row${isExpanded ? ' is-expanded' : ''}${
                 openFolderMenuId === folder.id ? ' has-open-menu' : ''
-              }`}
+              }${selectedFolderId === folder.id ? ' is-selected' : ''}`}
             >
-              <button
-                type="button"
-                className="chat-thread-item chat-folder-group-header"
-                aria-expanded={isExpanded}
-                onClick={() => toggleFolder(folder.id)}
-                onContextMenu={(event) => onFolderContextMenu(folder, event)}
-                onTouchStart={(event) => onFolderLongPressStart(folder, event)}
-                onTouchMove={onFolderLongPressMove}
-                onTouchEnd={onFolderLongPressEnd}
-                onTouchCancel={onFolderLongPressEnd}
+              <div
+                className={`chat-thread-item chat-folder-group-header-row${
+                  selectedFolderId === folder.id ? ' is-selected' : ''
+                }`}
               >
-                <span className="chat-folder-group-leading">
+                <button
+                  type="button"
+                  className="chat-folder-group-chevron-btn"
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? 'Ordner einklappen' : 'Ordner ausklappen'}
+                  onClick={() => toggleFolder(folder.id)}
+                >
                   <span className="chat-folder-group-chevron" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="chat-folder-group-open-btn"
+                  onClick={() => onOpenFolder(folder.id)}
+                  onContextMenu={(event) => onFolderContextMenu(folder, event)}
+                  onTouchStart={(event) => onFolderLongPressStart(folder, event)}
+                  onTouchMove={onFolderLongPressMove}
+                  onTouchEnd={onFolderLongPressEnd}
+                  onTouchCancel={onFolderLongPressEnd}
+                >
                   <span
                     className="chat-folder-group-icon"
                     style={getChatFolderIconStyle(folder.color)}
                     aria-hidden="true"
                   />
-                </span>
-                <span className="chat-thread-title">{folder.name}</span>
-              </button>
+                  <span className="chat-thread-title">{folder.name}</span>
+                </button>
+              </div>
               {isExpanded ? (
                 <div className="chat-folder-group-threads">
                   {threads.length === 0 ? (

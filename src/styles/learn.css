@@ -2217,39 +2217,6 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   margin-top: 0.3rem;
 }
 
-.learn-path-readiness {
-  margin-top: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
-  border-radius: 11px;
-  padding: 0.52rem 0.6rem;
-  background: var(--color-surface-elevated);
-  display: grid;
-  gap: 0.16rem;
-}
-
-.learn-path-readiness.is-ready {
-  border-color: color-mix(in srgb, #22c55e 52%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 10%, var(--color-surface-elevated));
-}
-
-.learn-path-readiness.is-training {
-  border-color: color-mix(in srgb, #f59e0b 46%, var(--color-border));
-  background: color-mix(in srgb, #f59e0b 8%, var(--color-surface-elevated));
-}
-
-.learn-path-readiness-title {
-  margin: 0;
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: var(--color-text-app);
-}
-
-.learn-path-readiness-meta {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--color-text-secondary);
-}
-
 :root[data-theme='dark'] .learn-workspace-header {
   border-bottom-color: #2a303a;
   background:

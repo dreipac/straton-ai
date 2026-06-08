@@ -25,7 +25,11 @@ import {
 import {
   buildDocumentVisibilityTurnBriefing,
   userAsksDocumentVisibilityQuestion,
+  userMessageWantsDocumentSummary,
 } from './documentAttachmentIntent'
+import {
+  userMessageWantsFolderSources,
+} from './folderSourceIntent'
 import { userMessageSuggestsTableExercise } from './chatTableExerciseInstruction'
 import { buildInstantAnalyzeChartBriefing } from './chartExportIntent'
 import { buildInstantAnalyzeDiagramBriefing } from './diagramExportIntent'
@@ -91,6 +95,8 @@ export type InstantAnalyzeResult = {
   explanation_depth: InstantExplanationDepth
   /** Pflicht-Themen aus dem Anhang — nur bei task_type summary. */
   document_coverage_topics?: string[]
+  /** Ordner-Dateien als Quelle laden (nur bei Bedarf, nicht pro Turn). */
+  use_folder_sources?: boolean
 }
 
 const REPLY_MODES: InstantAnalyzeReplyMode[] = ['ask_only', 'one_step', 'short_answer', 'normal']
@@ -160,6 +166,9 @@ export function buildInstantAnalyzeSystemPrompt(): string {
     '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
     '- web_query präzise formulieren (Thema + Land/Sprache wenn erkennbar), nicht den Rohtext 1:1 kopieren.',
     '',
+    '- use_folder_sources: boolean — nur wenn Kontext «Ordner-Quellen» und Nutzer bezieht sich auf Dateien/Material/Zusammenfassung aller Dateien; sonst false.',
+    '- Ordner-Quellen ohne Nutzerbezug: use_folder_sources false, task_type **nicht** summary allein wegen verfügbarer Dateien.',
+    '',
     '- escalate_model: boolean — **fast immer false**. Nur true bei: ≥2 grosse Anhänge + expliziter Quervergleich, oder mehrere Excel-Sheets mit Vergleichsaufgabe.',
     '- escalate_reason: string (max. 80 Zeichen) nur wenn escalate_model true, sonst "".',
     '- «ausführlich», «detailliert», «Zusammenfassung», «Prüfung», einzelnes PDF/DOCX → escalate_model **false** (Antwortmodell bleibt Lite).',
@@ -223,6 +232,7 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
       : 'standard'
   const document_coverage_topics =
     task_type === 'summary' ? asStringArray(o.document_coverage_topics, 20, 100) : []
+  const use_folder_sources = o.use_folder_sources === true
 
   return syncReplyModeWithRoute({
     category,
@@ -237,8 +247,35 @@ export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult
     task_type,
     explanation_depth,
     ...(document_coverage_topics.length > 0 ? { document_coverage_topics } : {}),
+    ...(use_folder_sources ? { use_folder_sources: true } : {}),
     ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
   })
+}
+
+export function applyFolderSourcesHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  availableFolderFileNames?: string[],
+): InstantAnalyzeResult {
+  if (!availableFolderFileNames?.length) {
+    return analyze.use_folder_sources ? { ...analyze, use_folder_sources: false } : analyze
+  }
+
+  if (!userMessageWantsFolderSources(userMessage, availableFolderFileNames)) {
+    if (analyze.use_folder_sources) {
+      return { ...analyze, use_folder_sources: false }
+    }
+    return analyze
+  }
+
+  let next: InstantAnalyzeResult = { ...analyze, use_folder_sources: true }
+  if (userMessageWantsDocumentSummary(userMessage, true) && next.task_type !== 'summary') {
+    next = { ...next, task_type: 'summary' }
+  }
+  if (userAsksDocumentVisibilityQuestion(userMessage) && next.task_type === 'summary') {
+    next = { ...next, task_type: 'explanation', explanation_depth: 'brief' }
+  }
+  return next
 }
 
 export function enrichInstantAnalyzeDocumentCoverage(
@@ -633,6 +670,7 @@ export function applyInstantAnalyzeHeuristics(
     priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>
     hasVisionAttachment?: boolean
     hasDocumentFileAttachment?: boolean
+    availableFolderFileNames?: string[]
   },
 ): InstantAnalyzeResult {
   let result = applyLiveWebHeuristic(userMessage, analyze)
@@ -675,6 +713,7 @@ export function applyInstantAnalyzeHeuristics(
     priorTurns: options?.priorTurns,
   })
   result = enrichInstantAnalyzeDocumentCoverage(userMessage, result)
+  result = applyFolderSourcesHeuristic(userMessage, result, options?.availableFolderFileNames)
   result = applySubscriptionUsageHeuristic(userMessage, result, options?.priorTurns)
   return result
 }

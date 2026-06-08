@@ -144,7 +144,18 @@ type LearnPageChatDraftState = {
       topTerms?: string[]
       focusText?: string
       excerpt?: string
+      folderName?: string
+      chatCount?: number
+      folderFileCount?: number
     } | null
+    materials?: Array<{
+      id: string
+      name: string
+      size: number
+      excerpt: string
+    }>
+    sourceThreadId?: string | null
+    sourceFolderId?: string | null
   }
 } | null
 
@@ -940,11 +951,16 @@ export function LearnPage() {
     const derivedTopic = terms[0] ?? draftName
     const derivedSelectedTopic = terms.slice(0, 3).join(', ') || derivedTopic
     const derivedGuidance = [
+      typeof context?.folderName === 'string' && context.folderName.trim()
+        ? `Quelle: Ordner «${context.folderName.trim()}»`
+        : '',
+      typeof context?.chatCount === 'number' ? `Chats im Ordner: ${context.chatCount}` : '',
+      typeof context?.folderFileCount === 'number' ? `Ordner-Dateien: ${context.folderFileCount}` : '',
       focus ? `Fokus aus Chat: ${focus}` : '',
       terms.length > 0 ? `Erkannte Themen: ${terms.join(', ')}` : '',
       typeof context?.imageCount === 'number' ? `Bilder im Chat: ${context.imageCount}` : '',
       Array.isArray(context?.fileNames) && context.fileNames.length > 0
-        ? `Dateien im Chat: ${context.fileNames.slice(0, 8).join(', ')}`
+        ? `Dateien im Kontext: ${context.fileNames.slice(0, 8).join(', ')}`
         : '',
       typeof context?.excerpt === 'string' && context.excerpt.trim()
         ? `Kontextauszug:\n${context.excerpt.trim().slice(0, 900)}`
@@ -952,6 +968,24 @@ export function LearnPage() {
     ]
       .filter(Boolean)
       .join('\n\n')
+    const draftMaterials = Array.isArray(draft.materials)
+      ? draft.materials
+          .filter(
+            (item): item is { id: string; name: string; size: number; excerpt: string } =>
+              Boolean(item) &&
+              typeof item.id === 'string' &&
+              typeof item.name === 'string' &&
+              typeof item.size === 'number' &&
+              typeof item.excerpt === 'string',
+          )
+          .slice(0, 8)
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            size: item.size,
+            excerpt: item.excerpt.slice(0, 2500),
+          }))
+      : []
 
     void (async () => {
       try {
@@ -962,6 +996,7 @@ export function LearnPage() {
           selectedTopic: derivedSelectedTopic,
           proficiencyLevel: draftLevel,
           aiGuidance: derivedGuidance,
+          materials: draftMaterials,
           setupStep: 4,
           isSetupComplete: true,
           tutorMessages: [],
@@ -1542,51 +1577,6 @@ export function LearnPage() {
     () => worksheetChaptersForList.filter(({ progress }) => !(progress.total > 0 && progress.isComplete)),
     [worksheetChaptersForList],
   )
-
-  const learningReadiness = useMemo(() => {
-    const totalEvaluatedQuestions = Object.keys(chapterSession.correctnessByStepId).length
-    const totalCorrectQuestions = Object.values(chapterSession.correctnessByStepId).filter(Boolean).length
-    const correctnessRatio =
-      totalEvaluatedQuestions > 0 ? totalCorrectQuestions / Math.max(1, totalEvaluatedQuestions) : 0
-    const unknownFlashcards = learnFlashcardSets
-      .flatMap((set) => set.cards)
-      .filter((card) => card.selfRating === 'unknown').length
-    const submittedWorksheetCount = learnWorksheets.filter(
-      (item) => typeof item.submittedAt === 'string' && item.submittedAt.trim().length > 0,
-    ).length
-    const requiredChapterCompletions = Math.max(1, chapterBlueprints.length)
-    const completedChapterCount = chapterSession.completedChapterIndexes.length
-    const masteryEntries = Object.values(chapterSession.skillMasteryBySkillId ?? {})
-    const masteryAverage =
-      masteryEntries.length > 0
-        ? masteryEntries.reduce((sum, entry) => sum + (entry.score ?? 0), 0) / masteryEntries.length
-        : 0
-    const weakSkillCount = masteryEntries.filter((entry) => (entry.score ?? 0) < 0.6).length
-    const isReady =
-      completedChapterCount >= requiredChapterCompletions &&
-      correctnessRatio >= 0.8 &&
-      unknownFlashcards === 0 &&
-      submittedWorksheetCount > 0 &&
-      masteryAverage >= 0.72 &&
-      weakSkillCount === 0
-    return {
-      isReady,
-      completedChapterCount,
-      requiredChapterCompletions,
-      correctnessRatio,
-      unknownFlashcards,
-      submittedWorksheetCount,
-      masteryAverage,
-      weakSkillCount,
-    }
-  }, [
-    chapterBlueprints.length,
-    chapterSession.completedChapterIndexes.length,
-    chapterSession.correctnessByStepId,
-    chapterSession.skillMasteryBySkillId,
-    learnFlashcardSets,
-    learnWorksheets,
-  ])
 
   const tutorWorksheetChapterIndex = useMemo(
     () =>
@@ -3044,27 +3034,6 @@ export function LearnPage() {
                                 </div>
                               </section>
                             ) : null}
-                            <section
-                              className={`learn-path-readiness ${learningReadiness.isReady ? 'is-ready' : 'is-training'}`}
-                              aria-label="Lernstand Bereitschaft"
-                            >
-                              <p className="learn-path-readiness-title">
-                                {learningReadiness.isReady ? 'Bereit fuer den naechsten Level' : 'Noch im Trainingsmodus'}
-                              </p>
-                              <p className="learn-path-readiness-meta">
-                                Kapitel {learningReadiness.completedChapterCount}/{learningReadiness.requiredChapterCompletions}
-                                {' · '}
-                                Trefferquote {Math.round(learningReadiness.correctnessRatio * 100)}%
-                                {' · '}
-                                Mastery {Math.round(learningReadiness.masteryAverage * 100)}%
-                                {' · '}
-                                Schwache Skills {learningReadiness.weakSkillCount}
-                                {' · '}
-                                Unsichere Karten {learningReadiness.unknownFlashcards}
-                                {' · '}
-                                Abgaben {learningReadiness.submittedWorksheetCount}
-                              </p>
-                            </section>
                           </>
                         }
                       />

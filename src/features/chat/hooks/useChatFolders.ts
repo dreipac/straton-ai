@@ -8,6 +8,7 @@ import {
   updateChatFolder,
   setChatThreadFolder,
 } from '../services/chat.folders'
+import { deleteAllChatFolderFilesForFolder } from '../services/chat.folderFiles'
 
 export function useChatFolders(userId: string | undefined, threads: ChatThread[]) {
   const [folders, setFolders] = useState<ChatFolder[]>([])
@@ -85,6 +86,9 @@ export function useChatFolders(userId: string | undefined, threads: ChatThread[]
   )
 
   const removeFolder = useCallback(async (folderId: string) => {
+    if (userId) {
+      await deleteAllChatFolderFilesForFolder(userId, folderId)
+    }
     await deleteChatFolder(folderId)
     setFolders((prev) => prev.filter((item) => item.id !== folderId))
     setFolderIdByThreadId((prev) => {
@@ -96,7 +100,7 @@ export function useChatFolders(userId: string | undefined, threads: ChatThread[]
       }
       return next
     })
-  }, [])
+  }, [userId])
 
   const moveThreadToFolder = useCallback(
     async (threadId: string, folderId: string | null) => {

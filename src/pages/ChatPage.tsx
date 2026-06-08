@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { type ContentBottomSheetHandle } from '../components/ui/bottom-sheet/ContentBottomSheet'
 import { useAuth } from '../features/auth/context/useAuth'
 import {
@@ -26,11 +26,13 @@ import { ChatPageMobileTopBar } from '../features/chat/components/chat-page/Chat
 import { ChatPageOverlays } from '../features/chat/components/chat-page/ChatPageOverlays'
 import { ChatPageSidebar } from '../features/chat/components/chat-page/ChatPageSidebar'
 import { ChatFoldersMobilePanel } from '../features/chat/components/ChatFoldersMobilePanel'
+import { ChatFolderOverview } from '../features/chat/components/ChatFolderOverview'
 import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import { useChat } from '../features/chat/hooks/useChat'
 import { useChatFolders } from '../features/chat/hooks/useChatFolders'
+import { useChatFolderFiles } from '../features/chat/hooks/useChatFolderFiles'
 import { useChatPageCollaboration } from '../features/chat/hooks/useChatPageCollaboration'
 import { useChatPageFeatureFlags } from '../features/chat/hooks/useChatPageFeatureFlags'
 import { useChatLearningPathDraft } from '../features/chat/hooks/useChatLearningPathDraft'
@@ -41,7 +43,8 @@ import { useChatPageOverlayDismiss } from '../features/chat/hooks/useChatPageOve
 import { useGuestChatComposerPrefs } from '../features/chat/hooks/useGuestChatComposerPrefs'
 import { getChatPageTokenLimitReached } from '../features/chat/utils/chatPageSubscriptionDisplay'
 import { useChatPageEnter, useChatThreadListSkeletonVisibility } from '../features/chat/hooks/useChatPageEnter'
-import type { ChatThread } from '../features/chat/types'
+import type { ChatFolderOverviewTab, ChatThread } from '../features/chat/types'
+import { createChatFolderFileSignedUrl, listChatFolderFiles } from '../features/chat/services/chat.folderFiles'
 import { hapticLightImpact } from '../utils/haptics'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
@@ -56,6 +59,7 @@ export function ChatPage() {
   const { push: pushToast } = useToast()
   const { unreadCount: newsUnreadCount } = useNewsUnreadCount(Boolean(user))
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
   const isNarrowViewport = useIsMobileViewport()
   /** Wie Freigabe-Leiste: max-width 860px — Comfort/Strict nativ in der Oberleiste. */
@@ -126,6 +130,34 @@ export function ChatPage() {
     chatTourEligible,
   } = featureFlags
 
+  const chatFoldersRef = useRef<{
+    folders: { id: string; name: string }[]
+    getThreadFolderId: (threadId: string) => string | null
+  } | null>(null)
+  const resolveThreadFolderContext = useCallback(
+    async (threadId: string) => {
+      const foldersState = chatFoldersRef.current
+      if (!user?.id || !foldersState) {
+        return null
+      }
+      const folderId = foldersState.getThreadFolderId(threadId)
+      if (!folderId) {
+        return null
+      }
+      const folder = foldersState.folders.find((item) => item.id === folderId)
+      if (!folder) {
+        return null
+      }
+      const files = await listChatFolderFiles(user.id, folderId)
+      return {
+        folderId,
+        folderName: folder.name,
+        files,
+      }
+    },
+    [user?.id],
+  )
+
   const {
     threads,
     activeThreadId,
@@ -176,8 +208,31 @@ export function ChatPage() {
     userIntroduction: chatUserIntroduction,
     subscriptionUsage: chatSubscriptionUsage,
     customModeAllowed,
+    resolveThreadFolderContext,
   })
   const chatFolders = useChatFolders(user?.id, threads)
+  chatFoldersRef.current = chatFolders
+  const folderIdFromUrl = searchParams.get('folder')
+  const folderTabFromUrl: ChatFolderOverviewTab = searchParams.get('tab') === 'files' ? 'files' : 'chats'
+  const activeOverviewFolder = useMemo(() => {
+    if (!folderIdFromUrl) {
+      return null
+    }
+    return chatFolders.folders.find((folder) => folder.id === folderIdFromUrl) ?? null
+  }, [chatFolders.folders, folderIdFromUrl])
+  const isFolderOverviewOpen = Boolean(activeOverviewFolder && chatFoldersFeatureEnabled)
+  const folderOverviewThreads = useMemo(() => {
+    if (!activeOverviewFolder) {
+      return []
+    }
+    return chatFolders.threadsByFolderId.get(activeOverviewFolder.id) ?? []
+  }, [activeOverviewFolder, chatFolders.threadsByFolderId])
+  const folderFilesState = useChatFolderFiles({
+    userId: user?.id,
+    folderId: isFolderOverviewOpen ? activeOverviewFolder?.id ?? null : null,
+    maxFiles: profile?.subscription_plans?.max_files ?? null,
+    usedFiles: profile?.subscription_usages?.used_files ?? 0,
+  })
   const isPageEnter = useChatPageEnter()
   const {
     threadSkeletonMounted,
@@ -322,9 +377,84 @@ export function ChatPage() {
       pageMenus.closeFolderActionMenu()
       pageMenus.closeFolderMoveDialog()
       pageMenus.closeFolderNameSheet()
+      if (folderIdFromUrl) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev)
+            next.delete('folder')
+            next.delete('tab')
+            return next
+          },
+          { replace: true },
+        )
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable menu closers from useChatPageMenus
-  }, [chatFoldersFeatureEnabled])
+  }, [chatFoldersFeatureEnabled, folderIdFromUrl])
+
+  useEffect(() => {
+    if (!folderIdFromUrl || !chatFoldersFeatureEnabled || chatFolders.isLoading) {
+      return
+    }
+    if (!chatFolders.folders.some((folder) => folder.id === folderIdFromUrl)) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('folder')
+          next.delete('tab')
+          return next
+        },
+        { replace: true },
+      )
+    }
+  }, [chatFolders.folders, chatFolders.isLoading, chatFoldersFeatureEnabled, folderIdFromUrl, setSearchParams])
+
+  function closeFolderOverview() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('folder')
+        next.delete('tab')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openFolderOverview(folderId: string, tab: ChatFolderOverviewTab = 'chats') {
+    if (!chatFoldersFeatureEnabled) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('folder', folderId)
+        next.set('tab', tab)
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  function setFolderOverviewTab(tab: ChatFolderOverviewTab) {
+    if (!activeOverviewFolder) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('folder', activeOverviewFolder.id)
+        next.set('tab', tab)
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   async function deleteThreadFromSwipe(threadId: string) {
     try {
@@ -409,6 +539,24 @@ export function ChatPage() {
     }
   }
 
+  async function handleCreateNewChatInFolder(folderId: string) {
+    setIsNewChatPending(true)
+    try {
+      const threadId = await createNewChat({ folderId })
+      if (threadId) {
+        await chatFolders.moveThreadToFolder(threadId, folderId)
+      }
+      closeFolderOverview()
+      pageMenus.closeThreadActionMenu()
+      setIsMobileSidebarOpen(false)
+      setIsMobileFoldersOpen(false)
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Chat konnte im Ordner nicht erstellt werden.')
+    } finally {
+      setIsNewChatPending(false)
+    }
+  }
+
   function handleSidebarHeaderToggleClick() {
     if (isCompactMobileSidebarLayout) {
       if (chatTourEligible) {
@@ -440,6 +588,7 @@ export function ChatPage() {
     pageMenus.closeThreadActionMenu()
     setIsMobileSidebarOpen(false)
     setIsMobileFoldersOpen(false)
+    closeFolderOverview()
   }
 
   function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
@@ -628,6 +777,8 @@ export function ChatPage() {
         onOpenAdmin={pageModals.openAdminModal}
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
         onCreateFolder={pageMenus.openCreateFolderSheet}
+        onOpenFolder={openFolderOverview}
+        selectedFolderId={activeOverviewFolder?.id ?? null}
         onFolderContextMenu={pageMenus.openFolderContextMenu}
         onFolderLongPressStart={pageMenus.handleFolderLongPressTouchStart}
         onFolderLongPressMove={pageMenus.handleFolderLongPressTouchMove}
@@ -636,11 +787,17 @@ export function ChatPage() {
         onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
       />
 
-      <section className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}`}>
-        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled ? (
+      <section
+        className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}${
+          isFolderOverviewOpen ? ' is-folder-overview-active' : ''
+        }`}
+      >
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen ? (
           <ChatFoldersMobilePanel
             folders={chatFolders.folders}
             threadsByFolderId={chatFolders.threadsByFolderId}
+            selectedFolderId={activeOverviewFolder?.id ?? null}
+            onOpenFolder={openFolderOverview}
             onFolderContextMenu={pageMenus.openFolderContextMenu}
             onFolderLongPressStart={pageMenus.handleFolderLongPressTouchStart}
             onFolderLongPressMove={pageMenus.handleFolderLongPressTouchMove}
@@ -648,8 +805,61 @@ export function ChatPage() {
             renderThreadRow={renderSidebarThreadRow}
           />
         ) : null}
-        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen ? mobileTopBar : null}
-        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile ? (
+        {isFolderOverviewOpen && activeOverviewFolder ? (
+          <ChatFolderOverview
+            key={activeOverviewFolder.id}
+            folder={activeOverviewFolder}
+            tab={folderTabFromUrl}
+            threads={folderOverviewThreads}
+            files={folderFilesState.files}
+            filesLoading={folderFilesState.isLoading}
+            filesUploading={folderFilesState.isUploading}
+            isLearnPathCreateDisabled={isLearnPathCreateButtonDisabled}
+            isCompactMobile={isCompactMobileSidebarLayout}
+            activeThreadId={activeThreadId}
+            onSelectThread={handleSidebarThreadSelect}
+            onEditFolder={() => pageMenus.openEditFolderSheet(activeOverviewFolder)}
+            onTabChange={setFolderOverviewTab}
+            onUploadFiles={async (fileList) => {
+              try {
+                await folderFilesState.uploadFiles(fileList)
+                await refreshProfile()
+                pushToast('Datei(en) zum Ordner hinzugefügt.')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Upload fehlgeschlagen.')
+              }
+            }}
+            onDeleteFile={async (file) => {
+              try {
+                await folderFilesState.removeFile(file)
+                pushToast('Datei entfernt.')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Datei konnte nicht entfernt werden.')
+              }
+            }}
+            onDownloadFile={async (file) => {
+              try {
+                const url = await createChatFolderFileSignedUrl(file)
+                window.open(url, '_blank', 'noopener,noreferrer')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Download fehlgeschlagen.')
+              }
+            }}
+            onCreateLearningPath={() =>
+              void learnDraft.openFolderLearningPathDraft({
+                folderId: activeOverviewFolder.id,
+                folderName: activeOverviewFolder.name,
+                threads: folderOverviewThreads,
+                folderFiles: folderFilesState.files,
+              })
+            }
+            onCreateChat={() => void handleCreateNewChatInFolder(activeOverviewFolder.id)}
+          />
+        ) : null}
+        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen
+          ? mobileTopBar
+          : null}
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
             participantsAnchorRef={collaboration.participantsAnchorRef}

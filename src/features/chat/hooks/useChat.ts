@@ -46,7 +46,14 @@ import {
   isAbortErrorLike,
   usesGatewayAi,
 } from '../services/chat.service'
+import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { ThinkingAnalyzeResult } from '../constants/thinkingAnalyze'
+import {
+  folderFilesToDocumentAttachments,
+  resolveFolderFilesToLoad,
+  resolveShouldUseFolderSources,
+  type ChatThreadFolderContext,
+} from '../constants/folderSourceIntent'
 import { isThinkingContinuationFollowUp } from '../constants/thinkingPipeline'
 import type { ThinkingReviewResult } from '../constants/thinkingReview'
 import {
@@ -120,6 +127,7 @@ import {
   updateChatThreadTitle,
   type ChatMessageRow,
 } from '../services/chat.persistence'
+import { setChatThreadFolder } from '../services/chat.folders'
 import { canFinalizeWordExportFromThread, extractWordOutlineFromThread } from '../utils/wordOutline'
 import {
   canFinalizeExcelExportFromThread,
@@ -160,7 +168,6 @@ import {
 } from '../utils/visionMessageContent'
 import { normalizeVisionDataUrl } from '../utils/imageVisionNormalize'
 import type { ChatSendPhaseState } from '../constants/chatSendPhase'
-import type { InstantAnalyzeResult } from '../constants/instantAnalyze'
 import type { ThinkingAnalyzeDebugMeta } from '../types'
 import type { ChatProfileIdentity } from '../constants/chatProfileIdentityContext'
 import type { ChatUserIntroduction } from '../constants/chatUserIntroductionContext'
@@ -413,6 +420,10 @@ export function useChat(
     subscriptionUsage?: ChatSubscriptionUsageContext | null
     /** Abo: Custom-Modus (Intent Analyze + Modell-Picker). */
     customModeAllowed?: boolean
+    /** Ordner-Kontext für lazy Quellen aus Ordner-Dateien. */
+    resolveThreadFolderContext?: (
+      threadId: string,
+    ) => Promise<import('../constants/folderSourceIntent').ChatThreadFolderContext | null>
   },
 ) {
   const { getPrompt } = useSystemPrompts()
@@ -848,27 +859,43 @@ export function useChat(
     }
   }, [])
 
-  async function createNewChat() {
+  async function createNewChat(options?: { folderId?: string }): Promise<string | null> {
     if (!userId) {
-      return
+      return null
     }
 
     setError(null)
+    const folderId = options?.folderId?.trim() || null
+    const mustPersistImmediately = Boolean(folderId) || !autoRemoveEmptyChats
 
-    if (!autoRemoveEmptyChats) {
+    if (mustPersistImmediately) {
       try {
         const persistedThread = await createChatThread(userId, 'Neuer Chat')
-        setThreads((prev) => [{ ...persistedThread, membershipRole: 'owner' as const }, ...prev])
+        if (folderId) {
+          await setChatThreadFolder(userId, persistedThread.id, folderId)
+        }
+
+        threads
+          .filter((thread) => thread.isTemporary && !thread.isRemoving)
+          .forEach((thread) => {
+            removeTemporaryThread(thread.id)
+          })
+
+        setThreads((prev) => {
+          const withoutTemporary = prev.filter((thread) => !thread.isTemporary || thread.isRemoving)
+          return [{ ...persistedThread, membershipRole: 'owner' as const }, ...withoutTemporary]
+        })
         setMessagesByThreadId((prev) => ({
           ...prev,
           [persistedThread.id]: prev[persistedThread.id] ?? [],
         }))
         loadedMessageThreadIdsRef.current.add(persistedThread.id)
         setActiveThreadId(persistedThread.id)
+        return persistedThread.id
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Neuer Chat konnte nicht erstellt werden.')
+        return null
       }
-      return
     }
 
     const temporaryThread = createTemporaryThread(userId)
@@ -886,6 +913,7 @@ export function useChat(
     }))
     loadedMessageThreadIdsRef.current.add(temporaryThread.id)
     setActiveThreadId(temporaryThread.id)
+    return temporaryThread.id
   }
 
   async function renameChat(threadId: string, nextTitle: string) {
@@ -1333,7 +1361,7 @@ export function useChat(
     const hasPendingServerDocuments =
       (sendOpts?.documentAttachments?.length ?? 0) > 0 ||
       (sendOpts?.pendingDocumentFiles?.length ?? 0) > 0
-    const hasDocumentFileAttachment =
+    let hasDocumentFileAttachment =
       hasPendingServerDocuments || messageHasDocumentFileAttachment(content)
     /** Voller Composer-Inhalt (mit `[BildData]`), nicht `routingText` — sonst blockiert reines Foto ohne Text. */
     const hasAttachedVision =
@@ -1553,6 +1581,15 @@ export function useChat(
             : {}),
         }))
 
+      let folderContext: ChatThreadFolderContext | null = null
+      try {
+        folderContext = (await options?.resolveThreadFolderContext?.(targetThreadId)) ?? null
+      } catch {
+        folderContext = null
+      }
+      const folderFileNames =
+        folderContext?.files.map((file) => file.name.trim()).filter(Boolean) ?? []
+
       if (chatThinkingMode !== 'thinking') {
         imageSearchQuery =
           !imageGenPrompt &&
@@ -1735,6 +1772,54 @@ export function useChat(
           : {}),
       }
 
+      async function injectFolderSourcesIfNeeded(
+        analyze?: Pick<InstantAnalyzeResult | ThinkingAnalyzeResult, 'task_type' | 'intent'> & {
+          use_folder_sources?: boolean
+        },
+      ): Promise<boolean> {
+        if (!folderContext || folderContext.files.length === 0 || documentAttachments.length > 0) {
+          return false
+        }
+        if (
+          !resolveShouldUseFolderSources({
+            userMessage: routingText,
+            fileNames: folderFileNames,
+            hasDirectDocumentAttachment: documentAttachments.length > 0,
+            analyze,
+          })
+        ) {
+          return false
+        }
+
+        setSendPhase('document_processing')
+        const filesToLoad = resolveFolderFilesToLoad(routingText, folderContext.files)
+        const attachments = folderFilesToDocumentAttachments(filesToLoad)
+        try {
+          const { fileBlocks } = await extractChatDocumentsOnServer({ attachments, signal })
+          userContent = stripEmptyDateiPlaceholders(userContent)
+          userContent = [userContent, fileBlocks].filter(Boolean).join('\n\n')
+          if (!userContent.trim()) {
+            userContent = 'Bitte werte die Ordner-Dateien aus.'
+          }
+          hasDocumentFileAttachment = true
+          syncOptimisticUserMessage(
+            userContent,
+            Object.keys(userMetadataBase).length > 0 ? userMetadataBase : undefined,
+          )
+          return true
+        } catch (extractErr) {
+          if (!isAbortErrorLike(extractErr)) {
+            setError(
+              extractErr instanceof Error
+                ? extractErr.message
+                : 'Ordner-Dateien konnten nicht gelesen werden.',
+            )
+          }
+          dropOptimisticUserMessage()
+          throw extractErr
+        }
+      }
+
       let visionInlineDataUrl = resolveVisionInlineDataUrlForSend(
         sendOpts?.visionInlineDataUrl,
         userContent,
@@ -1803,9 +1888,15 @@ export function useChat(
             priorTurns,
             hasVisionAttachment: hasAttachedVision,
             hasDocumentFileAttachment,
+            folderContext,
             signal,
           })
           instantAnalyze = invokeResult.analyze
+          try {
+            await injectFolderSourcesIfNeeded(instantAnalyze)
+          } catch {
+            return
+          }
 
           const composerRouteLocked =
             wantsWord ||
@@ -2041,6 +2132,7 @@ export function useChat(
             priorTurns,
             hasVisionAttachment: hasAttachedVision,
             hasDocumentFileAttachment,
+            folderContext,
             signal,
           })
           const routeOverrides = resolveThinkingMediaRouteFromInstantAnalyze(
@@ -2445,6 +2537,7 @@ export function useChat(
                   ? { unsplashQuery: m.metadata.unsplashSearch.query }
                   : {}),
               })),
+            folderContext,
             signal,
           })
           const routeOverrides = resolveInstantRouteOverrides(routeInvoke.analyze, routingText, {
@@ -2496,6 +2589,7 @@ export function useChat(
               priorTurns,
               isContinuationFollowUp: false,
               hasVisionAttachment: hasAttachedVision,
+              folderContext,
               signal,
             })
             if (persistInstantAnalyzeDebug) {
@@ -2547,6 +2641,7 @@ export function useChat(
             priorTurns,
             isContinuationFollowUp: isThinkingContinuationFollowUp(trimmed, nextMessages),
             hasVisionAttachment: hasAttachedVision,
+            folderContext,
             signal,
           })
           if (persistInstantAnalyzeDebug) {
@@ -2592,6 +2687,11 @@ export function useChat(
             roundsTotal: progress.roundsTotal,
           }
         } else if (thinkingConversationPhase === 'final' && thinkingAnalyzeResult) {
+          try {
+            await injectFolderSourcesIfNeeded(thinkingAnalyzeResult)
+          } catch {
+            return
+          }
           if (persistInstantAnalyzeDebug) {
             presentationProfileForDebug = resolveThinkingPresentationProfileForTurn({
               analyze: thinkingAnalyzeResult,

@@ -10,9 +10,19 @@ export type ChatLearnDraftContext = {
   topTerms: string[]
   focusText: string
   excerpt: string
+  folderName?: string
+  chatCount?: number
+  folderFileCount?: number
 }
 
-export function summarizeChatForLearningPath(messages: ChatMessage[]): ChatLearnDraftContext {
+export type ChatLearnDraftMaterial = {
+  id: string
+  name: string
+  size: number
+  excerpt: string
+}
+
+function summarizeMessagesForLearningPath(messages: ChatMessage[]): ChatLearnDraftContext {
   const fileNamesSet = new Set<string>()
   let imageCount = 0
   const contentParts: string[] = []
@@ -113,4 +123,44 @@ export function summarizeChatForLearningPath(messages: ChatMessage[]): ChatLearn
   const focusText = latestUserText || 'Kein klarer Fokus aus letzter Nachricht erkennbar.'
   const excerpt = contentParts.slice(-6).join('\n').slice(0, 1200)
   return { fileNames, imageCount, topTerms, focusText, excerpt }
+}
+
+export function summarizeChatForLearningPath(messages: ChatMessage[]): ChatLearnDraftContext {
+  return summarizeMessagesForLearningPath(messages)
+}
+
+export function summarizeFolderForLearningPath(args: {
+  folderName: string
+  messages: ChatMessage[]
+  folderFiles: ChatLearnDraftMaterial[]
+  chatCount: number
+}): { context: ChatLearnDraftContext; materials: ChatLearnDraftMaterial[] } {
+  const base = summarizeMessagesForLearningPath(args.messages)
+  const folderFileNames = args.folderFiles.map((file) => file.name.trim()).filter(Boolean)
+  const fileNames = [...new Set([...base.fileNames, ...folderFileNames])]
+  const folderExcerpt =
+    args.folderFiles.length > 0
+      ? args.folderFiles
+          .map((file) => `${file.name}:\n${file.excerpt.trim().slice(0, 500)}`)
+          .join('\n\n')
+          .slice(0, 900)
+      : ''
+  const excerpt = [folderExcerpt, base.excerpt].filter(Boolean).join('\n\n').slice(0, 1200)
+  const focusText =
+    base.focusText !== 'Kein klarer Fokus aus letzter Nachricht erkennbar.'
+      ? base.focusText
+      : `Ordner «${args.folderName}» mit ${args.chatCount} Chat${args.chatCount === 1 ? '' : 's'} und ${args.folderFiles.length} Datei${args.folderFiles.length === 1 ? '' : 'en'}.`
+
+  return {
+    context: {
+      ...base,
+      fileNames,
+      excerpt,
+      focusText,
+      folderName: args.folderName,
+      chatCount: args.chatCount,
+      folderFileCount: args.folderFiles.length,
+    },
+    materials: args.folderFiles.slice(0, 8),
+  }
 }

@@ -2997,6 +2997,7 @@ async function instantAnalyzeWithGemini(
     'summary: nur expliziter Zusammenfassungswunsch (fasse zusammen/überblick/ausführliche Zusammenfassung) — **nicht** «siehst du den Inhalt?».',
     'summary + document: «ausführliches/zusammenfassendes PDF/Word» → category document, action pdf_generate/word_generate, **task_type summary**.',
     'explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → chat.answer, short_answer — nur Sichtbarkeit, **kein** summary.',
+    'Ordner-Quellen: Kontext «Ordner-Quellen verfügbar» + Nutzer will Dateien/Material → use_folder_sources true, task_type summary bei Zusammenfassung; sonst false.',
     'explanation: «über was geht es im Dokument?», Thema-Frage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
     'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
