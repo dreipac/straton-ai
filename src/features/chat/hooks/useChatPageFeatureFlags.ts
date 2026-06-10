@@ -5,6 +5,10 @@ import {
   clearGeminiInstantEnabledCache,
   setGeminiInstantEnabledFromSupabase,
 } from '../services/geminiInstantFlag'
+import {
+  clearThinkingGeminiModelsCache,
+  setThinkingGeminiModelsFromSupabase,
+} from '../services/thinkingGeminiModelsFlag'
 
 type UseChatPageFeatureFlagsArgs = {
   user: { id: string } | null
@@ -22,6 +26,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
   useEffect(() => {
     if (!user) {
       clearGeminiInstantEnabledCache()
+      clearThinkingGeminiModelsCache()
       setShowBetaNoticeOnFirstLogin(true)
       return
     }
@@ -39,6 +44,10 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersFeatureEnabled(flags.chat_folders_enabled)
         setGeminiInstantEnabledFromSupabase(flags.gemini_instant_enabled)
+        setThinkingGeminiModelsFromSupabase({
+          standard: flags.thinking_gemini_model_standard_active,
+          rich: flags.thinking_gemini_model_rich_active,
+        })
       } catch {
         if (!isMounted) {
           return

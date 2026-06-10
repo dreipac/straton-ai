@@ -1,13 +1,45 @@
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
+import { isGeminiInstantEnabled } from '../services/geminiInstantFlag'
 import type { ThinkingAnalyzeResult, ThinkingTaskType } from './thinkingAnalyze'
+import type { ThinkingOutputTier } from './thinkingOutputTier'
+import { resolveThinkingOutputTier } from './thinkingOutputTier'
 
-/** Finale Thinking-Antwort: Zusammenfassungen & MC über OpenAI gpt-5-mini (wie Instant-Summary). */
+/** Rich-Tier: nur gpt-5-mini (kein Fallback auf gpt-4o-mini). */
+export const THINKING_RICH_OPENAI_MODELS = ['gpt-5-mini'] as const
+/** Legacy-Final (MC, direkte Antwort ohne Rich): gpt-5-mini mit Fallback. */
 export const THINKING_FINAL_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
 
+export function shouldRouteThinkingRichToOpenAi(tier: ThinkingOutputTier): boolean {
+  return tier === 'rich'
+}
+
+export function resolveThinkingOutputTierForRouting(
+  analyze?: Pick<ThinkingAnalyzeResult, 'task_type' | 'output_tier'> | Pick<ThinkingAnalyzeResult, 'task_type'> | null,
+  userMessage?: string,
+): ThinkingOutputTier {
+  if (!analyze) {
+    return 'standard'
+  }
+  if (analyze.task_type === 'document_summary') {
+    return 'rich'
+  }
+  return resolveThinkingOutputTier(analyze as ThinkingAnalyzeResult, userMessage)
+}
+
 export function shouldRouteThinkingFinalToOpenAi(
-  analyze?: Pick<ThinkingAnalyzeResult, 'task_type'> | null,
+  analyze?:
+    | Pick<ThinkingAnalyzeResult, 'task_type' | 'output_tier'>
+    | Pick<ThinkingAnalyzeResult, 'task_type'>
+    | null,
   userMessage?: string,
 ): boolean {
+  const tier = resolveThinkingOutputTierForRouting(analyze, userMessage)
+  if (shouldRouteThinkingRichToOpenAi(tier)) {
+    return true
+  }
+  if (isGeminiInstantEnabled()) {
+    return false
+  }
   const trimmed = (userMessage ?? '').trim()
   if (analyze?.task_type === 'document_summary') {
     return true
@@ -36,7 +68,7 @@ export function buildThinkingAnalyzeIntentPromptSection(): string {
   return [
     'Intent & task_type (verbindlich):',
     '- MC/Auswahlfrage mit Optionen (A/B/C …) → task_type general_howto, needs_clarification false (finale Antwort: kurz, OpenAI).',
-    '- [Datei:…] oder Bild + zusammenfassen/fassen/überblick → document_summary, needs_clarification false (finale Antwort: OpenAI gpt-5-mini).',
+    '- [Datei:…] oder Bild + zusammenfassen/fassen/überblick → document_summary, output_tier rich, layout_hint cards, needs_clarification false.',
     '- Server/Linux/VPS/SSL → server_setup; Software installieren → software_setup; Fehler/debug → troubleshooting.',
     '- Vergleich/Entscheidung → decision_planning; How-to/Ablauf → process_howto; offene Erklärung → general_howto.',
     '- «Quiz/Fragen erzeugen» → general_howto (kein MC lösen).',
@@ -48,7 +80,7 @@ export function buildThinkingAnalyzeIntentPromptSection(): string {
 }
 
 export function buildThinkingTaskTypeTurnBriefing(
-  analyze: Pick<ThinkingAnalyzeResult, 'task_type' | 'complexity'>,
+  analyze: Pick<ThinkingAnalyzeResult, 'task_type' | 'complexity' | 'layout_hint'>,
   userMessage?: string,
 ): string {
   const trimmed = (userMessage ?? '').trim()
@@ -64,8 +96,11 @@ export function buildThinkingTaskTypeTurnBriefing(
   switch (analyze.task_type) {
     case 'document_summary':
       return [
-        'Thinking — Zusammenfassung (verbindlich, gpt-5-mini — Playbook im Layout-Profil):',
+        'Thinking — Zusammenfassung (verbindlich, Rich gpt-5-mini — Playbook im Layout-Profil):',
         '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken.',
+        '- Schulblatt/Übungs-PDF: **integriertes Lernskript** — Fragen beantworten, Aufgaben inhaltlich ausarbeiten, Lücken füllen — **ohne** «Aufgabe:/Lösung:»-Format.',
+        '- Nicht beschreiben, was das Dokument «deckt/thematisiert» — **Inhalt** aus dem [Datei]-Block liefern.',
+        '- Jedes Hauptthema als ```cards``` mit tone/badges — kein Meta-Text, keine Bullet-Listen bei parallelen Kategorien.',
         '- Kein `### Verbesserungen`, keine Pflicht-Anpassungsfrage am Schluss.',
       ].join('\n')
     case 'server_setup':

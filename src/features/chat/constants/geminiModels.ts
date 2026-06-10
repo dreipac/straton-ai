@@ -8,7 +8,29 @@ export const GEMINI_MODEL_FLASH_LITE = 'gemini-3.1-flash-lite' as const
 /** Sparsam: komplexe Multi-Dokument-/Tabellen-Merge-Fälle (Whitelist im Intent). */
 export const GEMINI_MODEL_FLASH = 'gemini-2.5-flash' as const
 
-export type GeminiChatModelId = typeof GEMINI_MODEL_FLASH_LITE | typeof GEMINI_MODEL_FLASH
+/** Thinking Rich-Tier: Zusammenfassungen und komplexe Aufgaben. */
+export const GEMINI_MODEL_FLASH_3_PREVIEW = 'gemini-3-flash-preview' as const
+
+export const THINKING_GEMINI_MODEL_IDS = [
+  GEMINI_MODEL_FLASH_LITE,
+  GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_3_PREVIEW,
+] as const
+
+export type ThinkingGeminiModelId = (typeof THINKING_GEMINI_MODEL_IDS)[number]
+
+export const THINKING_GEMINI_MODEL_STANDARD_DEFAULT: ThinkingGeminiModelId = GEMINI_MODEL_FLASH_LITE
+export const THINKING_GEMINI_MODEL_RICH_DEFAULT: ThinkingGeminiModelId = GEMINI_MODEL_FLASH_3_PREVIEW
+
+export type ThinkingGeminiModelsConfig = {
+  standard: ThinkingGeminiModelId
+  rich: ThinkingGeminiModelId
+}
+
+export type GeminiChatModelId =
+  | typeof GEMINI_MODEL_FLASH_LITE
+  | typeof GEMINI_MODEL_FLASH
+  | typeof GEMINI_MODEL_FLASH_3_PREVIEW
 
 export const GEMINI_DEFAULT_CHAT_MODEL: GeminiChatModelId = GEMINI_MODEL_FLASH_LITE
 
@@ -18,11 +40,29 @@ export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v1' as const
 /** Hauptchat-Antwort (Instant, statischer Systemteil). */
 export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v2' as const
 
-/** Thinking-Pipeline (Analyse, Entwurf, Review, finale Antwort). */
+/** Thinking-Pipeline (Analyse). */
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1' as const
-export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT = 'straton-thinking-draft-gemini-v1' as const
-export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW = 'straton-thinking-review-gemini-v1' as const
-export const GEMINI_CONTEXT_CACHE_THINKING_REPLY = 'straton-thinking-reply-gemini-v1' as const
+
+export {
+  GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH,
+  GEMINI_CONTEXT_CACHE_THINKING_DRAFT_STANDARD,
+  GEMINI_CONTEXT_CACHE_THINKING_REPLY_RICH,
+  GEMINI_CONTEXT_CACHE_THINKING_REPLY_STANDARD,
+  GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH,
+  GEMINI_CONTEXT_CACHE_THINKING_REVIEW_STANDARD,
+  resolveThinkingGeminiContextCacheKey,
+  type ThinkingGeminiCacheMode,
+} from './thinkingGeminiPromptCache'
+
+/** @deprecated Legacy — nutze tier-spezifische Keys via resolveThinkingGeminiContextCacheKey. */
+export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT =
+  'straton-thinking-draft-standard-gemini-v1' as const
+/** @deprecated Legacy — nutze tier-spezifische Keys via resolveThinkingGeminiContextCacheKey. */
+export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW =
+  'straton-thinking-review-standard-gemini-v1' as const
+/** @deprecated Legacy — nutze tier-spezifische Keys via resolveThinkingGeminiContextCacheKey. */
+export const GEMINI_CONTEXT_CACHE_THINKING_REPLY =
+  'straton-thinking-reply-standard-gemini-v1' as const
 
 /** Lernpfad: stabiler Systemprompt (Context Cache) — getrennt je Aufgabentyp. */
 export const GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC = 'straton-learn-setup-topic-gemini-v1' as const
@@ -70,4 +110,27 @@ export function resolveGeminiModelForInstantReply(
   instantAnalyze?: { escalate_model?: boolean } | null,
 ): GeminiChatModelId {
   return instantAnalyze?.escalate_model === true ? GEMINI_MODEL_FLASH : GEMINI_MODEL_FLASH_LITE
+}
+
+export function parseThinkingGeminiModelId(
+  value: unknown,
+  fallback: ThinkingGeminiModelId,
+): ThinkingGeminiModelId {
+  const model = typeof value === 'string' ? value.trim() : ''
+  if (THINKING_GEMINI_MODEL_IDS.includes(model as ThinkingGeminiModelId)) {
+    return model as ThinkingGeminiModelId
+  }
+  return fallback
+}
+
+export function resolveThinkingGeminiModel(
+  tier: 'standard' | 'rich',
+  config?: Partial<ThinkingGeminiModelsConfig> | null,
+): ThinkingGeminiModelId {
+  const standard = parseThinkingGeminiModelId(
+    config?.standard,
+    THINKING_GEMINI_MODEL_STANDARD_DEFAULT,
+  )
+  const rich = parseThinkingGeminiModelId(config?.rich, THINKING_GEMINI_MODEL_RICH_DEFAULT)
+  return tier === 'rich' ? rich : standard
 }

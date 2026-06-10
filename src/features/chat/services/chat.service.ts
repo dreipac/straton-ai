@@ -57,15 +57,18 @@ import {
   GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
   GEMINI_CONTEXT_CACHE_INTENT,
   GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
-  GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
-  GEMINI_CONTEXT_CACHE_THINKING_REPLY,
-  GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
   resolveLearnGeminiPromptCacheKey,
+  resolveThinkingGeminiContextCacheKey,
   resolveLearnOpenAiPromptCacheKey,
-  GEMINI_DEFAULT_CHAT_MODEL,
   resolveGeminiModelForInstantReply,
+  resolveThinkingGeminiModel,
 } from '../constants/geminiModels'
+import { buildThinkingReplyGeminiCachedSystem } from '../constants/thinkingGeminiPromptCache'
 import { ensureGeminiInstantFlagLoaded, isGeminiInstantEnabled } from './geminiInstantFlag'
+import {
+  ensureThinkingGeminiModelsLoaded,
+  getThinkingGeminiModelsConfig,
+} from './thinkingGeminiModelsFlag'
 import { env } from '../../../config/env'
 import { errorMessageFromUnknown, parseApiErrorField, sanitizeUserFacingAiError } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
@@ -129,10 +132,20 @@ import {
   THINKING_OPENAI_MODEL_CHAIN,
 } from '../constants/thinkingPipeline'
 import {
+  OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT_RICH,
+  OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW_RICH,
+  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY,
+  buildThinkingRichOpenAiCachedKernel,
+  buildThinkingRichOpenAiReplyStepPrompt,
+} from '../constants/thinkingOpenAiPromptCache'
+import {
   buildThinkingTaskTypeTurnBriefing,
+  resolveThinkingOutputTierForRouting,
   shouldRouteThinkingFinalToOpenAi,
+  shouldRouteThinkingRichToOpenAi,
   shouldSuppressThinkingMandatoryFollowUp,
   THINKING_FINAL_OPENAI_MODELS,
+  THINKING_RICH_OPENAI_MODELS,
 } from '../constants/thinkingTaskRouting'
 import {
   fallbackThinkingReviewResult,
@@ -892,9 +905,19 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   }
   const lastUserContentForThinking =
     lastUserMessage?.role === 'user' ? lastUserMessage.content : undefined
+  const thinkingOutputTierForGateway =
+    thinking && options?.thinkingAnalyze
+      ? resolveThinkingOutputTierForRouting(options.thinkingAnalyze, lastUserContentForThinking)
+      : 'standard'
+  const thinkingRichOpenAi =
+    thinking && shouldRouteThinkingRichToOpenAi(thinkingOutputTierForGateway)
   const thinkingFinalOpenAi =
     thinking &&
     shouldRouteThinkingFinalToOpenAi(options?.thinkingAnalyze, lastUserContentForThinking)
+  const thinkingGeminiCacheSplit =
+    thinking && isGeminiInstantEnabled() && !thinkingRichOpenAi && !thinkingDoc
+  const thinkingOpenAiRichCacheSplit = thinking && thinkingRichOpenAi && !thinkingDoc
+  const thinkingStaticCacheSplit = thinkingGeminiCacheSplit || thinkingOpenAiRichCacheSplit
   if (
     thinking &&
     thinkingClarifyPhase === 'final' &&
@@ -935,72 +958,117 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     lastUserMessage?.role === 'user' &&
     (!thinking || thinkingClarifyPhase === 'final')
-  if (includePromptCacheDynamicBlocks) {
+  const includeThinkingPromptCacheBlocks =
+    thinking &&
+    thinkingClarifyPhase === 'final' &&
+    thinkingStaticCacheSplit &&
+    lastUserMessage?.role === 'user'
+  if (includePromptCacheDynamicBlocks || includeThinkingPromptCacheBlocks) {
     lastUserTurnContextBlocks.unshift(
-      ...buildPromptCacheDynamicTurnBlocks({
-        isMainChat,
-        mainChatInstantPrompts,
-        modules: systemPromptModules,
-        profileIdentity: options?.profileIdentity,
-        userIntroduction: options?.userIntroduction,
-        subscriptionUsage: options?.subscriptionUsage,
-        webGroundingInstruction: mainChatWebGrounding,
-      }),
+      ...(includePromptCacheDynamicBlocks
+        ? buildPromptCacheDynamicTurnBlocks({
+            isMainChat,
+            mainChatInstantPrompts,
+            modules: systemPromptModules,
+            profileIdentity: options?.profileIdentity,
+            userIntroduction: options?.userIntroduction,
+            subscriptionUsage: options?.subscriptionUsage,
+            webGroundingInstruction: mainChatWebGrounding,
+          })
+        : []),
       ...buildPromptCacheSuppressTurnBlocks({
         mainChatInstantPrompts,
         instantAnalyze: options?.instantAnalyze,
+        thinkingGemini: thinkingStaticCacheSplit,
+        thinkingAnalyze: options?.thinkingAnalyze,
       }),
     )
   }
-  const thinkingBlock = thinking
+  const thinkingTurnInstruction = thinking
+    ? thinkingClarifyPhase === 'clarify'
+      ? getChatThinkingMandatoryClarifyTurnInstruction()
+      : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type, {
+          suppressMandatoryFollowUp: shouldSuppressThinkingMandatoryFollowUp(
+            options?.thinkingAnalyze,
+            lastUserContentForThinking,
+          ),
+          openAiFinal: thinkingFinalOpenAi,
+        })
+    : ''
+  const thinkingRichOpenAiFinalCache =
+    thinkingOpenAiRichCacheSplit && thinkingClarifyPhase === 'final'
+  const thinkingRichOpenAiStepBlock = thinkingRichOpenAiFinalCache
+    ? buildThinkingRichOpenAiReplyStepPrompt()
+    : ''
+  const thinkingDynamicSystemPrefix = thinkingRichOpenAiFinalCache
     ? [
-        getChatThinkingWorkflowInstruction(),
-        thinkingDoc ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
-        thinkingDoc ? '' : getChatThinkingMixedLayoutInstruction(),
-        thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
-        thinkingClarifyPhase === 'clarify'
-          ? getChatThinkingMandatoryClarifyTurnInstruction()
-          : getChatThinkingFinalAnswerTurnInstruction(options?.thinkingAnalyze?.task_type, {
-              suppressMandatoryFollowUp: shouldSuppressThinkingMandatoryFollowUp(
-                options?.thinkingAnalyze,
-                lastUserContentForThinking,
-              ),
-              openAiFinal: thinkingFinalOpenAi,
-            }),
+        baseQuiz,
+        options?.systemPrompt?.trim() ?? '',
+        learnChapterJsonRules,
+        excelChatHint,
+        wordChatHint,
+        pdfChatHint,
+        chartChatHint,
+        diagramChatHint,
+        mainChatThreadContinuity,
+        truthBlock,
+        toneBlock,
       ]
         .filter(Boolean)
         .join('\n\n')
     : ''
+  const thinkingBlock = thinking
+    ? thinkingStaticCacheSplit
+      ? thinkingOpenAiRichCacheSplit
+        ? buildThinkingRichOpenAiCachedKernel()
+        : buildThinkingReplyGeminiCachedSystem(thinkingOutputTierForGateway)
+      : [
+          getChatThinkingWorkflowInstruction(),
+          thinkingDoc ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
+          thinkingDoc ? '' : getChatThinkingMixedLayoutInstruction(),
+          thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
+          thinkingTurnInstruction,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+    : ''
+  const thinkingSupplementalSystem =
+    thinkingStaticCacheSplit && thinkingTurnInstruction
+      ? [thinkingTurnInstruction, thinkingClarifyPhase === 'clarify' ? getChatThinkingClarifyUiReminder() : getChatThinkingFinalAnswerUiReminder()]
+          .filter(Boolean)
+          .join('\n\n')
+      : ''
   const thinkingClarifyUiReminder =
-    thinkingClarifyPhase === 'clarify'
-      ? getChatThinkingClarifyUiReminder()
-      : thinkingClarifyPhase === 'final'
-        ? getChatThinkingFinalAnswerUiReminder()
-        : ''
+    thinkingStaticCacheSplit
+      ? ''
+      : thinkingClarifyPhase === 'clarify'
+        ? getChatThinkingClarifyUiReminder()
+        : thinkingClarifyPhase === 'final'
+          ? getChatThinkingFinalAnswerUiReminder()
+          : ''
   const combinedSystemPrompt = [
-    baseQuiz,
-    getSecretSafetyInstruction(),
-    getSwissGermanOrthographyInstruction(),
-    options?.systemPrompt?.trim() ?? '',
-    learnChapterJsonRules,
-    excelChatHint,
-    wordChatHint,
-    pdfChatHint,
-    chartChatHint,
-    diagramChatHint,
-    mainChatThreadContinuity,
-    truthBlock,
-    toneBlock,
-    thinkingBlock,
+    ...(thinkingRichOpenAiFinalCache ? [] : [baseQuiz]),
+    ...(thinkingStaticCacheSplit ? [] : [getSecretSafetyInstruction(), getSwissGermanOrthographyInstruction()]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [options?.systemPrompt?.trim() ?? '']),
+    ...(thinkingRichOpenAiFinalCache ? [] : [learnChapterJsonRules]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [excelChatHint]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [wordChatHint]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [pdfChatHint]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [chartChatHint]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [diagramChatHint]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [mainChatThreadContinuity]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [truthBlock]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [toneBlock]),
+    ...(thinkingRichOpenAiFinalCache ? [] : [thinkingBlock]),
     thinking
       ? ''
       : getAssistantMarkdownFormattingInstruction({
           replyTone,
           compact: presentationProfileForTurn?.compact === true,
         }),
-    thinking
+    thinking && !thinkingStaticCacheSplit
       ? getChatThinkingEmojiStyleInstruction()
-      : !options?.userRequestedWord && !options?.userRequestedPdf
+      : !thinking && !options?.userRequestedWord && !options?.userRequestedPdf
         ? getAssistantEmojiStyleInstruction({ replyTone })
         : '',
     thinkingClarifyUiReminder,
@@ -1014,11 +1082,25 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
           typeof content === 'string' ? scrubMainChatInlineImagesPreservingBildData(content) : ''
       : (content: string) => content
 
-  return [
-    {
+  const gatewaySystemMessages: GatewayMessage[] =
+    thinkingRichOpenAiFinalCache && thinkingBlock
+      ? [{ role: 'system', content: thinkingBlock }]
+      : [{ role: 'system', content: combinedSystemPrompt }]
+  if (thinkingRichOpenAiStepBlock) {
+    gatewaySystemMessages.push({
       role: 'system',
-      content: combinedSystemPrompt,
-    },
+      content: thinkingRichOpenAiStepBlock,
+    })
+  }
+  if (thinkingSupplementalSystem) {
+    gatewaySystemMessages.push({
+      role: 'system',
+      content: thinkingSupplementalSystem,
+    })
+  }
+
+  return [
+    ...gatewaySystemMessages,
     ...threadMessages.map((message) => {
       let content = scrubDataImages(message.content)
       if (message.role === 'user' && isMainChat) {
@@ -1051,7 +1133,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         lastUserMessage &&
         message.id === lastUserMessage.id
       ) {
-        const thinkingBlocks = [...thinkingIntakeBlocks]
+        const thinkingBlocks = [
+          ...(thinkingDynamicSystemPrefix ? [thinkingDynamicSystemPrefix] : []),
+          ...thinkingIntakeBlocks,
+          ...(thinkingClarifyPhase === 'final' ? lastUserTurnContextBlocks : []),
+        ]
         const docBlock = buildThinkingDocumentUserContextBlock(message.content)
         if (docBlock) {
           thinkingBlocks.push(docBlock)
@@ -1459,6 +1545,14 @@ function buildChatCompletionRequestBody(
     isSummaryStyleDocumentExport(options?.instantAnalyze, lastUserTextForThinkingRouting || undefined)
   const summaryInstantOpenAi =
     shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking) || documentExportSummaryInstant
+  const thinkingOutputTier =
+    thinking && options?.thinkingAnalyze
+      ? resolveThinkingOutputTierForRouting(
+          options.thinkingAnalyze,
+          lastUserTextForThinkingRouting,
+        )
+      : 'standard'
+  const thinkingRichOpenAi = thinking && shouldRouteThinkingRichToOpenAi(thinkingOutputTier)
   const thinkingFinalOpenAi =
     thinking &&
     shouldRouteThinkingFinalToOpenAi(options?.thinkingAnalyze, lastUserTextForThinkingRouting)
@@ -1466,7 +1560,11 @@ function buildChatCompletionRequestBody(
     ? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
     : null
   const mainProvider = thinking
-    ? providerForThinking({ useOpenAiFinal: thinkingFinalOpenAi })
+    ? thinkingRichOpenAi
+      ? 'openai'
+      : isGeminiInstantEnabled()
+        ? 'gemini'
+        : providerForThinking({ useOpenAiFinal: thinkingFinalOpenAi })
     : custom && customModelMeta
       ? customModelMeta.provider
       : summaryInstantOpenAi
@@ -1497,29 +1595,35 @@ function buildChatCompletionRequestBody(
   if (summaryInstantOpenAi) {
     body.instantTaskType = 'summary'
   }
-  if (thinkingFinalOpenAi) {
-    body.thinkingFinalOpenAi = true
+  if (thinking) {
+    body.thinkingOutputTier = thinkingOutputTier
     if (options?.thinkingAnalyze?.task_type) {
       body.thinkingTaskType = options.thinkingAnalyze.task_type
     }
+    if (thinkingRichOpenAi) {
+      body.thinkingRichOpenAi = true
+    }
+  }
+  if (thinkingFinalOpenAi && !thinkingRichOpenAi) {
+    body.thinkingFinalOpenAi = true
   }
   const routesGeminiInstantMain =
     !thinking &&
     !summaryInstantOpenAi &&
     !custom &&
     isGeminiInstantEnabled()
-  if (mainProvider === 'gemini' || routesGeminiInstantMain) {
+  if ((mainProvider === 'gemini' || routesGeminiInstantMain) && !thinkingRichOpenAi) {
     body.geminiModel = thinking
-      ? GEMINI_DEFAULT_CHAT_MODEL
+      ? resolveThinkingGeminiModel(thinkingOutputTier, getThinkingGeminiModelsConfig())
       : resolveGeminiModelForInstantReply(options?.instantAnalyze)
     body.geminiPromptCacheKey = thinking
-      ? GEMINI_CONTEXT_CACHE_THINKING_REPLY
+      ? resolveThinkingGeminiContextCacheKey('reply', thinkingOutputTier)
       : GEMINI_CONTEXT_CACHE_INSTANT_REPLY
   }
   if (meta.provider === 'openai') {
     if (!options?.useLearnPathModel && thinking) {
-      body.openAiModels = thinkingFinalOpenAi
-        ? [...THINKING_FINAL_OPENAI_MODELS]
+      body.openAiModels = thinkingRichOpenAi || thinkingFinalOpenAi
+        ? [...THINKING_RICH_OPENAI_MODELS]
         : [...THINKING_OPENAI_MODEL_CHAIN]
     } else if (!options?.useLearnPathModel && !thinking && summaryInstantOpenAi) {
       body.openAiModels = [...MAIN_CHAT_SUMMARY_OPENAI_MODELS]
@@ -1545,17 +1649,24 @@ function buildChatCompletionRequestBody(
   }
   if (meta.provider === 'openai') {
     body.promptCacheKey = thinking
-      ? OPENAI_PROMPT_CACHE_KEY_THINKING
+      ? thinkingRichOpenAi
+        ? OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY
+        : OPENAI_PROMPT_CACHE_KEY_THINKING
       : mainChatPromptCacheKey(options?.mainChatThreadId)
     body.promptCacheRetention = '24h'
   }
   body.maxTokens = thinking
-    ? options?.thinkingAnalyze?.task_type === 'document_summary'
+    ? thinkingOutputTier === 'rich' &&
+        options?.thinkingAnalyze?.task_type === 'document_summary'
       ? MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS
       : thinkingFinalOpenAi &&
           userMessageRequestsDirectAnswer(lastUserTextForThinkingRouting)
         ? resolveMainChatMaxOutputTokens({ task_type: 'mc_solve' })
-        : THINKING_MAX_OUTPUT_TOKENS
+        : thinkingOutputTier === 'rich'
+          ? THINKING_MAX_OUTPUT_TOKENS
+          : userMessageRequestsDirectAnswer(lastUserTextForThinkingRouting)
+            ? resolveMainChatMaxOutputTokens({ task_type: 'mc_solve' })
+            : THINKING_MAX_OUTPUT_TOKENS
     : resolveMainChatMaxOutputTokens(options?.instantAnalyze)
   if (thinking) {
     body.billingConsumeThinkingCredit = true
@@ -1671,6 +1782,7 @@ async function getAssistantReply(messages: ChatMessage[], options?: SendMessageO
   throwIfAborted(options?.signal)
   if (usesGatewayAi() && !options?.useLearnPathModel) {
     await ensureGeminiInstantFlagLoaded()
+    await ensureThinkingGeminiModelsLoaded()
   }
   if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
@@ -1888,6 +2000,7 @@ export async function sendMessageStreaming(
 
   if (usesGatewayAi() && !options?.useLearnPathModel) {
     await ensureGeminiInstantFlagLoaded()
+    await ensureThinkingGeminiModelsLoaded()
   }
 
   if (!usesGatewayAi()) {
@@ -2239,6 +2352,7 @@ export async function thinkingAnalyzeUserMessage(params: {
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
   isContinuationFollowUp?: boolean
   hasVisionAttachment?: boolean
+  hasDocumentFileAttachment?: boolean
   folderContext?: ChatThreadFolderContext | null
   signal?: AbortSignal
 }): Promise<ThinkingAnalyzeInvokeResult> {
@@ -2276,7 +2390,9 @@ export async function thinkingAnalyzeUserMessage(params: {
 
   try {
     await ensureGeminiInstantFlagLoaded()
+    await ensureThinkingGeminiModelsLoaded()
     const useGemini = isGeminiInstantEnabled()
+    const thinkingModels = getThinkingGeminiModelsConfig()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
@@ -2284,7 +2400,7 @@ export async function thinkingAnalyzeUserMessage(params: {
         provider: useGemini ? 'gemini' : 'openai',
         ...(useGemini
           ? {
-              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
+              geminiModel: resolveThinkingGeminiModel('standard', thinkingModels),
               geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
             }
           : {
@@ -2310,6 +2426,7 @@ export async function thinkingAnalyzeUserMessage(params: {
       const final = applyThinkingAnalyzeHeuristics(trimmed, parsed, {
         isContinuationFollowUp: params.isContinuationFollowUp,
         hasVisionAttachment: hasVision,
+        hasDocumentFileAttachment: params.hasDocumentFileAttachment,
         availableFolderFileNames: folderFileNames,
       })
       return {
@@ -2327,6 +2444,7 @@ export async function thinkingAnalyzeUserMessage(params: {
     analyze: applyThinkingAnalyzeHeuristics(trimmed, fallback, {
       isContinuationFollowUp: params.isContinuationFollowUp,
       hasVisionAttachment: hasVision,
+      hasDocumentFileAttachment: params.hasDocumentFileAttachment,
       availableFolderFileNames: folderFileNames,
     }),
     source: 'fallback',
@@ -2366,21 +2484,34 @@ export async function thinkingDraftForTurn(params: {
 
   try {
     await ensureGeminiInstantFlagLoaded()
-    const useGemini = isGeminiInstantEnabled()
+    await ensureThinkingGeminiModelsLoaded()
+    const outputTier = resolveThinkingOutputTierForRouting(params.analyze, trimmed)
+    const routeRichOpenAi = shouldRouteThinkingRichToOpenAi(outputTier)
+    const useGemini = isGeminiInstantEnabled() && !routeRichOpenAi
+    const thinkingModels = getThinkingGeminiModelsConfig()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'thinking_draft',
         provider: useGemini ? 'gemini' : 'openai',
-        ...(useGemini
+        thinkingOutputTier: outputTier,
+        thinkingTaskType: params.analyze.task_type,
+        ...(routeRichOpenAi
           ? {
-              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
-              geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
-            }
-          : {
-              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT,
+              thinkingRichOpenAi: true,
+              openAiModels: [...THINKING_RICH_OPENAI_MODELS],
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT_RICH,
               promptCacheRetention: '24h',
-            }),
+            }
+          : useGemini
+            ? {
+                geminiModel: resolveThinkingGeminiModel(outputTier, thinkingModels),
+                geminiPromptCacheKey: resolveThinkingGeminiContextCacheKey('draft', outputTier),
+              }
+            : {
+                promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT,
+                promptCacheRetention: '24h',
+              }),
         payload: {
           userMessage: trimmed,
           contextBlock,
@@ -2437,21 +2568,34 @@ export async function thinkingReviewDraft(params: {
 
   try {
     await ensureGeminiInstantFlagLoaded()
-    const useGemini = isGeminiInstantEnabled()
+    await ensureThinkingGeminiModelsLoaded()
+    const outputTier = resolveThinkingOutputTierForRouting(params.analyze, trimmed)
+    const routeRichOpenAi = shouldRouteThinkingRichToOpenAi(outputTier)
+    const useGemini = isGeminiInstantEnabled() && !routeRichOpenAi
+    const thinkingModels = getThinkingGeminiModelsConfig()
     const supabase = getSupabaseClient()
     const { data, error, response } = await supabase.functions.invoke('chat-completion', {
       body: {
         mode: 'thinking_review',
         provider: useGemini ? 'gemini' : 'openai',
-        ...(useGemini
+        thinkingOutputTier: outputTier,
+        thinkingTaskType: params.analyze.task_type,
+        ...(routeRichOpenAi
           ? {
-              geminiModel: GEMINI_DEFAULT_CHAT_MODEL,
-              geminiPromptCacheKey: GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
-            }
-          : {
-              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW,
+              thinkingRichOpenAi: true,
+              openAiModels: [...THINKING_RICH_OPENAI_MODELS],
+              promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW_RICH,
               promptCacheRetention: '24h',
-            }),
+            }
+          : useGemini
+            ? {
+                geminiModel: resolveThinkingGeminiModel(outputTier, thinkingModels),
+                geminiPromptCacheKey: resolveThinkingGeminiContextCacheKey('review', outputTier),
+              }
+            : {
+                promptCacheKey: OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW,
+                promptCacheRetention: '24h',
+              }),
         payload: {
           userMessage: trimmed,
           analyzeBriefing,

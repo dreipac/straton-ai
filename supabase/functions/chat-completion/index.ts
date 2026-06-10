@@ -8,6 +8,17 @@ import { buildInstantAnalyzeDiagramGenerateSection } from './diagramExportPrompt
 import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportPrompts.ts'
 import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 import {
+  buildThinkingAnalyzeGeminiCachedSystemEdge,
+  buildThinkingDraftGeminiCachedSystemEdge,
+  buildThinkingReviewGeminiCachedSystemEdge,
+  resolveThinkingGeminiContextCacheKeyEdge,
+} from './thinkingGeminiPromptCache.ts'
+import {
+  buildThinkingRichOpenAiCachedKernelEdge,
+  buildThinkingRichOpenAiDraftStepPromptEdge,
+  buildThinkingRichOpenAiReviewStepPromptEdge,
+} from './thinkingOpenAiPromptCache.ts'
+import {
   geminiChatCompletion,
   GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
 } from './geminiChat.ts'
@@ -15,9 +26,6 @@ import { geminiGenerateText, isGeminiTransientFailure, type GeminiModelId } from
 import {
   GEMINI_CONTEXT_CACHE_INTENT,
   GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
-  GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
-  GEMINI_CONTEXT_CACHE_THINKING_REPLY,
-  GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
   GEMINI_DEFAULT_CHAT_MODEL,
   GEMINI_MODEL_FLASH,
   GEMINI_MODEL_FLASH_LITE,
@@ -27,8 +35,12 @@ import {
   GEMINI_CONTEXT_CACHE_LEARN_HELP,
   resolveLearnGeminiContextCacheKey,
   fetchGeminiInstantEnabled,
+  fetchActiveThinkingGeminiModels,
   isGeminiInstantEnabled,
+  resolveThinkingGeminiModelEdge,
+  sanitizeThinkingOutputTierEdge,
   setRequestGeminiInstantEnabled,
+  type ThinkingGeminiModelsConfigEdge,
 } from './geminiModels.ts'
 
 declare const Deno: {
@@ -203,7 +215,14 @@ function resolveOpenAiPromptCacheForRequest(
     const key = clientKey ?? 'straton-learn-openai-v1'
     return { key, retention: clientRetention ?? '24h' }
   }
-  return defaults[mode]
+  const def = defaults[mode]
+  if (!def && !clientKey) {
+    return undefined
+  }
+  return {
+    key: clientKey ?? def!.key,
+    retention: clientRetention ?? def?.retention ?? '24h',
+  }
 }
 
 type OpenAiVisionContentPart =
@@ -1489,6 +1508,8 @@ function openAiChatRequestBody(
     maxOutputTokens?: number
     /** Client-Feld `visionInlineDataUrl` — Fallback wenn `[BildData]`-Parsing fehlschlägt. */
     visionOverrideUrl?: string | null
+    /** JSON-only-Antwort (Thinking-Review). */
+    jsonObjectResponse?: boolean
   },
 ): Record<string, unknown> {
   const visionOverride =
@@ -1590,6 +1611,9 @@ function openAiChatRequestBody(
   if (typeof options?.maxOutputTokens === 'number' && Number.isFinite(options.maxOutputTokens)) {
     attachOpenAiMaxOutputTokens(body, model, options.maxOutputTokens)
   }
+  if (options?.jsonObjectResponse === true) {
+    body.response_format = { type: 'json_object' }
+  }
   return body
 }
 
@@ -1656,6 +1680,7 @@ async function callOpenAi(
   promptCache?: OpenAiPromptCacheOptions,
   maxOutputTokens?: number,
   visionOverrideUrl?: string | null,
+  jsonObjectResponse?: boolean,
 ): Promise<AiCallResult> {
   const modelsToTry =
     Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
@@ -1682,6 +1707,7 @@ async function callOpenAi(
               promptCache: activePromptCache,
               maxOutputTokens,
               visionOverrideUrl,
+              jsonObjectResponse,
             }),
           ),
         })
@@ -2531,7 +2557,32 @@ function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: st
 const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 480
 const THINKING_DRAFT_MAX_OUTPUT_TOKENS = 7200
 const THINKING_REVIEW_MAX_OUTPUT_TOKENS = 420
+const THINKING_REVIEW_RICH_MAX_OUTPUT_TOKENS = 2048
+const THINKING_RICH_OPENAI_MODELS = ['gpt-5-mini'] as const
 const THINKING_PIPELINE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
+
+function resolveThinkingOpenAiModelsForRequest(
+  outputTier: 'standard' | 'rich',
+  clientModels: string[] | null,
+): string[] {
+  if (outputTier === 'rich') {
+    return clientModels?.length ? clientModels : [...THINKING_RICH_OPENAI_MODELS]
+  }
+  return [...THINKING_PIPELINE_OPENAI_MODELS]
+}
+
+function resolveThinkingReviewMaxOutputTokens(outputTier: 'standard' | 'rich'): number {
+  return outputTier === 'rich' ? THINKING_REVIEW_RICH_MAX_OUTPUT_TOKENS : THINKING_REVIEW_MAX_OUTPUT_TOKENS
+}
+
+function buildThinkingRichOpenAiSystemMessages(
+  stepPrompt: string,
+): InputMessage[] {
+  return [
+    { role: 'system', content: buildThinkingRichOpenAiCachedKernelEdge() },
+    { role: 'system', content: stepPrompt },
+  ]
+}
 
 type ThinkingAnalyzePayloadEdge = {
   task_type:
@@ -2544,6 +2595,8 @@ type ThinkingAnalyzePayloadEdge = {
     | 'general_howto'
     | 'other'
   complexity: 'low' | 'medium' | 'high'
+  output_tier: 'standard' | 'rich'
+  layout_hint: 'cards' | 'stepwise' | 'tabular' | 'narrative'
   intent: string
   assumptions: string[]
   risks: string[]
@@ -2639,9 +2692,25 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
     dims = dims.slice(0, 1)
     clarify_rounds_planned = 1
   }
+  let output_tier = sanitizeThinkingOutputTierEdge(o.output_tier)
+  if (task_type === 'document_summary' || complexity === 'high') {
+    output_tier = 'rich'
+  }
+  const layoutRaw = typeof o.layout_hint === 'string' ? o.layout_hint.trim() : ''
+  const layout_hint =
+    layoutRaw === 'cards' ||
+    layoutRaw === 'stepwise' ||
+    layoutRaw === 'tabular' ||
+    layoutRaw === 'narrative'
+      ? layoutRaw
+      : task_type === 'document_summary'
+        ? 'cards'
+        : 'narrative'
   return {
     task_type,
     complexity,
+    output_tier,
+    layout_hint,
     intent,
     assumptions,
     risks,
@@ -2653,6 +2722,17 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
     web_query,
     web_reason,
   }
+}
+
+function resolveThinkingOutputTierForRequest(
+  outputTier: unknown,
+  thinkingTaskType: unknown,
+): 'standard' | 'rich' {
+  const taskType = typeof thinkingTaskType === 'string' ? thinkingTaskType.trim() : ''
+  if (taskType === 'document_summary') {
+    return 'rich'
+  }
+  return sanitizeThinkingOutputTierEdge(outputTier)
 }
 
 function sanitizeThinkingReviewPayload(raw: unknown): ThinkingReviewPayloadEdge | null {
@@ -2731,16 +2811,17 @@ function parseThinkingAnalyzeResult(raw: string): ThinkingAnalyzePayloadEdge {
 async function thinkingAnalyzeWithGemini(
   userMessage: string,
   contextBlock: string,
+  model: GeminiModelId,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
-  const system = buildThinkingAnalyzeSystemPromptBase('Gemini 3.1 Flash Lite')
+  const system = buildThinkingAnalyzeGeminiCachedSystemEdge()
   const userParts = [
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
-  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
-    model: GEMINI_MODEL_FLASH_LITE,
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
     systemInstruction: withSwissOrthography(system),
-    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+    contextCacheKey: resolveThinkingGeminiContextCacheKeyEdge('analyze'),
     maxOutputTokens: THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
     temperature: 0.15,
   })
@@ -2749,7 +2830,7 @@ async function thinkingAnalyzeWithGemini(
     analyze,
     usage: {
       text,
-      model,
+      model: usedModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
@@ -2763,23 +2844,24 @@ async function thinkingDraftWithGemini(
   userMessage: string,
   contextBlock: string,
   analyzeBriefing: string,
+  model: GeminiModelId,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientCacheKey?: string,
 ): Promise<{ draft: string; usage: AiCallResult }> {
-  const system = [
-    'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking (Gemini 3.1 Flash Lite).',
-    'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
-    'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
-    'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
-    'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
-  ].join('\n')
+  const system = buildThinkingDraftGeminiCachedSystemEdge(outputTier)
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
-  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
-    model: GEMINI_MODEL_FLASH_LITE,
+  const contextCacheKey =
+    typeof clientCacheKey === 'string' && clientCacheKey.trim()
+      ? clientCacheKey.trim()
+      : resolveThinkingGeminiContextCacheKeyEdge('draft', outputTier)
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
     systemInstruction: withSwissOrthography(system),
-    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_DRAFT,
+    contextCacheKey,
     maxOutputTokens: THINKING_DRAFT_MAX_OUTPUT_TOKENS,
     temperature: 0.35,
   })
@@ -2787,7 +2869,7 @@ async function thinkingDraftWithGemini(
     draft: text.trim(),
     usage: {
       text,
-      model,
+      model: usedModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
@@ -2801,22 +2883,24 @@ async function thinkingReviewWithGemini(
   userMessage: string,
   analyzeBriefing: string,
   draftText: string,
+  model: GeminiModelId,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientCacheKey?: string,
 ): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
-  const system = [
-    'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse (Gemini 3.1 Flash Lite).',
-    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
-    'Sei streng bei leeren, generischen oder falschen Entwürfen.',
-    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
-  ].join('\n')
+  const system = buildThinkingReviewGeminiCachedSystemEdge(outputTier)
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
     `Nutzeranfrage:\n${userMessage}\n\n`,
     `Entwurf:\n${draftText}`,
   ].join('')
-  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
-    model: GEMINI_MODEL_FLASH_LITE,
+  const contextCacheKey =
+    typeof clientCacheKey === 'string' && clientCacheKey.trim()
+      ? clientCacheKey.trim()
+      : resolveThinkingGeminiContextCacheKeyEdge('review', outputTier)
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
     systemInstruction: withSwissOrthography(system),
-    contextCacheKey: GEMINI_CONTEXT_CACHE_THINKING_REVIEW,
+    contextCacheKey,
     maxOutputTokens: THINKING_REVIEW_MAX_OUTPUT_TOKENS,
     temperature: 0.15,
   })
@@ -2825,7 +2909,7 @@ async function thinkingReviewWithGemini(
     review,
     usage: {
       text,
-      model,
+      model: usedModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
@@ -2840,10 +2924,12 @@ async function thinkingAnalyzeWithAi(
   userMessage: string,
   contextBlock: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
+  thinkingModels?: ThinkingGeminiModelsConfigEdge,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
   if (isGeminiInstantEnabled()) {
     try {
-      return await thinkingAnalyzeWithGemini(userMessage, contextBlock)
+      const model = resolveThinkingGeminiModelEdge('standard', thinkingModels)
+      return await thinkingAnalyzeWithGemini(userMessage, contextBlock, model)
     } catch (geminiErr) {
       if (!isGeminiTransientFailure(geminiErr)) {
         throw geminiErr
@@ -2877,10 +2963,25 @@ async function thinkingDraftWithAi(
   contextBlock: string,
   analyzeBriefing: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
+  thinkingModels?: ThinkingGeminiModelsConfigEdge,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientGeminiModel?: unknown,
+  clientGeminiCacheKey?: unknown,
+  openAiModels?: string[],
 ): Promise<{ draft: string; usage: AiCallResult }> {
-  if (isGeminiInstantEnabled()) {
+  if (outputTier !== 'rich' && isGeminiInstantEnabled()) {
     try {
-      return await thinkingDraftWithGemini(userMessage, contextBlock, analyzeBriefing)
+      const model = resolveThinkingGeminiModelEdge(outputTier, thinkingModels, clientGeminiModel)
+      const cacheKey =
+        typeof clientGeminiCacheKey === 'string' ? clientGeminiCacheKey : undefined
+      return await thinkingDraftWithGemini(
+        userMessage,
+        contextBlock,
+        analyzeBriefing,
+        model,
+        outputTier,
+        cacheKey,
+      )
     } catch (geminiErr) {
       if (!isGeminiTransientFailure(geminiErr)) {
         throw geminiErr
@@ -2888,26 +2989,36 @@ async function thinkingDraftWithAi(
       console.warn('[chat-completion] thinking_draft gemini unavailable, fallback openai', geminiErr)
     }
   }
-  const system = [
-    'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
-    'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
-    'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
-    'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
-    'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
-  ].join('\n')
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
-  const messages: InputMessage[] = [
-    { role: 'system', content: withSwissOrthography(system) },
-    { role: 'user', content: userParts.trim() },
-  ]
+  const messages: InputMessage[] =
+    outputTier === 'rich'
+      ? [
+          ...buildThinkingRichOpenAiSystemMessages(buildThinkingRichOpenAiDraftStepPromptEdge()),
+          { role: 'user', content: userParts.trim() },
+        ]
+      : [
+          {
+            role: 'system',
+            content: withSwissOrthography(
+              [
+                'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
+                'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
+                'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
+                'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
+                'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
+              ].join('\n'),
+            ),
+          },
+          { role: 'user', content: userParts.trim() },
+        ]
   const usage = await callOpenAi(
     messages,
     apiKey,
-    [...THINKING_PIPELINE_OPENAI_MODELS],
+    resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null),
     openAiPromptCache,
     THINKING_DRAFT_MAX_OUTPUT_TOKENS,
   )
@@ -2934,10 +3045,25 @@ async function thinkingReviewWithAi(
   analyzeBriefing: string,
   draftText: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
+  thinkingModels?: ThinkingGeminiModelsConfigEdge,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientGeminiModel?: unknown,
+  clientGeminiCacheKey?: unknown,
+  openAiModels?: string[],
 ): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
-  if (isGeminiInstantEnabled()) {
+  if (outputTier !== 'rich' && isGeminiInstantEnabled()) {
     try {
-      return await thinkingReviewWithGemini(userMessage, analyzeBriefing, draftText)
+      const model = resolveThinkingGeminiModelEdge(outputTier, thinkingModels, clientGeminiModel)
+      const cacheKey =
+        typeof clientGeminiCacheKey === 'string' ? clientGeminiCacheKey : undefined
+      return await thinkingReviewWithGemini(
+        userMessage,
+        analyzeBriefing,
+        draftText,
+        model,
+        outputTier,
+        cacheKey,
+      )
     } catch (geminiErr) {
       if (!isGeminiTransientFailure(geminiErr)) {
         throw geminiErr
@@ -2945,38 +3071,46 @@ async function thinkingReviewWithAi(
       console.warn('[chat-completion] thinking_review gemini unavailable, fallback openai', geminiErr)
     }
   }
-  const system = [
-    'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
-    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
-    'Sei streng bei leeren, generischen oder falschen Entwürfen.',
-    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
-  ].join('\n')
   const userParts = [
     analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
     `Nutzeranfrage:\n${userMessage}\n\n`,
     `Entwurf:\n${draftText}`,
   ].join('')
-  const messages: InputMessage[] = [
-    { role: 'system', content: withSwissOrthography(system) },
-    { role: 'user', content: userParts.trim() },
-  ]
+  const messages: InputMessage[] =
+    outputTier === 'rich'
+      ? [
+          ...buildThinkingRichOpenAiSystemMessages(buildThinkingRichOpenAiReviewStepPromptEdge()),
+          { role: 'user', content: userParts.trim() },
+        ]
+      : [
+          {
+            role: 'system',
+            content: withSwissOrthography(
+              [
+                'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
+                'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
+                'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+                'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
+              ].join('\n'),
+            ),
+          },
+          { role: 'user', content: userParts.trim() },
+        ]
   const usage = await callOpenAi(
     messages,
     apiKey,
-    [...THINKING_PIPELINE_OPENAI_MODELS],
+    resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null),
     openAiPromptCache,
-    THINKING_REVIEW_MAX_OUTPUT_TOKENS,
+    resolveThinkingReviewMaxOutputTokens(outputTier),
+    null,
+    outputTier === 'rich',
   )
   const review = parseThinkingReviewResult(usage.text)
   return { review, usage }
 }
 
 function sanitizeGeminiModelOverride(value: unknown): GeminiModelId {
-  const m = typeof value === 'string' ? value.trim() : ''
-  if (m === GEMINI_MODEL_FLASH) {
-    return GEMINI_MODEL_FLASH
-  }
-  return GEMINI_MODEL_FLASH_LITE
+  return resolveThinkingGeminiModelEdge('standard', null, value)
 }
 
 async function instantAnalyzeWithGemini(
@@ -2994,8 +3128,9 @@ async function instantAnalyzeWithGemini(
     'task_type: mc_solve | quiz_generate | explanation | summary.',
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
     'mc_solve: MC/Auswahlfrage lösen → chat.short_answer. quiz_generate: Quiz/Fragen erzeugen.',
-    'summary: nur expliziter Zusammenfassungswunsch (fasse zusammen/überblick/ausführliche Zusammenfassung) — **nicht** «siehst du den Inhalt?».',
-    'summary + document: «ausführliches/zusammenfassendes PDF/Word» → category document, action pdf_generate/word_generate, **task_type summary**.',
+    'summary: expliziter Zusammenfassungswunsch (fasse zusammen/Zusammenfassung/überblick/mach eine Zusammenfassung) — **nicht** «siehst du den Inhalt?».',
+    'summary: gleiche inhaltliche Tiefe mit oder ohne «ausführlich» — bei [Datei:…] integriertes Lernskript (Themen, Fragen, Übungen ausarbeiten), kein Meta-«deckt/thematisiert».',
+    'summary + document: «ausführliches/zusammenfassendes PDF/Word» oder «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
     'explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → chat.answer, short_answer — nur Sichtbarkeit, **kein** summary.',
     'Ordner-Quellen: Kontext «Ordner-Quellen verfügbar» + Nutzer will Dateien/Material → use_folder_sources true, task_type summary bei Zusammenfassung; sonst false.',
     'explanation: «über was geht es im Dokument?», Thema-Frage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
@@ -3735,13 +3870,18 @@ serve(async (req) => {
       }
     }
 
-    if (
-      mode === 'chat' &&
-      provider === 'openai' &&
-      body.billingConsumeThinkingCredit === true &&
-      !isGeminiInstantEnabled()
-    ) {
-      openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
+    if (mode === 'chat' && provider === 'openai' && body.billingConsumeThinkingCredit === true) {
+      const thinkingTierForModels = resolveThinkingOutputTierForRequest(
+        body.thinkingOutputTier,
+        body.thinkingTaskType,
+      )
+      const thinkingRichChat =
+        body.thinkingRichOpenAi === true || thinkingTierForModels === 'rich'
+      if (thinkingRichChat) {
+        openAiModels = resolveThinkingOpenAiModelsForRequest('rich', openAiModelsOverride)
+      } else if (!isGeminiInstantEnabled()) {
+        openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
+      }
     }
 
     let apiKey = await getProviderApiKey(provider)
@@ -3881,6 +4021,7 @@ serve(async (req) => {
       if (!analyzePayload) {
         return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
       }
+      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
       const openAiKey = await getProviderApiKey('openai')
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'thinking_analyze',
@@ -3892,6 +4033,7 @@ serve(async (req) => {
         analyzePayload.userMessage,
         analyzePayload.contextBlock,
         openAiPc,
+        thinkingGeminiModels,
       )
       await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
       return jsonResponse({ analyze })
@@ -3902,20 +4044,37 @@ serve(async (req) => {
       if (!draftPayload) {
         return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
       }
+      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
+      const thinkingOutputTier = resolveThinkingOutputTierForRequest(
+        body.thinkingOutputTier,
+        body.thinkingTaskType,
+      )
       const openAiKey = await getProviderApiKey('openai')
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'thinking_draft',
         clientPromptCacheKey,
         clientPromptCacheRetention,
       )
+      const thinkingRichModels = sanitizeOpenAiModelsOverride(body.openAiModels)
       const { draft, usage } = await thinkingDraftWithAi(
         openAiKey,
         draftPayload.userMessage,
         draftPayload.contextBlock,
         draftPayload.analyzeBriefing,
         openAiPc,
+        thinkingGeminiModels,
+        thinkingOutputTier,
+        body.geminiModel,
+        body.geminiPromptCacheKey,
+        thinkingRichModels ?? undefined,
       )
-      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      await tryLogTokenUsage(
+        admin,
+        user.id,
+        thinkingOutputTier === 'rich' ? 'openai' : isGeminiInstantEnabled() ? 'gemini' : 'openai',
+        mode,
+        usage,
+      )
       return jsonResponse({ draft })
     }
 
@@ -3924,20 +4083,37 @@ serve(async (req) => {
       if (!reviewPayload) {
         return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
       }
+      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
+      const thinkingOutputTier = resolveThinkingOutputTierForRequest(
+        body.thinkingOutputTier,
+        body.thinkingTaskType,
+      )
       const openAiKey = await getProviderApiKey('openai')
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'thinking_review',
         clientPromptCacheKey,
         clientPromptCacheRetention,
       )
+      const thinkingRichModels = sanitizeOpenAiModelsOverride(body.openAiModels)
       const { review, usage } = await thinkingReviewWithAi(
         openAiKey,
         reviewPayload.userMessage,
         reviewPayload.analyzeBriefing,
         reviewPayload.draftText,
         openAiPc,
+        thinkingGeminiModels,
+        thinkingOutputTier,
+        body.geminiModel,
+        body.geminiPromptCacheKey,
+        thinkingRichModels ?? undefined,
       )
-      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      await tryLogTokenUsage(
+        admin,
+        user.id,
+        thinkingOutputTier === 'rich' ? 'openai' : isGeminiInstantEnabled() ? 'gemini' : 'openai',
+        mode,
+        usage,
+      )
       return jsonResponse({ review })
     }
 
@@ -4071,22 +4247,40 @@ serve(async (req) => {
       }
     }
 
-    const geminiModelOverride = sanitizeGeminiModelOverride(body.geminiModel)
+    const thinkingGeminiModelsForChat =
+      mode === 'chat' && body.billingConsumeThinkingCredit === true
+        ? await fetchActiveThinkingGeminiModels(admin)
+        : null
+    const thinkingOutputTierForChat = resolveThinkingOutputTierForRequest(
+      body.thinkingOutputTier,
+      body.thinkingTaskType,
+    )
+    const geminiModelOverride =
+      mode === 'chat' &&
+      body.billingConsumeThinkingCredit === true &&
+      isGeminiInstantEnabled()
+        ? resolveThinkingGeminiModelEdge(
+            thinkingOutputTierForChat,
+            thinkingGeminiModelsForChat,
+            body.geminiModel,
+          )
+        : sanitizeGeminiModelOverride(body.geminiModel)
     const geminiPromptCacheKey = sanitizePromptCacheKey(body.geminiPromptCacheKey)
-    const thinkingFinalOpenAi = body.thinkingFinalOpenAi === true
+    const thinkingRichOpenAi =
+      body.billingConsumeThinkingCredit === true &&
+      (body.thinkingRichOpenAi === true || thinkingOutputTierForChat === 'rich')
     const useGeminiThinkingChat =
       mode === 'chat' &&
       body.billingConsumeThinkingCredit === true &&
       isGeminiInstantEnabled() &&
       provider !== 'anthropic' &&
-      !thinkingFinalOpenAi
+      !thinkingRichOpenAi
 
     if (useGeminiThinkingChat) {
       await getProviderApiKey('gemini')
       const thinkingCacheKey =
-        geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_THINKING_REPLY
-          ? GEMINI_CONTEXT_CACHE_THINKING_REPLY
-          : geminiPromptCacheKey ?? GEMINI_CONTEXT_CACHE_THINKING_REPLY
+        geminiPromptCacheKey ??
+        resolveThinkingGeminiContextCacheKeyEdge('reply', thinkingOutputTierForChat)
       try {
         const geminiResult = await geminiChatCompletion(chatMessages, {
           model: geminiModelOverride,

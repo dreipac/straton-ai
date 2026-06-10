@@ -1,11 +1,14 @@
 import type { ChatMessage } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
+import { userMessageWantsDocumentSummary } from './documentAttachmentIntent'
 import { userMessageWantsFolderSources } from './folderSourceIntent'
+import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
 import { messageContainsCompleteThinkingClarifyBlock } from '../utils/thinkingClarify'
 import { detectLiveWebHeuristic } from './instantAnalyze'
 import { userMessageAsksAboutPriorSubscriptionUsage } from './chatSubscriptionUsageMarker'
 import { enrichThinkingAnalyzeDocumentCoverage, type ThinkingAnalyzeResult } from './thinkingAnalyze'
+import { resolveThinkingLayoutHint, resolveThinkingOutputTier } from './thinkingOutputTier'
 import { buildThinkingReviewBriefingForGateway, type ThinkingReviewResult } from './thinkingReview'
 
 /** OpenAI-Kette für alle Thinking-Schritte (Analyze, Entwurf, Review, Generate). */
@@ -81,17 +84,32 @@ export function applyThinkingAnalyzeHeuristics(
   opts?: {
     isContinuationFollowUp?: boolean
     hasVisionAttachment?: boolean
+    hasDocumentFileAttachment?: boolean
     availableFolderFileNames?: string[]
   },
 ): ThinkingAnalyzeResult {
   const trimmed = userMessage.trim()
-  const hasFile = userMessageHasThinkingFileAttachment(trimmed)
+  const hasFile =
+    userMessageHasThinkingFileAttachment(trimmed) || opts?.hasDocumentFileAttachment === true
+  const routingText = stripComposerAttachmentBlocksForRouting(trimmed)
   const hasVision = opts?.hasVisionAttachment === true
   const folderFileNames = opts?.availableFolderFileNames ?? []
 
   let result: ThinkingAnalyzeResult
 
-  if (opts?.isContinuationFollowUp) {
+  if (
+    hasFile &&
+    userMessageWantsDocumentSummary(routingText, true) &&
+    analyze.task_type !== 'document_summary'
+  ) {
+    result = {
+      ...analyze,
+      task_type: 'document_summary',
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (opts?.isContinuationFollowUp) {
     result = {
       ...analyze,
       needs_clarification: false,
@@ -147,10 +165,16 @@ export function applyThinkingAnalyzeHeuristics(
     }
   }
 
-  return enrichThinkingAnalyzeDocumentCoverage(
+  const withCoverage = enrichThinkingAnalyzeDocumentCoverage(
     userMessage,
     applyThinkingLiveWebHeuristic(userMessage, result),
   )
+  const output_tier = resolveThinkingOutputTier(withCoverage, userMessage)
+  const withTier = { ...withCoverage, output_tier }
+  return {
+    ...withTier,
+    layout_hint: resolveThinkingLayoutHint(withTier, userMessage),
+  }
 }
 
 export function buildThinkingDraftBriefingForGateway(draft: string): string {
@@ -199,7 +223,9 @@ export function buildThinkingReviewSystemPrompt(): string {
     '- rewrite_hints (string, max 600 Zeichen): was die finale sichtbare Antwort noch verbessern muss',
     '- summary (string, max 280 Zeichen): ein Satz Urteil',
     'Sei streng bei leeren, generischen oder falschen Entwürfen.',
-    'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur «Dossier deckt/thematisiert…» ohne Fakten aus dem Anhang.',
+    'Bei Zusammenfassung / layout_hint cards: fits_intent false, wenn nur «Dossier deckt/thematisiert/listet…» ohne Fakten aus dem Anhang.',
+    'Bei layout_hint cards oder document_summary: fits_intent false, wenn 3+ parallele Kategorien als Bullet-Liste oder rohe Markdown-Tabelle statt ```cards```.',
+    'rewrite_hints bei cards-Pflicht: explizit «```cards``` mit tone/badges je Kategorie» fordern.',
     'Bei Arbeitsblatt/Übungen: fits_intent false, wenn nur «Aufgabe/Lösung»-Format statt integriertem Lerninhalt, oder Themen nicht ausgearbeitet.',
     'fits_intent false bei abgeschnittenem Text (Callout/Lückentext/Frage ohne Antwort, Satz endet mitten im Wort).',
     'gaps/rewrite_hints: fehlende **Inhalte**, **fehlende Aufgabenlösungen** und **unvollständige Abschnitte** nachfordern; mehr ```cards``` statt Fliesstext.',

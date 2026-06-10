@@ -1,10 +1,14 @@
 import {
   GEMINI_DEFAULT_CHAT_MODEL,
   GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_3_PREVIEW,
   GEMINI_MODEL_FLASH_LITE,
 } from './geminiModels.ts'
 
-export type GeminiModelId = typeof GEMINI_MODEL_FLASH_LITE | typeof GEMINI_MODEL_FLASH
+export type GeminiModelId =
+  | typeof GEMINI_MODEL_FLASH_LITE
+  | typeof GEMINI_MODEL_FLASH
+  | typeof GEMINI_MODEL_FLASH_3_PREVIEW
 
 export type GeminiUsage = {
   inputTokens: number
@@ -30,6 +34,9 @@ const hotCachedContentByKey = new Map<string, string>()
 
 function normalizeGeminiModel(model: string | undefined): GeminiModelId {
   const m = (model ?? '').trim()
+  if (m === GEMINI_MODEL_FLASH_3_PREVIEW) {
+    return GEMINI_MODEL_FLASH_3_PREVIEW
+  }
   if (m === GEMINI_MODEL_FLASH) {
     return GEMINI_MODEL_FLASH
   }

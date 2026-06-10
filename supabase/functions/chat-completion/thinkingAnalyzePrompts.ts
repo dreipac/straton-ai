@@ -19,6 +19,8 @@ export function buildThinkingAnalyzeSystemPromptBase(modelLabel: string): string
     `Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (${modelLabel}).`,
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
     'task_type: server_setup | software_setup | troubleshooting | document_summary | process_howto | decision_planning | general_howto | other.',
+    'output_tier: standard | rich — document_summary immer rich; complexity high → rich; MC/kurz → standard.',
+    'layout_hint: cards | stepwise | tabular | narrative — document_summary → cards; Setup/How-to → stepwise; MC/Vergleich → tabular.',
     'needs_clarification: true NUR bei echtem Blocker (sehr selten); sonst false mit missing_dimensions [] und clarify_rounds_planned 0.',
     'Bei needs_clarification true: genau 1 missing_dimension, clarify_rounds_planned 1.',
     buildThinkingAnalyzeIntentPromptSection(),

@@ -1,4 +1,5 @@
 import type { InstantAnalyzeResult } from './instantAnalyze'
+import type { ThinkingAnalyzeResult } from './thinkingAnalyze'
 import {
   getAssistantMainChatBrevityFinalReminder,
   getAssistantMainChatBrevityInstruction,
@@ -412,33 +413,59 @@ export function buildPromptCacheDynamicTurnBlocks(params: {
 export function buildPromptCacheSuppressTurnBlocks(params: {
   mainChatInstantPrompts: boolean
   instantAnalyze?: Pick<InstantAnalyzeResult, 'task_type' | 'explanation_depth'> | null
+  thinkingGemini?: boolean
+  thinkingAnalyze?: Pick<
+    ThinkingAnalyzeResult,
+    'task_type' | 'output_tier' | 'layout_hint'
+  > | null
 }): string[] {
-  if (!params.mainChatInstantPrompts) {
+  const blocks: string[] = []
+
+  if (params.mainChatInstantPrompts) {
+    const analyze = params.instantAnalyze ?? undefined
+    const suppressBrevity = shouldSuppressInstantBrevityForAnalyze(analyze)
+    const suppressFollowUp = shouldSuppressInstantMandatoryFollowUpForAnalyze(analyze)
+    const suppressSolveDirectly = shouldSuppressInstantSolveDirectlyForAnalyze(analyze)
+
+    if (!suppressSolveDirectly) {
+      blocks.push(getAssistantMainChatSolveDirectlyInstruction())
+    } else if (analyze?.task_type === 'summary') {
+      blocks.push(
+        'Arbeitsmodus Zusammenfassung (verbindlich): Gilt bei **jeder** Zusammenfassung — auch ohne Wort «ausführlich». Alle Themen **inhaltlich ausarbeiten** in ```cards```; Fragen beantworten, Übungen lösen — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
+      )
+    }
+    if (!suppressBrevity) {
+      blocks.push(getAssistantMainChatBrevityInstruction())
+    }
+    if (!suppressFollowUp) {
+      blocks.push(getAssistantMainChatMandatoryFollowUpInstruction())
+    }
+  }
+
+  if (params.thinkingGemini && params.thinkingAnalyze) {
+    const { task_type, output_tier, layout_hint } = params.thinkingAnalyze
+    if (task_type === 'document_summary' || layout_hint === 'cards' || output_tier === 'rich') {
+      blocks.push(
+        'Thinking — Karten-Layout (verbindlich): Jedes Hauptthema als ```cards``` mit tone/badges — **kein** Meta («deckt/thematisiert»), **keine** Bullet-Listen bei parallelen Kategorien.',
+      )
+    }
+    if (task_type === 'document_summary') {
+      blocks.push(
+        'Arbeitsmodus Zusammenfassung (verbindlich): Alle Themen **inhaltlich ausarbeiten** in ```cards``` — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
+      )
+    }
+  }
+
+  if (!params.mainChatInstantPrompts && !params.thinkingGemini) {
     return []
   }
 
-  const analyze = params.instantAnalyze ?? undefined
-  const suppressBrevity = shouldSuppressInstantBrevityForAnalyze(analyze)
-  const suppressFollowUp = shouldSuppressInstantMandatoryFollowUpForAnalyze(analyze)
-  const suppressSolveDirectly = shouldSuppressInstantSolveDirectlyForAnalyze(analyze)
-
-  const blocks: string[] = []
-
-  if (!suppressSolveDirectly) {
-    blocks.push(getAssistantMainChatSolveDirectlyInstruction())
-  } else if (analyze?.task_type === 'summary') {
-    blocks.push(
-      'Arbeitsmodus Zusammenfassung (verbindlich): Alle Themen **inhaltlich ausarbeiten** in ```cards``` — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
-    )
-  }
-  if (!suppressBrevity) {
-    blocks.push(getAssistantMainChatBrevityInstruction())
-  }
-  if (!suppressFollowUp) {
-    blocks.push(getAssistantMainChatMandatoryFollowUpInstruction())
-  }
-  if (!suppressBrevity) {
-    blocks.push(getAssistantMainChatBrevityFinalReminder())
+  if (params.mainChatInstantPrompts) {
+    const analyze = params.instantAnalyze ?? undefined
+    const suppressBrevity = shouldSuppressInstantBrevityForAnalyze(analyze)
+    if (!suppressBrevity) {
+      blocks.push(getAssistantMainChatBrevityFinalReminder())
+    }
   }
 
   return blocks

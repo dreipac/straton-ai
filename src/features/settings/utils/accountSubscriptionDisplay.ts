@@ -252,7 +252,7 @@ function buildThinkingCard(
     id: 'thinking',
     title: 'Thinking',
     headline: `${formatInt(balance)} / ${formatInt(maxBalance)} Guthaben`,
-    subline: dailyGrantHint(dailyGrant),
+    subline: dailyGrantHint(dailyGrant, 'Anfragen pro Tag (UTC)'),
     meterPercent: meter.percent,
     meterLabel: meter.label,
     details: [{ label: 'Heute genutzt', value: `${formatInt(usedToday)} Anfragen` }],

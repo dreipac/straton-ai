@@ -1,4 +1,10 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import {
+  parseThinkingGeminiModelId,
+  THINKING_GEMINI_MODEL_RICH_DEFAULT,
+  THINKING_GEMINI_MODEL_STANDARD_DEFAULT,
+  type ThinkingGeminiModelId,
+} from '../../chat/constants/geminiModels'
 
 export type LearnAiProvider = 'openai' | 'anthropic' | 'gemini'
 
@@ -26,6 +32,15 @@ export type AppFeatureFlags = {
   instant_analyze_debug_enabled: boolean
   chat_folders_enabled: boolean
   gemini_instant_enabled: boolean
+  thinking_gemini_model_standard_active: ThinkingGeminiModelId
+  thinking_gemini_model_standard_draft: ThinkingGeminiModelId
+  thinking_gemini_model_rich_active: ThinkingGeminiModelId
+  thinking_gemini_model_rich_draft: ThinkingGeminiModelId
+}
+
+export type ThinkingGeminiModelsDraft = {
+  standard: ThinkingGeminiModelId
+  rich: ThinkingGeminiModelId
 }
 
 function parseLearnAiProvider(raw: unknown): LearnAiProvider {
@@ -75,6 +90,43 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
     instant_analyze_debug_enabled: row?.instant_analyze_debug_enabled === true,
     chat_folders_enabled: row?.chat_folders_enabled !== false,
     gemini_instant_enabled: row?.gemini_instant_enabled === true,
+    thinking_gemini_model_standard_active: parseThinkingGeminiModelId(
+      row?.thinking_gemini_model_standard_active,
+      THINKING_GEMINI_MODEL_STANDARD_DEFAULT,
+    ),
+    thinking_gemini_model_standard_draft: parseThinkingGeminiModelId(
+      row?.thinking_gemini_model_standard_draft,
+      THINKING_GEMINI_MODEL_STANDARD_DEFAULT,
+    ),
+    thinking_gemini_model_rich_active: parseThinkingGeminiModelId(
+      row?.thinking_gemini_model_rich_active,
+      THINKING_GEMINI_MODEL_RICH_DEFAULT,
+    ),
+    thinking_gemini_model_rich_draft: parseThinkingGeminiModelId(
+      row?.thinking_gemini_model_rich_draft,
+      THINKING_GEMINI_MODEL_RICH_DEFAULT,
+    ),
+  }
+}
+
+export async function adminSetThinkingGeminiModelsDraft(
+  draft: ThinkingGeminiModelsDraft,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_thinking_gemini_models_draft', {
+    p_standard_model: draft.standard,
+    p_rich_model: draft.rich,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployThinkingGeminiModelsDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_thinking_gemini_models_draft')
+  if (error) {
+    throw error
   }
 }
 

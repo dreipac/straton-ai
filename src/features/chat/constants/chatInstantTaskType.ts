@@ -215,6 +215,21 @@ export function applyInstantChatTaskTypeHeuristic(
     })
   }
 
+  if (
+    wantsSummary &&
+    next.task_type !== 'mc_solve' &&
+    !userAsksDocumentVisibilityQuestion(userMessage)
+  ) {
+    next = syncReplyModeWithRoute({
+      ...next,
+      task_type: 'summary',
+      explanation_depth: 'standard',
+      clarity: 'clear',
+      missing: [],
+      reply_mode: next.reply_mode === 'ask_only' ? 'normal' : next.reply_mode,
+    })
+  }
+
   return next
 }
 
@@ -280,8 +295,9 @@ export function buildInstantAnalyzeTaskTypePromptSection(): string {
     'task_type — Regeln:',
     '- mc_solve: Nutzer postet MC/Auswahlfrage mit Optionen oder will nur die richtige Antwort → reply_mode short_answer.',
     '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve; Ausgabe: `1. Fragentext` + `A)–D)` **pro Frage**, nicht Fragen am Ende.',
-    '- summary: nur **explizit** («fasse zusammen», «Zusammenfassung», «überblick», «lies/lese den Inhalt») — **nicht** «siehst du den Inhalt?» / «kannst du lesen?».',
-    '- summary + [Datei:…] mit Übungsblatt: **integriertes Lernskript** (Themen ausgearbeitet, Fragen beantwortet) — **kein** «Aufgabe:/Lösung:»-Format.',
+    '- summary: **expliziter** Zusammenfassungswunsch («fasse zusammen», «Zusammenfassung», «überblick», «lies/lese den Inhalt», «mach eine Zusammenfassung») — **nicht** «siehst du den Inhalt?» / «kannst du lesen?».',
+    '- summary: **gleiche inhaltliche Tiefe** mit oder ohne Wort «ausführlich» — kein Kurz-Überblick, kein Meta-Text.',
+    '- summary + [Datei:…] (auch nur «Zusammenfassung» ohne «ausführlich»): **integriertes Lernskript** — alle Themen ausarbeiten, Fragen beantworten, Übungen lösen — **kein** «Aufgabe:/Lösung:»-Format.',
     '- document_coverage_topics: string[] — nur bei task_type summary und [Datei:…] mit Text: 4–20 thematische Pflichtpunkte aus dem Anhang; sonst []',
     '- summary + document (PDF/Word): «ausführliches/zusammenfassendes PDF/Word», «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
     '- explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → **nur** Sichtbarkeit bestätigen, **kein** summary/mc_solve.',
@@ -316,8 +332,12 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
     case 'summary':
       return [
         'Aufgabentyp Zusammenfassung (verbindlich — Playbook im Layout-Profil):',
-        '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken.',
+        '- Gilt **immer** bei task_type summary — auch wenn der Nutzer **nicht** «ausführlich» sagt.',
+        '- Schulblatt/PDF: **integriertes Lernskript** — Fragen beantworten, Aufgaben inhaltlich ausarbeiten, Lücken füllen — **ohne** «Aufgabe:/Lösung:»-Labels.',
+        '- Nicht beschreiben, was das Dokument «deckt/thematisiert» — **Inhalt** aus dem [Datei]-Block liefern.',
+        '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken; ```cards``` mit tone/badges je Hauptthema.',
         '- Keine Informationen erfinden, die nicht im Material stehen.',
+        '- Kein `### Verbesserungen`, keine Pflicht-Anpassungsfrage am Schluss.',
       ].join('\n')
     case 'explanation':
     default:

@@ -86,6 +86,7 @@ import {
   clearGeminiInstantEnabledCache,
   setGeminiInstantEnabledFromSupabase,
 } from '../services/geminiInstantFlag'
+import { setThinkingGeminiModelsFromSupabase } from '../services/thinkingGeminiModelsFlag'
 import { getAppFeatureFlags } from '../../auth/services/appFeatureFlags.service'
 import {
   messageHasDocumentFileAttachment,
@@ -709,6 +710,10 @@ export function useChat(
       .then((flags) => {
         if (flagsMounted) {
           setGeminiInstantEnabledFromSupabase(flags.gemini_instant_enabled)
+          setThinkingGeminiModelsFromSupabase({
+            standard: flags.thinking_gemini_model_standard_active,
+            rich: flags.thinking_gemini_model_rich_active,
+          })
         }
       })
       .catch(() => {
@@ -2589,6 +2594,7 @@ export function useChat(
               priorTurns,
               isContinuationFollowUp: false,
               hasVisionAttachment: hasAttachedVision,
+              hasDocumentFileAttachment,
               folderContext,
               signal,
             })
@@ -2636,11 +2642,13 @@ export function useChat(
               role: m.role as 'user' | 'assistant',
               content: m.content,
             }))
+          const thinkingPipelineUserMessage = storedUserMessage.content
           const thinkInvoke = await thinkingAnalyzeUserMessage({
-            userMessage: trimmed,
+            userMessage: thinkingPipelineUserMessage,
             priorTurns,
             isContinuationFollowUp: isThinkingContinuationFollowUp(trimmed, nextMessages),
             hasVisionAttachment: hasAttachedVision,
+            hasDocumentFileAttachment,
             folderContext,
             signal,
           })
@@ -2746,8 +2754,9 @@ export function useChat(
             }))
           const intakeSummary = thinkingIntake ? buildThinkingIntakeSummary(thinkingIntake) : ''
           setSendPhase('thinking_draft')
+          const thinkingPipelineUserMessage = storedUserMessage.content
           const { draft } = await thinkingDraftForTurn({
-            userMessage: trimmed,
+            userMessage: thinkingPipelineUserMessage,
             analyze: thinkingAnalyzeResult,
             intakeSummary,
             priorTurns: pipelinePriorTurns,
@@ -2756,7 +2765,7 @@ export function useChat(
           })
           setSendPhase('thinking_review')
           const { review } = await thinkingReviewDraft({
-            userMessage: trimmed,
+            userMessage: thinkingPipelineUserMessage,
             analyze: thinkingAnalyzeResult,
             draft,
             intakeSummary,

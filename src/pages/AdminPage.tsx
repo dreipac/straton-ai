@@ -65,10 +65,14 @@ import {
   adminSetInstantAnalyzeDebugEnabled,
   adminSetGeminiInstantEnabled,
   adminSetChatFoldersEnabled,
+  adminSetThinkingGeminiModelsDraft,
+  adminDeployThinkingGeminiModelsDraft,
   getAppFeatureFlags,
   type LearnAiModelId,
   type LearnAiProvider,
+  type ThinkingGeminiModelsDraft,
 } from '../features/auth/services/appFeatureFlags.service'
+import type { ThinkingGeminiModelId } from '../features/chat/constants/geminiModels'
 import {
   estimateAiTokenCostsUsd,
   formatUsdEstimate,
@@ -168,6 +172,30 @@ function labelForLearnAiModel(model: LearnAiModelId): string {
     default:
       return model
   }
+}
+
+function labelForThinkingGeminiModel(model: ThinkingGeminiModelId): string {
+  switch (model) {
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-2.5-flash':
+      return 'Gemini 2.5 Flash'
+    case 'gemini-3-flash-preview':
+      return 'Gemini 3 Flash Preview'
+    default:
+      return model
+  }
+}
+
+function parseThinkingGeminiModelDraftValue(value: string): ThinkingGeminiModelId {
+  if (
+    value === 'gemini-3.1-flash-lite' ||
+    value === 'gemini-2.5-flash' ||
+    value === 'gemini-3-flash-preview'
+  ) {
+    return value
+  }
+  return 'gemini-3.1-flash-lite'
 }
 
 function labelForLearnAiProvider(provider: LearnAiProvider): string {
@@ -341,6 +369,17 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isLoadingChatFoldersToggle, setIsLoadingChatFoldersToggle] = useState(false)
   const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
   const [geminiInstantEnabled, setGeminiInstantEnabled] = useState(false)
+  const [thinkingGeminiStandardActive, setThinkingGeminiStandardActive] =
+    useState<ThinkingGeminiModelId>('gemini-3.1-flash-lite')
+  const [thinkingGeminiRichActive, setThinkingGeminiRichActive] =
+    useState<ThinkingGeminiModelId>('gemini-3-flash-preview')
+  const [thinkingGeminiStandardDraft, setThinkingGeminiStandardDraft] =
+    useState<ThinkingGeminiModelId>('gemini-3.1-flash-lite')
+  const [thinkingGeminiRichDraft, setThinkingGeminiRichDraft] =
+    useState<ThinkingGeminiModelId>('gemini-3-flash-preview')
+  const [isSavingThinkingGeminiModelsDraft, setIsSavingThinkingGeminiModelsDraft] = useState(false)
+  const [isDeployingThinkingGeminiModels, setIsDeployingThinkingGeminiModels] = useState(false)
+  const [thinkingGeminiModelsInfo, setThinkingGeminiModelsInfo] = useState<string | null>(null)
   const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
   const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
@@ -584,6 +623,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersEnabled(flags.chat_folders_enabled)
         setGeminiInstantEnabled(flags.gemini_instant_enabled)
+        setThinkingGeminiStandardActive(flags.thinking_gemini_model_standard_active)
+        setThinkingGeminiRichActive(flags.thinking_gemini_model_rich_active)
+        setThinkingGeminiStandardDraft(flags.thinking_gemini_model_standard_draft)
+        setThinkingGeminiRichDraft(flags.thinking_gemini_model_rich_draft)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -1041,7 +1084,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
     const thinkingDailyGrant = parseOptionalPlanCreditField(newPlanThinkingDailyGrant)
     if (newPlanThinkingDailyGrant.trim() && thinkingDailyGrant === null) {
-      setSubscriptionPlansError('Thinking Tokens Limit pro Tag: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Anfragen Aufladung pro Tag: ganze Zahl 0–10 000.')
       return
     }
     const thinkingCreditMax = parseOptionalPlanCreditField(newPlanThinkingCreditMax)
@@ -1180,7 +1223,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
     const thinkingDailyGrant = parseOptionalPlanCreditField(editPlanDraft.thinkingDailyGrant)
     if (editPlanDraft.thinkingDailyGrant.trim() && thinkingDailyGrant === null) {
-      setSubscriptionPlansError('Thinking Tokens Limit pro Tag: ganze Zahl 0–10 000.')
+      setSubscriptionPlansError('Thinking Anfragen Aufladung pro Tag: ganze Zahl 0–10 000.')
       return
     }
     const thinkingCreditMax = parseOptionalPlanCreditField(editPlanDraft.thinkingCreditMax)
@@ -1564,6 +1607,46 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
       )
     } finally {
       setIsLoadingGeminiInstantToggle(false)
+    }
+  }
+
+  async function handleSaveThinkingGeminiModelsDraft(draft: ThinkingGeminiModelsDraft) {
+    setSubscriptionPlansError(null)
+    setThinkingGeminiModelsInfo(null)
+    setIsSavingThinkingGeminiModelsDraft(true)
+    try {
+      await adminSetThinkingGeminiModelsDraft(draft)
+      setThinkingGeminiStandardDraft(draft.standard)
+      setThinkingGeminiRichDraft(draft.rich)
+      setThinkingGeminiModelsInfo(
+        `Thinking-Modell-Entwurf gespeichert: Standard ${labelForThinkingGeminiModel(draft.standard)}, Rich ${labelForThinkingGeminiModel(draft.rich)}`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Gemini-Modelle konnten nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingThinkingGeminiModelsDraft(false)
+    }
+  }
+
+  async function handleDeployThinkingGeminiModelsDraft() {
+    setSubscriptionPlansError(null)
+    setThinkingGeminiModelsInfo(null)
+    setIsDeployingThinkingGeminiModels(true)
+    try {
+      await adminDeployThinkingGeminiModelsDraft()
+      setThinkingGeminiStandardActive(thinkingGeminiStandardDraft)
+      setThinkingGeminiRichActive(thinkingGeminiRichDraft)
+      setThinkingGeminiModelsInfo(
+        `Thinking-Modelle aktiv: Standard ${labelForThinkingGeminiModel(thinkingGeminiStandardDraft)}, Rich ${labelForThinkingGeminiModel(thinkingGeminiRichDraft)}`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Gemini-Modelle konnten nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingGeminiModels(false)
     }
   }
 
@@ -1985,6 +2068,61 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </button>
               </div>
               {geminiInstantInfo ? <p className="learn-muted">{geminiInstantInfo}</p> : null}
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Thinking-Modus: Gemini-Modelle (Entwurf)</p>
+                <p className="admin-users-hint">
+                  Aktiv: Standard <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardActive)}</strong>,
+                  Rich <strong>{labelForThinkingGeminiModel(thinkingGeminiRichActive)}</strong>.
+                  Analyze nutzt immer das Standard-Modell; Zusammenfassungen und komplexe Aufgaben das Rich-Modell.
+                </p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingGeminiStandardDraft}
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    aria-label="Thinking Standard-Modell"
+                    onChange={(event) => {
+                      setThinkingGeminiStandardDraft(
+                        parseThinkingGeminiModelDraftValue(event.target.value),
+                      )
+                    }}
+                  >
+                    <option value="gemini-3.1-flash-lite">Standard: Gemini 3.1 Flash Lite</option>
+                    <option value="gemini-2.5-flash">Standard: Gemini 2.5 Flash</option>
+                    <option value="gemini-3-flash-preview">Standard: Gemini 3 Flash Preview</option>
+                  </select>
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingGeminiRichDraft}
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    aria-label="Thinking Rich-Modell"
+                    onChange={(event) => {
+                      setThinkingGeminiRichDraft(parseThinkingGeminiModelDraftValue(event.target.value))
+                    }}
+                  >
+                    <option value="gemini-3.1-flash-lite">Rich: Gemini 3.1 Flash Lite</option>
+                    <option value="gemini-2.5-flash">Rich: Gemini 2.5 Flash</option>
+                    <option value="gemini-3-flash-preview">Rich: Gemini 3 Flash Preview</option>
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    onClick={() =>
+                      void handleSaveThinkingGeminiModelsDraft({
+                        standard: thinkingGeminiStandardDraft,
+                        rich: thinkingGeminiRichDraft,
+                      })
+                    }
+                  >
+                    {isSavingThinkingGeminiModelsDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Empfohlen: Standard <code>gemini-3.1-flash-lite</code>, Rich{' '}
+                  <code>gemini-3-flash-preview</code>. Live-Schaltung unter <strong>Deployment</strong>.
+                </p>
+                {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
+              </div>
               <div className="chat-setting-row chat-setting-row--stacked">
                 <div className="chat-setting-copy">
                   <h3>Instant-Analyse-Debug (Chat)</h3>
@@ -2885,7 +3023,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                             ? `max. ca. ${plan.chat_context_max_tokens.toLocaleString('de-DE')} Tokens`
                             : 'unbegrenzt'}
                           <br />
-                          Thinking: Start Guthaben {plan.thinking_start_balance ?? 0}, Tokens/Tag{' '}
+                          Thinking: Start-Guthaben {plan.thinking_start_balance ?? 0}, Anfragen Aufladung/Tag{' '}
                           {plan.thinking_daily_grant ?? 0}, Guthaben-Limit {plan.thinking_credit_max ?? 10}
                           <br />
                           Bildgenerator:{' '}
@@ -3077,6 +3215,30 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   {isDeployingLearnAiModel ? 'Deployment läuft…' : 'Lern-KI-Modell jetzt deployen'}
                 </PrimaryButton>
                 {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
+                <p className="admin-subscriptions-field-label" style={{ marginTop: '1rem' }}>
+                  Thinking Gemini deployen
+                </p>
+                <p className="admin-users-hint">
+                  Standard aktiv: <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardActive)}</strong>
+                  <br />
+                  Rich aktiv: <strong>{labelForThinkingGeminiModel(thinkingGeminiRichActive)}</strong>
+                  <br />
+                  Entwurf Standard: <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardDraft)}</strong>
+                  <br />
+                  Entwurf Rich: <strong>{labelForThinkingGeminiModel(thinkingGeminiRichDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingThinkingGeminiModels ||
+                    (thinkingGeminiStandardActive === thinkingGeminiStandardDraft &&
+                      thinkingGeminiRichActive === thinkingGeminiRichDraft)
+                  }
+                  onClick={() => void handleDeployThinkingGeminiModelsDraft()}
+                >
+                  {isDeployingThinkingGeminiModels ? 'Deployment läuft…' : 'Thinking-Modelle jetzt deployen'}
+                </PrimaryButton>
+                {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
               </article>
               <article className="settings-card">
                 <p className="admin-subscriptions-field-label">App-Version für Settings pushen</p>
@@ -3735,7 +3897,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         />
                       </div>
                       <div className="subscription-plan-form-field">
-                        <label htmlFor="admin-new-subscription-thinking-daily">Tokens Limit pro Tag</label>
+                        <label htmlFor="admin-new-subscription-thinking-daily">Anfragen Aufladung pro Tag</label>
                         <input
                           id="admin-new-subscription-thinking-daily"
                           type="number"
@@ -3761,8 +3923,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         />
                       </div>
                       <p className="admin-users-hint subscription-plan-form-field-full">
-                        Täglich (UTC) wird Tokens Limit pro Tag zum Guthaben addiert (Deckel: Guthaben-Limit). Ein
-                        Thinking-Senden verbraucht 1 Guthaben. Start-Guthaben bei Abo-Zuweisung.
+                        Täglich (UTC) wird die Anfragen Aufladung pro Tag zum Guthaben addiert (Deckel: Guthaben-Limit).
+                        Ein Thinking-Senden verbraucht 1 Guthaben. Start-Guthaben bei Abo-Zuweisung.
                       </p>
                     </div>
                   </section>
@@ -4128,7 +4290,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         />
                       </div>
                       <div className="subscription-plan-form-field">
-                        <label htmlFor="admin-edit-subscription-thinking-daily">Tokens Limit pro Tag</label>
+                        <label htmlFor="admin-edit-subscription-thinking-daily">Anfragen Aufladung pro Tag</label>
                         <input
                           id="admin-edit-subscription-thinking-daily"
                           type="number"
@@ -4162,8 +4324,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         />
                       </div>
                       <p className="admin-users-hint subscription-plan-form-field-full">
-                        Täglich (UTC) Tokens Limit pro Tag → Guthaben (max. Guthaben-Limit). Ein Thinking-Senden = 1
-                        Guthaben. Start-Guthaben bei neuer Abo-Zuweisung.
+                        Täglich (UTC) Anfragen Aufladung pro Tag → Guthaben (max. Guthaben-Limit). Ein Thinking-Senden
+                        = 1 Guthaben. Start-Guthaben bei neuer Abo-Zuweisung.
                       </p>
                     </div>
                   </section>

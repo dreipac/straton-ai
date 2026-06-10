@@ -23,11 +23,23 @@ import type {
 } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 import { resolveDocumentCoverageTopics } from './documentSummaryPlaybook'
+import {
+  parseThinkingLayoutHint,
+  parseThinkingOutputTier,
+  type ThinkingLayoutHint,
+  type ThinkingOutputTier,
+} from './thinkingOutputTier'
 import { buildThinkingAnalyzeIntentPromptSection } from './thinkingTaskRouting'
+
+export type { ThinkingLayoutHint, ThinkingOutputTier } from './thinkingOutputTier'
 
 export type ThinkingAnalyzeResult = {
   task_type: ThinkingTaskType
   complexity: ThinkingComplexity
+  /** Steuert Gemini-Modell (Standard vs. Rich) in Draft/Review/Final. */
+  output_tier: ThinkingOutputTier
+  /** Layout-Empfehlung für Draft/Review/Final. */
+  layout_hint: ThinkingLayoutHint
   intent: string
   assumptions: string[]
   risks: string[]
@@ -163,10 +175,16 @@ export function sanitizeThinkingAnalyzeResult(raw: unknown): ThinkingAnalyzeResu
     task_type === 'document_summary'
       ? asStringArray(o.document_coverage_topics, 20, 100)
       : []
+  const output_tier = parseThinkingOutputTier(o.output_tier) ?? 'standard'
+  const layout_hint =
+    parseThinkingLayoutHint(o.layout_hint) ??
+    (task_type === 'document_summary' ? 'cards' : 'narrative')
 
   return {
     task_type,
     complexity,
+    output_tier,
+    layout_hint,
     intent,
     assumptions,
     risks,
@@ -305,12 +323,14 @@ export function fallbackThinkingAnalyzeResult(userMessage: string): ThinkingAnal
 export function buildThinkingAnalyzeSystemPrompt(): string {
   return [
     getSecretSafetyInstruction(),
-    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (Intent via Gemini 3.1 Flash Lite; finale Lieferung teils gpt-5-mini).',
+    'Du analysierst JEDE Nutzeraufgabe für den Straton-Thinking-Modus (Gemini 3.1 Flash Lite; Draft/Review/Final nach output_tier).',
     'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown).',
     '',
     'Felder:',
     '- task_type: "server_setup" | "software_setup" | "troubleshooting" | "document_summary" | "process_howto" | "decision_planning" | "general_howto" | "other"',
     '- complexity: "low" | "medium" | "high"',
+    '- output_tier: "standard" | "rich" — document_summary immer rich; complexity high → rich; MC/kurz → standard.',
+    '- layout_hint: "cards" | "stepwise" | "tabular" | "narrative" — document_summary → cards; Setup/How-to → stepwise; MC/Vergleich → tabular.',
     '- intent, assumptions[], risks[], needs_clarification (boolean), missing_dimensions[{id,label,question_hint}], clarify_rounds_planned (0 oder 1), analysis_summary',
     '- document_coverage_topics: string[] — nur bei task_type document_summary und [Datei:…] mit Text: 4–20 **thematische** Pflichtpunkte aus dem Anhang (Kurztitel je Thema, nicht nur «Aufgabe 5»); sonst []',
     '- needs_live_web: true wenn aktuelle Web-Fakten nötig (Preise, Kurse, News, Gesetzes-/Rechtslage, «aktuell», Versionen, Termine)',
@@ -347,6 +367,8 @@ export function buildThinkingAnalyzeBriefingForGateway(
     `Zusammenfassung: ${analyze.analysis_summary}`,
     `Kategorie (task_type): ${analyze.task_type} — steuert Entwurf, Review und finale Struktur.`,
     `Komplexität: ${analyze.complexity}`,
+    `Output-Tier: ${analyze.output_tier}`,
+    `Layout-Hinweis: ${analyze.layout_hint}`,
     `Absicht: ${analyze.intent}`,
     `Klärung vor Lieferung: ${analyze.needs_clarification ? 'ja (max. 1 Runde)' : 'nein — direkt liefern'}`,
   ]
@@ -363,10 +385,16 @@ export function buildThinkingAnalyzeBriefingForGateway(
   if (intakeSummary?.trim()) {
     lines.push(`Bereits vom Nutzer bestätigt:\n${intakeSummary.trim()}`)
   }
-  if (analyze.task_type === 'document_summary') {
+  if (analyze.task_type === 'document_summary' || analyze.layout_hint === 'cards') {
     lines.push(
-      'Lieferung Phase 2/3: **Lernzusammenfassung** aus dem [Datei:…]-Anhang — alle Themen inhaltlich; **kein** «Aufgabe:/Lösung:»-Format. Keine Meta-Beschreibung («das Dossier deckt…»).',
+      'Lieferung Phase 2/3: **Lernzusammenfassung** mit ```cards```/```divided-list``` — alle Themen inhaltlich; **kein** «Aufgabe:/Lösung:»-Format. Keine Meta-Beschreibung («das Dossier deckt…»).',
     )
+  }
+  if (analyze.layout_hint === 'stepwise') {
+    lines.push('Layout: nummerierte ##-Kapitel, Schritt für Schritt — zwischen Hauptteilen `---`.')
+  }
+  if (analyze.layout_hint === 'tabular') {
+    lines.push('Layout: präzise Antwort/Tabelle zuerst — kein Essay.')
   }
   return lines.join('\n')
 }

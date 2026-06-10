@@ -6,14 +6,14 @@ import { shouldSuppressThinkingMandatoryFollowUp } from './thinkingTaskRouting'
 export function getChatThinkingWorkflowInstruction(): string {
   return [
     getSecretSafetyInstruction(),
-    'Thinking-Modus (Hybrid: Pipeline Gemini 3.1 Flash Lite; finale Lieferung teils gpt-5-mini):',
+    'Thinking-Modus (Gemini: Analyze immer Standard; Draft/Review/Final nach output_tier Standard vs. Rich):',
     'Persönlicher Kontext kommt aus Profil und Einführung — in Thinking nur den sichtbaren Chatverlauf dieser Unterhaltung nutzen.',
     '',
     'Ablauf (verbindlich):',
-    '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse» (Gemini Flash Lite).',
+    '0) Aufgabenanalyse liegt unter «Thinking — Aufgabenanalyse» (Gemini 3.1 Flash Lite).',
     '1) Klärung nur bei needs_clarification im Analyse-Kontext — selten, max. eine Rückfrage als Clarify-Block.',
-    '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung» (Gemini Flash Lite).',
-    '3) Diese sichtbare Antwort: finale Bearbeitung — bei Zusammenfassungen & MC über gpt-5-mini; sonst Gemini Flash Lite.',
+    '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung» (Gemini nach output_tier).',
+    '3) Diese sichtbare Antwort: finale Bearbeitung mit demselben output_tier (Rich: Zusammenfassungen mit ```cards```).',
     'Kurze Folgenachrichten: direkt weiterbearbeiten, nicht erneut interviewen.',
     '',
     'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
