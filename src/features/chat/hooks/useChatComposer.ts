@@ -386,7 +386,9 @@ export function useChatComposer({
     showComposerInlinePickers: !isMobileCompactComposer,
     attachButtonClassName: [
       'chat-attach-button',
-      isMobileCompactComposer ? 'chat-compact-composer-surface' : '',
+      isMobileCompactComposer
+        ? 'chat-compact-composer-surface'
+        : 'chat-composer-tile-btn chat-composer-tile-btn--round',
     ]
       .filter(Boolean)
       .join(' '),

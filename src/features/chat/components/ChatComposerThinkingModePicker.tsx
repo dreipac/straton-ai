@@ -10,6 +10,13 @@ export type ChatComposerThinkingModePickerProps = {
   allowCustomMode?: boolean
 }
 
+function thinkingModePickerRootClass(value: ChatThinkingMode): string {
+  return `chat-model-picker chat-thinking-mode-picker chat-thinking-mode-picker--${value}`
+}
+
+const thinkingModeTileTriggerClass =
+  'chat-model-picker-trigger chat-composer-tile-btn chat-composer-tile-btn--pill'
+
 function useChatToolbarMobilePicker(): boolean {
   const [mobile, setMobile] = useState(() =>
     typeof window !== 'undefined' ? isChatToolbarMobileViewport() : false,
@@ -44,8 +51,10 @@ function ChatComposerThinkingModeNativeSelect({
   const currentLabel = options.find((o) => o.id === value)?.label ?? 'Smart Instant'
 
   return (
-    <div className="chat-model-picker chat-thinking-mode-picker">
-      <span className="chat-composer-native-select-wrap">
+    <div className={thinkingModePickerRootClass(value)}>
+      <span
+        className={`chat-composer-native-select-wrap ${thinkingModeTileTriggerClass}`}
+      >
         <span className="chat-model-picker-label" aria-hidden="true">
           {currentLabel}
         </span>
@@ -125,10 +134,10 @@ function ChatComposerThinkingModeDropdown({
   }, [open])
 
   return (
-    <div className="chat-model-picker chat-thinking-mode-picker" ref={rootRef}>
+    <div className={thinkingModePickerRootClass(value)} ref={rootRef}>
       <button
         type="button"
-        className="chat-model-picker-trigger"
+        className={thinkingModeTileTriggerClass}
         disabled={disabled}
         aria-expanded={open}
         aria-haspopup="listbox"
