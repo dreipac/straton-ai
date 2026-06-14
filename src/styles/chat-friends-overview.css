@@ -1,0 +1,419 @@
+
+/* —— Freunde-Übersicht (Hauptbereich) —— */
+
+.chat-main.is-friends-overview-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-friends-overview-active .chat-main-toolbar {
+  display: none !important;
+}
+
+.chat-main.is-friends-overview-active .chat-friends-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+}
+
+.chat-friends-overview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 0.5rem 0 1.2rem;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+@keyframes chat-friends-overview-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes chat-friends-overview-tab-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.chat-friends-overview-inner {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem 0;
+  box-sizing: border-box;
+}
+
+.chat-friends-overview:not(.is-entering) .chat-friends-overview-inner {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+}
+
+.chat-friends-overview.is-entering .chat-friends-overview-inner {
+  animation: chat-friends-overview-enter 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-friends-overview-tab-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  animation: chat-friends-overview-tab-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-friends-overview.is-mobile-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: var(--color-surface-app, #fff);
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 0 calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.chat-friends-overview.is-mobile-fullscreen .chat-friends-overview-inner {
+  padding-inline: 0.85rem;
+}
+
+.chat-friends-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.chat-friends-overview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-friends-overview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(30px, 1.6vw + 20px, 38px);
+  height: clamp(30px, 1.6vw + 20px, 38px);
+  flex-shrink: 0;
+}
+
+.chat-friends-overview-icon .ui-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.chat-friends-overview-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 0.5vw + 1rem, 1.35rem);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+
+.chat-friends-overview-add-btn {
+  flex-shrink: 0;
+  min-height: 2.05rem !important;
+  padding: 0.35rem 0.85rem !important;
+  font-size: 0.84rem !important;
+}
+
+.chat-friends-overview-tabs {
+  margin-top: 0.15rem;
+}
+
+.chat-friends-overview-tabs .learn-top-tab-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chat-friends-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--color-accent, #6366f1);
+  color: var(--accent-fab-fg, #fff);
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.chat-friends-overview-panel {
+  margin-top: 0.15rem;
+}
+
+.chat-friends-overview-empty {
+  margin: 0.85rem 0 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-friends-overview-error {
+  margin: 0.5rem 0 0;
+}
+
+.chat-friends-list {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.chat-friends-list-item {
+  margin: 0;
+}
+
+.chat-friends-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  background: color-mix(in srgb, var(--color-surface-elevated, #fff) 96%, transparent);
+}
+
+.chat-friends-card--pending {
+  flex-wrap: wrap;
+}
+
+.chat-friends-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 18%, transparent);
+}
+
+.chat-friends-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-friends-avatar-fallback {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+}
+
+.chat-friends-card-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-friends-card-name {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-friends-card-meta {
+  margin: 0.12rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-friends-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.chat-friends-action-btn {
+  min-height: 1.85rem !important;
+  padding: 0.28rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+
+.chat-friends-pending-section + .chat-friends-pending-section {
+  margin-top: 1.25rem;
+}
+
+.chat-friends-pending-heading {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.add-friend-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.add-friend-label {
+  font-size: 0.88rem;
+  color: var(--color-text-secondary);
+}
+
+.add-friend-input {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--input-field-bg);
+  color: var(--input-field-text);
+}
+
+.add-friend-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.chat-sidebar-nav-button--friends.is-active {
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 12%, transparent);
+}
+
+.chat-sidebar-nav-button--friends.is-collapsed-badge {
+  position: relative;
+}
+
+.chat-sidebar-nav-button--friends.is-collapsed-badge .chat-sidebar-news-badge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.2rem;
+  font-size: 0.58rem;
+}
+
+@media (max-width: 860px) {
+  .chat-friends-overview-tabs.learn-top-tabs {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    margin-top: 0.15rem;
+    margin-bottom: 0.48rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.1rem;
+    grid-template-columns: none;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    overflow: visible;
+    transform: none;
+    transition: none;
+  }
+
+  .chat-friends-overview-tabs.learn-top-tabs::before {
+    content: none;
+    display: none;
+  }
+
+  .chat-friends-overview-tabs.learn-top-tabs.is-touch-active {
+    transform: none;
+  }
+
+  .chat-friends-overview-tabs .learn-top-tab {
+    min-height: 0;
+    padding: 0.2rem 0 0.62rem;
+    border: none;
+    border-bottom: 2px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-align: left;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.35rem;
+    position: static;
+    background: transparent;
+    color: var(--color-text-secondary);
+    animation: none;
+  }
+
+  .chat-friends-overview-tabs .learn-top-tab.is-active {
+    color: var(--color-accent, #ec4899);
+    border-bottom-color: var(--color-accent, #ec4899);
+    background: transparent;
+  }
+
+  .chat-friends-overview-tabs .learn-top-tab-label {
+    display: inline;
+    -webkit-box-orient: initial;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+    max-width: none;
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: normal;
+    white-space: nowrap;
+    word-break: normal;
+    hyphens: manual;
+    color: inherit;
+  }
+
+  .chat-friends-overview-tabs .learn-top-tab.is-active .learn-top-tab-label {
+    color: var(--color-accent, #ec4899);
+  }
+
+  .chat-friends-card--pending {
+    align-items: flex-start;
+  }
+
+  .chat-friends-card-actions {
+    width: 100%;
+    margin-left: 0;
+    padding-top: 0.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-friends-overview:not(.is-entering) .chat-friends-overview-inner {
+    opacity: 1;
+    transform: none;
+  }
+
+  .chat-friends-overview-inner,
+  .chat-friends-overview-tab-content {
+    animation: none !important;
+  }
+}

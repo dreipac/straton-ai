@@ -79,6 +79,9 @@ export function InviteToChatModal({
       <p className="invite-chat-thread-label">
         Chat: <strong>{threadTitle}</strong>
       </p>
+      <p className="invite-chat-thread-label">
+        Nur befreundete Nutzer können eingeladen werden.
+      </p>
       <form className="invite-chat-form" onSubmit={(e) => void handleSubmit(e)}>
         <label className="invite-chat-label" htmlFor={emailFieldId}>
           E-Mail des Nutzers

@@ -27,6 +27,8 @@ function mapInviteError(code: string): string {
       return 'Diese Person ist bereits Mitglied.'
     case 'INVITE_PENDING':
       return 'Für diese E-Mail liegt bereits eine ausstehende Einladung vor.'
+    case 'NOT_FRIENDS':
+      return 'Du kannst Chats nur mit befreundeten Nutzern teilen. Füge die Person zuerst unter «Freunde» hinzu.'
     default:
       return code
   }
@@ -42,6 +44,7 @@ export function parseInviteRpcError(message: string): string {
     'SELF_INVITE',
     'ALREADY_MEMBER',
     'INVITE_PENDING',
+    'NOT_FRIENDS',
   ]
   for (const k of known) {
     if (trimmed.includes(k)) {

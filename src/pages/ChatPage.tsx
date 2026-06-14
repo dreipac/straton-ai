@@ -27,6 +27,9 @@ import { ChatPageOverlays } from '../features/chat/components/chat-page/ChatPage
 import { ChatPageSidebar } from '../features/chat/components/chat-page/ChatPageSidebar'
 import { ChatFoldersMobilePanel } from '../features/chat/components/ChatFoldersMobilePanel'
 import { ChatFolderOverview } from '../features/chat/components/ChatFolderOverview'
+import { ChatFriendsOverview } from '../features/friends/components/ChatFriendsOverview'
+import { useFriends } from '../features/friends/hooks/useFriends'
+import type { ChatFriendsOverviewTab } from '../features/friends/types'
 import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
@@ -214,13 +217,18 @@ export function ChatPage() {
   chatFoldersRef.current = chatFolders
   const folderIdFromUrl = searchParams.get('folder')
   const folderTabFromUrl: ChatFolderOverviewTab = searchParams.get('tab') === 'files' ? 'files' : 'chats'
+  const isFriendsOverviewFromUrl = searchParams.get('friends') === '1'
+  const friendsTabFromUrl: ChatFriendsOverviewTab =
+    searchParams.get('friendsTab') === 'pending' ? 'pending' : 'friends'
   const activeOverviewFolder = useMemo(() => {
     if (!folderIdFromUrl) {
       return null
     }
     return chatFolders.folders.find((folder) => folder.id === folderIdFromUrl) ?? null
   }, [chatFolders.folders, folderIdFromUrl])
-  const isFolderOverviewOpen = Boolean(activeOverviewFolder && chatFoldersFeatureEnabled)
+  const isFolderOverviewOpen = Boolean(activeOverviewFolder && chatFoldersFeatureEnabled && !isFriendsOverviewFromUrl)
+  const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl)
+  const friendsState = useFriends(user?.id)
   const folderOverviewThreads = useMemo(() => {
     if (!activeOverviewFolder) {
       return []
@@ -409,12 +417,71 @@ export function ChatPage() {
     }
   }, [chatFolders.folders, chatFolders.isLoading, chatFoldersFeatureEnabled, folderIdFromUrl, setSearchParams])
 
+  useEffect(() => {
+    if (!isFriendsOverviewFromUrl) {
+      return
+    }
+    if (!user) {
+      closeFriendsOverview()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeFriendsOverview is stable URL helper
+  }, [isFriendsOverviewFromUrl, user])
+
   function closeFolderOverview() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
         next.delete('folder')
         next.delete('tab')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function closeFriendsOverview() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('friends')
+        next.delete('friendsTab')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openFriendsOverview(tab: ChatFriendsOverviewTab = 'friends') {
+    if (!user) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('folder')
+        next.delete('tab')
+        next.set('friends', '1')
+        next.set('friendsTab', tab)
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  function setFriendsOverviewTab(tab: ChatFriendsOverviewTab) {
+    if (!isFriendsOverviewOpen) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('friends', '1')
+        next.set('friendsTab', tab)
         return next
       },
       { replace: true },
@@ -428,6 +495,8 @@ export function ChatPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
+        next.delete('friends')
+        next.delete('friendsTab')
         next.set('folder', folderId)
         next.set('tab', tab)
         return next
@@ -589,6 +658,7 @@ export function ChatPage() {
     setIsMobileSidebarOpen(false)
     setIsMobileFoldersOpen(false)
     closeFolderOverview()
+    closeFriendsOverview()
   }
 
   function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
@@ -774,6 +844,9 @@ export function ChatPage() {
           setIsMobileSidebarOpen(false)
         }}
         onOpenNews={pageModals.openNewsModal}
+        onOpenFriends={() => openFriendsOverview('friends')}
+        friendsIncomingCount={friendsState.incomingCount}
+        isFriendsOverviewOpen={isFriendsOverviewOpen}
         onOpenAdmin={pageModals.openAdminModal}
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
         onCreateFolder={pageMenus.openCreateFolderSheet}
@@ -790,9 +863,9 @@ export function ChatPage() {
       <section
         className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}${
           isFolderOverviewOpen ? ' is-folder-overview-active' : ''
-        }`}
+        }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}`}
       >
-        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen ? (
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen ? (
           <ChatFoldersMobilePanel
             folders={chatFolders.folders}
             threadsByFolderId={chatFolders.threadsByFolderId}
@@ -856,10 +929,27 @@ export function ChatPage() {
             onCreateChat={() => void handleCreateNewChatInFolder(activeOverviewFolder.id)}
           />
         ) : null}
-        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen
+        {isFriendsOverviewOpen ? (
+          <ChatFriendsOverview
+            tab={friendsTabFromUrl}
+            friends={friendsState.friends}
+            incomingRequests={friendsState.incomingRequests}
+            outgoingRequests={friendsState.outgoingRequests}
+            incomingCount={friendsState.incomingCount}
+            isLoading={friendsState.isLoading}
+            error={friendsState.error}
+            isCompactMobile={isCompactMobileSidebarLayout}
+            onTabChange={setFriendsOverviewTab}
+            onSendRequest={friendsState.sendRequest}
+            onAcceptRequest={friendsState.acceptRequest}
+            onDeclineRequest={friendsState.declineRequest}
+            onCancelRequest={friendsState.cancelRequest}
+          />
+        ) : null}
+        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen
           ? mobileTopBar
           : null}
-        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen ? (
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
             participantsAnchorRef={collaboration.participantsAnchorRef}

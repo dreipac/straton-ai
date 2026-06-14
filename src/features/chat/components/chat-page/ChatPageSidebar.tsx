@@ -2,6 +2,7 @@ import { type ReactNode, type RefObject } from 'react'
 import accountIcon from '../../../../assets/icons/account.svg'
 import learnIcon from '../../../../assets/icons/learn-outlined.svg'
 import newsIcon from '../../../../assets/icons/news.svg'
+import userAddIcon from '../../../../assets/icons/userAdd.svg'
 import settingsIcon from '../../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../../assets/icons/sidebar.svg'
 import type { User } from '@supabase/supabase-js'
@@ -39,6 +40,8 @@ type ChatPageSidebarProps = {
   isLearnPathsButtonDisabled: boolean
   learnFeatureInfoVisible: boolean
   newsUnreadCount: number
+  friendsIncomingCount: number
+  isFriendsOverviewOpen: boolean
   isNewChatPending: boolean
   newChatTourRef: RefObject<HTMLButtonElement | null>
   learnTourRef: RefObject<HTMLButtonElement | null>
@@ -52,6 +55,7 @@ type ChatPageSidebarProps = {
   onOpenSettings: () => void
   onNavigateLearn: () => void
   onOpenNews: () => void
+  onOpenFriends: () => void
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
   onCreateFolder: () => void
@@ -87,6 +91,8 @@ export function ChatPageSidebar({
   isLearnPathsButtonDisabled,
   learnFeatureInfoVisible,
   newsUnreadCount,
+  friendsIncomingCount,
+  isFriendsOverviewOpen,
   isNewChatPending,
   newChatTourRef,
   learnTourRef,
@@ -100,6 +106,7 @@ export function ChatPageSidebar({
   onOpenSettings,
   onNavigateLearn,
   onOpenNews,
+  onOpenFriends,
   onOpenAdmin,
   onToggleCompactProfileSheet,
     onCreateFolder,
@@ -230,6 +237,34 @@ export function ChatPageSidebar({
           ) : newsUnreadCount > 0 ? (
             <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
               {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className={`chat-sidebar-nav-button chat-sidebar-nav-button--friends${
+            isFriendsOverviewOpen ? ' is-active' : ''
+          }${isSidebarCollapsed && friendsIncomingCount > 0 ? ' is-collapsed-badge' : ''}`}
+          onClick={onOpenFriends}
+          aria-label={
+            isSidebarCollapsed
+              ? `Freunde${friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''}`
+              : undefined
+          }
+        >
+          <img className="ui-icon chat-sidebar-top-button-icon" src={userAddIcon} alt="" aria-hidden="true" />
+          {!isSidebarCollapsed ? (
+            <span className="chat-sidebar-nav-label-row">
+              Freunde
+              {friendsIncomingCount > 0 ? (
+                <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                  {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                </span>
+              ) : null}
+            </span>
+          ) : friendsIncomingCount > 0 ? (
+            <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+              {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
             </span>
           ) : null}
         </button>
