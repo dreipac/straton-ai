@@ -5829,6 +5829,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
+  position: relative;
+  z-index: 2;
 }
 
 .chat-input-row--stacked.chat-input-row--mobile-compact .chat-input-pill > button[type='submit'],

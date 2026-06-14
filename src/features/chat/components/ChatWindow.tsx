@@ -9,6 +9,7 @@ import {
 import { useToast } from '../../../components/toast/ToastProvider'
 import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
 import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import duringIcon from '../../../assets/icons/during.svg'
 import sendIcon from '../../../assets/icons/send.svg'
 import type { ChatMessage, InstantAnalyzeDebugMeta, ThinkingAnalyzeDebugMeta } from '../types'
@@ -291,7 +292,7 @@ export function ChatWindow({
       }
       onClick={handleComposerSendClick}
       onPointerDown={handleComposerSendPointerDown}
-      onPointerUp={mobileComposerSendTouch.touchHandlers.onPointerUp}
+      onPointerUp={handleComposerSendPointerUp}
       onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
       onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
       onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
@@ -335,9 +336,18 @@ export function ChatWindow({
     if (!composer.isMobileComposer || !touchLike) {
       return
     }
-    event.preventDefault()
+    event.stopPropagation()
+    preventIosBlurOnlyTapWhenChatInputFocused(event)
     mobileSendStartedWithTouchRef.current = true
     mobileComposerSendTouch.touchHandlers.onPointerDown(event)
+  }
+
+  function handleComposerSendPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    mobileComposerSendTouch.touchHandlers.onPointerUp(event)
+    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
+    if (composer.isMobileComposer && touchLike) {
+      event.stopPropagation()
+    }
   }
 
   useVisualKeyboardInset()
