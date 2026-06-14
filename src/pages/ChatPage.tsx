@@ -492,6 +492,10 @@ export function ChatPage() {
     if (!chatFoldersFeatureEnabled) {
       return
     }
+    if (folderIdFromUrl === folderId) {
+      closeFolderOverview()
+      return
+    }
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
@@ -553,6 +557,8 @@ export function ChatPage() {
     if (index === 1) {
       setIsMobileFoldersOpen(false)
       setIsMobileSidebarOpen(false)
+      closeFolderOverview()
+      closeFriendsOverview()
       pageModals.profileFullSheetRef.current?.requestClose()
       pageMenus.closeThreadActionMenu()
       pageMenus.closeFolderActionMenu()
@@ -653,12 +659,12 @@ export function ChatPage() {
     if (swipeOpenThreadId && swipeOpenThreadId !== threadId) {
       setSwipeOpenThreadId(null)
     }
-    selectChat(threadId)
+    closeFolderOverview()
+    closeFriendsOverview()
+    void selectChat(threadId)
     pageMenus.closeThreadActionMenu()
     setIsMobileSidebarOpen(false)
     setIsMobileFoldersOpen(false)
-    closeFolderOverview()
-    closeFriendsOverview()
   }
 
   function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
@@ -927,6 +933,7 @@ export function ChatPage() {
               })
             }
             onCreateChat={() => void handleCreateNewChatInFolder(activeOverviewFolder.id)}
+            onBack={closeFolderOverview}
           />
         ) : null}
         {isFriendsOverviewOpen ? (

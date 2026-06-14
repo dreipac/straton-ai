@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import chevronLeftIcon from '../../../assets/icons/chevron-left.svg'
 import editIcon from '../../../assets/icons/edit.svg'
 import infoIcon from '../../../assets/icons/info.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
@@ -24,6 +25,7 @@ type ChatFolderOverviewProps = {
   onDownloadFile: (file: ChatFolderFileRecord) => void | Promise<void>
   onCreateLearningPath: () => void | Promise<void>
   onCreateChat: () => void | Promise<void>
+  onBack: () => void
 }
 
 const FOLDER_FILES_HINT =
@@ -60,6 +62,7 @@ export function ChatFolderOverview({
   onDownloadFile,
   onCreateLearningPath,
   onCreateChat,
+  onBack,
 }: ChatFolderOverviewProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const prefersReducedMotionRef = useRef(
@@ -97,6 +100,14 @@ export function ChatFolderOverview({
       <div className="chat-folder-overview-inner">
         <header className="chat-folder-overview-header">
           <div className="chat-folder-overview-title-row">
+            <button
+              type="button"
+              className="chat-folder-overview-back-btn"
+              aria-label="Zurück zum Chat"
+              onClick={onBack}
+            >
+              <img className="ui-icon chat-folder-overview-back-icon" src={chevronLeftIcon} alt="" aria-hidden="true" />
+            </button>
             <span
               className="chat-folder-overview-icon"
               style={getChatFolderIconStyle(folder.color)}
