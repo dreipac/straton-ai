@@ -296,6 +296,18 @@ function mapMessageRows(data: unknown): ChatMessage[] {
 
 const MESSAGE_PAGE_SIZE = 1000
 
+/** PostgREST `.in()` landet in der URL — kleine Batches vermeiden 414 URI Too Long. */
+const THREAD_ID_FILTER_BATCH_SIZE = 20
+
+function chunkThreadIds(threadIds: string[]): string[][] {
+  const unique = [...new Set(threadIds)]
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += THREAD_ID_FILTER_BATCH_SIZE) {
+    chunks.push(unique.slice(i, i + THREAD_ID_FILTER_BATCH_SIZE))
+  }
+  return chunks
+}
+
 async function listMessagesByThreadIdsQuery(
   threadIds: string[],
   includeMetadata: boolean,
@@ -333,14 +345,18 @@ export async function listMessagesByThreadIds(threadIds: string[]): Promise<Chat
     return []
   }
 
-  try {
-    return await listMessagesByThreadIdsQuery(threadIds, true)
-  } catch (err) {
-    if (!isPostgresUnicodeEscapeError(err)) {
-      throw err
+  const allRows: ChatMessage[] = []
+  for (const chunk of chunkThreadIds(threadIds)) {
+    try {
+      allRows.push(...(await listMessagesByThreadIdsQuery(chunk, true)))
+    } catch (err) {
+      if (!isPostgresUnicodeEscapeError(err)) {
+        throw err
+      }
+      allRows.push(...(await listMessagesByThreadIdsQuery(chunk, false)))
     }
-    return listMessagesByThreadIdsQuery(threadIds, false)
   }
+  return allRows
 }
 
 export async function listMessagesForThread(threadId: string): Promise<ChatMessage[]> {
@@ -495,26 +511,36 @@ export async function deleteEmptyChatThreadsByUserId(userId: string): Promise<nu
     return 0
   }
 
-  const { data: messagesData, error: messagesError } = await supabase
-    .from('chat_messages')
-    .select('thread_id')
-    .in('thread_id', threadIds)
+  const nonEmptyThreadIds = new Set<string>()
+  for (const chunk of chunkThreadIds(threadIds)) {
+    const { data: messagesData, error: messagesError } = await supabase
+      .from('chat_messages')
+      .select('thread_id')
+      .in('thread_id', chunk)
 
-  if (messagesError) {
-    throw messagesError
+    if (messagesError) {
+      throw messagesError
+    }
+
+    for (const row of messagesData ?? []) {
+      nonEmptyThreadIds.add(String((row as { thread_id: string }).thread_id))
+    }
   }
 
-  const nonEmptyThreadIds = new Set((messagesData ?? []).map((row) => String((row as { thread_id: string }).thread_id)))
   const emptyThreadIds = threadIds.filter((threadId) => !nonEmptyThreadIds.has(threadId))
 
   if (emptyThreadIds.length === 0) {
     return 0
   }
 
-  const { error: deleteError } = await supabase.from('chat_threads').delete().in('id', emptyThreadIds)
-  if (deleteError) {
-    throw deleteError
+  let deleted = 0
+  for (const chunk of chunkThreadIds(emptyThreadIds)) {
+    const { error: deleteError } = await supabase.from('chat_threads').delete().in('id', chunk)
+    if (deleteError) {
+      throw deleteError
+    }
+    deleted += chunk.length
   }
 
-  return emptyThreadIds.length
+  return deleted
 }

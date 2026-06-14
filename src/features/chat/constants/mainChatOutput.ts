@@ -12,7 +12,7 @@ export const MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS = 16384
 export const MAIN_CHAT_SUMMARY_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
 
 /** Thinking-Modus: ausführliche Antworten, Dokument-Zusammenfassungen mit vielen Abschnitten. */
-export const THINKING_MAX_OUTPUT_TOKENS = 8192
+export const THINKING_MAX_OUTPUT_TOKENS = 16384
 
 /**
  * Lernpfad-Antworten über dieselbe Route: etwas höheres Limit für Kapitel-/Übungsantworten.
