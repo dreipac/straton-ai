@@ -104,8 +104,9 @@
       font-size: clamp(0.72rem, 0.68rem + 0.06vw, 0.78rem);
     }
 
-    .chat-sidebar:not(.is-collapsed) .chat-folder-create-btn {
-      font-size: clamp(0.78rem, 0.72rem + 0.1vw, 0.84rem);
+    .chat-sidebar:not(.is-collapsed) .chat-sidebar-section-header-wrap .chat-folder-create-btn {
+      font-size: clamp(1.15rem, 1rem + 0.28vw, 1.38rem);
+      min-width: 1.35rem;
     }
   }
 
@@ -179,7 +180,6 @@
 
 .chat-sidebar-top {
   padding-bottom: 0.8rem;
-  border-bottom: 1px solid #e2e8f0;
 }
 
 .chat-sidebar-header-row {
@@ -1773,10 +1773,6 @@
   --chat-thread-swipe-panel-bg: transparent;
   --chat-thread-swipe-panel-bg-active: var(--color-surface);
   --chat-sidebar-swipe-panel-bg: var(--color-surface);
-}
-
-:root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-top {
-  border-bottom-color: var(--color-border);
 }
 
 :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-bottom {

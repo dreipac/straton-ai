@@ -9,6 +9,7 @@ export type LearnTutorThreadProps = {
   entryTestDurationLabel: string
   onOpenEntryQuizModal: () => void
   onStartNextChapter: () => void
+  chapterBlueprintReady: boolean
   onCreateFlashcards: () => void
   onCreateWorksheet: () => void
   learnWorksheets: LearnWorksheetItem[]
@@ -22,6 +23,7 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
     entryTestDurationLabel,
     onOpenEntryQuizModal,
     onStartNextChapter,
+    chapterBlueprintReady,
     onCreateFlashcards,
     onCreateWorksheet,
     learnWorksheets,
@@ -78,8 +80,12 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
           {message.action === 'start-next-chapter' ? (
             <button type="button" className="learn-entry-test-link" onClick={onStartNextChapter}>
               <span className="learn-entry-test-link-content">
-                <span className="learn-entry-test-link-title">Kapitel beginnen</span>
-                <span className="learn-entry-test-link-meta">Nächsten Lernblock starten</span>
+                <span className="learn-entry-test-link-title">
+                  {chapterBlueprintReady ? 'Kapitel öffnen' : 'Kapitel generieren'}
+                </span>
+                <span className="learn-entry-test-link-meta">
+                  {chapterBlueprintReady ? 'Lernblock starten' : 'KI erstellt deinen Lernblock'}
+                </span>
               </span>
             </button>
           ) : null}

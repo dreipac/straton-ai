@@ -18,6 +18,8 @@ export type LearningPathSummary = {
   isPending?: boolean
   /** Stabile Sidebar-`key`-ID über Platzhalter → echter Pfad (kein Remount). */
   sidebarListKey?: string
+  /** Client-only: Ausblend-Animation vor dem Entfernen leerer Pfade. */
+  isRemoving?: boolean
 }
 
 export type UploadedMaterial = {
@@ -1136,7 +1138,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
       'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
 
   if (error) {
     throw toReadableError(error)

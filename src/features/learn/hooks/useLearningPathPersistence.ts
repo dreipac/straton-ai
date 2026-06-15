@@ -13,7 +13,7 @@ import {
   type UploadedMaterial,
 } from '../services/learn.persistence'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
-import { getDisplayPathTitle } from '../utils/learnPageHelpers'
+import { getDisplayPathTitle, isPendingLearningPathId } from '../utils/learnPageHelpers'
 
 export type EditableLearningPathSnapshot = {
   topic: string
@@ -52,7 +52,7 @@ export function useLearningPathPersistence(args: UseLearningPathPersistenceArgs)
 
   const persistActivePath = useCallback(async () => {
     const pathId = activePathIdRef.current
-    if (!pathId) {
+    if (!pathId || isPendingLearningPathId(pathId)) {
       return
     }
     const currentSummary = learningPaths.find((entry) => entry.id === pathId)
@@ -70,6 +70,9 @@ export function useLearningPathPersistence(args: UseLearningPathPersistenceArgs)
 
   const persistPathInBackground = useCallback(
     (pathId: string, title: string, nextSnapshot: EditableLearningPathSnapshot) => {
+      if (isPendingLearningPathId(pathId)) {
+        return
+      }
       void updateLearningPathById(pathId, {
         title: getDisplayPathTitle(title),
         ...nextSnapshot,

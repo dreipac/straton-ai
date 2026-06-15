@@ -5,7 +5,9 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type Dispatch,
   type MouseEvent as ReactMouseEvent,
+  type SetStateAction,
 } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import deleteIcon from '../assets/icons/delete.svg'
@@ -23,7 +25,7 @@ import paperFilledIcon from '../assets/icons/paper-filled.svg'
 import statisticsOutlinedIcon from '../assets/icons/statistics-outlined.svg'
 import statisticsFilledIcon from '../assets/icons/statistics-filled.svg'
 import { RenameBottomSheet, type RenameBottomSheetHandle } from '../components/ui/bottom-sheet/RenameBottomSheet'
-import { ContextMenu } from '../components/ui/menu/ContextMenu'
+import { PopoverContextMenu } from '../components/ui/menu/PopoverContextMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
@@ -78,6 +80,7 @@ import {
   ensureMinimumChapterDepth,
   getChapterMaterialRagOptions,
   getDisplayPathTitle,
+  sortLearningPathsByCreatedAt,
   getWorksheetChapterProgress,
   MIXED_LEARN_MATERIAL_CHAPTER_INDEX,
   parseChapterBlueprintsFromText,
@@ -189,7 +192,30 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
-export function LearnPage() {
+export type LearnPageProps = {
+  /** Eingebettet im Chat-Hauptbereich (ohne eigene Learn-Sidebar). */
+  embedded?: boolean
+  /** Vom Host gesteuerte Pfad-ID (z. B. Chat-URL). */
+  controlledPathId?: string | null
+  onControlledPathIdChange?: (pathId: string) => void
+  onOpenHostSidebar?: () => void
+  pendingCreateLearningPath?: boolean
+  onPendingCreateLearningPathHandled?: () => void
+  /** Chat-Sidebar: gemeinsame Pfadliste (wie `threads` bei Chats). */
+  hostLearningPaths?: LearningPathSummary[]
+  setHostLearningPaths?: Dispatch<SetStateAction<LearningPathSummary[]>>
+}
+
+export function LearnPage({
+  embedded = false,
+  controlledPathId = null,
+  onControlledPathIdChange,
+  onOpenHostSidebar,
+  pendingCreateLearningPath = false,
+  onPendingCreateLearningPathHandled,
+  hostLearningPaths,
+  setHostLearningPaths,
+}: LearnPageProps = {}) {
   const MODAL_ANIMATION_MS = 220
   const CHAPTER_ON_DEMAND_TIMEOUT_MS = 120_000
   const CHAPTER_ON_DEMAND_STEPS = ['Kapitel wird vorbereitet', 'Kapitelinhalt wird erstellt', 'Qualitätsprüfung läuft'] as const
@@ -208,7 +234,12 @@ export function LearnPage() {
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzingSetupTopic, setIsAnalyzingSetupTopic] = useState(false)
   const [materials, setMaterials] = useState<UploadedMaterial[]>([])
-  const [learningPaths, setLearningPaths] = useState<LearningPathSummary[]>([])
+  const [internalLearningPaths, setInternalLearningPaths] = useState<LearningPathSummary[]>([])
+  const usesHostLearningPaths = embedded && setHostLearningPaths != null
+  const learningPaths = usesHostLearningPaths ? hostLearningPaths ?? [] : internalLearningPaths
+  const setLearningPaths: Dispatch<SetStateAction<LearningPathSummary[]>> = usesHostLearningPaths
+    ? setHostLearningPaths!
+    : setInternalLearningPaths
   const skipLearnPathEnterAnimationIdsRef = useRef<Set<string>>(new Set())
   const enteringLearningPathIds = useLearningPathListEnterAnimation(
     learningPaths,
@@ -293,6 +324,7 @@ export function LearnPage() {
   const mobileSidebarButtonReleaseTimerRef = useRef<number | null>(null)
   const entryQuizCloseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
+  const chapterGenerationInFlightRef = useRef(false)
   const flashcardsModalCloseTimerRef = useRef<number | null>(null)
   const worksheetModalCloseTimerRef = useRef<number | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
@@ -355,6 +387,19 @@ export function LearnPage() {
   const activePathIdRef = useRef('')
   const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
   const chatDraftImportDoneRef = useRef(false)
+  const parentDrivenPathIdRef = useRef<string | null>(null)
+  const embeddedCreateInFlightRef = useRef(false)
+  const [isSwitchingLearningPath, setIsSwitchingLearningPath] = useState(false)
+
+  const handleEmbeddedPathActivated = useCallback(
+    (pathId: string) => {
+      if (!embedded || !onControlledPathIdChange || isPendingLearningPathId(pathId)) {
+        return
+      }
+      onControlledPathIdChange(pathId)
+    },
+    [embedded, onControlledPathIdChange],
+  )
 
   const activePath = learningPaths.find((entry) => entry.id === activePathId) ?? null
   const effectiveTopic = selectedTopic.trim() || topic.trim()
@@ -653,6 +698,7 @@ export function LearnPage() {
       setOpenPathMenuId(null)
       setPathMenuPosition(null)
     },
+    onPathActivated: embedded ? handleEmbeddedPathActivated : undefined,
   })
 
   const { handleContinueSetupStepOne, handleContinueSetupStepTwo, handleContinueSetupStepThree, handleFinishSetup } =
@@ -690,6 +736,76 @@ export function LearnPage() {
   useEffect(() => {
     activePathIdRef.current = activePathId
   }, [activePathId])
+
+  useEffect(() => {
+    if (!embedded || !controlledPathId || isPendingLearningPathId(controlledPathId)) {
+      parentDrivenPathIdRef.current = null
+      return
+    }
+    if (embeddedCreateInFlightRef.current) {
+      return
+    }
+    if (controlledPathId === activePathId) {
+      setIsSwitchingLearningPath(false)
+      parentDrivenPathIdRef.current = null
+      return
+    }
+    if (!learningPaths.some((path) => path.id === controlledPathId)) {
+      return
+    }
+    parentDrivenPathIdRef.current = controlledPathId
+    if (!pathCacheRef.current[controlledPathId]) {
+      setIsSwitchingLearningPath(true)
+    }
+    void handleSelectLearningPath(controlledPathId).finally(() => {
+      if (parentDrivenPathIdRef.current === controlledPathId) {
+        setIsSwitchingLearningPath(false)
+        parentDrivenPathIdRef.current = null
+      }
+    })
+  }, [
+    activePathId,
+    controlledPathId,
+    embedded,
+    handleSelectLearningPath,
+    learningPaths,
+  ])
+
+  useEffect(() => {
+    if (!embedded || !onControlledPathIdChange || !activePathId || isPendingLearningPathId(activePathId)) {
+      return
+    }
+    if (embeddedCreateInFlightRef.current) {
+      return
+    }
+    if (parentDrivenPathIdRef.current) {
+      return
+    }
+    if (activePathId === controlledPathId) {
+      return
+    }
+    onControlledPathIdChange(activePathId)
+  }, [activePathId, controlledPathId, embedded, onControlledPathIdChange])
+
+  useEffect(() => {
+    if (!embedded || !pendingCreateLearningPath) {
+      return
+    }
+    if (embeddedCreateInFlightRef.current || isLearningPathWorkspaceLoading) {
+      return
+    }
+    embeddedCreateInFlightRef.current = true
+    onPendingCreateLearningPathHandled?.()
+    void handleCreateLearningPath().finally(() => {
+      embeddedCreateInFlightRef.current = false
+    })
+  }, [
+    embedded,
+    handleCreateLearningPath,
+    isLearningPathWorkspaceLoading,
+    onPendingCreateLearningPathHandled,
+    pendingCreateLearningPath,
+  ])
 
   useEffect(() => {
     setActiveLearnTab('path')
@@ -790,7 +906,9 @@ export function LearnPage() {
 
   useEffect(() => {
     if (!user) {
-      setLearningPaths([])
+      if (!usesHostLearningPaths) {
+        setInternalLearningPaths([])
+      }
       setActivePathId('')
       activePathIdRef.current = ''
       setTopic('')
@@ -833,6 +951,10 @@ export function LearnPage() {
       return
     }
     const userId = user.id
+    const deferDefaultPathSelection =
+      Boolean((location.state as LearnPageChatDraftState | null)?.fromChatLearningDraft) ||
+      Boolean(embedded && (controlledPathId?.trim() || pendingCreateLearningPath))
+    const preferredPathId = embedded ? controlledPathId?.trim() ?? '' : ''
 
     let isMounted = true
 
@@ -840,37 +962,61 @@ export function LearnPage() {
       setError(null)
 
       try {
-        if (autoRemoveEmptyLearningPaths) {
+        if (autoRemoveEmptyLearningPaths && !deferDefaultPathSelection) {
           await deleteEmptyLearningPathsByUserId(userId).catch(() => {})
         }
         const loaded = await listLearningPathsByUserId(userId)
         const records =
           loaded.length > 0
             ? loaded
-            : [await createLearningPathByUserId(userId, 'Neuer Lernpfad')]
+            : deferDefaultPathSelection
+              ? loaded
+              : [await createLearningPathByUserId(userId, 'Neuer Lernpfad')]
 
-        if (!isMounted) {
+        if (!isMounted || chatDraftImportDoneRef.current) {
           return
         }
 
-        setLearningPaths(
-          records.map((record) => ({
-            id: record.id,
-            userId: record.userId,
-            title: record.title,
-            createdAt: record.createdAt,
-            updatedAt: record.updatedAt,
-          })),
-        )
         pathCacheRef.current = records.reduce<Record<string, LearningPathRecord>>((acc, record) => {
           acc[record.id] = record
           return acc
         }, {})
 
-        const first = records[0]
-        setActivePathId(first.id)
-        activePathIdRef.current = first.id
-        applyPathToState(first)
+        if (embeddedCreateInFlightRef.current) {
+          return
+        }
+
+        setLearningPaths((prev) => {
+          if (usesHostLearningPaths && prev.length > 0) {
+            return prev
+          }
+          if (prev.some((path) => path.isPending)) {
+            return prev
+          }
+          return sortLearningPathsByCreatedAt(
+            records.map((record) => ({
+              id: record.id,
+              userId: record.userId,
+              title: record.title,
+              createdAt: record.createdAt,
+              updatedAt: record.updatedAt,
+            })),
+          )
+        })
+
+        if (preferredPathId) {
+          const preferredRecord = records.find((record) => record.id === preferredPathId)
+          if (preferredRecord) {
+            setActivePathId(preferredRecord.id)
+            activePathIdRef.current = preferredRecord.id
+            applyPathToState(preferredRecord)
+          }
+        } else if (!deferDefaultPathSelection && records.length > 0 && !activePathIdRef.current) {
+          const first = records[0]
+          setActivePathId(first.id)
+          activePathIdRef.current = first.id
+          applyPathToState(first)
+        }
       } catch (err) {
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Lernpfade konnten nicht geladen werden.')
@@ -883,10 +1029,10 @@ export function LearnPage() {
     return () => {
       isMounted = false
     }
-  }, [user, applyPathToState, autoRemoveEmptyLearningPaths])
+  }, [user, applyPathToState, autoRemoveEmptyLearningPaths, location.state, embedded, controlledPathId, usesHostLearningPaths])
 
   useEffect(() => {
-    if (!user || !activePath) {
+    if (!user || !activePath || isPendingLearningPathId(activePathId)) {
       return
     }
 
@@ -907,6 +1053,7 @@ export function LearnPage() {
   }, [
     user,
     activePath,
+    activePathId,
     persistActivePath,
     topic,
     topicSuggestions,
@@ -1011,23 +1158,28 @@ export function LearnPage() {
           chapterBlueprints: [],
           chapterSession: DEFAULT_CHAPTER_SESSION,
         })
-        setLearningPaths((prev) => {
-          const next = [
-            {
-              id: imported.id,
-              userId: imported.userId,
-              title: imported.title,
-              createdAt: imported.createdAt,
-              updatedAt: imported.updatedAt,
-            },
-            ...prev.filter((p) => p.id !== imported.id),
-          ]
-          return next
-        })
+        const allPaths = await listLearningPathsByUserId(user.id)
+        pathCacheRef.current = allPaths.reduce<Record<string, LearningPathRecord>>((acc, record) => {
+          acc[record.id] = record
+          return acc
+        }, {})
         pathCacheRef.current[imported.id] = imported
+        setLearningPaths(
+          sortLearningPathsByCreatedAt(
+            allPaths.map((record) => ({
+              id: record.id,
+              userId: record.userId,
+              title: record.id === imported.id ? imported.title : record.title,
+              createdAt: record.createdAt,
+              updatedAt: record.id === imported.id ? imported.updatedAt : record.updatedAt,
+            })),
+          ),
+        )
+        suppressAutosaveRef.current = true
         setActivePathId(imported.id)
         activePathIdRef.current = imported.id
         applyPathToState(imported)
+        setError(null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Lernpfad aus Chat konnte nicht vorbereitet werden.')
       } finally {
@@ -1035,28 +1187,6 @@ export function LearnPage() {
       }
     })()
   }, [applyPathToState, location.state, navigate, user])
-
-  useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
-      if (!openPathMenuId) {
-        return
-      }
-      const target = event.target
-      if (!(target instanceof Node)) {
-        return
-      }
-      const isInsideMenu = pathMenuRef.current?.contains(target) ?? false
-      if (!isInsideMenu) {
-        setOpenPathMenuId(null)
-        setPathMenuPosition(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick)
-    }
-  }, [openPathMenuId])
 
   useEffect(() => {
     return () => {
@@ -1587,6 +1717,13 @@ export function LearnPage() {
       ),
     [chapterBlueprints, chapterSession, unlockedChapterCount],
   )
+
+  const targetChapterIndexForOpen = Math.max(
+    0,
+    Math.min(unlockedChapterCount - 1, targetChapterCount - 1),
+  )
+
+  const chapterBlueprintReady = Boolean(chapterBlueprints[targetChapterIndexForOpen]?.steps?.length)
 
   const requiredWorksheetProgress = useMemo(() => {
     if (worksheetRequiredChapterIndex === null) {
@@ -2188,11 +2325,15 @@ export function LearnPage() {
   ])
 
   if (isLoading) {
-    return <main className="learn-loading">Lade Lernbereich...</main>
+    return embedded ? (
+      <div className="learn-workspace-embedded learn-loading">Lade Lernbereich...</div>
+    ) : (
+      <main className="learn-loading">Lade Lernbereich...</main>
+    )
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    return embedded ? null : <Navigate to="/login" replace />
   }
 
   function openLearningPathContextMenu(event: ReactMouseEvent, pathId: string) {
@@ -2306,7 +2447,15 @@ export function LearnPage() {
   }
 
   async function openChapterModal() {
-    if (effectiveChapterBlueprints.length === 0) {
+    const activePathIdAtStart = activePathId
+    const targetChapterIndex = targetChapterIndexForOpen
+    let blueprintToOpen = chapterBlueprints[targetChapterIndex] ?? null
+
+    if (!blueprintToOpen?.steps?.length) {
+      if (chapterGenerationInFlightRef.current) {
+        return
+      }
+      chapterGenerationInFlightRef.current = true
       const chapterTopic = (selectedTopic || effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')).trim()
       try {
         setError('Kapitel wird vorbereitet...')
@@ -2323,6 +2472,9 @@ export function LearnPage() {
         let validationHint = ''
         let generated: ChapterBlueprint[] = []
         for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
           const chapterRequest: ChatMessage = {
             id: crypto.randomUUID(),
             role: 'user',
@@ -2335,6 +2487,8 @@ export function LearnPage() {
               entryQuizInsight,
               validationHint,
               attempt,
+              chapterNumber: targetChapterIndex + 1,
+              totalChapters: targetChapterCount,
             }),
             createdAt: new Date().toISOString(),
           }
@@ -2356,6 +2510,9 @@ export function LearnPage() {
               window.clearTimeout(chapterTimeoutId)
             }
           })
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
           const rawResponse = result.assistantMessage.content
           const parsed = parseInteractiveContentWithFallback(rawResponse)
           setChapterGenerationDebugRaw(rawResponse)
@@ -2372,7 +2529,9 @@ export function LearnPage() {
             validationHint = validation.reason
             continue
           }
-          generated = namespaceChapterStepIds(ensureMinimumChapterDepth([parsedChapter]))
+          generated = namespaceChapterStepIds(ensureMinimumChapterDepth([parsedChapter]), {
+            chapterIndexOffset: targetChapterIndex,
+          })
           break
         }
         const firstChapter = generated[0]
@@ -2383,14 +2542,41 @@ export function LearnPage() {
           setError('Kapitel konnte nicht erzeugt werden. Erneut versuchen.')
           return
         }
+        if (activePathIdRef.current !== activePathIdAtStart) {
+          return
+        }
         setChapterGenerationPercent(100)
-        setChapterBlueprints([firstChapter])
+        setChapterBlueprints((prev) => {
+          const next = [...prev]
+          if (next.length <= targetChapterIndex) {
+            while (next.length < targetChapterIndex) {
+              next.push({
+                id: `chapter-slot-${next.length}`,
+                title: learningChapters[next.length]?.trim() || `Kapitel ${next.length + 1}`,
+                steps: [],
+              })
+            }
+            next.push(firstChapter)
+          } else {
+            next[targetChapterIndex] = firstChapter
+          }
+          return next
+        })
+        setLearningChapters((prev) => {
+          const next = [...prev]
+          while (next.length <= targetChapterIndex) {
+            next.push('')
+          }
+          next[targetChapterIndex] = firstChapter.title
+          return next
+        })
         setChapterSession((prev) => ({
           ...prev,
-          chapterIndex: 0,
+          chapterIndex: targetChapterIndex,
           stepIndex: 0,
         }))
         setTutorState('chapter_learning')
+        blueprintToOpen = firstChapter
       } catch (err) {
         const message = err instanceof Error ? err.message : ''
         if (message.trim()) {
@@ -2407,10 +2593,25 @@ export function LearnPage() {
         }
         return
       } finally {
+        chapterGenerationInFlightRef.current = false
         setIsChapterGenerationLoading(false)
         setChapterGenerationPercent(0)
       }
     }
+
+    if (activePathIdRef.current !== activePathIdAtStart) {
+      return
+    }
+
+    if (!blueprintToOpen?.steps?.length) {
+      return
+    }
+
+    setChapterSession((prev) => ({
+      ...prev,
+      chapterIndex: targetChapterIndex,
+      stepIndex: prev.chapterIndex === targetChapterIndex ? prev.stepIndex : 0,
+    }))
     if (chapterModalCloseTimerRef.current) {
       window.clearTimeout(chapterModalCloseTimerRef.current)
       chapterModalCloseTimerRef.current = null
@@ -2431,7 +2632,8 @@ export function LearnPage() {
     setActiveLearnTab('worksheets')
     if (worksheetRequiredChapterIndex !== null) {
       const ch = worksheetRequiredChapterIndex
-      const prog = getWorksheetChapterProgress(learnWorksheets, ch)
+      const progressKey = resolveWorksheetProgressChapterKey(chapterBlueprints, chapterSession, ch)
+      const prog = getWorksheetChapterProgress(learnWorksheets, progressKey)
       if (prog.total > 0) {
         openSavedWorksheetsModal(ch)
         return
@@ -2447,7 +2649,8 @@ export function LearnPage() {
       return
     }
     const ch = worksheetRequiredChapterIndex
-    const prog = getWorksheetChapterProgress(learnWorksheets, ch)
+    const progressKey = resolveWorksheetProgressChapterKey(chapterBlueprints, chapterSession, ch)
+    const prog = getWorksheetChapterProgress(learnWorksheets, progressKey)
     if (prog.total > 0) {
       openSavedWorksheetsModal(ch)
       return
@@ -2663,48 +2866,15 @@ export function LearnPage() {
     learnWorksheets.length > 0 ||
     tutorMessages.length > 0
   const showSetupFlow = !isSetupComplete && !hasExistingLearnContent
+  const workspaceDisplayPath =
+    embedded && isSwitchingLearningPath && controlledPathId
+      ? learningPaths.find((entry) => entry.id === controlledPathId) ?? activePath
+      : activePath
+  const isPathWorkspaceBusy =
+    isSwitchingLearningPath ||
+    (isLearningPathWorkspaceLoading && !learningPaths.some((path) => path.isPending))
 
-  return (
-    <main
-      className={`chat-app-shell learn-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
-        isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
-      }`}
-    >
-      <LearnPageSidebar
-        isSidebarCollapsed={isSidebarCollapsed}
-        onToggleSidebar={() => {
-          if (isMobileSidebarOpen) {
-            setIsMobileSidebarOpen(false)
-            setIsSidebarCollapsed(false)
-            return
-          }
-          setIsSidebarCollapsed((prev) => !prev)
-        }}
-        onCreateLearningPath={handleCreateLearningPath}
-        isCreateLearningPathDisabled={
-          isLearningPathWorkspaceLoading ||
-          (!learnPathCreateEnabled && profile?.is_superadmin !== true)
-        }
-        isCreateLearningPathBusy={isLearningPathWorkspaceLoading}
-        onCreateLearningPathDisabledClick={() => setLearnFeatureInfoVisible(true)}
-        onOpenSettings={openSettingsModal}
-        learningPaths={learningPaths}
-        enteringPathIds={enteringLearningPathIds}
-        activePathId={activePathId}
-        onSelectLearningPath={(pathId) => {
-          void handleSelectLearningPath(pathId)
-          setOpenPathMenuId(null)
-          setPathMenuPosition(null)
-          setIsMobileSidebarOpen(false)
-        }}
-        onLearningPathContextMenu={openLearningPathContextMenu}
-        onNavigateToChat={() => navigate('/chat')}
-        profile={profile}
-        displayName={displayName}
-        avatarFallback={avatarFallback}
-        subscriptionPlanName={subscriptionPlanName}
-      />
-
+  const learnWorkspaceMain = (
       <section className="chat-main learn-main">
         <header className="learn-mobile-topbar" aria-label="Lernbereich Kopfzeile">
           <div className="learn-mobile-topbar-main-row">
@@ -2719,6 +2889,10 @@ export function LearnPage() {
                 onTouchEnd={handleMobileSidebarButtonTouchEnd}
                 onTouchCancel={handleMobileSidebarButtonTouchEnd}
                 onClick={() => {
+                  if (embedded && onOpenHostSidebar) {
+                    onOpenHostSidebar()
+                    return
+                  }
                   setIsSidebarCollapsed(false)
                   setIsMobileSidebarOpen(true)
                 }}
@@ -2729,7 +2903,7 @@ export function LearnPage() {
             <div className="learn-mobile-topbar-title-wrap">
               <div className="learn-mobile-topbar-title-row">
                 <span className="learn-mobile-topbar-icon" aria-hidden="true" />
-                <p className="learn-mobile-topbar-title">{getDisplayPathTitle(activePath?.title ?? 'Lernbereich')}</p>
+                <p className="learn-mobile-topbar-title">{getDisplayPathTitle(workspaceDisplayPath?.title ?? 'Lernbereich')}</p>
               </div>
             </div>
           </div>
@@ -2746,11 +2920,11 @@ export function LearnPage() {
             ) : null}
             <header className="learn-workspace-header">
               <span className="learn-workspace-title-icon" aria-hidden="true" />
-              <h1 className="learn-page-title-text">{getDisplayPathTitle(activePath?.title ?? '')}</h1>
+              <h1 className="learn-page-title-text">{getDisplayPathTitle(workspaceDisplayPath?.title ?? '')}</h1>
             </header>
             {error ? <p className="error-text">{error}</p> : null}
 
-            {isLearningPathWorkspaceLoading ? (
+            {isPathWorkspaceBusy ? (
               <div className="learn-path-workspace-loader" aria-busy="true">
                 <ChatPendingReplyLoader statusLabel="Lernpfad wird vorbereitet …" />
               </div>
@@ -2983,6 +3157,7 @@ export function LearnPage() {
                         entryTestDurationLabel={entryTestDurationLabel}
                         onOpenEntryQuizModal={openEntryQuizModal}
                         onStartNextChapter={openChapterModal}
+                        chapterBlueprintReady={chapterBlueprintReady}
                         onCreateFlashcards={openTutorFlashcardsAction}
                         onCreateWorksheet={openTutorWorksheetAction}
                         learnWorksheets={learnWorksheets}
@@ -3356,6 +3531,10 @@ export function LearnPage() {
           </article>
         </div>
       </section>
+  )
+
+  const learnWorkspaceModals = (
+    <>
       <LearnEntryQuizModal
         isMounted={isEntryQuizMounted}
         isVisible={isEntryQuizVisible}
@@ -3473,10 +3652,15 @@ export function LearnPage() {
         </ModalShell>
       ) : null}
       {openPathMenuId && pathMenuPosition ? (
-        <ContextMenu
+        <PopoverContextMenu
           ref={pathMenuRef}
-          className="thread-menu-context-global"
-          style={{ left: pathMenuPosition.x, top: pathMenuPosition.y }}
+          open
+          position={pathMenuPosition}
+          onClose={() => {
+            setOpenPathMenuId(null)
+            setPathMenuPosition(null)
+          }}
+          ariaLabel="Lernpfad-Aktionen"
         >
           <MenuItem
             iconSrc={editIcon}
@@ -3495,7 +3679,7 @@ export function LearnPage() {
           >
             {'L\u00F6schen'}
           </MenuItem>
-        </ContextMenu>
+        </PopoverContextMenu>
       ) : null}
       {renamingPathId && isMobileViewport() ? (
         <RenameBottomSheet
@@ -3543,11 +3727,68 @@ export function LearnPage() {
           </section>
         </ModalShell>
       ) : null}
-      <div
-        className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
-        onClick={() => setIsMobileSidebarOpen(false)}
-        aria-hidden="true"
+      {!embedded ? (
+        <div
+          className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
+          onClick={() => setIsMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
+  )
+
+  if (embedded) {
+    return (
+      <div className="learn-workspace-embedded learn-shell">
+        {learnWorkspaceMain}
+        {learnWorkspaceModals}
+      </div>
+    )
+  }
+
+  return (
+    <main
+      className={`chat-app-shell learn-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
+        isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
+      }`}
+    >
+      <LearnPageSidebar
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={() => {
+          if (isMobileSidebarOpen) {
+            setIsMobileSidebarOpen(false)
+            setIsSidebarCollapsed(false)
+            return
+          }
+          setIsSidebarCollapsed((prev) => !prev)
+        }}
+        onCreateLearningPath={handleCreateLearningPath}
+        isCreateLearningPathDisabled={
+          isLearningPathWorkspaceLoading ||
+          (!learnPathCreateEnabled && profile?.is_superadmin !== true)
+        }
+        isCreateLearningPathBusy={isLearningPathWorkspaceLoading}
+        onCreateLearningPathDisabledClick={() => setLearnFeatureInfoVisible(true)}
+        onOpenSettings={openSettingsModal}
+        learningPaths={learningPaths}
+        enteringPathIds={enteringLearningPathIds}
+        activePathId={activePathId}
+        openPathMenuId={openPathMenuId}
+        onSelectLearningPath={(pathId) => {
+          void handleSelectLearningPath(pathId)
+          setOpenPathMenuId(null)
+          setPathMenuPosition(null)
+          setIsMobileSidebarOpen(false)
+        }}
+        onLearningPathContextMenu={openLearningPathContextMenu}
+        onNavigateToChat={() => navigate('/chat')}
+        profile={profile}
+        displayName={displayName}
+        avatarFallback={avatarFallback}
+        subscriptionPlanName={subscriptionPlanName}
       />
+      {learnWorkspaceMain}
+      {learnWorkspaceModals}
     </main>
   )
 }

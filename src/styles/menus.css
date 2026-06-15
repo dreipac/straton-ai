@@ -62,8 +62,39 @@
   position: fixed;
   right: auto;
   top: auto;
-  transform: translate(6px, 6px);
   z-index: 70;
+}
+
+.thread-menu.thread-menu-popover {
+  min-width: 11rem;
+  padding: 0.28rem;
+  border-radius: 14px;
+  transform-origin: left top;
+  opacity: 0;
+  transform: scale(0.94) translateY(4px);
+  pointer-events: none;
+  transition:
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.thread-menu.thread-menu-popover.is-visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+
+.thread-menu.thread-menu-popover .thread-menu-item {
+  opacity: 1;
+  transform: none;
+  animation: none;
+  border-radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-menu.thread-menu-popover {
+    transition: none;
+  }
 }
 
 .thread-menu-item {

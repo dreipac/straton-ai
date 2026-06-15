@@ -22,6 +22,18 @@ export function getDisplayPathTitle(title: string) {
   return trimmed ? trimmed : 'Neuer Lernpfad'
 }
 
+export function sortLearningPathsByCreatedAt(paths: LearningPathSummary[]): LearningPathSummary[] {
+  return [...paths].sort((a, b) => {
+    if (a.isPending && !b.isPending) {
+      return -1
+    }
+    if (!a.isPending && b.isPending) {
+      return 1
+    }
+    return b.createdAt.localeCompare(a.createdAt)
+  })
+}
+
 export const PENDING_LEARNING_PATH_ID_PREFIX = 'pending-'
 
 export function isPendingLearningPathId(pathId: string): boolean {
@@ -582,6 +594,9 @@ export type BuildChapterGenerationPromptArgs = {
   entryQuizInsight: string
   validationHint: string
   attempt: number
+  /** 1-basierte Kapitelnummer im Lernpfad (On-Demand-Generierung). */
+  chapterNumber?: number
+  totalChapters?: number
   /** Adaptives Abschlusskapitel */
   adaptive?: boolean
   weaknessSummary?: string
@@ -592,6 +607,11 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
   const lines = [
     `Lernpfad: ${args.pathTitle}`,
     `Thema: ${args.chapterTopic}`,
+    args.chapterNumber
+      ? `Dies ist Kapitel ${args.chapterNumber}${
+          args.totalChapters && args.totalChapters > 0 ? ` von ${args.totalChapters}` : ''
+        } im Lernpfad.`
+      : '',
     args.adaptive
       ? 'Erstelle genau EIN Abschlusskapitel für Schwachstellen als JSON-Array mit genau einem Kapitelobjekt.'
       : 'Erstelle genau 1 Lernkapitel als JSON-Array mit genau einem Kapitelobjekt.',

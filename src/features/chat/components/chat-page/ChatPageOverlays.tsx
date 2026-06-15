@@ -11,7 +11,7 @@ import { RenameBottomSheet, type RenameBottomSheetHandle } from '../../../../com
 import { ChatFolderEditorForm } from '../ChatFolderEditorForm'
 import { ChatFolderEditorBottomSheet } from '../ChatFolderEditorBottomSheet'
 import type { ChatFolderColorId } from '../../constants/chatFolderColors'
-import { ContextMenu } from '../../../../components/ui/menu/ContextMenu'
+import { PopoverContextMenu } from '../../../../components/ui/menu/PopoverContextMenu'
 import { MenuItem } from '../../../../components/ui/menu/MenuItem'
 import { ModalHeader } from '../../../../components/ui/modal/ModalHeader'
 import { ModalShell } from '../../../../components/ui/modal/ModalShell'
@@ -20,6 +20,8 @@ import { AdministratorModal } from '../../../../pages/AdminPage'
 import { SettingsModal, type SettingsSectionId } from '../../../../pages/SettingsPage'
 import type { useChatFolders } from '../../hooks/useChatFolders'
 import type { ChatFolder, ChatThread } from '../../types'
+import type { LearningPathSummary } from '../../../learn/services/learn.persistence'
+import { getDisplayPathTitle } from '../../../learn/utils/learnPageHelpers'
 import { isMobileViewport } from '../../../../utils/mobile'
 import { ChatBetaNoticeDialog } from './ChatBetaNoticeDialog'
 import { ChatIntroductionDialog } from './ChatIntroductionDialog'
@@ -119,6 +121,23 @@ export type ChatPageOverlaysProps = {
   onCloseRenameModal: () => void
   onRenameSheetClosed: () => void
   onRenameSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
+  showLearningPathsInSidebar: boolean
+  learningPaths: LearningPathSummary[]
+  pathMenuRef: RefObject<HTMLDivElement | null>
+  learningPathRenameSheetRef: RefObject<RenameBottomSheetHandle | null>
+  openMenuPathId: string | null
+  pathMenuVariant: 'none' | 'context' | 'sheet'
+  pathContextMenuPosition: { x: number; y: number } | null
+  onCloseLearningPathMenu: () => void
+  onOpenRenameLearningPath: (pathId: string) => void
+  onDeleteLearningPath: (pathId: string) => void | Promise<void>
+  learningPathRenamingId: string | null
+  isLearningPathRenameVisible: boolean
+  learningPathRenameDraft: string
+  setLearningPathRenameDraft: (value: string) => void
+  onCloseLearningPathRename: () => void
+  onLearningPathRenameSheetClosed: () => void
+  onLearningPathRenameSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
 }
 
 export function ChatPageOverlays(props: ChatPageOverlaysProps) {
@@ -211,6 +230,23 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     onCloseRenameModal,
     onRenameSheetClosed,
     onRenameSubmit,
+    showLearningPathsInSidebar,
+    learningPaths,
+    pathMenuRef,
+    learningPathRenameSheetRef,
+    openMenuPathId,
+    pathMenuVariant,
+    pathContextMenuPosition,
+    onCloseLearningPathMenu,
+    onOpenRenameLearningPath,
+    onDeleteLearningPath,
+    learningPathRenamingId,
+    isLearningPathRenameVisible,
+    learningPathRenameDraft,
+    setLearningPathRenameDraft,
+    onCloseLearningPathRename,
+    onLearningPathRenameSheetClosed,
+    onLearningPathRenameSubmit,
   } = props
 
   return (
@@ -428,10 +464,12 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
       ) : null}
 
       {threadMenuVariant === 'context' && openMenuThreadId && contextMenuPosition ? (
-        <ContextMenu
+        <PopoverContextMenu
           ref={menuWrapperRef}
-          className="thread-menu-context-global"
-          style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
+          open
+          position={contextMenuPosition}
+          onClose={onCloseThreadMenu}
+          ariaLabel="Chat-Aktionen"
         >
           {chatFoldersFeatureEnabled ? (
             <MenuItem
@@ -504,7 +542,66 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
               Für mich entfernen
             </MenuItem>
           ) : null}
-        </ContextMenu>
+        </PopoverContextMenu>
+      ) : null}
+
+      {showLearningPathsInSidebar && pathMenuVariant === 'sheet' && openMenuPathId ? (
+        <ActionBottomSheet
+          open
+          ariaLabel="Lernpfad-Aktionen"
+          title={getDisplayPathTitle(
+            learningPaths.find((path) => path.id === openMenuPathId)?.title ?? 'Lernpfad',
+          )}
+          onClose={onCloseLearningPathMenu}
+          actions={[
+            {
+              id: 'rename',
+              label: 'Bearbeiten',
+              iconSrc: editIcon,
+              onClick: () => onOpenRenameLearningPath(openMenuPathId),
+            },
+            {
+              id: 'delete',
+              label: 'Löschen',
+              iconSrc: deleteIcon,
+              variant: 'danger' as const,
+              onClick: () => {
+                void onDeleteLearningPath(openMenuPathId)
+              },
+            },
+          ]}
+        />
+      ) : null}
+
+      {showLearningPathsInSidebar &&
+      pathMenuVariant === 'context' &&
+      openMenuPathId &&
+      pathContextMenuPosition ? (
+        <PopoverContextMenu
+          ref={pathMenuRef}
+          open
+          position={pathContextMenuPosition}
+          onClose={onCloseLearningPathMenu}
+          ariaLabel="Lernpfad-Aktionen"
+        >
+          <MenuItem
+            iconSrc={editIcon}
+            onClick={() => {
+              onOpenRenameLearningPath(openMenuPathId)
+            }}
+          >
+            Bearbeiten
+          </MenuItem>
+          <MenuItem
+            iconSrc={deleteIcon}
+            danger
+            onClick={() => {
+              void onDeleteLearningPath(openMenuPathId)
+            }}
+          >
+            Löschen
+          </MenuItem>
+        </PopoverContextMenu>
       ) : null}
 
       {chatFoldersFeatureEnabled && folderMoveThreadId && isCompactMobileSidebarLayout ? (
@@ -613,10 +710,12 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
       folderMenuVariant === 'context' &&
       openFolderMenuId &&
       folderContextMenuPosition ? (
-        <ContextMenu
+        <PopoverContextMenu
           ref={folderMenuWrapperRef}
-          className="thread-menu-context-global"
-          style={{ left: folderContextMenuPosition.x, top: folderContextMenuPosition.y }}
+          open
+          position={folderContextMenuPosition}
+          onClose={onCloseFolderMenu}
+          ariaLabel="Ordner-Aktionen"
         >
           <MenuItem
             iconSrc={editIcon}
@@ -640,7 +739,51 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
           >
             Ordner löschen
           </MenuItem>
-        </ContextMenu>
+        </PopoverContextMenu>
+      ) : null}
+
+      {learningPathRenamingId && isMobileViewport() ? (
+        <RenameBottomSheet
+          ref={learningPathRenameSheetRef}
+          open
+          onClose={onLearningPathRenameSheetClosed}
+          heading="Lernpfad bearbeiten"
+          inputLabel="Name"
+          inputId="learn-path-title-input-chat"
+          value={learningPathRenameDraft}
+          onChange={setLearningPathRenameDraft}
+          placeholder="Neuer Lernpfadname"
+          onSubmit={onLearningPathRenameSubmit}
+        />
+      ) : learningPathRenamingId ? (
+        <ModalShell isOpen={isLearningPathRenameVisible} onRequestClose={onCloseLearningPathRename}>
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Lernpfad umbenennen">
+            <ModalHeader
+              title="Lernpfad bearbeiten"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={onCloseLearningPathRename}
+              closeLabel="Lernpfad bearbeiten schließen"
+            />
+            <form className="rename-form" onSubmit={onLearningPathRenameSubmit}>
+              <label htmlFor="learn-path-title-input-chat">Name</label>
+              <input
+                id="learn-path-title-input-chat"
+                type="text"
+                value={learningPathRenameDraft}
+                onChange={(event) => setLearningPathRenameDraft(event.target.value)}
+                placeholder="Neuer Lernpfadname"
+                maxLength={120}
+                autoFocus
+              />
+              <div className="rename-actions">
+                <button type="submit" disabled={!learningPathRenameDraft.trim()}>
+                  Speichern
+                </button>
+              </div>
+            </form>
+          </section>
+        </ModalShell>
       ) : null}
 
       {chatFoldersFeatureEnabled && isFolderNameSheetOpen && isCompactMobileSidebarLayout ? (

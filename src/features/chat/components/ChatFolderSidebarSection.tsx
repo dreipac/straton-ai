@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { getChatFolderIconStyle } from '../constants/chatFolderColors'
 import type { ChatFolder, ChatThread } from '../types'
+import { ChatSidebarSectionHeader } from './ChatSidebarSectionHeader'
 
 type ChatFolderSidebarSectionProps = {
   folders: ChatFolder[]
@@ -29,6 +30,7 @@ export function ChatFolderSidebarSection({
   onFolderLongPressEnd,
   renderThreadRow,
 }: ChatFolderSidebarSectionProps) {
+  const [isSectionExpanded, setIsSectionExpanded] = useState(true)
   const [expandedFolderIds, setExpandedFolderIds] = useState<Record<string, boolean>>({})
 
   function toggleFolder(folderId: string) {
@@ -38,28 +40,37 @@ export function ChatFolderSidebarSection({
     }))
   }
 
+  const createFolderButton = (
+    <button type="button" className="chat-folder-create-btn" onClick={onCreateFolder} aria-label="Ordner anlegen">
+      +
+    </button>
+  )
+
   if (folders.length === 0) {
     return (
       <div className="chat-folder-sidebar-section">
-        <div className="chat-folder-sidebar-header">
-          <p className="thread-list-info">Ordner</p>
-          <button type="button" className="chat-folder-create-btn" onClick={onCreateFolder}>
-            + Ordner
-          </button>
-        </div>
-        <p className="chat-folder-empty-hint">Noch keine Ordner. Lege einen an, um Chats zu sortieren.</p>
+        <ChatSidebarSectionHeader
+          title="Ordner"
+          isExpanded={isSectionExpanded}
+          onToggle={() => setIsSectionExpanded((prev) => !prev)}
+          trailing={createFolderButton}
+        />
+        {isSectionExpanded ? (
+          <p className="chat-folder-empty-hint">Noch keine Ordner. Lege einen an, um Chats zu sortieren.</p>
+        ) : null}
       </div>
     )
   }
 
   return (
     <div className="chat-folder-sidebar-section">
-      <div className="chat-folder-sidebar-header">
-        <p className="thread-list-info">Ordner</p>
-        <button type="button" className="chat-folder-create-btn" onClick={onCreateFolder}>
-          + Ordner
-        </button>
-      </div>
+      <ChatSidebarSectionHeader
+        title="Ordner"
+        isExpanded={isSectionExpanded}
+        onToggle={() => setIsSectionExpanded((prev) => !prev)}
+        trailing={createFolderButton}
+      />
+      {isSectionExpanded ? (
       <div className="chat-folder-list">
         {folders.map((folder) => {
           const threads = threadsByFolderId.get(folder.id) ?? []
@@ -116,6 +127,7 @@ export function ChatFolderSidebarSection({
           )
         })}
       </div>
+      ) : null}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import settingsIcon from '../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import statusIcon from '../../../assets/icons/status.svg'
 import type { LearningPathSummary } from '../services/learn.persistence'
-import { getDisplayPathTitle } from '../utils/learnPageHelpers'
+import { getDisplayPathTitle, isPendingLearningPathId } from '../utils/learnPageHelpers'
 import { hapticLightImpact } from '../../../utils/haptics'
 
 type ProfileLite = {
@@ -25,6 +25,7 @@ export type LearnPageSidebarProps = {
   learningPaths: LearningPathSummary[]
   enteringPathIds?: ReadonlySet<string>
   activePathId: string
+  openPathMenuId?: string | null
   onSelectLearningPath: (pathId: string) => void
   onLearningPathContextMenu: (event: ReactMouseEvent, pathId: string) => void
   onNavigateToChat: () => void
@@ -46,6 +47,7 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     learningPaths,
     enteringPathIds,
     activePathId,
+    openPathMenuId = null,
     onSelectLearningPath,
     onLearningPathContextMenu,
     onNavigateToChat,
@@ -123,8 +125,10 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
               className={[
                 'chat-thread-row',
                 path.id === activePathId ? 'is-active' : '',
+                path.id === openPathMenuId ? 'has-open-menu' : '',
                 enteringPathIds?.has(path.id) ? 'is-entering' : '',
                 path.isPending ? 'is-pending' : '',
+                path.isRemoving ? 'is-removing' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -132,7 +136,11 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
               <button
                 type="button"
                 className={`chat-thread-item ${path.id === activePathId ? 'is-active' : ''}`}
+                disabled={isPendingLearningPathId(path.id) || path.isRemoving}
                 onClick={() => {
+                  if (path.isRemoving) {
+                    return
+                  }
                   void onSelectLearningPath(path.id)
                 }}
                 onContextMenu={(event) => onLearningPathContextMenu(event, path.id)}

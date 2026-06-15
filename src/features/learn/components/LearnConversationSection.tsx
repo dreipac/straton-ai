@@ -21,6 +21,7 @@ export type LearnConversationSectionProps = {
   entryTestDurationLabel: string
   onOpenEntryQuizModal: () => void
   onStartNextChapter: () => void
+  chapterBlueprintReady: boolean
   onCreateFlashcards: () => void
   onCreateWorksheet: () => void
   learnWorksheets: LearnWorksheetItem[]
@@ -45,6 +46,7 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     entryTestDurationLabel,
     onOpenEntryQuizModal,
     onStartNextChapter,
+    chapterBlueprintReady,
     onCreateFlashcards,
     onCreateWorksheet,
     learnWorksheets,
@@ -85,6 +87,7 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
         entryTestDurationLabel={entryTestDurationLabel}
         onOpenEntryQuizModal={onOpenEntryQuizModal}
         onStartNextChapter={onStartNextChapter}
+        chapterBlueprintReady={chapterBlueprintReady}
         onCreateFlashcards={onCreateFlashcards}
         onCreateWorksheet={onCreateWorksheet}
         learnWorksheets={learnWorksheets}

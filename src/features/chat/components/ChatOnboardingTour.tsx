@@ -18,7 +18,7 @@ const STEPS = [
   },
   {
     title: 'Lernpfade',
-    body: 'Hier öffnest du den Lernbereich mit Materialien, Übungen und deinen Lernpfaden.',
+    body: 'Hier findest du deine Lernpfade in der Sidebar und kannst neue anlegen.',
     action: 'Fertig',
   },
 ] as const

@@ -1,6 +1,5 @@
-import { type ReactNode, type RefObject } from 'react'
+import { type MouseEvent, type ReactNode, type RefObject, useState } from 'react'
 import accountIcon from '../../../../assets/icons/account.svg'
-import learnIcon from '../../../../assets/icons/learn-outlined.svg'
 import newsIcon from '../../../../assets/icons/news.svg'
 import userAddIcon from '../../../../assets/icons/userAdd.svg'
 import settingsIcon from '../../../../assets/icons/settings.svg'
@@ -8,8 +7,11 @@ import sidebarIcon from '../../../../assets/icons/sidebar.svg'
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../../auth/services/auth.service'
 import { ChatFolderSidebarSection } from '../ChatFolderSidebarSection'
+import { ChatLearningPathsSidebarSection } from '../ChatLearningPathsSidebarSection'
+import { ChatSidebarSectionHeader } from '../ChatSidebarSectionHeader'
 import { ChatThreadListSkeleton } from '../ChatThreadListSkeleton'
 import type { ChatFolder, ChatThread } from '../../types'
+import type { LearningPathSummary } from '../../../learn/services/learn.persistence'
 import type { useChatFolders } from '../../hooks/useChatFolders'
 import type { useGlassPillTouchFeedback } from '../../../../hooks/useGlassPillTouchFeedback'
 import { hapticLightImpact } from '../../../../utils/haptics'
@@ -29,6 +31,10 @@ type ChatPageSidebarProps = {
   avatarFallback: string
   subscriptionPlanName: string | null
   showFoldersInSidebar: boolean
+  showLearningPathsInSidebar: boolean
+  learningPaths: LearningPathSummary[]
+  activeLearnPathId: string | null
+  isLearnPathCreateDisabled: boolean
   chatFolders: ChatFoldersState
   openFolderMenuId: string | null
   threadSkeletonMounted: boolean
@@ -37,14 +43,13 @@ type ChatPageSidebarProps = {
   threadsCount: number
   sidebarThreadList: ChatThread[]
   chatTourEligible: boolean
-  isLearnPathsButtonDisabled: boolean
   learnFeatureInfoVisible: boolean
   newsUnreadCount: number
   friendsIncomingCount: number
   isFriendsOverviewOpen: boolean
   isNewChatPending: boolean
   newChatTourRef: RefObject<HTMLButtonElement | null>
-  learnTourRef: RefObject<HTMLButtonElement | null>
+  learnTourRef: RefObject<HTMLDivElement | null>
   profileMenuRef: RefObject<HTMLDivElement | null>
   sidebarNewChatTouch: GlassPillTouch
   renderThreadRow: (thread: ChatThread, threadIndex: number) => ReactNode
@@ -53,13 +58,16 @@ type ChatPageSidebarProps = {
   onExpandSidebar: () => void
   onCreateNewChat: () => void
   onOpenSettings: () => void
-  onNavigateLearn: () => void
   onOpenNews: () => void
   onOpenFriends: () => void
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
   onCreateFolder: () => void
   onOpenFolder: (folderId: string) => void
+  onSelectLearningPath: (pathId: string) => void
+  onCreateLearningPath: () => void
+  openLearningPathMenuId?: string | null
+  onLearningPathContextMenu?: (event: MouseEvent, pathId: string) => void
   selectedFolderId?: string | null
   onFolderContextMenu: (folder: ChatFolder, event: React.MouseEvent) => void
   onFolderLongPressStart: (folder: ChatFolder, event: React.TouchEvent) => void
@@ -80,6 +88,10 @@ export function ChatPageSidebar({
   avatarFallback,
   subscriptionPlanName,
   showFoldersInSidebar,
+  showLearningPathsInSidebar,
+  learningPaths,
+  activeLearnPathId,
+  isLearnPathCreateDisabled,
   chatFolders,
   openFolderMenuId,
   threadSkeletonMounted,
@@ -88,7 +100,6 @@ export function ChatPageSidebar({
   threadsCount,
   sidebarThreadList,
   chatTourEligible,
-  isLearnPathsButtonDisabled,
   learnFeatureInfoVisible,
   newsUnreadCount,
   friendsIncomingCount,
@@ -104,13 +115,16 @@ export function ChatPageSidebar({
   onExpandSidebar,
   onCreateNewChat,
   onOpenSettings,
-  onNavigateLearn,
   onOpenNews,
   onOpenFriends,
   onOpenAdmin,
   onToggleCompactProfileSheet,
     onCreateFolder,
     onOpenFolder,
+    onSelectLearningPath,
+    onCreateLearningPath,
+    openLearningPathMenuId = null,
+    onLearningPathContextMenu,
     selectedFolderId = null,
     onFolderContextMenu,
   onFolderLongPressStart,
@@ -119,6 +133,8 @@ export function ChatPageSidebar({
   onThreadSkeletonTransitionEnd,
   onShowLearnUnavailable,
 }: ChatPageSidebarProps) {
+  const [isChatsSectionExpanded, setIsChatsSectionExpanded] = useState(true)
+
   return (
     <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       <div className="chat-sidebar-top">
@@ -187,30 +203,6 @@ export function ChatPageSidebar({
         >
           <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
           {!isSidebarCollapsed ? 'Einstellungen' : null}
-        </button>
-        <button
-          ref={learnTourRef}
-          type="button"
-          className={`chat-sidebar-nav-button chat-sidebar-learn-button${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
-            isLearnPathsButtonDisabled ? ' is-disabled' : ''
-          }`}
-          aria-disabled={isLearnPathsButtonDisabled}
-          onClick={() => {
-            if (isLearnPathsButtonDisabled) {
-              onShowLearnUnavailable()
-              return
-            }
-            onNavigateLearn()
-          }}
-          aria-label={isSidebarCollapsed ? 'Lernpfade' : undefined}
-        >
-          <img className="ui-icon chat-sidebar-top-button-icon" src={learnIcon} alt="" aria-hidden="true" />
-          {!isSidebarCollapsed ? (
-            <>
-              Lernpfade
-              <span className="ui-pill-badge ui-pill-badge--blue">Beta</span>
-            </>
-          ) : null}
         </button>
         <button
           type="button"
@@ -302,26 +294,50 @@ export function ChatPageSidebar({
                 renderThreadRow={renderThreadRow}
               />
             ) : null}
-            <p className="thread-list-info">Chats</p>
-            {threadSkeletonMounted ? (
-              <ChatThreadListSkeleton
-                exiting={threadSkeletonExiting}
-                onExitTransitionEnd={onThreadSkeletonTransitionEnd}
+            {showLearningPathsInSidebar ? (
+              <ChatLearningPathsSidebarSection
+                sectionRef={learnTourRef}
+                tourHighlight={chatTourEligible}
+                learningPaths={learningPaths}
+                activePathId={activeLearnPathId}
+                openMenuPathId={openLearningPathMenuId}
+                onContextMenu={onLearningPathContextMenu}
+                isCreateDisabled={isLearnPathCreateDisabled}
+                onCreateLearningPath={onCreateLearningPath}
+                onSelectLearningPath={onSelectLearningPath}
+                onCreateDisabledClick={onShowLearnUnavailable}
               />
             ) : null}
-            {!isBootstrapping && !threadSkeletonMounted
-              ? sidebarThreadList.map((thread, threadIndex) => renderThreadRow(thread, threadIndex))
-              : null}
-            {!isBootstrapping && !threadSkeletonMounted && threadsCount === 0 ? (
-              <p className="thread-list-info">Noch keine Chats vorhanden.</p>
-            ) : null}
-            {!isBootstrapping &&
-            !threadSkeletonMounted &&
-            showFoldersInSidebar &&
-            threadsCount > 0 &&
-            chatFolders.threadsWithoutFolder.length === 0 ? (
-              <p className="thread-list-info thread-list-info--muted">Alle Chats sind in Ordnern.</p>
-            ) : null}
+            <div className="chat-sidebar-chats-section">
+              <ChatSidebarSectionHeader
+                title="Chats"
+                isExpanded={isChatsSectionExpanded}
+                onToggle={() => setIsChatsSectionExpanded((prev) => !prev)}
+              />
+              {isChatsSectionExpanded ? (
+                <>
+                  {threadSkeletonMounted ? (
+                    <ChatThreadListSkeleton
+                      exiting={threadSkeletonExiting}
+                      onExitTransitionEnd={onThreadSkeletonTransitionEnd}
+                    />
+                  ) : null}
+                  {!isBootstrapping && !threadSkeletonMounted
+                    ? sidebarThreadList.map((thread, threadIndex) => renderThreadRow(thread, threadIndex))
+                    : null}
+                  {!isBootstrapping && !threadSkeletonMounted && threadsCount === 0 ? (
+                    <p className="thread-list-info">Noch keine Chats vorhanden.</p>
+                  ) : null}
+                  {!isBootstrapping &&
+                  !threadSkeletonMounted &&
+                  showFoldersInSidebar &&
+                  threadsCount > 0 &&
+                  chatFolders.threadsWithoutFolder.length === 0 ? (
+                    <p className="thread-list-info thread-list-info--muted">Alle Chats sind in Ordnern.</p>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useRef,
   useState,
   type Dispatch,
   type MutableRefObject,
@@ -40,6 +41,8 @@ type UseLearningPathActionsArgs = {
   autoRemoveEmptyLearningPaths?: boolean
   /** Keine Sidebar-Einblend-Animation (z. B. nach Ersetzen des Platzhalter-Pfads). */
   skipEnterPathIdsRef?: MutableRefObject<Set<string>>
+  /** Nach Aktivierung eines Pfads (z. B. URL im eingebetteten Chat syncen). */
+  onPathActivated?: (pathId: string) => void
 }
 
 function emptyCheckFromSnapshot(snapshot: EditableLearningPathSnapshot): boolean {
@@ -56,8 +59,12 @@ function toPathSummary(record: LearningPathRecord): LearningPathSummary {
   }
 }
 
+const LEARNING_PATH_REMOVE_ANIMATION_MS = 180
+
 export function useLearningPathActions(args: UseLearningPathActionsArgs) {
   const [isLearningPathWorkspaceLoading, setIsLearningPathWorkspaceLoading] = useState(false)
+  const createInFlightRef = useRef(false)
+  const removeTimersRef = useRef<Record<string, number>>({})
 
   const {
     userId,
@@ -75,27 +82,56 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
     closePathMenu,
     autoRemoveEmptyLearningPaths = true,
     skipEnterPathIdsRef,
+    onPathActivated,
   } = args
 
   const removeEmptyPathsByIds = useCallback(
-    async (pathIds: string[]) => {
+    (pathIds: string[]) => {
       if (!autoRemoveEmptyLearningPaths || pathIds.length === 0) {
         return
       }
       const unique = [...new Set(pathIds)]
-      await Promise.all(unique.map((id) => deleteLearningPathById(id)))
+      setLearningPaths((prev) =>
+        prev.map((path) => (unique.includes(path.id) ? { ...path, isRemoving: true } : path)),
+      )
+
       for (const id of unique) {
-        delete pathCacheRef.current[id]
+        const existingTimer = removeTimersRef.current[id]
+        if (existingTimer) {
+          window.clearTimeout(existingTimer)
+        }
+        removeTimersRef.current[id] = window.setTimeout(() => {
+          void (async () => {
+            try {
+              await deleteLearningPathById(id)
+              delete pathCacheRef.current[id]
+              setLearningPaths((prev) => prev.filter((path) => path.id !== id))
+            } catch (err) {
+              setLearningPaths((prev) =>
+                prev.map((path) => (path.id === id ? { ...path, isRemoving: false } : path)),
+              )
+              setError(
+                err instanceof Error ? err.message : 'Leerer Lernpfad konnte nicht entfernt werden.',
+              )
+            } finally {
+              delete removeTimersRef.current[id]
+            }
+          })()
+        }, LEARNING_PATH_REMOVE_ANIMATION_MS)
       }
-      setLearningPaths((prev) => prev.filter((path) => !unique.includes(path.id)))
     },
-    [autoRemoveEmptyLearningPaths, pathCacheRef, setLearningPaths],
+    [autoRemoveEmptyLearningPaths, pathCacheRef, setError, setLearningPaths],
   )
 
   const handleCreateLearningPath = useCallback(async () => {
-    if (!userId || isLearningPathWorkspaceLoading) {
+    if (!userId || isLearningPathWorkspaceLoading || createInFlightRef.current) {
       return
     }
+    if (learningPaths.some((path) => path.isPending)) {
+      return
+    }
+
+    createInFlightRef.current = true
 
     setError(null)
     const previousActiveId = activePathIdRef.current
@@ -144,6 +180,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
         setActivePathId(created.id)
         activePathIdRef.current = created.id
         applyPathToState(created)
+        onPathActivated?.(created.id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Neuer Lernpfad konnte nicht erstellt werden.')
@@ -160,6 +197,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
         }
       }
     } finally {
+      createInFlightRef.current = false
       setIsLearningPathWorkspaceLoading(false)
     }
   }, [
@@ -167,6 +205,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
     applyPathToState,
     autoRemoveEmptyLearningPaths,
     isLearningPathWorkspaceLoading,
+    learningPaths,
     pathCacheRef,
     persistActivePath,
     resetPathStateForLoading,
@@ -174,6 +213,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
     setError,
     setLearningPaths,
     skipEnterPathIdsRef,
+    onPathActivated,
     userId,
   ])
 
@@ -197,13 +237,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
         previousPathId &&
         emptyCheckFromSnapshot(previousSnapshot)
       ) {
-        try {
-          await removeEmptyPathsByIds([previousPathId])
-        } catch (err) {
-          setError(
-            err instanceof Error ? err.message : 'Leerer Lernpfad konnte nicht entfernt werden.',
-          )
-        }
+        removeEmptyPathsByIds([previousPathId])
       }
 
       setActivePathId(pathId)

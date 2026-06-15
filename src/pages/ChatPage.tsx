@@ -56,7 +56,9 @@ import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useToast } from '../components/toast/ToastProvider'
 import { useNewsUnreadCount } from '../features/news/hooks/useNewsUnreadCount'
 import { AuthSessionBootstrap } from '../features/auth/components/AuthSessionBootstrap'
-
+import { LearnPage } from './LearnPage'
+import { useLearningPathsSidebar } from '../features/learn/hooks/useLearningPathsSidebar'
+import { useLearningPathSidebarMenus } from '../features/learn/hooks/useLearningPathSidebarMenus'
 export function ChatPage() {
   const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, updateUserIntroduction, refreshProfile } = useAuth()
   const { push: pushToast } = useToast()
@@ -218,6 +220,11 @@ export function ChatPage() {
   const folderIdFromUrl = searchParams.get('folder')
   const folderTabFromUrl: ChatFolderOverviewTab = searchParams.get('tab') === 'files' ? 'files' : 'chats'
   const isFriendsOverviewFromUrl = searchParams.get('friends') === '1'
+  const learnPathIdFromUrl = searchParams.get('learnPath')
+  const isLearnWorkspaceOpen = Boolean(
+    user && !isLearnPathsButtonDisabled && (searchParams.get('learn') === '1' || Boolean(learnPathIdFromUrl)),
+  )
+  const pendingCreateLearningPath = searchParams.get('learnCreate') === '1'
   const friendsTabFromUrl: ChatFriendsOverviewTab =
     searchParams.get('friendsTab') === 'pending' ? 'pending' : 'friends'
   const activeOverviewFolder = useMemo(() => {
@@ -226,9 +233,12 @@ export function ChatPage() {
     }
     return chatFolders.folders.find((folder) => folder.id === folderIdFromUrl) ?? null
   }, [chatFolders.folders, folderIdFromUrl])
-  const isFolderOverviewOpen = Boolean(activeOverviewFolder && chatFoldersFeatureEnabled && !isFriendsOverviewFromUrl)
-  const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl)
+  const isFolderOverviewOpen = Boolean(
+    activeOverviewFolder && chatFoldersFeatureEnabled && !isFriendsOverviewFromUrl && !isLearnWorkspaceOpen,
+  )
+  const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl && !isLearnWorkspaceOpen)
   const friendsState = useFriends(user?.id)
+  const learningPathsSidebar = useLearningPathsSidebar(user?.id)
   const folderOverviewThreads = useMemo(() => {
     if (!activeOverviewFolder) {
       return []
@@ -377,7 +387,7 @@ export function ChatPage() {
   })
 
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
-  const learnTourRef = useRef<HTMLButtonElement | null>(null)
+  const learnTourRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!chatFoldersFeatureEnabled) {
@@ -427,6 +437,27 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- closeFriendsOverview is stable URL helper
   }, [isFriendsOverviewFromUrl, user])
 
+  function clearOverlaySearchParams(params: URLSearchParams) {
+    params.delete('folder')
+    params.delete('tab')
+    params.delete('friends')
+    params.delete('friendsTab')
+    params.delete('learnPath')
+    params.delete('learn')
+    params.delete('learnCreate')
+  }
+
+  function dismissMainOverlays() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
   function closeFolderOverview() {
     setSearchParams(
       (prev) => {
@@ -438,6 +469,96 @@ export function ChatPage() {
       { replace: true },
     )
   }
+
+  function closeLearnWorkspace() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('learnPath')
+        next.delete('learn')
+        next.delete('learnCreate')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openLearnWorkspace(pathId?: string, options?: { create?: boolean }) {
+    if (!user || isLearnPathsButtonDisabled) {
+      learnDraft.showLearnFeatureUnavailableInfo()
+      return
+    }
+    if (options?.create && searchParams.get('learnCreate') === '1') {
+      return
+    }
+    if (
+      options?.create &&
+      learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
+    ) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        if (pathId) {
+          next.set('learnPath', pathId)
+        } else {
+          next.set('learn', '1')
+        }
+        if (options?.create) {
+          next.set('learnCreate', '1')
+        }
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  const learningPathMenus = useLearningPathSidebarMenus({
+    learningPaths: learningPathsSidebar.learningPaths,
+    setLearningPaths: learningPathsSidebar.setLearningPaths,
+    activeLearnPathId: learnPathIdFromUrl,
+    onDeletedActivePath: (nextPathId) => {
+      if (nextPathId) {
+        openLearnWorkspace(nextPathId)
+        return
+      }
+      closeLearnWorkspace()
+    },
+    pushToast,
+  })
+
+  const handleLearnControlledPathIdChange = useCallback(
+    (pathId: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('learnPath', pathId)
+          next.delete('learn')
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const handlePendingCreateLearningPathHandled = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('learnCreate')
+        return next
+      },
+      { replace: true },
+    )
+  }, [setSearchParams])
 
   function closeFriendsOverview() {
     setSearchParams(
@@ -458,8 +579,7 @@ export function ChatPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-        next.delete('folder')
-        next.delete('tab')
+        clearOverlaySearchParams(next)
         next.set('friends', '1')
         next.set('friendsTab', tab)
         return next
@@ -499,8 +619,7 @@ export function ChatPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-        next.delete('friends')
-        next.delete('friendsTab')
+        clearOverlaySearchParams(next)
         next.set('folder', folderId)
         next.set('tab', tab)
         return next
@@ -557,8 +676,7 @@ export function ChatPage() {
     if (index === 1) {
       setIsMobileFoldersOpen(false)
       setIsMobileSidebarOpen(false)
-      closeFolderOverview()
-      closeFriendsOverview()
+      dismissMainOverlays()
       pageModals.profileFullSheetRef.current?.requestClose()
       pageMenus.closeThreadActionMenu()
       pageMenus.closeFolderActionMenu()
@@ -603,6 +721,7 @@ export function ChatPage() {
   async function handleCreateNewChat() {
     setIsNewChatPending(true)
     try {
+      dismissMainOverlays()
       await createNewChat()
       pageMenus.closeThreadActionMenu()
       if (isCompactMobileSidebarLayout) {
@@ -621,7 +740,7 @@ export function ChatPage() {
       if (threadId) {
         await chatFolders.moveThreadToFolder(threadId, folderId)
       }
-      closeFolderOverview()
+      dismissMainOverlays()
       pageMenus.closeThreadActionMenu()
       setIsMobileSidebarOpen(false)
       setIsMobileFoldersOpen(false)
@@ -659,8 +778,7 @@ export function ChatPage() {
     if (swipeOpenThreadId && swipeOpenThreadId !== threadId) {
       setSwipeOpenThreadId(null)
     }
-    closeFolderOverview()
-    closeFriendsOverview()
+    dismissMainOverlays()
     void selectChat(threadId)
     pageMenus.closeThreadActionMenu()
     setIsMobileSidebarOpen(false)
@@ -818,6 +936,14 @@ export function ChatPage() {
         avatarFallback={avatarFallback}
         subscriptionPlanName={subscriptionPlanName}
         showFoldersInSidebar={showFoldersInSidebar}
+        showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+        learningPaths={learningPathsSidebar.learningPaths}
+        activeLearnPathId={learnPathIdFromUrl}
+        isLearnPathCreateDisabled={
+          isLearnPathCreateButtonDisabled ||
+          pendingCreateLearningPath ||
+          learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
+        }
         chatFolders={chatFolders}
         openFolderMenuId={pageMenus.openFolderMenuId}
         threadSkeletonMounted={threadSkeletonMounted}
@@ -826,7 +952,6 @@ export function ChatPage() {
         threadsCount={threads.length}
         sidebarThreadList={sidebarThreadList}
         chatTourEligible={chatTourEligible}
-        isLearnPathsButtonDisabled={isLearnPathsButtonDisabled}
         learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
         newsUnreadCount={newsUnreadCount}
         isNewChatPending={isNewChatPending}
@@ -845,10 +970,6 @@ export function ChatPage() {
         }}
         onCreateNewChat={() => void handleCreateNewChat()}
         onOpenSettings={() => pageModals.openSettingsModal()}
-        onNavigateLearn={() => {
-          navigate('/learn')
-          setIsMobileSidebarOpen(false)
-        }}
         onOpenNews={pageModals.openNewsModal}
         onOpenFriends={() => openFriendsOverview('friends')}
         friendsIncomingCount={friendsState.incomingCount}
@@ -857,6 +978,10 @@ export function ChatPage() {
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
         onCreateFolder={pageMenus.openCreateFolderSheet}
         onOpenFolder={openFolderOverview}
+        onSelectLearningPath={(pathId) => openLearnWorkspace(pathId)}
+        onCreateLearningPath={() => openLearnWorkspace(undefined, { create: true })}
+        openLearningPathMenuId={learningPathMenus.openMenuPathId}
+        onLearningPathContextMenu={learningPathMenus.openLearningPathContextMenu}
         selectedFolderId={activeOverviewFolder?.id ?? null}
         onFolderContextMenu={pageMenus.openFolderContextMenu}
         onFolderLongPressStart={pageMenus.handleFolderLongPressTouchStart}
@@ -869,9 +994,23 @@ export function ChatPage() {
       <section
         className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}${
           isFolderOverviewOpen ? ' is-folder-overview-active' : ''
-        }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}`}
+        }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}${
+          isLearnWorkspaceOpen ? ' is-learn-workspace-active' : ''
+        }`}
       >
-        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen ? (
+        {isLearnWorkspaceOpen ? (
+          <LearnPage
+            embedded
+            controlledPathId={learnPathIdFromUrl}
+            onControlledPathIdChange={handleLearnControlledPathIdChange}
+            hostLearningPaths={learningPathsSidebar.learningPaths}
+            setHostLearningPaths={learningPathsSidebar.setLearningPaths}
+            onOpenHostSidebar={() => setIsMobileSidebarOpen(true)}
+            pendingCreateLearningPath={pendingCreateLearningPath}
+            onPendingCreateLearningPathHandled={handlePendingCreateLearningPathHandled}
+          />
+        ) : null}
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen ? (
           <ChatFoldersMobilePanel
             folders={chatFolders.folders}
             threadsByFolderId={chatFolders.threadsByFolderId}
@@ -953,10 +1092,10 @@ export function ChatPage() {
             onCancelRequest={friendsState.cancelRequest}
           />
         ) : null}
-        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen
+        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen
           ? mobileTopBar
           : null}
-        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen ? (
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
             participantsAnchorRef={collaboration.participantsAnchorRef}
@@ -1161,8 +1300,7 @@ export function ChatPage() {
         onCloseBetaNotice={pageModals.closeBetaNoticeModal}
         onBetaNoticeSheetExitComplete={pageModals.handleBetaNoticeSheetExitComplete}
         onNavigateLearn={() => {
-          navigate('/learn')
-          setIsMobileSidebarOpen(false)
+          openLearnWorkspace()
         }}
         onLogout={handleLogout}
         onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
@@ -1185,6 +1323,23 @@ export function ChatPage() {
         onCloseRenameModal={pageMenus.closeRenameModal}
         onRenameSheetClosed={pageMenus.handleRenameSheetClosed}
         onRenameSubmit={pageMenus.handleRenameSubmit}
+        showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+        learningPaths={learningPathsSidebar.learningPaths}
+        pathMenuRef={learningPathMenus.pathMenuRef}
+        learningPathRenameSheetRef={learningPathMenus.renameSheetRef}
+        openMenuPathId={learningPathMenus.openMenuPathId}
+        pathMenuVariant={learningPathMenus.pathMenuVariant}
+        pathContextMenuPosition={learningPathMenus.contextMenuPosition}
+        onCloseLearningPathMenu={learningPathMenus.closeLearningPathMenu}
+        onOpenRenameLearningPath={learningPathMenus.openRenameLearningPathModal}
+        onDeleteLearningPath={learningPathMenus.handleDeleteLearningPath}
+        learningPathRenamingId={learningPathMenus.renamingPathId}
+        isLearningPathRenameVisible={learningPathMenus.isRenameVisible}
+        learningPathRenameDraft={learningPathMenus.renameDraft}
+        setLearningPathRenameDraft={learningPathMenus.setRenameDraft}
+        onCloseLearningPathRename={learningPathMenus.closeRenameLearningPathModal}
+        onLearningPathRenameSheetClosed={learningPathMenus.handleRenameSheetClosed}
+        onLearningPathRenameSubmit={learningPathMenus.handleRenameLearningPathSubmit}
       />
           </main>
   )

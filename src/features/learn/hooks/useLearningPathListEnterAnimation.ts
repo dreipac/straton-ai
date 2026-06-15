@@ -3,35 +3,42 @@ import type { LearningPathSummary } from '../services/learn.persistence'
 
 const ENTER_ANIMATION_MS = 220
 
+function learningPathSlotKey(path: LearningPathSummary): string {
+  return path.sidebarListKey ?? path.id
+}
+
 /** Kurze Einblend-Animation für neu in der Sidebar erscheinende Lernpfade. */
 export function useLearningPathListEnterAnimation(
   learningPaths: LearningPathSummary[],
   skipEnterIdsRef?: MutableRefObject<Set<string>>,
 ) {
   const [enteringPathIds, setEnteringPathIds] = useState<ReadonlySet<string>>(() => new Set())
-  const prevIdsRef = useRef<string[]>([])
+  const prevSlotKeysRef = useRef<string[]>([])
   const hydratedRef = useRef(false)
 
   useEffect(() => {
-    const currentIds = learningPaths.map((path) => path.id)
+    const currentSlotKeys = learningPaths.map(learningPathSlotKey)
     if (!hydratedRef.current) {
-      hydratedRef.current = currentIds.length > 0
-      prevIdsRef.current = currentIds
+      hydratedRef.current = currentSlotKeys.length > 0
+      prevSlotKeysRef.current = currentSlotKeys
       return
     }
 
-    const prev = new Set(prevIdsRef.current)
-    const addedPaths = learningPaths.filter((path) => !prev.has(path.id))
-    prevIdsRef.current = currentIds
-
-    if (skipEnterIdsRef) {
-      for (const path of addedPaths) {
-        skipEnterIdsRef.current.delete(path.id)
-      }
-    }
+    const prevSlots = new Set(prevSlotKeysRef.current)
+    const addedPaths = learningPaths.filter((path) => !prevSlots.has(learningPathSlotKey(path)))
+    prevSlotKeysRef.current = currentSlotKeys
 
     const toAnimate = addedPaths
-      .filter((path) => !path.isPending && !skipEnterIdsRef?.current.has(path.id))
+      .filter((path) => {
+        if (path.isPending) {
+          return false
+        }
+        if (skipEnterIdsRef?.current.has(path.id)) {
+          skipEnterIdsRef.current.delete(path.id)
+          return false
+        }
+        return true
+      })
       .map((path) => path.id)
 
     if (toAnimate.length === 0) {

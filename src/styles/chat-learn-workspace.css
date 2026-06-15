@@ -1,0 +1,69 @@
+
+/* —— Lernpfade im Chat-Hauptbereich —— */
+
+.chat-main.is-learn-workspace-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-learn-workspace-active .chat-main-toolbar {
+  display: none !important;
+}
+
+.chat-main.is-learn-workspace-active .learn-workspace-embedded {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.learn-workspace-embedded.learn-shell {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.learn-workspace-embedded .chat-main.learn-main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+}
+
+.learn-workspace-embedded.learn-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-learning-paths-sidebar-section {
+  min-width: 0;
+  width: 100%;
+}
+
+.chat-learning-paths-sidebar-section + .chat-sidebar-chats-section .chat-sidebar-section-header-wrap,
+.chat-folder-sidebar-section + .chat-learning-paths-sidebar-section .chat-sidebar-section-header-wrap {
+  margin-top: 0.65rem;
+}
+
+.chat-learning-paths-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.chat-learning-paths-list .chat-thread-row.is-pending {
+  animation: threadRowEnter 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-learning-paths-list .chat-thread-row.is-pending {
+    animation: none;
+  }
+}

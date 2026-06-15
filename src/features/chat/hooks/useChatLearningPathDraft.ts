@@ -213,7 +213,7 @@ export function useChatLearningPathDraft({
       pushToast('Bitte wähle zuerst deine Selbsteinschätzung.')
       return
     }
-    navigate('/learn', {
+    navigate('/chat?learn=1', {
       state: {
         fromChatLearningDraft: {
           name,
