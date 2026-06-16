@@ -84,8 +84,10 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         answer: string
         isCorrect: boolean
         feedback: string
+        /** false = KI-Bewertung fehlgeschlagen → NICHT als falsch werten, sondern als „nicht bewertet". */
+        evaluated: boolean
       }> = []
-      let hadRateLimitIssue = false
+      let unevaluatedCount = 0
 
       for (const question of entryQuiz.questions) {
         const answer = (entryQuizAnswers[question.id] ?? '').trim()
@@ -100,55 +102,63 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             answer,
             isCorrect: cachedCorrectness[question.id],
             feedback: cachedFeedback[question.id],
+            evaluated: true,
           })
           continue
         }
 
-        try {
-          const result = await evaluateQuizAnswerWithAi({
-            question,
-            userAnswer: answer,
-          })
-          evaluations.push({
-            questionId: question.id,
-            answer,
-            isCorrect: result.isCorrect,
-            feedback: result.feedback,
-          })
-        } catch (error) {
-          if (isRateLimitError(error)) {
-            hadRateLimitIssue = true
+        // Bis zu 3 Versuche mit Backoff: senkt transiente 429-Fehler deutlich, bevor wir aufgeben.
+        let evaluated = false
+        let isCorrect = false
+        let feedback = ''
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const result = await evaluateQuizAnswerWithAi({ question, userAnswer: answer })
+            isCorrect = result.isCorrect
+            feedback = result.feedback
+            evaluated = true
+            break
+          } catch (error) {
+            if (attempt < 3 && isRateLimitError(error)) {
+              await delay(400 * attempt)
+              continue
+            }
+            break
           }
-          evaluations.push({
-            questionId: question.id,
-            answer,
-            isCorrect: false,
-            feedback:
-              'Die KI-Bewertung war kurz ausgelastet. Diese Antwort wurde vorerst als Lernpotenzial markiert.',
-          })
+        }
+
+        if (evaluated) {
+          evaluations.push({ questionId: question.id, answer, isCorrect, feedback, evaluated: true })
+        } else {
+          unevaluatedCount += 1
+          evaluations.push({ questionId: question.id, answer, isCorrect: false, feedback: '', evaluated: false })
         }
 
         // Reduziert Burst-Requests und senkt 429-Risiko bei mehreren Freitextfragen.
         await delay(140)
       }
 
-      const score = evaluations.filter((entry) => entry.isCorrect).length
-      const feedbackByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
+      // Nur erfolgreich bewertete Fragen zählen — „nicht bewertet" verfälscht weder Score,
+      // noch Schwachstellen-Analyse (Kapitelgenerierung) noch das Fehlerlogbuch.
+      const evaluatedEntries = evaluations.filter((entry) => entry.evaluated)
+      const score = evaluatedEntries.filter((entry) => entry.isCorrect).length
+      const total = evaluatedEntries.length
+      const feedbackByQuestionId = evaluatedEntries.reduce<Record<string, string>>((acc, entry) => {
         acc[entry.questionId] = entry.feedback
         return acc
       }, {})
-      const correctnessByQuestionId = evaluations.reduce<Record<string, boolean>>((acc, entry) => {
+      const correctnessByQuestionId = evaluatedEntries.reduce<Record<string, boolean>>((acc, entry) => {
         acc[entry.questionId] = entry.isCorrect
         return acc
       }, {})
-      const evaluatedAnswersByQuestionId = evaluations.reduce<Record<string, string>>((acc, entry) => {
+      const evaluatedAnswersByQuestionId = evaluatedEntries.reduce<Record<string, string>>((acc, entry) => {
         acc[entry.questionId] = entry.answer
         return acc
       }, {})
 
       setEntryQuizResult({
         score,
-        total: entryQuiz.questions.length,
+        total,
         feedbackByQuestionId,
         correctnessByQuestionId,
         evaluatedAnswersByQuestionId,
@@ -160,7 +170,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       setLearningChapters([])
       setChapterBlueprints([])
       setChapterSession(DEFAULT_CHAPTER_SESSION)
-      const scoreRatio = entryQuiz.questions.length > 0 ? score / entryQuiz.questions.length : 0
+      const scoreRatio = total > 0 ? score / total : 0
       const recommendedChapterCount = scoreRatio < 0.4 ? 4 : scoreRatio < 0.7 ? 3 : 2
       setTutorState('entry_quiz_done')
       setCurrentChapterIndex(0)
@@ -174,12 +184,14 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: buildPostEntryQuizTutorMessage(score, entryQuiz.questions.length),
+          content: buildPostEntryQuizTutorMessage(score, total),
           action: 'start-next-chapter',
         },
       ])
-      if (hadRateLimitIssue) {
-        setError('Hinweis: Einzelne Antworten wurden wegen KI-Auslastung vorläufig konservativ bewertet.')
+      if (unevaluatedCount > 0) {
+        setError(
+          `Hinweis: ${unevaluatedCount} Frage${unevaluatedCount === 1 ? '' : 'n'} konnten wegen KI-Auslastung nicht bewertet werden und zählen nicht ins Ergebnis. Öffne den Einstiegstest erneut und gib ihn nochmals ab, um sie nachzubewerten.`,
+        )
       }
     } catch (err) {
       console.error('Lernbereich: Einstiegstest-Auswertung fehlgeschlagen', err)

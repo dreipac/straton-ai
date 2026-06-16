@@ -2775,14 +2775,16 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
         if (!entry || typeof entry !== 'object') {
           continue
         }
-        const o = entry as { question?: unknown; answer?: unknown }
+        const o = entry as { question?: unknown; answer?: unknown; skillTag?: unknown }
         const question = typeof o.question === 'string' ? o.question.trim() : ''
         const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+        const skillTag = typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
         if (question && answer) {
           cards.push({
             id: crypto.randomUUID(),
             question,
             answer,
+            ...(skillTag ? { skillTag } : {}),
           })
         }
       }
@@ -2816,12 +2818,21 @@ function parseWorksheetItemsFromInvokeData(data: unknown): LearnWorksheetItem[] 
     return []
   }
 
+  const readSkillTag = (entry: unknown): string | undefined => {
+    if (!entry || typeof entry !== 'object') {
+      return undefined
+    }
+    const raw = (entry as Record<string, unknown>).skillTag
+    return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 80) : undefined
+  }
+
   const fromStructuredArray = (arr: unknown[]): LearnWorksheetItem[] => {
     const out: LearnWorksheetItem[] = []
     for (let index = 0; index < arr.length; index += 1) {
       const parsed = sanitizeInteractiveQuestion(arr[index], index)
       if (parsed) {
-        out.push(learnWorksheetItemFromQuestion(parsed))
+        const skillTag = readSkillTag(arr[index])
+        out.push({ ...learnWorksheetItemFromQuestion(parsed), ...(skillTag ? { skillTag } : {}) })
       }
     }
     return out

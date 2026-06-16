@@ -50,6 +50,8 @@ export type LearnFlashcard = {
   id: string
   question: string
   answer: string
+  /** Konzept-/Kompetenz-Tag (z. B. "mwst-berechnung") für quellenübergreifende Skill-Mastery. */
+  skillTag?: string
   /** Selbsteinschätzung nach dem Umdrehen */
   selfRating?: 'known' | 'unknown'
   /** Spaced repetition: 0 = neu / zurückgesetzt, höher = längere Intervalle */
@@ -79,6 +81,8 @@ export type LearnWorksheetItem = {
   hint?: string
   explanation?: string
   evaluation?: 'exact' | 'contains'
+  /** Konzept-/Kompetenz-Tag (z. B. "mwst-berechnung") für quellenübergreifende Skill-Mastery. */
+  skillTag?: string
   chapterIndex?: number
   /** Mindestens einmal per Kreis geprüft */
   evaluated?: boolean
@@ -111,6 +115,8 @@ export type ChapterStep =
       hint?: string
       explanation?: string
       evaluation?: 'exact' | 'contains'
+      /** Konzept-/Kompetenz-Tag (z. B. "mwst-berechnung") für aggregierte Skill-Mastery über Kapitel hinweg. */
+      skillTag?: string
     }
   | {
       id: string
@@ -375,6 +381,7 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
     const hint = typeof item.hint === 'string' && item.hint.trim() ? item.hint.trim() : undefined
     const explanation = typeof item.explanation === 'string' && item.explanation.trim() ? item.explanation.trim() : undefined
     const evaluation = item.evaluation === 'contains' ? 'contains' : 'exact'
+    const skillTag = typeof item.skillTag === 'string' && item.skillTag.trim() ? item.skillTag.trim().slice(0, 80) : undefined
 
     const matchLeft = Array.isArray(item.matchLeft)
       ? item.matchLeft
@@ -411,6 +418,7 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
         hint,
         explanation,
         evaluation: 'exact',
+        skillTag,
       }
     }
 
@@ -440,6 +448,7 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
         hint,
         explanation,
         evaluation: 'exact',
+        skillTag,
       }
     }
 
@@ -472,6 +481,7 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
         hint,
         explanation,
         evaluation,
+        skillTag,
       }
     }
 
@@ -485,6 +495,7 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
       hint,
       explanation,
       evaluation,
+      skillTag,
     }
   }
 
@@ -880,11 +891,14 @@ function mapLearnFlashcardsFlat(value: unknown): LearnFlashcard[] {
         typeof o.nextReviewAt === 'string' && o.nextReviewAt.trim() ? o.nextReviewAt.trim() : undefined
       const lastReviewedAt =
         typeof o.lastReviewedAt === 'string' && o.lastReviewedAt.trim() ? o.lastReviewedAt.trim() : undefined
+      const skillTag =
+        typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
       out.push(
         normalizeFlashcardSr({
           id,
           question,
           answer,
+          ...(skillTag ? { skillTag } : {}),
           ...(selfRating ? { selfRating } : {}),
           ...(srStage !== undefined ? { srStage } : {}),
           ...(nextReviewAt ? { nextReviewAt } : {}),
@@ -1004,11 +1018,14 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
       const explanation =
         typeof o.explanation === 'string' && o.explanation.trim() ? o.explanation.trim() : undefined
       const evaluation = o.evaluation === 'contains' ? 'contains' : o.evaluation === 'exact' ? 'exact' : undefined
+      const skillTag =
+        typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
       out.push({
         id,
         prompt: rawPrompt,
         chapterIndex,
         ...(questionType ? { questionType } : {}),
+        ...(skillTag ? { skillTag } : {}),
         ...(parseStringArray(o.options) ? { options: parseStringArray(o.options) } : {}),
         ...(parseStringArray(o.matchLeft) ? { matchLeft: parseStringArray(o.matchLeft) } : {}),
         ...(parseStringArray(o.matchRight) ? { matchRight: parseStringArray(o.matchRight) } : {}),

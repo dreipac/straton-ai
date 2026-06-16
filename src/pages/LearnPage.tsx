@@ -77,6 +77,7 @@ import {
   buildChapterMaterialSearchQuery,
   buildEntryQuizFallbackPayload,
   buildEntryQuizInsightForChapter,
+  buildLearnerStateInsight,
   ensureMinimumChapterDepth,
   getChapterMaterialRagOptions,
   getDisplayPathTitle,
@@ -190,6 +191,30 @@ function toSkillIdFromText(prefix: 'chapter' | 'flashcard' | 'worksheet', raw: s
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
+}
+
+/** Konzept-Slug normalisieren (z. B. "MWSt Berechnung!" → "mwst-berechnung"). */
+function normalizeConceptTag(raw: string | undefined): string {
+  if (!raw) {
+    return ''
+  }
+  return raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60)
+}
+
+/**
+ * Quellenübergreifender Skill-Schlüssel: Wenn ein Konzept-Tag vorliegt, teilen sich alle Quellen
+ * (Kapitel, Lernkarten, Arbeitsblatt) denselben `concept:`-Bucket → echte Aggregation pro Kompetenz.
+ * Ohne Tag greift das bisherige Verhalten (textbasierter Schlüssel je Quelle).
+ */
+function resolveConceptSkillId(skillTag: string | undefined, fallback: () => string): string {
+  const slug = normalizeConceptTag(skillTag)
+  return slug ? `concept:${slug}` : fallback()
 }
 
 export type LearnPageProps = {
@@ -1540,13 +1565,19 @@ export function LearnPage({
       skillId: string
       label: string
       correct: boolean
-      delta: number
+      /** Untere Schranke der Lernrate (Recency-Floor 0..1); reale Lernrate = max(weight, 1/(versuche+1)). */
+      weight: number
     }) => {
       setChapterSession((prev) => {
         const map = { ...prev.skillMasteryBySkillId }
         const current = map[payload.skillId]
         const baseScore = current?.score ?? 0.5
-        const nextScore = clamp01(baseScore + payload.delta)
+        const priorAttempts = Math.max(0, current?.attempts ?? 0)
+        const outcome = payload.correct ? 1 : 0
+        // Attempts-gewichtetes Mittel mit Recency-Floor: frühe Versuche bewegen den Score stark,
+        // später stabilisiert er sich (1/(n+1)), bleibt aber durch `weight` reaktionsfähig.
+        const learningRate = Math.max(payload.weight, 1 / (priorAttempts + 1))
+        const nextScore = clamp01(baseScore + learningRate * (outcome - baseScore))
         const normalizedPrompt = payload.label.trim().replace(/\s+/g, ' ').slice(0, 220)
         const lastWrongPrompts = [...(current?.lastWrongPrompts ?? [])]
         const lastCorrectPrompts = [...(current?.lastCorrectPrompts ?? [])]
@@ -1581,13 +1612,13 @@ export function LearnPage({
   )
 
   const handleChapterQuestionEvaluatedForMastery = useCallback(
-    (payload: { stepId: string; prompt: string; correct: boolean; answer: string }) => {
+    (payload: { stepId: string; prompt: string; correct: boolean; answer: string; skillTag?: string }) => {
       applySkillMasterySignal({
         source: 'chapter',
-        skillId: payload.stepId,
+        skillId: resolveConceptSkillId(payload.skillTag, () => toSkillIdFromText('chapter', payload.prompt)),
         label: payload.prompt,
         correct: payload.correct,
-        delta: payload.correct ? 0.1 : -0.12,
+        weight: 0.35,
       })
     },
     [applySkillMasterySignal],
@@ -2139,10 +2170,12 @@ export function LearnPage({
       const item = learnWorksheets.find((entry) => entry.id === itemId)
       applySkillMasterySignal({
         source: 'worksheet',
-        skillId: toSkillIdFromText('worksheet', item?.prompt ?? itemId),
+        skillId: resolveConceptSkillId(item?.skillTag, () =>
+          toSkillIdFromText('worksheet', item?.prompt ?? itemId),
+        ),
         label: item?.prompt ?? 'Arbeitsblatt-Aufgabe',
         correct: payload.correct,
-        delta: payload.correct ? 0.08 : -0.1,
+        weight: 0.3,
       })
     },
     [applySkillMasterySignal, learnWorksheets, learningPaths],
@@ -2185,10 +2218,10 @@ export function LearnPage({
       const correct = item.lastCorrect === true
       applySkillMasterySignal({
         source: 'worksheet',
-        skillId: toSkillIdFromText('worksheet', item.prompt),
+        skillId: resolveConceptSkillId(item.skillTag, () => toSkillIdFromText('worksheet', item.prompt)),
         label: item.prompt,
         correct,
-        delta: correct ? 0.04 : -0.02,
+        weight: 0.15,
       })
     })
   }, [applySkillMasterySignal, learningPaths, worksheetModalItems])
@@ -2224,10 +2257,12 @@ export function LearnPage({
         if (currentCard) {
           applySkillMasterySignal({
             source: 'flashcard',
-            skillId: toSkillIdFromText('flashcard', currentCard.question),
+            skillId: resolveConceptSkillId(currentCard.skillTag, () =>
+              toSkillIdFromText('flashcard', currentCard.question),
+            ),
             label: currentCard.question,
             correct: rating === 'known',
-            delta: rating === 'known' ? 0.06 : -0.08,
+            weight: 0.25,
           })
         }
         return merged
@@ -2469,6 +2504,7 @@ export function LearnPage({
           getChapterMaterialRagOptions(materials.length),
         )
         const entryQuizInsight = buildEntryQuizInsightForChapter(entryQuiz, entryQuizResult)
+        const learnerStateSummary = buildLearnerStateInsight(chapterBlueprints, chapterSession)
         let validationHint = ''
         let generated: ChapterBlueprint[] = []
         for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
@@ -2485,6 +2521,7 @@ export function LearnPage({
               proficiencyLevel,
               materialContext: chapterMaterialContext,
               entryQuizInsight,
+              learnerStateSummary,
               validationHint,
               attempt,
               chapterNumber: targetChapterIndex + 1,

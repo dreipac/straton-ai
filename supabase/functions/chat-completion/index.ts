@@ -3312,6 +3312,7 @@ function sanitizeTopicSuggestions(raw: string): string[] {
 type FlashcardPayload = {
   question: string
   answer: string
+  skillTag?: string
 }
 
 type WorksheetItemPayload = {
@@ -3326,6 +3327,7 @@ type WorksheetItemPayload = {
   hint?: string
   explanation?: string
   evaluation?: 'exact' | 'contains'
+  skillTag?: string
 }
 
 const WORKSHEET_OUTLINE_MAX_CHARS = 8000
@@ -3399,6 +3401,8 @@ function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): Workshee
   const options = parseStringArrayEdge(o.options)
   const matchLeft = parseStringArrayEdge(o.matchLeft)
   const matchRight = parseStringArrayEdge(o.matchRight)
+  const skillTag =
+    typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
   const id =
     typeof o.id === 'string' && o.id.trim() ? o.id.trim() : `ws${index + 1}`
 
@@ -3415,10 +3419,11 @@ function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): Workshee
       ...(hint ? { hint } : {}),
       ...(explanation ? { explanation } : {}),
       ...(evaluation ? { evaluation } : {}),
+      ...(skillTag ? { skillTag } : {}),
     }
   }
 
-  return { id, prompt, questionType: 'text' }
+  return { id, prompt, questionType: 'text', ...(skillTag ? { skillTag } : {}) }
 }
 
 function parseWorksheetItemsFromRaw(raw: string): WorksheetItemPayload[] {
@@ -3466,8 +3471,10 @@ function parseFlashcardsFromRaw(raw: string): FlashcardPayload[] {
       const o = entry as Record<string, unknown>
       const question = typeof o.question === 'string' ? o.question.trim() : ''
       const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+      const skillTag =
+        typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
       if (question && answer) {
-        out.push({ question, answer })
+        out.push({ question, answer, ...(skillTag ? { skillTag } : {}) })
       }
     }
     return out.slice(0, 16)
@@ -3496,7 +3503,8 @@ async function generateFlashcardsWithAi(
           'Du erstellst Lernkarten (Karteikarten) für Berufsfachschule EFZ — kaufmännischer Bereich (KV-Lehre).',
           'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
           'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-          'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)"}]',
+          'Schema: [{"question":"kurze Frage","answer":"kurze Antwort (1-3 Sätze)","skillTag":"konzept-slug"}]',
+          'Pflicht je Karte: "skillTag" = kurzer Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"); gleiche Teilkompetenz immer derselbe skillTag.',
           'Lege die Anzahl der Karten selbst fest (mindestens 6, höchstens 16) — nur zu den Schwachstellen/Lernlücken im Text, nicht den ganzen Stoff breit wiederholen.',
           'Auf Deutsch, fachlich korrekt.',
         ].join('\n'),
@@ -3541,11 +3549,12 @@ async function generateWorksheetWithAi(
           'Du erstellst ein digitales Lernblatt mit strukturierten Übungsaufgaben für Berufsfachschule EFZ (KV-Lehre).',
           'Nutze NUR den mitgelieferten Kontext — erfinde keine neuen Themen.',
           'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false","options":[…],"matchLeft":[…],"matchRight":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…"}',
+          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false","options":[…],"matchLeft":[…],"matchRight":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…","skillTag":"konzept-slug"}',
           'Erzeuge genau 6–8 Aufgaben.',
           'KOMPAKT: prompt max. 2 kurze Sätze (~280 Zeichen), genau EIN Lernziel pro Aufgabe — keine Sammel-/Glossar-Listen.',
           'Mix: mindestens 2× mcq, 1× text (kurze Antwort), 1× match oder true_false.',
           'MCQ: 3–5 Optionen. Jede Aufgabe braucht expectedAnswer und hint.',
+          'Pflicht je Aufgabe: "skillTag" = kurzer Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"); gleiche Teilkompetenz immer derselbe skillTag wie in Kapiteln/Lernkarten.',
           'Bei Übungsinhalten im Kontext: konkrete Zahlen/Szenarien spiegeln, nicht nur Definitionen abfragen.',
           'Auf Deutsch, fachlich korrekt.',
         ].join('\n'),

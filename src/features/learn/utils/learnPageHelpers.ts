@@ -138,10 +138,11 @@ export const WORKSHEET_COMPACT_RULES = [
   'Freitext (text): prompt verlangt explizit kurze Antwort (1–3 Sätze), nicht Essay.',
   'Jede Aufgabe braucht expectedAnswer, hint (1 Satz ohne Lösung), evaluation ("exact" oder "contains").',
   'MCQ: 3–5 Optionen; true_false: expectedAnswer «Wahr» oder «Falsch»; match: gleich lange matchLeft/matchRight.',
+  'SKILL-TAG (Pflicht je Aufgabe): Feld "skillTag" mit kurzem Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"). Verwende für dieselbe Teilkompetenz immer denselben skillTag wie in den Kapiteln/Lernkarten.',
 ].join('\n')
 
 export const WORKSHEET_JSON_SCHEMA_EXAMPLE =
-  '[{"id":"ws1","prompt":"Welche Aussage zur MWSt in der Schweiz trifft zu?","questionType":"mcq","options":["8.1% Normalsteuersatz","2.6% auf alle Leistungen","Keine MWSt auf Dienstleistungen","Nur Export MWSt-pflichtig"],"expectedAnswer":"8.1% Normalsteuersatz","acceptableAnswers":[],"evaluation":"exact","hint":"Denk an den üblichen Normalsteuersatz.","explanation":"..."},{"id":"ws2","prompt":"Ordne Begriff und Definition zu.","questionType":"match","matchLeft":["Steuerhoheit","Mehrwertsteuer"],"matchRight":["Hoheitliche Erhebung","Umsatzbesteuerung"],"expectedAnswer":"0,1","evaluation":"exact","hint":"..."}]'
+  '[{"id":"ws1","prompt":"Welche Aussage zur MWSt in der Schweiz trifft zu?","questionType":"mcq","options":["8.1% Normalsteuersatz","2.6% auf alle Leistungen","Keine MWSt auf Dienstleistungen","Nur Export MWSt-pflichtig"],"expectedAnswer":"8.1% Normalsteuersatz","acceptableAnswers":[],"evaluation":"exact","hint":"Denk an den üblichen Normalsteuersatz.","explanation":"...","skillTag":"mwst-saetze"},{"id":"ws2","prompt":"Ordne Begriff und Definition zu.","questionType":"match","matchLeft":["Steuerhoheit","Mehrwertsteuer"],"matchRight":["Hoheitliche Erhebung","Umsatzbesteuerung"],"expectedAnswer":"0,1","evaluation":"exact","hint":"...","skillTag":"steuer-grundbegriffe"}]'
 
 const WORKSHEET_PRIORITY_SECTION_MARKERS = [
   'ANWEISUNG:',
@@ -539,7 +540,15 @@ export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
 
 /** JSON-Schema-Beispiel für Kapitelgenerierung (on-demand + adaptiv). */
 export const CHAPTER_JSON_SCHEMA_EXAMPLE =
-  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"..."},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"..."},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"..."},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"..."},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
+  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"...","skillTag":"mwst-berechnung"},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"...","skillTag":"belege-buchen"},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"...","skillTag":"kontenrahmen"},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"...","skillTag":"konten-zuordnung"},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
+
+/** Verbindliche Regel für das Konzept-Tag pro Frage (aggregierte Skill-Mastery über Kapitel hinweg). */
+export const CHAPTER_SKILL_TAG_RULE = [
+  'SKILL-TAG (Pflicht bei JEDEM question-Step): Feld "skillTag" mit einem kurzen, stabilen Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung", "konten-zuordnung", "geschaeftsbrief-form").',
+  'Der skillTag benennt die geprüfte Teilkompetenz, NICHT die Fragenummer und NICHT den Kapiteltitel.',
+  'Verwende für gleiche Teilkompetenzen IMMER denselben skillTag — auch über mehrere Kapitel, Lernkarten und Arbeitsblätter hinweg —, damit der Lernfortschritt pro Kompetenz zusammengeführt werden kann.',
+  'Maximal 5 verschiedene skillTags pro Kapitel; mehrere Fragen dürfen denselben skillTag teilen.',
+].join('\n')
 
 export function buildChapterMaterialSearchQuery(
   effectiveTopic: string,
@@ -600,6 +609,8 @@ export type BuildChapterGenerationPromptArgs = {
   /** Adaptives Abschlusskapitel */
   adaptive?: boolean
   weaknessSummary?: string
+  /** Aktueller Lernstand (schwache Konzepte, Fehlermuster) — steuert die nächste Kapitelgenerierung adaptiv. */
+  learnerStateSummary?: string
 }
 
 export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPromptArgs): string {
@@ -621,6 +632,7 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
     'In Erklärungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Sätze) oder in den bullets.',
     `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
     `Schema pro Kapitel (Beispiel): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
+    CHAPTER_SKILL_TAG_RULE,
     WORKSHEET_EXERCISE_FIDELITY_RULES,
     CHAPTER_LEARNING_FIDELITY_RULES,
     args.aiGuidance.trim()
@@ -632,6 +644,13 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
         }`
       : 'Selbsteinschätzung Niveau: unbekannt',
     `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
+    args.learnerStateSummary?.trim()
+      ? [
+          'Aktueller Lernstand (aus bereits bearbeiteten Kapiteln) — passe dieses Kapitel gezielt darauf an:',
+          'Greife schwache Konzepte erneut auf (andere Formulierung/Beispiel), vermeide reine Wiederholung bereits sicher beherrschter Punkte und verwende für aufgegriffene Konzepte denselben skillTag wie zuvor.',
+          args.learnerStateSummary.trim(),
+        ].join('\n')
+      : '',
     args.adaptive && args.weaknessSummary
       ? `Schwachstellen aus bisherigem Lernverlauf:\n${args.weaknessSummary}`
       : '',
@@ -1233,6 +1252,10 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
               const hint = typeof stepCandidate.hint === 'string' ? stepCandidate.hint.trim() : undefined
               const explanation =
                 typeof stepCandidate.explanation === 'string' ? stepCandidate.explanation.trim() : undefined
+              const skillTag =
+                typeof stepCandidate.skillTag === 'string' && stepCandidate.skillTag.trim()
+                  ? stepCandidate.skillTag.trim().slice(0, 80)
+                  : undefined
               const acceptableAnswers = Array.isArray(stepCandidate.acceptableAnswers)
                 ? stepCandidate.acceptableAnswers
                     .map((value) => coerceQuizScalarToString(value))
@@ -1276,6 +1299,7 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   evaluation: 'exact',
                   hint,
                   explanation,
+                  skillTag,
                 } satisfies ChapterStep
               }
 
@@ -1308,6 +1332,7 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   evaluation: 'exact',
                   hint,
                   explanation,
+                  skillTag,
                 } satisfies ChapterStep
               }
 
@@ -1339,6 +1364,7 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   evaluation,
                   hint,
                   explanation,
+                  skillTag,
                 } satisfies ChapterStep
               }
 
@@ -1352,6 +1378,7 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                 evaluation,
                 hint,
                 explanation,
+                skillTag,
               } satisfies ChapterStep
             }
 
@@ -1522,6 +1549,57 @@ export function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): Chapt
       steps: [...chapter.steps, ...buildPaddingSteps(chapterIndex, chapter.steps.length, needed)],
     }
   })
+}
+
+/**
+ * Kompakter Lernstand-Block für die nächste Kapitelgenerierung (Punkt 3 / adaptiv):
+ * schwache Konzepte (Skill-Mastery), konkrete Fehlermuster und falsch beantwortete Fragen.
+ * Liefert '' wenn noch keine verwertbare Historie existiert (z. B. erstes Kapitel).
+ */
+export function buildLearnerStateInsight(
+  blueprints: ChapterBlueprint[],
+  session: ChapterSession,
+): string {
+  const sections: string[] = []
+
+  const weakSkills = Object.values(session.skillMasteryBySkillId ?? {})
+    .filter((entry) => entry.attempts > 0 && (entry.score ?? 0) < 0.6)
+    .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+    .slice(0, 8)
+  if (weakSkills.length > 0) {
+    const lines = weakSkills.map((entry, index) => {
+      const label = entry.label?.trim() || entry.source || 'Konzept'
+      const scorePct = Math.round((entry.score ?? 0) * 100)
+      return `${index + 1}. ${label} — Mastery ${scorePct}% (${entry.correct}/${entry.attempts} richtig)`
+    })
+    sections.push(`Schwache Konzepte (Mastery < 60%):\n${lines.join('\n')}`)
+  }
+
+  const wrongPrompts = weakSkills
+    .flatMap((entry) => entry.lastWrongPrompts ?? [])
+    .filter((text) => text.trim().length > 0)
+    .slice(0, 10)
+  if (wrongPrompts.length > 0) {
+    const lines = wrongPrompts.map((prompt, index) => `${index + 1}. ${prompt}`)
+    sections.push(`Konkrete Fehlermuster (zuletzt falsch beantwortet):\n${lines.join('\n')}`)
+  }
+
+  const wrongQuestions = collectWeakQuestionSteps(blueprints, session)
+    .slice(0, 10)
+    .map((step, index) => `${index + 1}. ${step.prompt}`)
+  if (wrongQuestions.length > 0) {
+    sections.push(`Falsch beantwortete Kapitelfragen:\n${wrongQuestions.join('\n')}`)
+  }
+
+  const strongSkills = Object.values(session.skillMasteryBySkillId ?? {})
+    .filter((entry) => entry.attempts >= 2 && (entry.score ?? 0) >= 0.85)
+    .map((entry) => entry.label?.trim() || entry.source || 'Konzept')
+    .slice(0, 6)
+  if (strongSkills.length > 0) {
+    sections.push(`Bereits sicher beherrscht (nicht breit wiederholen):\n${strongSkills.join(', ')}`)
+  }
+
+  return sections.join('\n\n').trim()
 }
 
 export function collectWeakQuestionSteps(

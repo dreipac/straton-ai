@@ -11,7 +11,13 @@ type UseChapterSessionFlowArgs = {
   setChapterSession: Dispatch<SetStateAction<ChapterSession>>
   setIsEvaluatingChapterStep: Dispatch<SetStateAction<boolean>>
   setError: Dispatch<SetStateAction<string | null>>
-  onQuestionEvaluated?: (payload: { stepId: string; prompt: string; correct: boolean; answer: string }) => void
+  onQuestionEvaluated?: (payload: {
+    stepId: string
+    prompt: string
+    correct: boolean
+    answer: string
+    skillTag?: string
+  }) => void
 }
 
 export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
@@ -80,6 +86,7 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
         prompt: activeStep.prompt,
         correct: result.isCorrect,
         answer,
+        skillTag: activeStep.skillTag,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Frage konnte nicht ausgewertet werden.')
