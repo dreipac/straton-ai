@@ -347,7 +347,7 @@ type EvaluateQuizAnswerResult = {
 }
 
 /** Lernpfad, Lernkarten, Arbeitsblätter, Quiz-Auswertung, Thema-Vorschläge, Kapitel-Hilfe: primär GPT-5.4. */
-export const LEARN_PATH_OPENAI_MODELS = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] as const
+export const LEARN_PATH_OPENAI_MODELS = ['gpt-5-mini', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-4o-mini'] as const
 
 /** @deprecated Alias — gleiche Kette wie {@link LEARN_PATH_OPENAI_MODELS}. */
 export const LEARN_CHAPTER_HELP_OPENAI_MODELS = LEARN_PATH_OPENAI_MODELS

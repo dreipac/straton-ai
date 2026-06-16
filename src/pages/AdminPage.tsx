@@ -68,6 +68,7 @@ import {
   adminSetThinkingGeminiModelsDraft,
   adminDeployThinkingGeminiModelsDraft,
   getAppFeatureFlags,
+  LEARN_AI_DEFAULT_OPENAI_MODEL,
   type LearnAiModelId,
   type LearnAiProvider,
   type ThinkingGeminiModelsDraft,
@@ -222,7 +223,7 @@ function parseLearnAiModelDraftValue(value: string): LearnAiModelId {
   ) {
     return value
   }
-  return 'gpt-5.4-mini'
+  return LEARN_AI_DEFAULT_OPENAI_MODEL
 }
 
 type AdminSectionId =
@@ -384,8 +385,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
   const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<LearnAiProvider>('openai')
-  const [learnAiModelActive, setLearnAiModelActive] = useState<LearnAiModelId>('gpt-5.4-mini')
-  const [learnAiModelDraft, setLearnAiModelDraft] = useState<LearnAiModelId>('gpt-5.4-mini')
+  const [learnAiModelActive, setLearnAiModelActive] = useState<LearnAiModelId>(LEARN_AI_DEFAULT_OPENAI_MODEL)
+  const [learnAiModelDraft, setLearnAiModelDraft] = useState<LearnAiModelId>(LEARN_AI_DEFAULT_OPENAI_MODEL)
   const [isSavingLearnAiProviderDraft, setIsSavingLearnAiProviderDraft] = useState(false)
   const [isDeployingLearnAiProvider, setIsDeployingLearnAiProvider] = useState(false)
   const [isSavingLearnAiModelDraft, setIsSavingLearnAiModelDraft] = useState(false)
@@ -639,8 +640,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnPathCreateEnabled(true)
         setLearnAiProviderActive('openai')
         setLearnAiProviderDraft('openai')
-        setLearnAiModelActive('gpt-5.4-mini')
-        setLearnAiModelDraft('gpt-5.4-mini')
+        setLearnAiModelActive(LEARN_AI_DEFAULT_OPENAI_MODEL)
+        setLearnAiModelDraft(LEARN_AI_DEFAULT_OPENAI_MODEL)
         setDeployedAppVersion('')
         setDeployedAppVersionDraft('')
       }
@@ -3326,7 +3327,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                         setLearnAiModelDraft('claude-sonnet-4-6')
                       }
                       if (nextProvider === 'openai' && (learnAiModelDraft.startsWith('claude-') || learnAiModelDraft.startsWith('gemini-'))) {
-                        setLearnAiModelDraft('gpt-5.4-mini')
+                        setLearnAiModelDraft(LEARN_AI_DEFAULT_OPENAI_MODEL)
                       }
                     }}
                   >

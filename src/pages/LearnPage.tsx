@@ -66,7 +66,7 @@ import {
   type EditableLearningPathSnapshot,
 } from '../features/learn/hooks/useLearningPathPersistence'
 import { parseInteractiveContentWithFallback, type InteractiveQuizPayload } from '../features/chat/utils/interactiveQuiz'
-import { extractLearningMaterialText } from '../features/learn/utils/documentParser'
+import { extractLearningMaterialText, LEARN_MATERIAL_EXCERPT_MAX_CHARS } from '../features/learn/utils/documentParser'
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   DEFAULT_CHAPTER_SESSION,
@@ -1155,7 +1155,7 @@ export function LearnPage({
             id: item.id,
             name: item.name,
             size: item.size,
-            excerpt: item.excerpt.slice(0, 2500),
+            excerpt: item.excerpt.slice(0, LEARN_MATERIAL_EXCERPT_MAX_CHARS),
           }))
       : []
 

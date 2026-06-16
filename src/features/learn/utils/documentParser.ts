@@ -5,10 +5,15 @@ import * as XLSX from 'xlsx'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-const MAX_EXCERPT_LENGTH = 2500
+/** Max. gespeicherter Text pro Lernmaterial (Upload + Persistenz). */
+export const LEARN_MATERIAL_EXCERPT_MAX_CHARS = 30_000
+
+const MAX_EXCERPT_LENGTH = LEARN_MATERIAL_EXCERPT_MAX_CHARS
 /** OCR-Fallback: max. Seiten (Performance im Browser). */
 const PDF_OCR_MAX_PAGES = 12
 const PDF_OCR_RENDER_SCALE = 2
+/** Wie Chat documentExtract: dünn befüllter Textlayer → OCR auslösen. */
+const PDF_SPARSE_CHARS_PER_PAGE = 80
 
 /** Ergebnis von `file.text()` auf einer PDF — kein lesbarer Dokumenttext. */
 function looksLikeRawPdfPayload(text: string): boolean {
@@ -45,7 +50,19 @@ const IMAGE_EXTENSIONS = new Set([
 ])
 
 function normalizeExtractedText(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim().slice(0, MAX_EXCERPT_LENGTH)
+  const normalized = raw
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (normalized.length <= MAX_EXCERPT_LENGTH) {
+    return normalized
+  }
+  return `${normalized.slice(0, MAX_EXCERPT_LENGTH)}\n\n[… Auszug gekürzt …]`
 }
 
 function getExtension(filename: string): string {
@@ -82,7 +99,7 @@ async function extractPdfTextLayer(pdf: PDFDocumentProxy): Promise<string> {
       .filter((entry): entry is string => Boolean(entry))
     pages.push(chunks.join(' '))
   }
-  return pages.join('\n').trim()
+  return pages.join('\n\n').trim()
 }
 
 async function ocrPdfPages(pdf: PDFDocumentProxy): Promise<string> {
@@ -137,10 +154,25 @@ async function ocrPdfPages(pdf: PDFDocumentProxy): Promise<string> {
 async function parsePdf(file: File): Promise<string> {
   const pdf = await loadPdfFromFile(file)
   const textLayer = await extractPdfTextLayer(pdf)
-  if (textLayer && !looksLikeRawPdfPayload(textLayer)) {
+  const pageCount = pdf.numPages
+  const compactLen = textLayer.replace(/\s+/g, '').length
+  const charsPerPage = pageCount > 0 ? compactLen / pageCount : compactLen
+  const layerUsable = Boolean(textLayer.trim()) && !looksLikeRawPdfPayload(textLayer)
+  const needsOcr =
+    !layerUsable || charsPerPage < PDF_SPARSE_CHARS_PER_PAGE
+
+  if (!needsOcr) {
     return textLayer
   }
-  return ocrPdfPages(pdf)
+
+  const ocrText = await ocrPdfPages(pdf)
+  if (!ocrText.trim()) {
+    return layerUsable ? textLayer : ''
+  }
+  if (!layerUsable || charsPerPage < PDF_SPARSE_CHARS_PER_PAGE * 0.5) {
+    return ocrText
+  }
+  return `${textLayer.trim()}\n\n[OCR-Ergänzung]\n${ocrText}`.trim()
 }
 
 async function parseDocx(file: File): Promise<string> {
@@ -154,9 +186,13 @@ async function parseDocx(file: File): Promise<string> {
   const htmlResult = await mammoth.convertToHtml({ arrayBuffer: buffer })
   const plain = (htmlResult.value ?? '')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/<\/(?:p|div|h[1-6]|tr)>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
     .trim()
   return plain
 }
@@ -230,8 +266,7 @@ export async function extractLearningMaterialText(file: File): Promise<string> {
     }
     if (isPdfFile(file, ext)) {
       try {
-        const pdf = await loadPdfFromFile(file)
-        return normalizeExtractedText(await ocrPdfPages(pdf))
+        return normalizeExtractedText(await parsePdf(file))
       } catch {
         return ''
       }

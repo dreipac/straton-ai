@@ -18,6 +18,9 @@ export type LearnAiModelId =
   | 'gemini-3.1-flash-lite'
   | 'gemini-3.1-flash-lite-preview'
 
+/** Standard-OpenAI-Modell für den Lernbereich (Setup, Quiz, Kapitel, …). */
+export const LEARN_AI_DEFAULT_OPENAI_MODEL: LearnAiModelId = 'gpt-5-mini'
+
 export type AppFeatureFlags = {
   show_beta_notice_on_first_login: boolean
   deployed_app_version: string | null
@@ -60,7 +63,7 @@ function parseLearnAiModel(raw: unknown): LearnAiModelId {
     raw === 'gemini-3.1-flash-lite' ||
     raw === 'gemini-3.1-flash-lite-preview'
     ? raw
-    : 'gpt-5.4-mini'
+    : LEARN_AI_DEFAULT_OPENAI_MODEL
 }
 
 export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {

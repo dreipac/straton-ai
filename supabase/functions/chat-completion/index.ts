@@ -1126,6 +1126,8 @@ async function fetchSubscriptionPlanChatFields(
   }
 }
 
+const LEARN_AI_DEFAULT_OPENAI_MODEL: LearnModelId = 'gpt-5-mini'
+
 function sanitizeLearnModelId(raw: unknown): LearnModelId {
   if (
     raw === 'gpt-5.4' ||
@@ -1139,7 +1141,7 @@ function sanitizeLearnModelId(raw: unknown): LearnModelId {
   ) {
     return raw
   }
-  return 'gpt-5.4-mini'
+  return LEARN_AI_DEFAULT_OPENAI_MODEL
 }
 
 function learnModelIdToGeminiModel(model: LearnModelId): GeminiModelId {
@@ -1162,14 +1164,14 @@ function normalizeLearnModelForProvider(provider: Provider, model: LearnModelId)
     return isGeminiModel ? model : 'gemini-3.1-flash-lite'
   }
   if (provider === 'openai') {
-    return isOpenAiModel ? model : 'gpt-5.4-mini'
+    return isOpenAiModel ? model : LEARN_AI_DEFAULT_OPENAI_MODEL
   }
   return isOpenAiModel || isGeminiModel ? 'claude-sonnet-4-6' : model
 }
 
 async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<LearnAiConfig> {
   if (!admin) {
-    return { provider: 'openai', model: 'gpt-5.4-mini' }
+    return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
   }
   try {
     const { data, error } = await admin
@@ -1178,7 +1180,7 @@ async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<L
       .eq('id', 1)
       .maybeSingle()
     if (error) {
-      return { provider: 'openai', model: 'gpt-5.4-mini' }
+      return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
     }
     const rawProvider =
       typeof (data as { learn_ai_provider_active?: unknown } | null)?.learn_ai_provider_active === 'string'
@@ -1191,7 +1193,7 @@ async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<L
     )
     return { provider, model: normalizeLearnModelForProvider(provider, model) }
   } catch {
-    return { provider: 'openai', model: 'gpt-5.4-mini' }
+    return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
   }
 }
 
@@ -4430,7 +4432,7 @@ serve(async (req) => {
         }
         console.warn('[chat-completion] learn gemini unavailable, fallback openai', geminiErr)
         provider = 'openai'
-        openAiModels = ['gpt-5.4-mini', ...DEFAULT_OPENAI_CHAT_MODELS]
+        openAiModels = [LEARN_AI_DEFAULT_OPENAI_MODEL, ...DEFAULT_OPENAI_CHAT_MODELS]
         apiKey = await getProviderApiKey('openai')
       }
     }
