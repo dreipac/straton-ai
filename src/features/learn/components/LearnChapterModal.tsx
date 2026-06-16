@@ -8,10 +8,11 @@ import infoIcon from '../../../assets/icons/info.svg'
 import newMessageIcon from '../../../assets/icons/newMessage.svg'
 import { sendLearnChapterHelpMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
-import { isMatchAnswerComplete } from '../../chat/utils/interactiveQuiz'
+import { isCategorizeAnswerComplete, isMatchAnswerComplete } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterStep } from '../services/learn.persistence'
 import { chapterQuestionToInteractiveQuestion } from '../utils/learnPageHelpers'
 import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
+import { LearnCategorizeQuestion } from './LearnCategorizeQuestion'
 
 function getPriorExplanationContext(blueprint: ChapterBlueprint | null, currentStep: ChapterStep | null): string | null {
   if (!blueprint?.steps.length || !currentStep || currentStep.type !== 'question') {
@@ -63,9 +64,11 @@ function buildLearnChapterHelpContext(
         ? 'Multiple Choice'
         : step.questionType === 'match'
           ? 'Zuordnung'
-          : step.questionType === 'true_false'
-            ? 'Wahr/Falsch'
-            : 'Freitext'
+          : step.questionType === 'categorize'
+            ? 'Kategorien'
+            : step.questionType === 'true_false'
+              ? 'Wahr/Falsch'
+              : 'Freitext'
     lines.push(`Aktueller Schritt: Frage (${kind})`)
     lines.push(`Frage: ${step.prompt}`)
     if (step.questionType === 'mcq' && step.options && step.options.length > 0) {
@@ -77,6 +80,11 @@ function buildLearnChapterHelpContext(
     if (step.questionType === 'match' && step.matchLeft?.length && step.matchRight?.length) {
       lines.push(
         `Zuordnung links:\n${step.matchLeft.map((o) => `• ${o}`).join('\n')}\nrechts:\n${step.matchRight.map((o) => `• ${o}`).join('\n')}`,
+      )
+    }
+    if (step.questionType === 'categorize' && step.categories?.length && step.items?.length) {
+      lines.push(
+        `Kategorien:\n${step.categories.map((o) => `• ${o}`).join('\n')}\nBegriffe:\n${step.items.map((o) => `• ${o}`).join('\n')}`,
       )
     }
   } else {
@@ -115,6 +123,9 @@ function buildQuestionInfoPanelText(blueprint: ChapterBlueprint | null, step: Ch
   if (step.questionType === 'match') {
     return 'Ordne jeden Begriff links der passenden Spalte rechts zu. Ziehe die Karten per Drag-and-Drop.'
   }
+  if (step.questionType === 'categorize') {
+    return 'Ziehe jeden Begriff in die passende Kategorie. Mehrere Begriffe pro Kategorie sind erlaubt.'
+  }
   return 'Formuliere eine kurze, sachliche Antwort direkt zur Frage. Achte auf Fachbegriffe und — wo nötig — auf Format und Einheit (z. B. bei Adressen oder Zahlen).'
 }
 
@@ -131,6 +142,9 @@ function chapterQuestionKindLabel(step: ChapterStep): string {
   if (step.questionType === 'match') {
     return 'Zuordnungsaufgabe'
   }
+  if (step.questionType === 'categorize') {
+    return 'Kategorien-Aufgabe'
+  }
   return 'Interaktive Freitext Frage'
 }
 
@@ -140,6 +154,9 @@ function canSubmitChapterQuestionAnswer(step: ChapterStep | null, answer: string
   }
   if (step.questionType === 'match' && step.matchLeft && step.matchRight) {
     return isMatchAnswerComplete(chapterQuestionToInteractiveQuestion(step), answer)
+  }
+  if (step.questionType === 'categorize' && step.categories && step.items) {
+    return isCategorizeAnswerComplete(chapterQuestionToInteractiveQuestion(step), answer)
   }
   return answer.trim().length > 0
 }
@@ -431,6 +448,17 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
                   questionId={activeChapterStep.id}
                   matchLeft={activeChapterStep.matchLeft}
                   matchRight={activeChapterStep.matchRight}
+                  value={currentChapterAnswer}
+                  disabled={isEvaluatingChapterStep}
+                  onChange={(next) => onChapterAnswerChange(activeChapterStep.id, next)}
+                />
+              ) : activeChapterStep.questionType === 'categorize' &&
+                activeChapterStep.categories &&
+                activeChapterStep.items ? (
+                <LearnCategorizeQuestion
+                  questionId={activeChapterStep.id}
+                  categories={activeChapterStep.categories}
+                  items={activeChapterStep.items}
                   value={currentChapterAnswer}
                   disabled={isEvaluatingChapterStep}
                   onChange={(next) => onChapterAnswerChange(activeChapterStep.id, next)}

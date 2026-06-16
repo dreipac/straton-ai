@@ -56,7 +56,8 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
       if (
         activeStep.questionType === 'mcq' ||
         activeStep.questionType === 'true_false' ||
-        activeStep.questionType === 'match'
+        activeStep.questionType === 'match' ||
+        activeStep.questionType === 'categorize'
       ) {
         result = evaluateInteractiveAnswer(answer, chapterQuestionToInteractiveQuestion(activeStep))
       } else {

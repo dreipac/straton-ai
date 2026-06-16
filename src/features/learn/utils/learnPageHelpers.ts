@@ -11,6 +11,7 @@ import type {
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
+  isCategorizeAnswerComplete,
   isMatchAnswerComplete,
   resolveMcqExpectedAnswer,
   type InteractiveQuizPayload,
@@ -134,15 +135,16 @@ export const WORKSHEET_COMPACT_RULES = [
   'Erzeuge 6–8 Aufgaben — jede Aufgabe genau EIN prüfbares Lernziel.',
   'prompt: maximal 2 kurze Sätze, höchstens 280 Zeichen — keine Aufzählungslisten mit vielen Begriffen in EINER Aufgabe.',
   'VERBOTEN: «Erkläre/Nenne folgende Begriffe: …» mit mehr als 3 Begriffen; nummerierte Mega-Listen; Glossar-Wiederholung des ganzen Kapitels.',
-  'Fragetypen mischen: mindestens 2× mcq, 1× text (kurze Antwort, 1–3 Sätze), 1× match oder true_false.',
+  'Fragetypen mischen: mindestens 2× mcq, 1× text (kurze Antwort, 1–3 Sätze), 1× match, categorize oder true_false.',
   'Freitext (text): prompt verlangt explizit kurze Antwort (1–3 Sätze), nicht Essay.',
   'Jede Aufgabe braucht expectedAnswer, hint (1 Satz ohne Lösung), evaluation ("exact" oder "contains").',
   'MCQ: 3–5 Optionen; true_false: expectedAnswer «Wahr» oder «Falsch»; match: gleich lange matchLeft/matchRight.',
+  'categorize (Begriffe in Kategorien einsortieren): Felder "categories" (2–4 Kategorien) und "items" (3–8 Begriffe); expectedAnswer = pro Begriff der Kategorie-Index in items-Reihenfolge, komma-getrennt (z. B. "0,1,0,1"); KEINE options. NUTZE categorize statt einer mcq mit kombinierten Paar-Optionen, wenn Begriffe Klassen zugeordnet werden (z. B. direkte vs. indirekte Steuer).',
   'SKILL-TAG (Pflicht je Aufgabe): Feld "skillTag" mit kurzem Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"). Verwende für dieselbe Teilkompetenz immer denselben skillTag wie in den Kapiteln/Lernkarten.',
 ].join('\n')
 
 export const WORKSHEET_JSON_SCHEMA_EXAMPLE =
-  '[{"id":"ws1","prompt":"Welche Aussage zur MWSt in der Schweiz trifft zu?","questionType":"mcq","options":["8.1% Normalsteuersatz","2.6% auf alle Leistungen","Keine MWSt auf Dienstleistungen","Nur Export MWSt-pflichtig"],"expectedAnswer":"8.1% Normalsteuersatz","acceptableAnswers":[],"evaluation":"exact","hint":"Denk an den üblichen Normalsteuersatz.","explanation":"...","skillTag":"mwst-saetze"},{"id":"ws2","prompt":"Ordne Begriff und Definition zu.","questionType":"match","matchLeft":["Steuerhoheit","Mehrwertsteuer"],"matchRight":["Hoheitliche Erhebung","Umsatzbesteuerung"],"expectedAnswer":"0,1","evaluation":"exact","hint":"...","skillTag":"steuer-grundbegriffe"}]'
+  '[{"id":"ws1","prompt":"Welche Aussage zur MWSt in der Schweiz trifft zu?","questionType":"mcq","options":["8.1% Normalsteuersatz","2.6% auf alle Leistungen","Keine MWSt auf Dienstleistungen","Nur Export MWSt-pflichtig"],"expectedAnswer":"8.1% Normalsteuersatz","acceptableAnswers":[],"evaluation":"exact","hint":"Denk an den üblichen Normalsteuersatz.","explanation":"...","skillTag":"mwst-saetze"},{"id":"ws2","prompt":"Ordne Begriff und Definition zu.","questionType":"match","matchLeft":["Steuerhoheit","Mehrwertsteuer"],"matchRight":["Hoheitliche Erhebung","Umsatzbesteuerung"],"expectedAnswer":"0,1","evaluation":"exact","hint":"...","skillTag":"steuer-grundbegriffe"},{"id":"ws3","prompt":"Sortiere die Steuern nach direkter und indirekter Steuer.","questionType":"categorize","categories":["Direkte Steuer","Indirekte Steuer"],"items":["Einkommenssteuer","Mehrwertsteuer","Vermögenssteuer","Tabaksteuer"],"expectedAnswer":"0,1,0,1","evaluation":"exact","hint":"Direkte Steuern werden auf Einkommen/Vermögen erhoben.","skillTag":"steuerarten"}]'
 
 const WORKSHEET_PRIORITY_SECTION_MARKERS = [
   'ANWEISUNG:',
@@ -229,6 +231,38 @@ function worksheetLooksLikeLaundryList(prompt: string): boolean {
   return false
 }
 
+/**
+ * Prüft eine categorize-Aufgabe: 2–4 Kategorien, ≥ 2 Begriffe, und expectedAnswer mit genau
+ * einem gültigen Kategorie-Index pro Begriff. Liefert eine Fehlermeldung oder null (gültig).
+ */
+function validateCategorizeFields(
+  categories: string[] | undefined,
+  items: string[] | undefined,
+  expectedAnswer: string | undefined,
+  label: number | string,
+): string | null {
+  const cats = (categories ?? []).map((c) => c.trim()).filter(Boolean)
+  const its = (items ?? []).map((i) => i.trim()).filter(Boolean)
+  if (cats.length < 2 || cats.length > 4) {
+    return `Kategorien-Aufgabe ${label} braucht 2–4 Kategorien (categories).`
+  }
+  if (its.length < 2) {
+    return `Kategorien-Aufgabe ${label} braucht mindestens 2 Begriffe (items).`
+  }
+  const parts = (expectedAnswer ?? '').split(',').map((s) => s.trim())
+  if (parts.length !== its.length) {
+    return `Kategorien-Aufgabe ${label}: expectedAnswer braucht genau ${its.length} Kategorie-Indizes (einen pro Begriff).`
+  }
+  const allValid = parts.every((p) => {
+    const num = Number.parseInt(p, 10)
+    return !Number.isNaN(num) && num >= 0 && num < cats.length
+  })
+  if (!allValid) {
+    return `Kategorien-Aufgabe ${label}: expectedAnswer enthält ungültige Kategorie-Indizes.`
+  }
+  return null
+}
+
 export function validateGeneratedWorksheet(items: LearnWorksheetItem[]): { valid: boolean; reason: string } {
   if (items.length < LEARN_WORKSHEET_MIN_QUESTIONS) {
     return {
@@ -247,7 +281,7 @@ export function validateGeneratedWorksheet(items: LearnWorksheetItem[]): { valid
   if (typed.length < items.length) {
     return {
       valid: false,
-      reason: 'Jede Aufgabe braucht questionType (mcq, text, match oder true_false).',
+      reason: 'Jede Aufgabe braucht questionType (mcq, text, match, categorize oder true_false).',
     }
   }
 
@@ -268,12 +302,15 @@ export function validateGeneratedWorksheet(items: LearnWorksheetItem[]): { valid
   }
 
   const matchOrTfCount = items.filter(
-    (item) => item.questionType === 'match' || item.questionType === 'true_false',
+    (item) =>
+      item.questionType === 'match' ||
+      item.questionType === 'true_false' ||
+      item.questionType === 'categorize',
   ).length
   if (matchOrTfCount < 1) {
     return {
       valid: false,
-      reason: 'Das Lernblatt braucht mindestens eine Zuordnungs- (match) oder Wahr/Falsch-Aufgabe.',
+      reason: 'Das Lernblatt braucht mindestens eine Zuordnungs- (match), Kategorien- (categorize) oder Wahr/Falsch-Aufgabe.',
     }
   }
 
@@ -314,6 +351,14 @@ export function validateGeneratedWorksheet(items: LearnWorksheetItem[]): { valid
       continue
     }
 
+    if (item.questionType === 'categorize') {
+      const categorizeError = validateCategorizeFields(item.categories, item.items, item.expectedAnswer, index + 1)
+      if (categorizeError) {
+        return { valid: false, reason: categorizeError }
+      }
+      continue
+    }
+
     if (item.questionType === 'mcq') {
       const optionCount = item.options?.length ?? 0
       if (optionCount < 3 || optionCount > 5) {
@@ -335,6 +380,8 @@ export function learnWorksheetItemFromQuestion(question: InteractiveQuizQuestion
     questionType: question.questionType,
     matchLeft: question.matchLeft,
     matchRight: question.matchRight,
+    categories: question.categories,
+    items: question.items,
     options: question.options,
     expectedAnswer: question.expectedAnswer,
     acceptableAnswers: question.acceptableAnswers,
@@ -494,11 +541,25 @@ export function getMaterialTypeBadge(filename: string): { label: string; variant
 }
 
 /** Regeln für Einstiegstest / Kapitel: Fragen an echte Übungsinhalte koppeln, nicht an generische Theorie. */
+/**
+ * Verhindert Meta-/Struktur-Fragen: Arbeitsanweisungen ("Aufträge") im Material werden in
+ * eigenständige FACH-Fragen aufgelöst, statt die Dokumentstruktur selbst abzufragen.
+ * Wird in Einstiegstest, Kapiteln und Arbeitsblättern mitgeschickt.
+ */
+export const SELF_CONTAINED_KNOWLEDGE_RULES = [
+  'WISSEN STATT DOKUMENTSTRUKTUR: Prüfe IMMER das fachliche Wissen/Können, NICHT den Aufbau des Materials.',
+  'Wenn die Auszüge Arbeitsanweisungen/Aufträge enthalten (z. B. "Auftrag 1a: Ermittle die drei wichtigsten Einnahmen des Bundes", "Fülle das Glossar aus", "Vereinbare einen Termin mit der ESTV"): Löse den fachlichen KERN heraus und frage diesen direkt ab (z. B. "Welche drei Einnahmequellen sind für den Schweizer Bund am wichtigsten?").',
+  'VERBOTEN in prompt, options UND expectedAnswer: Verweise auf die Dokument-/Aufgabenstruktur — keine Wörter wie "Auftrag", "Auftrag 1a", "Aufgabe 2", "Dossier", "Blatt", "Arbeitsblatt", "Unterlagen", "laut Text", "im Dokument", "in deinem Dossier".',
+  'VERBOTEN: Fragen nach dem ZIEL/ZWECK eines Auftrags oder danach, was eine Aufgabe verlangt (z. B. "Was ist das Ziel von Auftrag 1a?"). Frage stattdessen den Sachinhalt selbst ab.',
+  'SELBST-TEST: Jede Frage muss für jemanden verständlich und beantwortbar sein, der das Material NIE gesehen hat. Wird die Frage ohne das Dossier sinnlos, formuliere sie in eine reine Wissens-/Anwendungsfrage um.',
+].join('\n')
+
 export const WORKSHEET_EXERCISE_FIDELITY_RULES = [
-  'ÜBUNGS-TREUE (wenn die Dateiauszüge Übungen, Aufgabenstellungen, Rechenaufgaben, konkrete Werte (z. B. MWSt-Satz, Beträge, Konten, Rabatte), Tabellen oder nummerierte Teilfragen enthalten):',
+  'ÜBUNGS-TREUE (wenn die Dateiauszüge fachliche Übungen, Rechenaufgaben, konkrete Werte (z. B. MWSt-Satz, Beträge, Konten, Rabatte), Tabellen oder Fallbeispiele enthalten):',
   'Die Fragen und Aufgaben MÜSSEN sich auf genau diese Inhalte beziehen: dieselben oder leicht variierten Szenarien, dieselben Zahlen/Beträge wo möglich, gleiche Art von Teilaufgabe (z. B. MWSt berechnen statt "Was ist die Hauptaufgabe der Buchhaltung").',
   'VERBOTEN in diesem Fall: reine Definitions- oder "Was ist die Hauptfunktion von ..."-Fragen, wenn im Material bereits konkrete Übungen stehen — außer EINER optionalen sehr kurzen Grundlagenfrage.',
-  'Priorität: Aufgaben aus dem Blatt spiegeln (z. B. "Zu Übung 1 mit Rechnung 2024-0815 und Betrag CHF 1\'240.50: ..."), nicht das Thema nur allgemein abfragen.',
+  'Priorität: fachliche Rechen-/Fallaufgaben spiegeln (z. B. "Zu einer Rechnung über CHF 1\'240.50 inkl. 8.1% MWSt: ..."), nicht das Thema nur allgemein abfragen — spiegle INHALTE, nicht die Aufgabennummerierung oder Struktur des Dokuments.',
+  SELF_CONTAINED_KNOWLEDGE_RULES,
 ].join('\n')
 
 /**
@@ -540,7 +601,7 @@ export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
 
 /** JSON-Schema-Beispiel für Kapitelgenerierung (on-demand + adaptiv). */
 export const CHAPTER_JSON_SCHEMA_EXAMPLE =
-  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"...","skillTag":"mwst-berechnung"},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"...","skillTag":"belege-buchen"},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"...","skillTag":"kontenrahmen"},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"...","skillTag":"konten-zuordnung"},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
+  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"...","skillTag":"mwst-berechnung"},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"...","skillTag":"belege-buchen"},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"...","skillTag":"kontenrahmen"},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"...","skillTag":"konten-zuordnung"},{"id":"c1-q5","type":"question","questionType":"categorize","prompt":"Sortiere die Konten in Aktiv- und Passivkonto.","categories":["Aktivkonto","Passivkonto"],"items":["Kasse","Darlehen","Maschinen","Kreditoren"],"expectedAnswer":"0,1,0,1","hint":"Aktivkonten zeigen Vermögen.","explanation":"...","skillTag":"konten-art"},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
 
 /** Verbindliche Regel für das Konzept-Tag pro Frage (aggregierte Skill-Mastery über Kapitel hinweg). */
 export const CHAPTER_SKILL_TAG_RULE = [
@@ -628,7 +689,8 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
       : 'Erstelle genau 1 Lernkapitel als JSON-Array mit genau einem Kapitelobjekt.',
     'Antwortformat: NUR valides JSON — kein Markdown, keine ##-Kapitel-Zusammenfassung, kein Fliesstext ausserhalb des JSON.',
     `Das Kapitel braucht: 1 Erklärung, dann ${questionRange} Fragen, danach 1 Recap.`,
-    'Fragetypen mischen: mcq, text, match, true_false.',
+    'Fragetypen mischen: mcq, text, match, true_false, categorize.',
+    'categorize (Begriffe in Kategorien einsortieren): Felder "categories" (2–4) und "items" (3–8); expectedAnswer = Kategorie-Index pro Begriff in items-Reihenfolge, komma-getrennt (z. B. "0,1,0,1"); keine options. Nutze categorize statt mcq mit kombinierten Paar-Optionen, wenn Begriffe Klassen zugeordnet werden.',
     'In Erklärungs-Steps: je Step ein kurzes Mini-Beispiel im content (1-3 Sätze) oder in den bullets.',
     `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
     `Schema pro Kapitel (Beispiel): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
@@ -752,7 +814,8 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
 
   const textCount = quiz.questions.filter((q) => q.questionType === 'text').length
   const matchOrTfCount = quiz.questions.filter(
-    (q) => q.questionType === 'match' || q.questionType === 'true_false',
+    (q) =>
+      q.questionType === 'match' || q.questionType === 'true_false' || q.questionType === 'categorize',
   ).length
   if (textCount < 1) {
     return {
@@ -763,7 +826,8 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
   if (matchOrTfCount < 1) {
     return {
       valid: false,
-      reason: 'Der Einstiegstest braucht mindestens eine Zuordnungs- (match) oder Wahr/Falsch-Frage (true_false).',
+      reason:
+        'Der Einstiegstest braucht mindestens eine Zuordnungs- (match), Kategorien- (categorize) oder Wahr/Falsch-Frage (true_false).',
     }
   }
 
@@ -794,6 +858,18 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
           valid: false,
           reason: `Zuordnungsfrage ${index + 1} braucht gleich lange matchLeft/matchRight (mindestens 2 Paare).`,
         }
+      }
+      continue
+    }
+    if (question.questionType === 'categorize') {
+      const categorizeError = validateCategorizeFields(
+        question.categories,
+        question.items,
+        question.expectedAnswer,
+        index + 1,
+      )
+      if (categorizeError) {
+        return { valid: false, reason: categorizeError }
       }
       continue
     }
@@ -883,6 +959,17 @@ export function validateGeneratedChapter(
         }
       }
     }
+    if (question.questionType === 'categorize') {
+      const categorizeError = validateCategorizeFields(
+        question.categories,
+        question.items,
+        question.expectedAnswer,
+        index + 1,
+      )
+      if (categorizeError) {
+        return { valid: false, reason: categorizeError }
+      }
+    }
   }
 
   return { valid: true, reason: '' }
@@ -899,6 +986,20 @@ export function chapterQuestionToInteractiveQuestion(
       questionType: 'match',
       matchLeft: step.matchLeft,
       matchRight: step.matchRight,
+      expectedAnswer: step.expectedAnswer,
+      acceptableAnswers: step.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: step.hint,
+      explanation: step.explanation,
+    }
+  }
+  if (step.questionType === 'categorize' && step.categories && step.items) {
+    return {
+      id: step.id,
+      prompt: step.prompt,
+      questionType: 'categorize',
+      categories: step.categories,
+      items: step.items,
       expectedAnswer: step.expectedAnswer,
       acceptableAnswers: step.acceptableAnswers ?? [],
       evaluation: 'exact',
@@ -954,6 +1055,8 @@ export function worksheetQuestionKindLabel(item: LearnWorksheetItem): string {
       return 'Wahr oder Falsch'
     case 'match':
       return 'Zuordnung'
+    case 'categorize':
+      return 'Kategorien'
     case 'text':
       return 'Kurzantwort'
     default:
@@ -975,6 +1078,21 @@ export function worksheetItemToInteractiveQuestion(item: LearnWorksheetItem): In
       matchLeft: item.matchLeft,
       matchRight: item.matchRight,
       expectedAnswer,
+      acceptableAnswers: item.acceptableAnswers ?? [],
+      evaluation: 'exact',
+      hint: item.hint,
+      explanation: item.explanation,
+    }
+  }
+
+  if (item.questionType === 'categorize' && item.categories && item.items) {
+    return {
+      id: item.id,
+      prompt: item.prompt,
+      questionType: 'categorize',
+      categories: item.categories,
+      items: item.items,
+      expectedAnswer: item.expectedAnswer ?? '',
       acceptableAnswers: item.acceptableAnswers ?? [],
       evaluation: 'exact',
       hint: item.hint,
@@ -1029,6 +1147,9 @@ export function worksheetItemToInteractiveQuestion(item: LearnWorksheetItem): In
 export function canSubmitWorksheetAnswer(item: LearnWorksheetItem, answer: string): boolean {
   if (item.questionType === 'match' && item.matchLeft && item.matchRight) {
     return isMatchAnswerComplete(worksheetItemToInteractiveQuestion(item), answer)
+  }
+  if (item.questionType === 'categorize' && item.categories && item.items) {
+    return isCategorizeAnswerComplete(worksheetItemToInteractiveQuestion(item), answer)
   }
   return answer.trim().length > 0
 }
@@ -1301,6 +1422,52 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   explanation,
                   skillTag,
                 } satisfies ChapterStep
+              }
+
+              const categories = Array.isArray(stepCandidate.categories)
+                ? stepCandidate.categories
+                    .filter((value): value is string => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : []
+              const items = Array.isArray(stepCandidate.items)
+                ? stepCandidate.items
+                    .filter((value): value is string => typeof value === 'string')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : []
+              const wantsCategorize =
+                stepCandidate.questionType === 'categorize' ||
+                (categories.length >= 2 && items.length >= 2 && prompt.length > 0)
+
+              if (wantsCategorize && categories.length >= 2 && items.length >= 2 && prompt) {
+                const expectedParts = (
+                  typeof stepCandidate.expectedAnswer === 'string' ? stepCandidate.expectedAnswer : ''
+                )
+                  .split(',')
+                  .map((s) => s.trim())
+                const expectedValid =
+                  expectedParts.length === items.length &&
+                  expectedParts.every((p) => {
+                    const num = Number.parseInt(p, 10)
+                    return !Number.isNaN(num) && num >= 0 && num < categories.length
+                  })
+                if (expectedValid) {
+                  return {
+                    id,
+                    type: 'question' as const,
+                    questionType: 'categorize' as const,
+                    prompt,
+                    categories,
+                    items,
+                    expectedAnswer: expectedParts.map((p) => String(Number.parseInt(p, 10))).join(','),
+                    acceptableAnswers,
+                    evaluation: 'exact',
+                    hint,
+                    explanation,
+                    skillTag,
+                  } satisfies ChapterStep
+                }
               }
 
               const qtf =

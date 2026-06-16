@@ -114,6 +114,18 @@ export type UnsplashPhotoResult = {
   downloadLocation: string
 }
 
+/** Tavily-/Websuche-Bildtreffer (Hotlink-URLs, Attribution in der UI). */
+export type ImageSearchPhotoResult = {
+  id: string
+  description?: string
+  thumbUrl: string
+  regularUrl: string
+  photoPageUrl: string
+  photographerName: string
+  photographerUrl: string
+  downloadLocation?: string
+}
+
 /** KI/Gliederung für «Word aus Vorlage» – wird zu OOXML in die Vorlage injiziert. */
 export type WordOutlineV1 = {
   version: 1
@@ -184,6 +196,11 @@ export type ChatMessage = {
     unsplashSearch?: {
       query: string
       photos: UnsplashPhotoResult[]
+    }
+    /** Assistant: Tavily-/Websuche-Bilder (max. 4 Treffer). */
+    imageSearch?: {
+      query: string
+      photos: ImageSearchPhotoResult[]
     }
   }
 }

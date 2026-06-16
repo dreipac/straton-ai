@@ -72,9 +72,12 @@ export type LearnFlashcardSet = {
 export type LearnWorksheetItem = {
   id: string
   prompt: string
-  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false' | 'categorize'
   matchLeft?: string[]
   matchRight?: string[]
+  /** Kategorisieren: Begriffe (items) in Kategorien (categories) einsortieren; expectedAnswer = Kategorie-Index pro item. */
+  categories?: string[]
+  items?: string[]
   options?: string[]
   expectedAnswer?: string
   acceptableAnswers?: string[]
@@ -105,11 +108,14 @@ export type ChapterStep =
   | {
       id: string
       type: 'question'
-      questionType: 'mcq' | 'text' | 'match' | 'true_false'
+      questionType: 'mcq' | 'text' | 'match' | 'true_false' | 'categorize'
       prompt: string
       options?: string[]
       matchLeft?: string[]
       matchRight?: string[]
+      /** Kategorisieren: Begriffe (items) in Kategorien (categories) einsortieren; expectedAnswer = Kategorie-Index pro item. */
+      categories?: string[]
+      items?: string[]
       expectedAnswer: string
       acceptableAnswers?: string[]
       hint?: string
@@ -419,6 +425,49 @@ function mapChapterStep(value: unknown, index: number): ChapterStep | null {
         explanation,
         evaluation: 'exact',
         skillTag,
+      }
+    }
+
+    const categories = Array.isArray(item.categories)
+      ? item.categories
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    const items = Array.isArray(item.items)
+      ? item.items
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : []
+    const wantsCategorize =
+      item.questionType === 'categorize' || (categories.length >= 2 && items.length >= 2 && prompt.length > 0)
+
+    if (wantsCategorize && categories.length >= 2 && items.length >= 2 && prompt) {
+      const expectedParts = (typeof item.expectedAnswer === 'string' ? item.expectedAnswer : '')
+        .split(',')
+        .map((s) => s.trim())
+      const expectedValid =
+        expectedParts.length === items.length &&
+        expectedParts.every((p) => {
+          const num = Number.parseInt(p, 10)
+          return !Number.isNaN(num) && num >= 0 && num < categories.length
+        })
+      if (expectedValid) {
+        return {
+          id,
+          type,
+          questionType: 'categorize',
+          prompt,
+          categories,
+          items,
+          expectedAnswer: expectedParts.map((p) => String(Number.parseInt(p, 10))).join(','),
+          acceptableAnswers,
+          hint,
+          explanation,
+          evaluation: 'exact',
+          skillTag,
+        }
       }
     }
 
@@ -758,6 +807,36 @@ function mapEntryQuiz(value: unknown): InteractiveQuizPayload | null {
         } satisfies InteractiveQuizPayload['questions'][number]
       }
 
+      const categories = parsePersistedStringArray(item.categories)
+      const items = parsePersistedStringArray(item.items)
+      const wantsCategorize =
+        item.questionType === 'categorize' || (categories.length >= 2 && items.length >= 2 && prompt.length > 0)
+      if (wantsCategorize && categories.length >= 2 && items.length >= 2 && prompt) {
+        const expectedParts = (typeof item.expectedAnswer === 'string' ? item.expectedAnswer : '')
+          .split(',')
+          .map((s) => s.trim())
+        const expectedValid =
+          expectedParts.length === items.length &&
+          expectedParts.every((p) => {
+            const num = Number.parseInt(p, 10)
+            return !Number.isNaN(num) && num >= 0 && num < categories.length
+          })
+        if (expectedValid) {
+          return {
+            id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `q${index + 1}`,
+            prompt,
+            questionType: 'categorize' as const,
+            categories,
+            items,
+            expectedAnswer: expectedParts.map((p) => String(Number.parseInt(p, 10))).join(','),
+            acceptableAnswers: [],
+            hint: typeof item.hint === 'string' ? item.hint.trim() : undefined,
+            explanation: typeof item.explanation === 'string' ? item.explanation.trim() : undefined,
+            evaluation: 'exact' as const,
+          } satisfies InteractiveQuizPayload['questions'][number]
+        }
+      }
+
       const qtf = item.questionType === 'true_false' || item.type === 'true_false'
       const expectedTfRaw = coerceQuizScalarToString(item.expectedAnswer)
       if (qtf && prompt && expectedTfRaw) {
@@ -998,7 +1077,11 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
       const submittedAt = submittedAtRaw.length > 0 ? submittedAtRaw : undefined
       const rawQType = o.questionType ?? o.type
       const questionType =
-        rawQType === 'mcq' || rawQType === 'text' || rawQType === 'match' || rawQType === 'true_false'
+        rawQType === 'mcq' ||
+        rawQType === 'text' ||
+        rawQType === 'match' ||
+        rawQType === 'true_false' ||
+        rawQType === 'categorize'
           ? rawQType
           : undefined
       const parseStringArray = (value: unknown): string[] | undefined => {
@@ -1027,6 +1110,8 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
         ...(questionType ? { questionType } : {}),
         ...(skillTag ? { skillTag } : {}),
         ...(parseStringArray(o.options) ? { options: parseStringArray(o.options) } : {}),
+        ...(parseStringArray(o.categories) ? { categories: parseStringArray(o.categories) } : {}),
+        ...(parseStringArray(o.items) ? { items: parseStringArray(o.items) } : {}),
         ...(parseStringArray(o.matchLeft) ? { matchLeft: parseStringArray(o.matchLeft) } : {}),
         ...(parseStringArray(o.matchRight) ? { matchRight: parseStringArray(o.matchRight) } : {}),
         ...(expectedAnswer ? { expectedAnswer } : {}),

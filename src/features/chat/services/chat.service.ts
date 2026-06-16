@@ -213,7 +213,12 @@ import type {
   ChatMessageWordExport,
   WordOutlineV1,
 } from '../types'
-import { evaluateInteractiveAnswer, isMatchQuestion, type InteractiveQuizQuestion } from '../utils/interactiveQuiz'
+import {
+  evaluateInteractiveAnswer,
+  isCategorizeQuestion,
+  isMatchQuestion,
+  type InteractiveQuizQuestion,
+} from '../utils/interactiveQuiz'
 import { stripGeneratedImageModelFooter } from '../utils/markdownInline'
 import { WORD_EXPORT_COMMAND_MARKER } from '../constants/wordExportPrompt'
 import { PDF_EXPORT_COMMAND_MARKER } from '../constants/pdfExportPrompt'
@@ -3009,7 +3014,7 @@ export async function evaluateQuizAnswerWithAi(
     }
   }
 
-  if (isMatchQuestion(input.question)) {
+  if (isMatchQuestion(input.question) || isCategorizeQuestion(input.question)) {
     return evaluateInteractiveAnswer(trimmedAnswer, input.question)
   }
 

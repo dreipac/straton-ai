@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TextArea } from '../../../components/ui/inputs/TextArea'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
-import { isMatchQuestion } from '../../chat/utils/interactiveQuiz'
+import { isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
 import type { LearnWorksheetItem } from '../services/learn.persistence'
 import {
   canSubmitWorksheetAnswer,
@@ -10,6 +10,7 @@ import {
   worksheetQuestionKindLabel,
 } from '../utils/learnPageHelpers'
 import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
+import { LearnCategorizeQuestion } from './LearnCategorizeQuestion'
 
 export type LearnWorksheetModalProps = {
   isMounted: boolean
@@ -203,6 +204,19 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
           questionId={item.id}
           matchLeft={question.matchLeft}
           matchRight={question.matchRight}
+          value={answer}
+          disabled={isChecking}
+          onChange={(next) => setAnswer(item.id, next)}
+        />
+      )
+    }
+
+    if (isCategorizeQuestion(question) && question.categories && question.items) {
+      return (
+        <LearnCategorizeQuestion
+          questionId={item.id}
+          categories={question.categories}
+          items={question.items}
           value={answer}
           disabled={isChecking}
           onChange={(next) => setAnswer(item.id, next)}

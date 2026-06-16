@@ -3318,10 +3318,12 @@ type FlashcardPayload = {
 type WorksheetItemPayload = {
   id?: string
   prompt: string
-  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false' | 'categorize'
   options?: string[]
   matchLeft?: string[]
   matchRight?: string[]
+  categories?: string[]
+  items?: string[]
   expectedAnswer?: string
   acceptableAnswers?: string[]
   hint?: string
@@ -3388,7 +3390,11 @@ function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): Workshee
 
   const rawType = o.questionType ?? o.type
   const questionType =
-    rawType === 'mcq' || rawType === 'text' || rawType === 'match' || rawType === 'true_false'
+    rawType === 'mcq' ||
+    rawType === 'text' ||
+    rawType === 'match' ||
+    rawType === 'true_false' ||
+    rawType === 'categorize'
       ? rawType
       : undefined
   const expectedAnswer =
@@ -3401,6 +3407,8 @@ function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): Workshee
   const options = parseStringArrayEdge(o.options)
   const matchLeft = parseStringArrayEdge(o.matchLeft)
   const matchRight = parseStringArrayEdge(o.matchRight)
+  const categories = parseStringArrayEdge(o.categories)
+  const items = parseStringArrayEdge(o.items)
   const skillTag =
     typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
   const id =
@@ -3412,6 +3420,8 @@ function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): Workshee
       prompt,
       ...(questionType ? { questionType } : {}),
       ...(options.length > 0 ? { options } : {}),
+      ...(categories.length > 0 ? { categories } : {}),
+      ...(items.length > 0 ? { items } : {}),
       ...(matchLeft.length > 0 ? { matchLeft } : {}),
       ...(matchRight.length > 0 ? { matchRight } : {}),
       ...(expectedAnswer ? { expectedAnswer } : {}),
@@ -3549,10 +3559,12 @@ async function generateWorksheetWithAi(
           'Du erstellst ein digitales Lernblatt mit strukturierten Übungsaufgaben für Berufsfachschule EFZ (KV-Lehre).',
           'Nutze NUR den mitgelieferten Kontext — erfinde keine neuen Themen.',
           'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
-          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false","options":[…],"matchLeft":[…],"matchRight":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…","skillTag":"konzept-slug"}',
+          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false|categorize","options":[…],"matchLeft":[…],"matchRight":[…],"categories":[…],"items":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…","skillTag":"konzept-slug"}',
+          'categorize (Begriffe in Kategorien einsortieren, mehrere pro Kategorie erlaubt): Felder "categories" (2–4 Kategorien) und "items" (3–8 Begriffe); "expectedAnswer" = pro Begriff der Kategorie-Index, in der Reihenfolge von items, komma-getrennt (z. B. "0,1,0,1"). KEINE options bei categorize.',
+          'NUTZE categorize statt einer mcq mit kombinierten Paar-Optionen, wenn Begriffe Klassen/Kategorien zugeordnet werden sollen (z. B. direkte vs. indirekte Steuer, Aktivkonto vs. Passivkonto).',
           'Erzeuge genau 6–8 Aufgaben.',
           'KOMPAKT: prompt max. 2 kurze Sätze (~280 Zeichen), genau EIN Lernziel pro Aufgabe — keine Sammel-/Glossar-Listen.',
-          'Mix: mindestens 2× mcq, 1× text (kurze Antwort), 1× match oder true_false.',
+          'Mix: mindestens 2× mcq, 1× text (kurze Antwort), 1× match, categorize oder true_false.',
           'MCQ: 3–5 Optionen. Jede Aufgabe braucht expectedAnswer und hint.',
           'Pflicht je Aufgabe: "skillTag" = kurzer Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"); gleiche Teilkompetenz immer derselbe skillTag wie in Kapiteln/Lernkarten.',
           'Bei Übungsinhalten im Kontext: konkrete Zahlen/Szenarien spiegeln, nicht nur Definitionen abfragen.',

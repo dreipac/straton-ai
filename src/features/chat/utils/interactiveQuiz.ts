@@ -1,10 +1,13 @@
 export type InteractiveQuizQuestion = {
   id: string
   prompt: string
-  questionType?: 'mcq' | 'text' | 'match' | 'true_false'
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false' | 'categorize'
   /** Zuordnung: links Begriffe, rechts passende Definitionen (Index i gehört zusammen). */
   matchLeft?: string[]
   matchRight?: string[]
+  /** Kategorisieren: Begriffe (items) werden in Kategorien (categories) einsortiert; mehrere Begriffe pro Kategorie erlaubt. */
+  categories?: string[]
+  items?: string[]
   options?: string[]
   expectedAnswer: string
   acceptableAnswers: string[]
@@ -150,6 +153,43 @@ export function sanitizeInteractiveQuestion(input: unknown, index: number): Inte
       explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
       evaluation: 'exact',
     }
+  }
+
+  const wantsCategorize =
+    candidate.questionType === 'categorize' ||
+    candidate.type === 'categorize' ||
+    (Array.isArray(candidate.categories) && Array.isArray(candidate.items))
+
+  if (wantsCategorize && prompt) {
+    const categories = dedupeStrings(parseStringArray(candidate.categories))
+    const items = parseStringArray(candidate.items)
+    const rawExpected = typeof candidate.expectedAnswer === 'string' ? candidate.expectedAnswer.trim() : ''
+    const expectedParts = rawExpected
+      .split(',')
+      .map((s) => s.trim())
+    const expectedValid =
+      categories.length >= 2 &&
+      items.length >= 2 &&
+      expectedParts.length === items.length &&
+      expectedParts.every((p) => {
+        const n = Number.parseInt(p, 10)
+        return !Number.isNaN(n) && n >= 0 && n < categories.length
+      })
+    if (expectedValid) {
+      return {
+        id: typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : `q${index + 1}`,
+        prompt,
+        questionType: 'categorize',
+        categories,
+        items,
+        expectedAnswer: expectedParts.map((p) => String(Number.parseInt(p, 10))).join(','),
+        acceptableAnswers: [],
+        hint: typeof candidate.hint === 'string' ? candidate.hint.trim() : undefined,
+        explanation: typeof candidate.explanation === 'string' ? candidate.explanation.trim() : undefined,
+        evaluation: 'exact',
+      }
+    }
+    return null
   }
 
   const rawQType = candidate.questionType ?? candidate.type
@@ -402,10 +442,93 @@ function evaluateMatchAnswer(answer: string, question: InteractiveQuizQuestion):
   }
 }
 
+export function isCategorizeQuestion(question: InteractiveQuizQuestion | null | undefined): boolean {
+  return (
+    question?.questionType === 'categorize' &&
+    Array.isArray(question.categories) &&
+    Array.isArray(question.items) &&
+    question.categories.length >= 2 &&
+    question.items.length >= 2
+  )
+}
+
+/** Antwortformat: Komma-getrennt, ein Kategorie-Index pro Begriff (gleiche Reihenfolge wie items), leer = nicht einsortiert. */
+export function isCategorizeAnswerComplete(
+  question: InteractiveQuizQuestion | null | undefined,
+  answer: string,
+): boolean {
+  if (!isCategorizeQuestion(question) || !question) {
+    return answer.trim().length > 0
+  }
+  const itemCount = question.items!.length
+  const categoryCount = question.categories!.length
+  const parts = answer.split(',').map((s) => s.trim())
+  if (parts.length !== itemCount) {
+    return false
+  }
+  return parts.every((p) => {
+    const x = Number.parseInt(p, 10)
+    return p.length > 0 && !Number.isNaN(x) && x >= 0 && x < categoryCount
+  })
+}
+
+function evaluateCategorizeAnswer(
+  answer: string,
+  question: InteractiveQuizQuestion,
+): { isCorrect: boolean; feedback: string } {
+  const itemCount = question.items!.length
+  const categoryCount = question.categories!.length
+  const parts = answer.split(',').map((s) => s.trim())
+  if (parts.length !== itemCount || parts.some((p) => p.length === 0)) {
+    return {
+      isCorrect: false,
+      feedback: 'Bitte ordne jeden Begriff einer Kategorie zu.',
+    }
+  }
+  const nums = parts.map((p) => Number.parseInt(p, 10))
+  if (nums.some((x) => Number.isNaN(x) || x < 0 || x >= categoryCount)) {
+    return {
+      isCorrect: false,
+      feedback: 'Die Zuordnung ist unvollständig oder ungültig.',
+    }
+  }
+  const expectedParts = (question.expectedAnswer || '').split(',').map((s) => s.trim())
+  if (expectedParts.length !== itemCount) {
+    return {
+      isCorrect: false,
+      feedback: question.hint || 'Die Zuordnung konnte nicht geprüft werden.',
+    }
+  }
+  const expected = expectedParts.map((p) => Number.parseInt(p, 10))
+  const ok = nums.every((value, i) => value === expected[i])
+  if (ok) {
+    return {
+      isCorrect: true,
+      feedback: question.explanation || 'Richtig. Alle Begriffe sind korrekt einsortiert.',
+    }
+  }
+  const baseHint = question.hint || 'Prüfe, welcher Begriff in welche Kategorie gehört.'
+  return {
+    isCorrect: false,
+    feedback: question.explanation ? `${baseHint} ${question.explanation}` : baseHint,
+  }
+}
+
 export function evaluateInteractiveAnswer(
   answer: string,
   question: InteractiveQuizQuestion,
 ): { isCorrect: boolean; feedback: string } {
+  if (question.questionType === 'categorize' && isCategorizeQuestion(question)) {
+    const trimmed = answer.trim()
+    if (!trimmed) {
+      return {
+        isCorrect: false,
+        feedback: 'Bitte ordne jeden Begriff einer Kategorie zu.',
+      }
+    }
+    return evaluateCategorizeAnswer(trimmed, question)
+  }
+
   if (question.questionType === 'match' && isMatchQuestion(question)) {
     const trimmed = answer.trim()
     if (!trimmed) {

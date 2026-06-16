@@ -4,12 +4,21 @@ import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 import { TextArea } from '../../../components/ui/inputs/TextArea'
 import type { EntryQuizResult } from '../services/learn.persistence'
 import type { InteractiveQuizPayload, InteractiveQuizQuestion } from '../../chat/utils/interactiveQuiz'
-import { isMatchAnswerComplete, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
+import {
+  isCategorizeAnswerComplete,
+  isCategorizeQuestion,
+  isMatchAnswerComplete,
+  isMatchQuestion,
+} from '../../chat/utils/interactiveQuiz'
 import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
+import { LearnCategorizeQuestion } from './LearnCategorizeQuestion'
 
 function canProceedEntryAnswer(question: InteractiveQuizQuestion, answer: string): boolean {
   if (isMatchQuestion(question)) {
     return isMatchAnswerComplete(question, answer)
+  }
+  if (isCategorizeQuestion(question)) {
+    return isCategorizeAnswerComplete(question, answer)
   }
   return answer.trim().length > 0
 }
@@ -86,6 +95,15 @@ export function LearnEntryQuizModal(props: LearnEntryQuizModalProps) {
                     questionId={activeEntryQuestion.id}
                     matchLeft={activeEntryQuestion.matchLeft}
                     matchRight={activeEntryQuestion.matchRight}
+                    value={entryQuizAnswers[activeEntryQuestion.id] ?? ''}
+                    disabled={isSubmittingEntryQuiz}
+                    onChange={(next) => onEntryQuizAnswerChange(activeEntryQuestion.id, next)}
+                  />
+                ) : isCategorizeQuestion(activeEntryQuestion) && activeEntryQuestion.categories && activeEntryQuestion.items ? (
+                  <LearnCategorizeQuestion
+                    questionId={activeEntryQuestion.id}
+                    categories={activeEntryQuestion.categories}
+                    items={activeEntryQuestion.items}
                     value={entryQuizAnswers[activeEntryQuestion.id] ?? ''}
                     disabled={isSubmittingEntryQuiz}
                     onChange={(next) => onEntryQuizAnswerChange(activeEntryQuestion.id, next)}
