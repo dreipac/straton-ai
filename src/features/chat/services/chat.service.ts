@@ -250,7 +250,7 @@ export type SendMessageOptions = {
    */
   useLearnPathModel?: boolean
   /** Audit-Label für Admin-Protokoll (z. B. `learn_entry_quiz`, `learn_setup_topic`). */
-  learnTelemetryMode?: 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
+  learnTelemetryMode?: 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor' | 'learn_syllabus'
   /**
    * Lernpfad Kapitel-JSON: nur `learn_tutor` + JSON-Regeln — ohne `interactive_quiz` (Zusammenfassungs-Bias).
    */

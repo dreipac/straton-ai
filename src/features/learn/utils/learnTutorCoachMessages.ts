@@ -18,6 +18,11 @@ export function buildEntryQuizReadyTutorMessage(introFromAi: string): string {
   return `${intro}\n\nWenn du soweit bist: einmal kurz reinschnuppern — danach passe ich deinen Lernpfad an. 📋✨`
 }
 
+/** Entfernt eingebettete Lernplan-Listen aus älteren Tutor-Nachrichten (UI zeigt den Plan separat). */
+export function stripEmbeddedSyllabusFromTutorMessage(content: string): string {
+  return content.replace(/\n\nDein Lernplan:\n(?:(?:\d+\.\s[^\n]+\n?)+)/, '')
+}
+
 export function buildPostEntryQuizTutorMessage(score: number, total: number): string {
   const safeTotal = Math.max(1, total)
   const ratio = score / safeTotal
@@ -47,7 +52,7 @@ export function buildTutorCoachMessage(step: TutorCoachStep): string {
     case 'start-chapter': {
       const { chapterNumber, entryScore, entryTotal } = step
       const emoji = scoreEmoji(entryTotal > 0 ? entryScore / entryTotal : 0)
-      return `Hey! 👋 Dein Einstiegstest: ${entryScore}/${entryTotal} ${emoji}\n\nLass uns Kapitel ${chapterNumber} angehen — nimm dir Zeit, ich begleite dich.`
+      return `Hey! 👋 Dein Einstiegstest: ${entryScore}/${entryTotal} ${emoji}\n\nLass uns Kapitel ${chapterNumber} angehen — nimm dir Zeit,\nich begleite dich.`
     }
     case 'need-worksheet':
       return step.mixed

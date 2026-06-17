@@ -211,7 +211,7 @@ function resolveOpenAiPromptCacheForRequest(
       retention: clientRetention ?? undefined,
     }
   }
-  if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') {
+  if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor' || mode === 'learn_syllabus') {
     const key = clientKey ?? 'straton-learn-openai-v1'
     return { key, retention: clientRetention ?? '24h' }
   }
@@ -1257,6 +1257,7 @@ function normalizeMode(
   | 'learn_setup_topic'
   | 'learn_entry_quiz'
   | 'learn_tutor'
+  | 'learn_syllabus'
   | 'evaluate_quiz'
   | 'generate_title'
   | 'document_extract'
@@ -1277,6 +1278,9 @@ function normalizeMode(
   }
   if (v === 'learn_tutor') {
     return 'learn_tutor'
+  }
+  if (v === 'learn_syllabus') {
+    return 'learn_syllabus'
   }
   if (v === 'merge_ai_chat_memory') {
     return 'merge_ai_chat_memory'
@@ -3867,7 +3871,7 @@ serve(async (req) => {
 
     let provider = normalizeProvider(body.provider)
     let activeLearnAiConfig: LearnAiConfig | null = null
-    if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') {
+    if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor' || mode === 'learn_syllabus') {
       activeLearnAiConfig = await fetchActiveLearnAiConfig(admin)
       provider = activeLearnAiConfig.provider
       if (provider === 'openai') {

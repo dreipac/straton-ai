@@ -9,6 +9,7 @@ import {
   type LearnTutorState,
   type LearningPathRecord,
   type LearningPathSummary,
+  type SyllabusEntry,
   type TutorChatEntry,
   type UploadedMaterial,
 } from '../services/learn.persistence'
@@ -32,6 +33,7 @@ export type EditableLearningPathSnapshot = {
   currentChapterIndex: number
   targetChapterCount: number
   unlockedChapterCount: number
+  syllabus: SyllabusEntry[]
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession

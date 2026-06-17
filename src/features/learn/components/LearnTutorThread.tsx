@@ -1,6 +1,10 @@
 import checkIcon from '../../../assets/icons/check.svg'
+import chevronLeftIcon from '../../../assets/icons/chevron-left.svg'
 import fileIcon from '../../../assets/icons/file.svg'
+import starsIcon from '../../../assets/icons/stars.svg'
+import kompassImage from '../../../assets/png/kompass.png'
 import type { EntryQuizResult, LearnWorksheetItem, TutorChatEntry } from '../services/learn.persistence'
+import { stripEmbeddedSyllabusFromTutorMessage } from '../utils/learnTutorCoachMessages'
 import { getWorksheetChapterProgress } from '../utils/learnPageHelpers'
 
 export type LearnTutorThreadProps = {
@@ -14,6 +18,69 @@ export type LearnTutorThreadProps = {
   onCreateWorksheet: () => void
   learnWorksheets: LearnWorksheetItem[]
   tutorWorksheetChapterIndex: number
+  stripEmbeddedSyllabus?: boolean
+}
+
+function splitTutorCoachContent(content: string): { headline: string; body: string } {
+  const cleaned = content.trim()
+  const parts = cleaned.split(/\n\n+/).filter(Boolean)
+  if (parts.length <= 1) {
+    return { headline: cleaned, body: '' }
+  }
+  return { headline: parts[0] ?? cleaned, body: parts.slice(1).join('\n\n') }
+}
+
+function formatCoachBody(text: string): string {
+  return text.replace(/nimm dir Zeit,\s*(?=ich begleite dich)/i, 'nimm dir Zeit,\n')
+}
+
+function renderStartChapterCoachCard(
+  message: TutorChatEntry,
+  content: string,
+  chapterBlueprintReady: boolean,
+  onStartNextChapter: () => void,
+) {
+  const { headline, body: rawBody } = splitTutorCoachContent(content)
+  const body = formatCoachBody(rawBody)
+
+  return (
+    <article key={message.id} className="learn-tutor-coach-card is-reveal">
+      <div className="learn-tutor-coach-card-glow" aria-hidden="true" />
+      <div className="learn-tutor-coach-card-content">
+        <div className="learn-tutor-coach-card-layout">
+          <div className="learn-tutor-coach-card-main">
+            <span className="learn-tutor-coach-card-brand">Straton AI</span>
+            <p className="learn-tutor-coach-card-headline">{headline}</p>
+            {body ? (
+              <>
+                <span className="learn-tutor-coach-card-divider" aria-hidden="true" />
+                <p className="learn-tutor-coach-card-body">{body}</p>
+              </>
+            ) : null}
+            <button type="button" className="learn-tutor-coach-card-action" onClick={onStartNextChapter}>
+              <span className="learn-tutor-coach-card-action-icon-wrap" aria-hidden="true">
+                <img className="ui-icon learn-tutor-coach-card-action-icon" src={starsIcon} alt="" />
+              </span>
+              <span className="learn-tutor-coach-card-action-content">
+                <span className="learn-tutor-coach-card-action-title">
+                  {chapterBlueprintReady ? 'Kapitel öffnen' : 'Kapitel generieren'}
+                </span>
+                <span className="learn-tutor-coach-card-action-meta">
+                  {chapterBlueprintReady ? 'Lernblock starten' : 'KI erstellt deinen Lernblock'}
+                </span>
+              </span>
+              <span className="learn-tutor-coach-card-action-chevron-wrap" aria-hidden="true">
+                <img className="ui-icon learn-tutor-coach-card-action-chevron" src={chevronLeftIcon} alt="" />
+              </span>
+            </button>
+          </div>
+          <div className="learn-tutor-coach-card-visual" aria-hidden="true">
+            <img className="learn-tutor-coach-card-compass" src={kompassImage} alt="" />
+          </div>
+        </div>
+      </div>
+    </article>
+  )
 }
 
 export function LearnTutorThread(props: LearnTutorThreadProps) {
@@ -28,13 +95,34 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
     onCreateWorksheet,
     learnWorksheets,
     tutorWorksheetChapterIndex,
+    stripEmbeddedSyllabus = false,
   } = props
 
   const worksheetGateProgress = getWorksheetChapterProgress(learnWorksheets, tutorWorksheetChapterIndex)
 
+  const renderMessageContent = (message: TutorChatEntry) => {
+    if (message.action === 'open-entry-test') {
+      return null
+    }
+    const content =
+      stripEmbeddedSyllabus && message.role === 'assistant'
+        ? stripEmbeddedSyllabusFromTutorMessage(message.content)
+        : message.content
+    return <p>{content}</p>
+  }
+
   return (
     <>
-      {messages.map((message) => (
+      {messages.map((message) => {
+        if (message.action === 'start-next-chapter') {
+          const content =
+            stripEmbeddedSyllabus && message.role === 'assistant'
+              ? stripEmbeddedSyllabusFromTutorMessage(message.content)
+              : message.content
+          return renderStartChapterCoachCard(message, content, chapterBlueprintReady, onStartNextChapter)
+        }
+
+        return (
         <article
           key={message.id}
           className={`learn-conversation-message is-${message.role} ${message.role === 'assistant' ? 'is-reveal' : ''}`}
@@ -60,7 +148,7 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
               </p>
             </div>
           ) : (
-            <p>{message.content}</p>
+            renderMessageContent(message)
           )}
           {message.action === 'open-entry-test' ? (
             <button type="button" className="learn-entry-test-link" onClick={onOpenEntryQuizModal}>
@@ -73,18 +161,6 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
                 </span>
                 <span className="learn-entry-test-link-meta">
                   {entryQuizResult ? 'Ergebnisdatei öffnen' : 'Datei öffnen'}
-                </span>
-              </span>
-            </button>
-          ) : null}
-          {message.action === 'start-next-chapter' ? (
-            <button type="button" className="learn-entry-test-link" onClick={onStartNextChapter}>
-              <span className="learn-entry-test-link-content">
-                <span className="learn-entry-test-link-title">
-                  {chapterBlueprintReady ? 'Kapitel öffnen' : 'Kapitel generieren'}
-                </span>
-                <span className="learn-entry-test-link-meta">
-                  {chapterBlueprintReady ? 'Lernblock starten' : 'KI erstellt deinen Lernblock'}
                 </span>
               </span>
             </button>
@@ -118,7 +194,8 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
             </button>
           ) : null}
         </article>
-      ))}
+        )
+      })}
     </>
   )
 }

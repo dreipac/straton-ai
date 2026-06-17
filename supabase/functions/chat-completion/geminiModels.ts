@@ -119,7 +119,7 @@ export const GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ = 'straton-learn-entry-quiz-g
 export const GEMINI_CONTEXT_CACHE_LEARN_TUTOR = 'straton-learn-tutor-gemini-v1'
 export const GEMINI_CONTEXT_CACHE_LEARN_HELP = 'straton-learn-help-gemini-v1'
 
-export type LearnTelemetryModeEdge = 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor'
+export type LearnTelemetryModeEdge = 'learn_setup_topic' | 'learn_entry_quiz' | 'learn_tutor' | 'learn_syllabus'
 
 export function resolveLearnGeminiContextCacheKey(
   mode: LearnTelemetryModeEdge,
@@ -139,6 +139,9 @@ export function resolveLearnGeminiContextCacheKey(
   }
   if (mode === 'learn_entry_quiz') {
     return GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ
+  }
+  if (mode === 'learn_syllabus') {
+    return GEMINI_CONTEXT_CACHE_LEARN_TUTOR
   }
   return GEMINI_CONTEXT_CACHE_LEARN_TUTOR
 }

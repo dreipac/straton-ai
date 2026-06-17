@@ -1,5 +1,5 @@
-import type { EntryQuizResult } from '../services/learn.persistence'
-import { sanitizeChapterTitlesForUi } from '../utils/learnPageHelpers'
+import type { EntryQuizResult, SyllabusEntry } from '../services/learn.persistence'
+import { LearnSyllabusPanel } from './LearnSyllabusPanel'
 
 export type LearnOverviewPanelProps = {
   isSetupComplete: boolean
@@ -9,6 +9,7 @@ export type LearnOverviewPanelProps = {
   materialsCount: number
   entryQuizResult: EntryQuizResult | null
   learningChapters: string[]
+  syllabus: SyllabusEntry[]
 }
 
 export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
@@ -20,6 +21,7 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
     materialsCount,
     entryQuizResult,
     learningChapters,
+    syllabus,
   } = props
 
   if (!isSetupComplete) {
@@ -79,18 +81,13 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
           <strong>{entryQuizResult ? `${entryQuizResult.score}/${entryQuizResult.total}` : '-'}</strong>
         </div>
       </div>
-      {learningChapters.length > 0 ? (
-        <div className="learn-overview-chapters" aria-label="Generierte Lernkapitel">
-          <p className="learn-overview-chapters-title">Lernkapitel</p>
-          <div className="learn-overview-chapters-list" role="list">
-            {sanitizeChapterTitlesForUi(learningChapters.slice(0, 6), effectiveTopic).map((chapter, index) => (
-              <article key={`${chapter}-${index}`} className="learn-overview-chapter-card" role="listitem">
-                <span className="learn-overview-chapter-badge">Kapitel {index + 1}</span>
-                <p className="learn-overview-chapter-name">{chapter}</p>
-              </article>
-            ))}
-          </div>
-        </div>
+      {(syllabus.length > 0 || learningChapters.length > 0) ? (
+        <LearnSyllabusPanel
+          syllabus={syllabus}
+          learningChapters={learningChapters}
+          effectiveTopic={effectiveTopic}
+          variant="compact"
+        />
       ) : null}
     </section>
   )

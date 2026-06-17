@@ -8,6 +8,7 @@ import type {
   LearnFlashcardSet,
   LearnWorksheetItem,
   LearningPathSummary,
+  SyllabusEntry,
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
@@ -585,8 +586,9 @@ export const ENTRY_TEST_PREP_STEPS = [
   'Straton erstellt deinen Einstiegstest',
 ] as const
 
-export const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Kapitel werden generiert'] as const
+export const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Lernplan wird erstellt'] as const
 export const ENTRY_QUIZ_MIN_QUESTIONS = 5
+export const SYLLABUS_GENERATION_MAX_ATTEMPTS = 2
 export const ENTRY_QUIZ_MIN_MCQ = 2
 export const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
 /** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
@@ -655,9 +657,132 @@ export function buildEntryQuizInsightForChapter(
   return lines.join('\n')
 }
 
+export type BuildSyllabusGenerationPromptArgs = {
+  pathTitle: string
+  mainTopic: string
+  selectedTopic: string
+  aiGuidance: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  materialContext: string
+  entryQuizInsight: string
+  chapterCount: number
+  validationHint: string
+  attempt: number
+}
+
+export function buildSyllabusGenerationUserPrompt(args: BuildSyllabusGenerationPromptArgs): string {
+  const lines = [
+    `Lernpfad: ${args.pathTitle}`,
+    `Hauptthema: ${args.mainTopic}`,
+    args.selectedTopic.trim() ? `Gewählter Schwerpunkt: ${args.selectedTopic.trim()}` : '',
+    `Erstelle genau ${args.chapterCount} geordnete Lernkapitel als JSON-Array.`,
+    'Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON.',
+    'Schema pro Eintrag: {"topic":"Kurztitel des Unterthemas (max. 8 Wörter)","learningGoal":"Ein Satz: Was kann der Lernende danach?"}',
+    'Beispiel: [{"topic":"Grundlagen MWSt","learningGoal":"MWSt-Sätze zuordnen und den Nettobetrag berechnen."}]',
+    'Regeln:',
+    '- Unterthemen bilden eine didaktische Progression (Grundlagen → Anwendung → Vertiefung).',
+    '- Keine inhaltliche Überlappung zwischen Kapiteln.',
+    '- Schwache Bereiche aus dem Einstiegstest zuerst oder früh im Plan adressieren.',
+    '- topic = konkretes Unterthema, NICHT nur das Hauptthema wiederholen.',
+    '- learningGoal = messbares Lernziel in einem Satz.',
+    args.aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}` : '',
+    args.proficiencyLevel
+      ? `Selbsteinschätzung Niveau: ${
+          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
+        }`
+      : '',
+    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
+    args.materialContext
+      ? `Materialauszüge (Unterthemen an diesen Inhalten ausrichten):\n${args.materialContext}`
+      : 'Keine Materialauszüge — nutze realistische KV-Unterthemen zum Hauptthema.',
+    args.attempt > 1
+      ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschliesslich valides JSON-Array zurück.'
+      : '',
+    args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
+  ]
+  return lines.filter(Boolean).join('\n\n')
+}
+
+export function parseSyllabusFromText(raw: string): SyllabusEntry[] {
+  const normalized = normalizeJsonArrayPayload(raw)
+  if (!normalized) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(normalized) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const entries: SyllabusEntry[] = []
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const rec = entry as Record<string, unknown>
+      const topic = typeof rec.topic === 'string' ? rec.topic.trim() : ''
+      const learningGoal =
+        typeof rec.learningGoal === 'string'
+          ? rec.learningGoal.trim()
+          : typeof rec.goal === 'string'
+            ? rec.goal.trim()
+            : ''
+      if (topic && learningGoal) {
+        entries.push({ topic, learningGoal })
+      }
+    }
+    return entries.slice(0, 6)
+  } catch {
+    return []
+  }
+}
+
+export function validateGeneratedSyllabus(
+  entries: SyllabusEntry[],
+  expectedCount: number,
+): { valid: true } | { valid: false; reason: string } {
+  if (entries.length !== expectedCount) {
+    return {
+      valid: false,
+      reason: `Erwartet ${expectedCount} Syllabus-Einträge, erhalten ${entries.length}.`,
+    }
+  }
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+    if (!entry.topic.trim() || !entry.learningGoal.trim()) {
+      return { valid: false, reason: `Eintrag ${index + 1} hat leeres topic oder learningGoal.` }
+    }
+  }
+  return { valid: true }
+}
+
+export function buildFallbackSyllabus(mainTopic: string, chapterCount: number): SyllabusEntry[] {
+  const safeTopic = (mainTopic || 'Grundlagen').trim()
+  const templates = [
+    {
+      topic: `Grundlagen: ${safeTopic}`,
+      learningGoal: `Die zentralen Begriffe zu ${safeTopic} erklären und zuordnen.`,
+    },
+    {
+      topic: `${safeTopic} in der Praxis`,
+      learningGoal: `Typische Aufgaben zu ${safeTopic} strukturiert lösen.`,
+    },
+    {
+      topic: `${safeTopic} vertiefen`,
+      learningGoal: `Anspruchsvollere Anwendungsfälle zu ${safeTopic} sicher bearbeiten.`,
+    },
+    {
+      topic: `${safeTopic}: häufige Fehler`,
+      learningGoal: `Typische Stolpersteine bei ${safeTopic} erkennen und vermeiden.`,
+    },
+  ]
+  return templates.slice(0, Math.max(1, Math.min(6, chapterCount)))
+}
+
 export type BuildChapterGenerationPromptArgs = {
   pathTitle: string
   chapterTopic: string
+  /** Verbindliches Lernziel aus dem Syllabus für dieses Kapitel. */
+  learningGoal?: string
   aiGuidance: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
@@ -684,6 +809,10 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
           args.totalChapters && args.totalChapters > 0 ? ` von ${args.totalChapters}` : ''
         } im Lernpfad.`
       : '',
+    args.learningGoal?.trim()
+      ? `Lernziel dieses Kapitels (verbindlich): ${args.learningGoal.trim()}`
+      : '',
+    'Generiere Inhalte ausschliesslich für dieses Unterthema — nicht das gesamte Hauptthema wiederholen.',
     args.adaptive
       ? 'Erstelle genau EIN Abschlusskapitel für Schwachstellen als JSON-Array mit genau einem Kapitelobjekt.'
       : 'Erstelle genau 1 Lernkapitel als JSON-Array mit genau einem Kapitelobjekt.',

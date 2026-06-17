@@ -50,6 +50,7 @@ import {
   type LearnWorksheetItem,
   type LearningPathRecord,
   type LearningPathSummary,
+  type SyllabusEntry,
   type TutorChatEntry,
   type UploadedMaterial,
   updateLearningPathById,
@@ -60,6 +61,7 @@ import { useLearningPathActions } from '../features/learn/hooks/useLearningPathA
 import { useLearnSetupFlow } from '../features/learn/hooks/useLearnSetupFlow'
 import { useEntryQuizUiFlow } from '../features/learn/hooks/useEntryQuizUiFlow'
 import { useEntryQuizSubmissionFlow } from '../features/learn/hooks/useEntryQuizSubmissionFlow'
+import { usePostEntrySyllabusGeneration } from '../features/learn/hooks/usePostEntrySyllabusGeneration'
 import { useChapterSessionFlow } from '../features/learn/hooks/useChapterSessionFlow'
 import {
   useLearningPathPersistence,
@@ -296,6 +298,7 @@ export function LearnPage({
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0)
   const [targetChapterCount, setTargetChapterCount] = useState(1)
   const [unlockedChapterCount, setUnlockedChapterCount] = useState(1)
+  const [syllabus, setSyllabus] = useState<SyllabusEntry[]>([])
   const [learningChapters, setLearningChapters] = useState<string[]>([])
   const [chapterBlueprints, setChapterBlueprints] = useState<ChapterBlueprint[]>([])
   const [chapterSession, setChapterSession] = useState<ChapterSession>(DEFAULT_CHAPTER_SESSION)
@@ -517,6 +520,7 @@ export function LearnPage({
       currentChapterIndex,
       targetChapterCount,
       unlockedChapterCount,
+      syllabus,
       learningChapters,
       chapterBlueprints,
       chapterSession,
@@ -540,6 +544,7 @@ export function LearnPage({
       currentChapterIndex,
       targetChapterCount,
       unlockedChapterCount,
+      syllabus,
       learningChapters,
       chapterBlueprints,
       chapterSession,
@@ -568,6 +573,7 @@ export function LearnPage({
       setCurrentChapterIndex(record.currentChapterIndex)
       setTargetChapterCount(record.targetChapterCount)
       setUnlockedChapterCount(record.unlockedChapterCount)
+      setSyllabus(record.syllabus ?? [])
       setLearningChapters(record.learningChapters)
       setChapterBlueprints(record.chapterBlueprints)
       setChapterSession(record.chapterSession)
@@ -647,6 +653,7 @@ export function LearnPage({
     setCurrentChapterIndex(0)
     setTargetChapterCount(1)
     setUnlockedChapterCount(1)
+    setSyllabus([])
     setLearningChapters([])
     setChapterBlueprints([])
     setChapterSession(DEFAULT_CHAPTER_SESSION)
@@ -681,6 +688,7 @@ export function LearnPage({
     currentChapterIndex,
     targetChapterCount,
     unlockedChapterCount,
+    syllabus,
     learningChapters,
     chapterBlueprints,
     chapterSession,
@@ -953,6 +961,7 @@ export function LearnPage({
       setCurrentChapterIndex(0)
       setTargetChapterCount(1)
       setUnlockedChapterCount(1)
+      setSyllabus([])
       setLearningChapters([])
       setChapterBlueprints([])
       setChapterSession(DEFAULT_CHAPTER_SESSION)
@@ -1179,6 +1188,7 @@ export function LearnPage({
           currentChapterIndex: 0,
           targetChapterCount: 1,
           unlockedChapterCount: 1,
+          syllabus: [],
           learningChapters: [],
           chapterBlueprints: [],
           chapterSession: DEFAULT_CHAPTER_SESSION,
@@ -1473,6 +1483,7 @@ export function LearnPage({
         setEntryQuiz(parsedQuiz)
         setEntryQuizAnswers(initialAnswers)
         setEntryQuizResult(null)
+        setSyllabus([])
         setLearningChapters([])
         setChapterBlueprints([])
         setChapterSession(DEFAULT_CHAPTER_SESSION)
@@ -1557,8 +1568,32 @@ export function LearnPage({
     setPostEntryPrepStepIndex,
     setPostEntryPrepPercents,
     setLearningChapters,
+    setSyllabus,
     setChapterBlueprints,
     setChapterSession,
+  })
+
+  usePostEntrySyllabusGeneration({
+    activePathId,
+    activePathTitle: activePath?.title ?? '',
+    tutorState,
+    targetChapterCount,
+    syllabus,
+    entryQuiz,
+    entryQuizResult,
+    effectiveTopic,
+    selectedTopic,
+    aiGuidance,
+    proficiencyLevel,
+    materials,
+    getPrompt,
+    setSyllabus,
+    setLearningChapters,
+    setTutorMessages,
+    setIsPostEntryPrepLoading,
+    setPostEntryPrepStepIndex,
+    setPostEntryPrepPercents,
+    setError,
   })
 
   const applySkillMasterySignal = useCallback(
@@ -2492,8 +2527,20 @@ export function LearnPage({
       if (chapterGenerationInFlightRef.current) {
         return
       }
+      if (isPostEntryPrepLoading) {
+        setError('Lernplan wird noch erstellt — bitte kurz warten.')
+        return
+      }
       chapterGenerationInFlightRef.current = true
-      const chapterTopic = (selectedTopic || effectiveTopic || getDisplayPathTitle(activePath?.title ?? '')).trim()
+      const syllabusEntry = syllabus[targetChapterIndex]
+      const chapterTopic = (
+        syllabusEntry?.topic?.trim() ||
+        learningChapters[targetChapterIndex]?.trim() ||
+        selectedTopic ||
+        effectiveTopic ||
+        getDisplayPathTitle(activePath?.title ?? '')
+      ).trim()
+      const chapterLearningGoal = syllabusEntry?.learningGoal?.trim() ?? ''
       try {
         setError('Kapitel wird vorbereitet...')
         setChapterGenerationDebugRaw('')
@@ -2519,6 +2566,7 @@ export function LearnPage({
             content: buildChapterGenerationUserPrompt({
               pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
               chapterTopic,
+              learningGoal: chapterLearningGoal,
               aiGuidance,
               proficiencyLevel,
               materialContext: chapterMaterialContext,
@@ -2606,7 +2654,8 @@ export function LearnPage({
           while (next.length <= targetChapterIndex) {
             next.push('')
           }
-          next[targetChapterIndex] = firstChapter.title
+          next[targetChapterIndex] =
+            syllabus[targetChapterIndex]?.topic?.trim() || firstChapter.title
           return next
         })
         setChapterSession((prev) => ({
@@ -3201,6 +3250,11 @@ export function LearnPage({
                         onCreateWorksheet={openTutorWorksheetAction}
                         learnWorksheets={learnWorksheets}
                         tutorWorksheetChapterIndex={tutorWorksheetChapterIndex}
+                        syllabus={syllabus}
+                        learningChapters={learningChapters}
+                        effectiveTopic={effectiveTopic}
+                        currentChapterIndex={currentChapterIndex}
+                        unlockedChapterCount={unlockedChapterCount}
                         footer={
                           <>
                             {completedChaptersForShowcase.length > 0 ? (
@@ -3566,6 +3620,7 @@ export function LearnPage({
               materialsCount={materials.length}
               entryQuizResult={entryQuizResult}
               learningChapters={learningChapters}
+              syllabus={syllabus}
             />
           </article>
         </div>

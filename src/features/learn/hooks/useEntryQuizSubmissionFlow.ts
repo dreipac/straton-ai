@@ -1,9 +1,8 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnTutorState, TutorChatEntry } from '../services/learn.persistence'
+import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnTutorState, SyllabusEntry, TutorChatEntry } from '../services/learn.persistence'
 import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
-import { buildPostEntryQuizTutorMessage } from '../utils/learnTutorCoachMessages'
 
 function isRateLimitError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -38,6 +37,7 @@ type UseEntryQuizSubmissionFlowArgs = {
   setPostEntryPrepStepIndex: Dispatch<SetStateAction<number>>
   setPostEntryPrepPercents: Dispatch<SetStateAction<number[]>>
   setLearningChapters: Dispatch<SetStateAction<string[]>>
+  setSyllabus: Dispatch<SetStateAction<SyllabusEntry[]>>
   setChapterBlueprints: Dispatch<SetStateAction<ChapterBlueprint[]>>
   setChapterSession: Dispatch<SetStateAction<ChapterSession>>
 }
@@ -62,6 +62,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     setPostEntryPrepStepIndex,
     setPostEntryPrepPercents,
     setLearningChapters,
+    setSyllabus,
     setChapterBlueprints,
     setChapterSession,
   } = args
@@ -168,6 +169,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       setTutorMessages([])
       setIsChapterPreviewVisible(false)
       setLearningChapters([])
+      setSyllabus([])
       setChapterBlueprints([])
       setChapterSession(DEFAULT_CHAPTER_SESSION)
       const scoreRatio = total > 0 ? score / total : 0
@@ -178,16 +180,9 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
       setUnlockedChapterCount(1)
       setPostEntryPrepStepIndex(0)
       setPostEntryPrepPercents([0, 0])
-      setIsPostEntryPrepLoading(false)
+      setIsPostEntryPrepLoading(true)
 
-      setTutorMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: buildPostEntryQuizTutorMessage(score, total),
-          action: 'start-next-chapter',
-        },
-      ])
+      setTutorMessages([])
       if (unevaluatedCount > 0) {
         setError(
           `Hinweis: ${unevaluatedCount} Frage${unevaluatedCount === 1 ? '' : 'n'} konnten wegen KI-Auslastung nicht bewertet werden und zählen nicht ins Ergebnis. Öffne den Einstiegstest erneut und gib ihn nochmals ab, um sie nachzubewerten.`,
@@ -216,6 +211,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     setIsSubmittingEntryQuiz,
     setTargetChapterCount,
     setLearningChapters,
+    setSyllabus,
     setTutorState,
     setUnlockedChapterCount,
     setPostEntryPrepPercents,

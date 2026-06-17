@@ -138,6 +138,12 @@ export type ChapterStepWithoutId =
   | Omit<Extract<ChapterStep, { type: 'question' }>, 'id'>
   | Omit<Extract<ChapterStep, { type: 'recap' }>, 'id'>
 
+/** Ein geplantes Kapitel im Syllabus (Unterthema + Lernziel). */
+export type SyllabusEntry = {
+  topic: string
+  learningGoal: string
+}
+
 export type ChapterBlueprint = {
   id: string
   title: string
@@ -193,6 +199,7 @@ export type LearningPathRecord = LearningPathSummary & {
   currentChapterIndex: number
   targetChapterCount: number
   unlockedChapterCount: number
+  syllabus: SyllabusEntry[]
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
@@ -220,6 +227,7 @@ type LearningPathRow = {
   current_chapter_index: unknown
   target_chapter_count: unknown
   unlocked_chapter_count: unknown
+  syllabus: unknown
   learning_chapters: unknown
   chapter_blueprints: unknown
   chapter_session: unknown
@@ -247,6 +255,7 @@ type LearningPathPatch = Partial<{
   currentChapterIndex: number
   targetChapterCount: number
   unlockedChapterCount: number
+  syllabus: SyllabusEntry[]
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
@@ -366,6 +375,29 @@ function mapLearningChapters(value: unknown): string[] {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .slice(0, 6)
+}
+
+function mapSyllabus(value: unknown): SyllabusEntry[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const entries: SyllabusEntry[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') {
+      continue
+    }
+    const item = raw as Record<string, unknown>
+    const topic = typeof item.topic === 'string' ? item.topic.trim() : ''
+    const learningGoal = typeof item.learningGoal === 'string' ? item.learningGoal.trim() : ''
+    if (!topic || !learningGoal) {
+      continue
+    }
+    entries.push({
+      topic: topic.slice(0, 160),
+      learningGoal: learningGoal.slice(0, 320),
+    })
+  }
+  return entries.slice(0, 6)
 }
 
 function mapChapterStep(value: unknown, index: number): ChapterStep | null {
@@ -1178,6 +1210,7 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     currentChapterIndex: toNonNegativeInt(row.current_chapter_index, 0),
     targetChapterCount: Math.max(1, toNonNegativeInt(row.target_chapter_count, 1)),
     unlockedChapterCount: Math.max(1, toNonNegativeInt(row.unlocked_chapter_count, 1)),
+    syllabus: mapSyllabus(row.syllabus),
     learningChapters: mapLearningChapters(row.learning_chapters),
     chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
     chapterSession: mapChapterSession(row.chapter_session),
@@ -1207,6 +1240,7 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.currentChapterIndex !== undefined) row.current_chapter_index = patch.currentChapterIndex
   if (patch.targetChapterCount !== undefined) row.target_chapter_count = patch.targetChapterCount
   if (patch.unlockedChapterCount !== undefined) row.unlocked_chapter_count = patch.unlockedChapterCount
+  if (patch.syllabus !== undefined) row.syllabus = patch.syllabus
   if (patch.learningChapters !== undefined) row.learning_chapters = patch.learningChapters
   if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
   if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
@@ -1237,7 +1271,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
@@ -1254,7 +1288,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -1282,7 +1316,7 @@ export async function createLearningPathByUserId(
       title,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 
@@ -1304,7 +1338,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, learn_flashcards, learn_worksheets, created_at, updated_at',
     )
     .single()
 
