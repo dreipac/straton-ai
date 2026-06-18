@@ -1003,7 +1003,7 @@ export function formatInstantAnalyzeContextLines(
         .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
         .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
         .trim()
-      const clipped = body.length > 500 ? `${body.slice(0, 500)}…` : body
+      const clipped = body.length > 900 ? `${body.slice(0, 900)}…` : body
       const topic =
         t.unsplashQuery?.trim() && t.role === 'assistant'
           ? ` [Thema Fotosuche: «${t.unsplashQuery.trim()}»]`

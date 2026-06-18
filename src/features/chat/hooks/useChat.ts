@@ -2772,6 +2772,28 @@ export function useChat(
             webSearchContext,
             signal,
           })
+          if (review.needs_live_web && review.web_query.trim().length > 0 && !usedAutoWebSearch) {
+            if (!options?.isSuperadmin && (options?.webSearchCreditBalance ?? 0) < 1) {
+              setError(
+                'Für aktuelle Web-Infos ist dein Websuche-Guthaben aufgebraucht. Die Antwort erfolgt ohne Live-Suche.',
+              )
+            } else {
+              wantedAutoWebSearch = true
+              setSendPhase('web_search')
+              try {
+                const ws = await fetchTavilySearchContext(review.web_query.trim(), signal)
+                webSearchContext = ws.contextText
+                usedAutoWebSearch = true
+                void options?.onWebSearchCreditsConsumed?.()?.catch(() => {})
+              } catch (wsErr) {
+                if (isAbortErrorLike(wsErr)) {
+                  throw wsErr
+                }
+                const message = wsErr instanceof Error ? wsErr.message : 'Websuche ist fehlgeschlagen.'
+                setError(message)
+              }
+            }
+          }
           thinkingDraft = draft
           thinkingReview = review
           thinkingConversationPhase = 'final'

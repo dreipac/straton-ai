@@ -1367,8 +1367,8 @@ const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v6'
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
-const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v1'
-const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v4'
+const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v2'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v6'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -1590,7 +1590,9 @@ function buildChatCompletionRequestBody(
       ? customModelMeta.provider
       : summaryInstantOpenAi
         ? 'openai'
-        : providerForMainChat({ hasVision: gatewayHasVisionEarly })
+        : categoryActionModel
+          ? 'openai'
+          : providerForMainChat({ hasVision: gatewayHasVisionEarly })
   const meta =
     mainProvider === 'gemini'
       ? { provider: 'gemini' as const }
@@ -1632,6 +1634,7 @@ function buildChatCompletionRequestBody(
     !thinking &&
     !summaryInstantOpenAi &&
     !custom &&
+    !categoryActionModel &&
     isGeminiInstantEnabled()
   if ((mainProvider === 'gemini' || routesGeminiInstantMain) && !thinkingRichOpenAi) {
     body.geminiModel = thinking

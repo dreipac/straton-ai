@@ -200,10 +200,10 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v4', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v6', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
     thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
-    thinking_review: { key: 'straton-thinking-review-v1', retention: '24h' },
+    thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
     generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
     generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
     generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
@@ -2346,7 +2346,7 @@ const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
 const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
 /** Smart Instant — Einordnung (JSON). Hoch genug fuer gpt-5-Modelle (verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens, sonst leerer content). */
-const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 900
+const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 1400
 /** Fallback-Kette, wenn kein OpenAI-Analyze-Modell konfiguriert ist (z. B. Gemini-Analyze nicht verfuegbar) — gpt-5-mini zuerst, nicht gpt-4o-mini. */
 const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini', 'gpt-4o'] as const
 
@@ -2485,6 +2485,8 @@ function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge 
   }
   if (!needs_live_web) {
     web_query = ''
+  } else if (!web_query) {
+    web_query = intent
   }
   if (clarity === 'vague' && reply_mode === 'ask_only') {
     reply_mode = 'normal'
@@ -2640,6 +2642,9 @@ type ThinkingReviewPayloadEdge = {
   gaps: string[]
   rewrite_hints: string
   summary: string
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
 }
 
 function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdge | null {
@@ -2778,7 +2783,16 @@ function sanitizeThinkingReviewPayload(raw: unknown): ThinkingReviewPayloadEdge 
   const summary =
     clipInstantAnalyzeText(o.summary, 280) ||
     (fits_intent ? 'Entwurf passt zur Anfrage.' : 'Entwurf braucht Nachbesserung.')
-  return { fits_intent, gaps, rewrite_hints, summary }
+  const needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  let web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  } else if (!web_query) {
+    web_query = summary
+  }
+  return { fits_intent, gaps, rewrite_hints, summary, needs_live_web, web_query, web_reason }
 }
 
 function sanitizeThinkingDraftRequestPayload(
@@ -3116,9 +3130,10 @@ async function thinkingReviewWithAi(
             content: withSwissOrthography(
               [
                 'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
-                'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
+                'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string), needs_live_web (boolean), web_query (string, max 120, nur wenn needs_live_web), web_reason (string, max 80, nur wenn needs_live_web).',
                 'Sei streng bei leeren, generischen oder falschen Entwürfen.',
                 'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
+                'needs_live_web true, wenn der Entwurf auf Fakten beruht, die sich ändern können (Preise, Kurse, News, Versionen, Verfügbarkeit, konkrete Produkte/Modelle) und du dir nicht sicher bist, ob dein Wissen aktuell/korrekt ist — auch wenn die Aufgabenanalyse das nicht erkannt hat.',
               ].join('\n'),
             ),
           },
@@ -3153,6 +3168,9 @@ async function instantAnalyzeWithGemini(
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web),',
+    'needs_live_web true bei JEDER Frage mit konkretem Produkt-/Modell-/Markennamen zu Fakten, die sich ändern oder die du nicht zuverlässig sicher weisst: Spezifikationen, Anzahl/Grösse/Gewicht/Kapazität von Bauteilen, Preis, Verfügbarkeit, Release-Datum, Vergleich, Nachfolgemodell, Rezension/Bewertung — unabhängig von Zeitwörtern wie «aktuell» (Beispiel: «Wie viele Kameras hat das iPhone 17?», «Lohnt sich die XYZ Kamera?», «Wie schwer ist das Modell Y?»).',
+    'Bist du bei einer Frage zu einem konkret genannten Produkt/Modell nicht zu 100% sicher, ob dein Wissen aktuell und korrekt ist: needs_live_web true setzen, statt aus Trainingswissen zu raten — lieber einmal zu viel suchen als eine falsche Tatsachenbehauptung über ein Produkt liefern.',
+    'needs_live_web false nur bei allgemeinem Fach-/Lehrbuchwissen OHNE konkretes Produkt/Modell/Marke (z. B. «was ist eine Spiegelreflexkamera», Mathe, Coding-Konzepte, Definitionen) oder bei rein subjektiven/persönlichen Fragen ohne Faktenbezug.',
     'escalate_model (boolean, fast immer false), escalate_reason (max 80, nur wenn escalate_model).',
     'task_type: mc_solve | quiz_generate | explanation | summary.',
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
@@ -3230,6 +3248,9 @@ async function instantAnalyzeWithAi(
     'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
     'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
     'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
+    'needs_live_web true bei JEDER Frage mit konkretem Produkt-/Modell-/Markennamen zu Fakten, die sich ändern oder die du nicht zuverlässig sicher weisst: Spezifikationen, Anzahl/Grösse/Gewicht/Kapazität von Bauteilen, Preis, Verfügbarkeit, Release-Datum, Vergleich, Nachfolgemodell, Rezension/Bewertung — unabhängig von Zeitwörtern wie «aktuell» (Beispiel: «Wie viele Kameras hat das iPhone 17?», «Lohnt sich die XYZ Kamera?», «Wie schwer ist das Modell Y?»).',
+    'Bist du bei einer Frage zu einem konkret genannten Produkt/Modell nicht zu 100% sicher, ob dein Wissen aktuell und korrekt ist: needs_live_web true setzen, statt aus Trainingswissen zu raten — lieber einmal zu viel suchen als eine falsche Tatsachenbehauptung über ein Produkt liefern.',
+    'needs_live_web false nur bei allgemeinem Fach-/Lehrbuchwissen OHNE konkretes Produkt/Modell/Marke (z. B. «was ist eine Spiegelreflexkamera», Mathe, Coding-Konzepte, Definitionen) oder bei rein subjektiven/persönlichen Fragen ohne Faktenbezug.',
     'task_type: mc_solve | quiz_generate | explanation | summary.',
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
     'mc_solve → chat.short_answer; quiz_generate → chat.answer; summary → chat.answer, reply_mode normal.',

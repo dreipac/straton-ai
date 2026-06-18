@@ -410,7 +410,7 @@ export function formatThinkingAnalyzeContextLines(
         .replace(/<<<STRATON_THINKING_CLARIFY>>>[\s\S]*?<<<END_STRATON_THINKING_CLARIFY>>>/g, '[Rückfrage]')
         .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
         .trim()
-      const clipped = body.length > 600 ? `${body.slice(0, 600)}…` : body
+      const clipped = body.length > 900 ? `${body.slice(0, 900)}…` : body
       return `${label}: ${clipped}`
     })
     .join('\n')

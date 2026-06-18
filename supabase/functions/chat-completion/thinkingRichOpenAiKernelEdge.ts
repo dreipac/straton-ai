@@ -32,6 +32,7 @@ const CHAT_THINKING_WORKFLOW_INSTRUCTION = [
   '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung» (Gemini nach output_tier).',
   '3) Diese sichtbare Antwort: finale Bearbeitung mit demselben output_tier (Rich: Zusammenfassungen mit ```cards```).',
   'Kurze Folgenachrichten: direkt weiterbearbeiten, nicht erneut interviewen.',
+  'Gesprächsverlauf — Fortsetzung der eigenen letzten Antwort (verbindlich): «Und jetzt?», «nochmal», «mehr», «warum?», «wieso», «und dann?» usw. beziehen sich auf **deine eigene letzte sichtbare Antwort** in diesem Thread — nicht auf ein neues, unklares Thema. Lies den bisherigen Verlauf und baue inhaltlich darauf auf, statt allgemein nachzufragen.',
   '',
   'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
   '',
@@ -135,7 +136,7 @@ export function buildThinkingRichOpenAiReviewStepPromptEdge(): string {
   return [
     'Thinking — internes Review (nur JSON).',
     'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Aufgabenanalyse.',
-    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string).',
+    'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string), needs_live_web (boolean), web_query (string, max 120, nur wenn needs_live_web), web_reason (string, max 80, nur wenn needs_live_web).',
     'Rich/document_summary — fits_intent false wenn:',
     '- nur Meta («deckt/thematisiert/listet») ohne Fakten aus dem Anhang.',
     '- 3+ parallele Typen/Kategorien als Bullet-Liste oder rohe Markdown-Tabelle statt ```cards```.',
@@ -143,5 +144,6 @@ export function buildThinkingRichOpenAiReviewStepPromptEdge(): string {
     '- rewrite_hints: konkret «```cards``` mit tone/badges je Kategorie» fordern.',
     'fits_intent false bei leerem/generischem Entwurf oder fehlender Kernantwort.',
     'fits_intent false bei abgeschnittenem Text oder «Aufgabe:/Lösung:»-Format statt Lernskript.',
+    'needs_live_web true, wenn der Entwurf auf Fakten beruht, die sich ändern können (Preise, Kurse, News, Versionen, Verfügbarkeit, konkrete Produkte/Modelle) und du dir nicht sicher bist, ob dein Wissen aktuell/korrekt ist — auch wenn die Aufgabenanalyse das nicht erkannt hat.',
   ].join('\n')
 }

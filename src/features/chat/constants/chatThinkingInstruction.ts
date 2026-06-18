@@ -15,6 +15,7 @@ export function getChatThinkingWorkflowInstruction(): string {
     '2) Interner Entwurf + Qualitätsprüfung liegen unter «Thinking — Interner Entwurf» / «Qualitätsprüfung» (Gemini nach output_tier).',
     '3) Diese sichtbare Antwort: finale Bearbeitung mit demselben output_tier (Rich: Zusammenfassungen mit ```cards```).',
     'Kurze Folgenachrichten: direkt weiterbearbeiten, nicht erneut interviewen.',
+    'Gesprächsverlauf — Fortsetzung der eigenen letzten Antwort (verbindlich): «Und jetzt?», «nochmal», «mehr», «warum?», «wieso», «und dann?» usw. beziehen sich auf **deine eigene letzte sichtbare Antwort** in diesem Thread — nicht auf ein neues, unklares Thema. Lies den bisherigen Verlauf und baue inhaltlich darauf auf, statt allgemein nachzufragen.',
     '',
     'Wahrheit sowie Comfort/Strict gelten unverändert (Ton).',
     '',

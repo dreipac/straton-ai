@@ -3,6 +3,9 @@ export type ThinkingReviewResult = {
   gaps: string[]
   rewrite_hints: string
   summary: string
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
 }
 
 function clipText(value: unknown, max: number): string {
@@ -36,7 +39,16 @@ export function sanitizeThinkingReviewResult(raw: unknown): ThinkingReviewResult
   const gaps = asStringArray(o.gaps, 6, 160)
   const rewrite_hints = clipText(o.rewrite_hints, 600)
   const summary = clipText(o.summary, 280) || (fits_intent ? 'Entwurf passt zur Anfrage.' : 'Entwurf braucht Nachbesserung.')
-  return { fits_intent, gaps, rewrite_hints, summary }
+  const needs_live_web = o.needs_live_web === true
+  let web_query = clipText(o.web_query, 120)
+  let web_reason = clipText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  } else if (!web_query) {
+    web_query = summary
+  }
+  return { fits_intent, gaps, rewrite_hints, summary, needs_live_web, web_query, web_reason }
 }
 
 export function fallbackThinkingReviewResult(draftLength: number): ThinkingReviewResult {
@@ -48,6 +60,9 @@ export function fallbackThinkingReviewResult(draftLength: number): ThinkingRevie
         ? ''
         : 'Vollständige ausführliche Antwort zur Nutzeranfrage liefern; alle Pflichtkapitel gemäss task_type.',
     summary: draftLength > 200 ? 'Entwurf ausreichend — final formatieren.' : 'Entwurf unzureichend.',
+    needs_live_web: false,
+    web_query: '',
+    web_reason: '',
   }
 }
 
