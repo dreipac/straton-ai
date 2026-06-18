@@ -8,7 +8,7 @@ import {
  * Gleicher Key + identischer System-Kernel → Cache-Treffer innerhalb des Workflows.
  */
 export const OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED =
-  'straton-thinking-rich-openai-v1' as const
+  'straton-thinking-rich-openai-v2' as const
 
 export const OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY =
   OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED

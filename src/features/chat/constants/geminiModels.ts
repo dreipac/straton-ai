@@ -38,7 +38,7 @@ export const GEMINI_DEFAULT_CHAT_MODEL: GeminiChatModelId = GEMINI_MODEL_FLASH_L
 export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v1' as const
 
 /** Hauptchat-Antwort (Instant, statischer Systemteil). */
-export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v2' as const
+export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3' as const
 
 /** Thinking-Pipeline (Analyse). */
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1' as const
@@ -139,4 +139,27 @@ export function resolveThinkingGeminiModel(
   )
   const rich = parseThinkingGeminiModelId(config?.rich, THINKING_GEMINI_MODEL_RICH_DEFAULT)
   return tier === 'rich' ? rich : standard
+}
+
+/** Admin-konfigurierbares Modell für die Intent-Analyze-Stufen (Instant/Thinking). */
+export const ANALYZE_MODEL_IDS = [
+  GEMINI_MODEL_FLASH_LITE,
+  GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_3_PREVIEW,
+  'gpt-4o-mini',
+  'gpt-5-mini',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+] as const
+
+export type AnalyzeModelId = (typeof ANALYZE_MODEL_IDS)[number]
+
+export const ANALYZE_MODEL_DEFAULT: AnalyzeModelId = GEMINI_MODEL_FLASH_LITE
+
+export function parseAnalyzeModelId(
+  value: unknown,
+  fallback: AnalyzeModelId = ANALYZE_MODEL_DEFAULT,
+): AnalyzeModelId {
+  const v = typeof value === 'string' ? value.trim() : ''
+  return (ANALYZE_MODEL_IDS as readonly string[]).includes(v) ? (v as AnalyzeModelId) : fallback
 }

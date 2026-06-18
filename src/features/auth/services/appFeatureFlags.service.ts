@@ -1,10 +1,17 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import {
+  ANALYZE_MODEL_DEFAULT,
+  parseAnalyzeModelId,
   parseThinkingGeminiModelId,
   THINKING_GEMINI_MODEL_RICH_DEFAULT,
   THINKING_GEMINI_MODEL_STANDARD_DEFAULT,
+  type AnalyzeModelId,
   type ThinkingGeminiModelId,
 } from '../../chat/constants/geminiModels'
+import {
+  parseChatIntentModelRoutingRows,
+  type ChatIntentModelRoutingRow,
+} from '../../chat/constants/chatIntentModelRouting'
 
 export type LearnAiProvider = 'openai' | 'anthropic' | 'gemini'
 
@@ -39,6 +46,10 @@ export type AppFeatureFlags = {
   thinking_gemini_model_standard_draft: ThinkingGeminiModelId
   thinking_gemini_model_rich_active: ThinkingGeminiModelId
   thinking_gemini_model_rich_draft: ThinkingGeminiModelId
+  instant_analyze_model_active: AnalyzeModelId
+  instant_analyze_model_draft: AnalyzeModelId
+  thinking_analyze_model_active: AnalyzeModelId
+  thinking_analyze_model_draft: AnalyzeModelId
 }
 
 export type ThinkingGeminiModelsDraft = {
@@ -109,6 +120,10 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
       row?.thinking_gemini_model_rich_draft,
       THINKING_GEMINI_MODEL_RICH_DEFAULT,
     ),
+    instant_analyze_model_active: parseAnalyzeModelId(row?.instant_analyze_model_active, ANALYZE_MODEL_DEFAULT),
+    instant_analyze_model_draft: parseAnalyzeModelId(row?.instant_analyze_model_draft, ANALYZE_MODEL_DEFAULT),
+    thinking_analyze_model_active: parseAnalyzeModelId(row?.thinking_analyze_model_active, ANALYZE_MODEL_DEFAULT),
+    thinking_analyze_model_draft: parseAnalyzeModelId(row?.thinking_analyze_model_draft, ANALYZE_MODEL_DEFAULT),
   }
 }
 
@@ -252,5 +267,70 @@ export async function adminSetLearnAreaBanner(enabled: boolean, text: string): P
   if (error) {
     throw error
   }
+}
+
+export async function adminSetInstantAnalyzeModelDraft(model: AnalyzeModelId): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_instant_analyze_model_draft', { p_model: model })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployInstantAnalyzeModelDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_instant_analyze_model_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetThinkingAnalyzeModelDraft(model: AnalyzeModelId): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_thinking_analyze_model_draft', { p_model: model })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployThinkingAnalyzeModelDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_thinking_analyze_model_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetChatIntentModelRoutingDraft(
+  category: string,
+  action: string,
+  model: string,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_chat_intent_model_routing_draft', {
+    p_category: category,
+    p_action: action,
+    p_model: model,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployChatIntentModelRoutingDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_chat_intent_model_routing_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function getChatIntentModelRouting(): Promise<ChatIntentModelRoutingRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('get_chat_intent_model_routing')
+  if (error) {
+    throw error
+  }
+  return parseChatIntentModelRoutingRows(data)
 }
 

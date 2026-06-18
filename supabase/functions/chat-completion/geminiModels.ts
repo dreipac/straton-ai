@@ -58,6 +58,74 @@ export function sanitizeThinkingOutputTierEdge(value: unknown): ThinkingOutputTi
   return raw === 'rich' ? 'rich' : 'standard'
 }
 
+/** Admin-konfigurierbares Modell für die Intent-Analyze-Stufen (Instant/Thinking). */
+export const ANALYZE_MODEL_IDS = [
+  GEMINI_MODEL_FLASH_LITE,
+  GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_3_PREVIEW,
+  'gpt-4o-mini',
+  'gpt-5-mini',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+] as const
+
+export type AnalyzeModelIdEdge = (typeof ANALYZE_MODEL_IDS)[number]
+
+export const ANALYZE_MODEL_DEFAULT: AnalyzeModelIdEdge = GEMINI_MODEL_FLASH_LITE
+
+export function parseAnalyzeModelIdEdge(
+  value: unknown,
+  fallback: AnalyzeModelIdEdge = ANALYZE_MODEL_DEFAULT,
+): AnalyzeModelIdEdge {
+  const v = typeof value === 'string' ? value.trim() : ''
+  return (ANALYZE_MODEL_IDS as readonly string[]).includes(v) ? (v as AnalyzeModelIdEdge) : fallback
+}
+
+/** Strukturell identisch mit `GeminiModelId` (geminiClient.ts) — kein Re-Import, um Zyklen zu vermeiden. */
+type GeminiAnalyzeModelSubset =
+  | typeof GEMINI_MODEL_FLASH_LITE
+  | typeof GEMINI_MODEL_FLASH
+  | typeof GEMINI_MODEL_FLASH_3_PREVIEW
+
+export function isGeminiAnalyzeModelEdge(
+  model: AnalyzeModelIdEdge,
+): model is GeminiAnalyzeModelSubset {
+  return model.startsWith('gemini')
+}
+
+export type AnalyzeModelsConfigEdge = {
+  instant: AnalyzeModelIdEdge
+  thinking: AnalyzeModelIdEdge
+}
+
+export async function fetchActiveAnalyzeModels(
+  admin: SupabaseClient | null,
+): Promise<AnalyzeModelsConfigEdge> {
+  if (!admin) {
+    return { instant: ANALYZE_MODEL_DEFAULT, thinking: ANALYZE_MODEL_DEFAULT }
+  }
+  try {
+    const { data, error } = await admin
+      .from('app_feature_flags')
+      .select('instant_analyze_model_active, thinking_analyze_model_active')
+      .eq('id', 1)
+      .maybeSingle()
+    if (error || !data || typeof data !== 'object') {
+      return { instant: ANALYZE_MODEL_DEFAULT, thinking: ANALYZE_MODEL_DEFAULT }
+    }
+    const row = data as {
+      instant_analyze_model_active?: unknown
+      thinking_analyze_model_active?: unknown
+    }
+    return {
+      instant: parseAnalyzeModelIdEdge(row.instant_analyze_model_active),
+      thinking: parseAnalyzeModelIdEdge(row.thinking_analyze_model_active),
+    }
+  } catch {
+    return { instant: ANALYZE_MODEL_DEFAULT, thinking: ANALYZE_MODEL_DEFAULT }
+  }
+}
+
 export async function fetchActiveThinkingGeminiModels(
   admin: SupabaseClient | null,
 ): Promise<ThinkingGeminiModelsConfigEdge> {
@@ -103,7 +171,7 @@ export async function fetchActiveThinkingGeminiModels(
   }
 }
 export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v1'
-export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v2'
+export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3'
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1'
 export {
   GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH,

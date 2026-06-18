@@ -3,14 +3,14 @@
 import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_STANDARD =
-  'straton-thinking-draft-standard-gemini-v1'
-export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH = 'straton-thinking-draft-rich-gemini-v1'
+  'straton-thinking-draft-standard-gemini-v2'
+export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH = 'straton-thinking-draft-rich-gemini-v2'
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_STANDARD =
-  'straton-thinking-review-standard-gemini-v1'
-export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH = 'straton-thinking-review-rich-gemini-v1'
+  'straton-thinking-review-standard-gemini-v2'
+export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH = 'straton-thinking-review-rich-gemini-v2'
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_STANDARD =
-  'straton-thinking-reply-standard-gemini-v1'
-export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_RICH = 'straton-thinking-reply-rich-gemini-v1'
+  'straton-thinking-reply-standard-gemini-v2'
+export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_RICH = 'straton-thinking-reply-rich-gemini-v2'
 
 export type ThinkingOutputTierEdge = 'standard' | 'rich'
 export type ThinkingGeminiCacheModeEdge = 'analyze' | 'draft' | 'review' | 'reply'
@@ -41,8 +41,8 @@ function thinkingGeminiKernel(): string {
   return [
     'Thinking-Modus (Gemini): Analyze immer Standard-Modell; Draft/Review/Final nach output_tier.',
     'Ablauf: Aufgabenanalyse → optional Clarify (max. 1) → interner Entwurf → Review → finale Antwort.',
-    'Markdown-Visualisierung: ```cards``` (tone/label/title/body/badges), ```divided-list`, Callouts `> !/?/!!/✓`, `---` zwischen Kapiteln.',
-    'VERBOTEN: 3+ parallele Typen als Bullet-Liste oder rohe Pipe-Tabelle — nutze ```cards```.',
+    'Markdown-Visualisierung: Fliesstext ist der Normalfall. Setze ```cards``` (tone/label/title/body/badges), ```divided-list`, Callouts `> !/?/!!/✓` oder `---` gezielt ein, wenn es Verständnis/Übersicht wirklich verbessert — nicht automatisch bei jeder Aufzählung.',
+    'Bei 3+ parallelen Typen/Kategorien mit eigenem Inhalt (mind. 1 Satz pro Eintrag): ```cards``` statt Bullet-Liste oder rohe Pipe-Tabelle. Bei reinen Kurz-Stichworten reicht eine Liste.',
     'Schweizer Hochdeutsch (ss statt ß). Keine Emojis in ##-Überschriften.',
   ].join('\n')
 }

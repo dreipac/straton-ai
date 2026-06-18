@@ -18,7 +18,7 @@ import {
 
 /** Muss mit Client `GEMINI_CONTEXT_CACHE_INSTANT_REPLY` übereinstimmen. */
 
-const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v2'
+const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3'
 
 
 

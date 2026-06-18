@@ -64,11 +64,16 @@ import {
   resolveThinkingGeminiModel,
 } from '../constants/geminiModels'
 import { buildThinkingReplyGeminiCachedSystem } from '../constants/thinkingGeminiPromptCache'
+import { resolveChatIntentModel } from '../constants/chatIntentModelRouting'
 import { ensureGeminiInstantFlagLoaded, isGeminiInstantEnabled } from './geminiInstantFlag'
 import {
   ensureThinkingGeminiModelsLoaded,
   getThinkingGeminiModelsConfig,
 } from './thinkingGeminiModelsFlag'
+import {
+  ensureChatIntentModelRoutingLoaded,
+  getChatIntentModelRoutingConfig,
+} from './chatIntentModelRoutingFlag'
 import { env } from '../../../config/env'
 import { errorMessageFromUnknown, parseApiErrorField, sanitizeUserFacingAiError } from '../../../utils/errorMessage'
 import { getMockAssistantReply } from '../../../integrations/ai/mockAiAdapter'
@@ -519,8 +524,11 @@ function selectMainChatMessagesForGateway(messages: ChatMessage[]): ChatMessage[
   return messages
 }
 
-function mainChatPromptCacheKey(_threadId?: string | null): string {
-  return OPENAI_PROMPT_CACHE_KEY_MAIN
+function mainChatPromptCacheKey(_threadId?: string | null, modelId?: string | null): string {
+  if (!modelId) {
+    return OPENAI_PROMPT_CACHE_KEY_MAIN
+  }
+  return `${OPENAI_PROMPT_CACHE_KEY_MAIN}-${modelId.replace(/[^a-z0-9]/gi, '')}`
 }
 
 /** Gleiche Auswahl wie beim Senden (Vision, RAG ab 200, Token-Clip). */
@@ -1354,7 +1362,7 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v5'
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v6'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
@@ -1550,6 +1558,14 @@ function buildChatCompletionRequestBody(
     isSummaryStyleDocumentExport(options?.instantAnalyze, lastUserTextForThinkingRouting || undefined)
   const summaryInstantOpenAi =
     shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking) || documentExportSummaryInstant
+  const categoryActionModel =
+    !thinking && !custom && !summaryInstantOpenAi && options?.instantAnalyze
+      ? resolveChatIntentModel(
+          options.instantAnalyze.category,
+          options.instantAnalyze.action,
+          getChatIntentModelRoutingConfig(),
+        )
+      : null
   const thinkingOutputTier =
     thinking && options?.thinkingAnalyze
       ? resolveThinkingOutputTierForRouting(
@@ -1639,11 +1655,11 @@ function buildChatCompletionRequestBody(
       options?.mainChatDailyTierConfig != null &&
       typeof options?.mainChatUsedTokensToday === 'number'
     ) {
+      const tierConfig = categoryActionModel
+        ? { ...options.mainChatDailyTierConfig, tier1ModelId: categoryActionModel }
+        : options.mainChatDailyTierConfig
       body.openAiModels = [
-        ...buildMainChatOpenAiModelChain(
-          options.mainChatUsedTokensToday,
-          options.mainChatDailyTierConfig,
-        ),
+        ...buildMainChatOpenAiModelChain(options.mainChatUsedTokensToday, tierConfig),
       ]
     } else if (meta.openAiModels?.length) {
       body.openAiModels = [...meta.openAiModels]
@@ -1657,7 +1673,7 @@ function buildChatCompletionRequestBody(
       ? thinkingRichOpenAi
         ? OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY
         : OPENAI_PROMPT_CACHE_KEY_THINKING
-      : mainChatPromptCacheKey(options?.mainChatThreadId)
+      : mainChatPromptCacheKey(options?.mainChatThreadId, categoryActionModel)
     body.promptCacheRetention = '24h'
   }
   body.maxTokens = thinking
@@ -1788,6 +1804,7 @@ async function getAssistantReply(messages: ChatMessage[], options?: SendMessageO
   if (usesGatewayAi() && !options?.useLearnPathModel) {
     await ensureGeminiInstantFlagLoaded()
     await ensureThinkingGeminiModelsLoaded()
+    await ensureChatIntentModelRoutingLoaded()
   }
   if (usesGatewayAi()) {
     const supabase = getSupabaseClient()
@@ -2006,6 +2023,7 @@ export async function sendMessageStreaming(
   if (usesGatewayAi() && !options?.useLearnPathModel) {
     await ensureGeminiInstantFlagLoaded()
     await ensureThinkingGeminiModelsLoaded()
+    await ensureChatIntentModelRoutingLoaded()
   }
 
   if (!usesGatewayAi()) {

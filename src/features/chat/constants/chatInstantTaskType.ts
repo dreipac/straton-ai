@@ -239,13 +239,13 @@ export function shouldSuppressInstantBrevityForAnalyze(
   if (!analyze) {
     return false
   }
-  if (analyze.task_type === 'summary') {
-    return true
-  }
-  if (analyze.task_type === 'explanation' && analyze.explanation_depth === 'detailed') {
-    return true
-  }
-  return false
+  /**
+   * Nur «summary» unterdrückt den Grundsatz «du wählst Tiefe selbst» — das Format ist dort strukturell
+   * vorgegeben (vollständige Materialabdeckung), nicht verhandelbar. Bei «explanation» (auch detailed)
+   * bleibt der Grundsatz sichtbar, damit das Antwortmodell selbst beurteilt, wie viel Tiefe nötig ist —
+   * der explanation_depth-Hinweis ist nur ein Richtwert, keine Vorgabe.
+   */
+  return analyze.task_type === 'summary'
 }
 
 export function shouldSuppressInstantMandatoryFollowUpForAnalyze(
@@ -346,29 +346,24 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
           return buildDocumentVisibilityTurnBriefing()
         }
         return [
-          'Aufgabentyp Erklärung — kurz (verbindlich):',
-          '- Eine `##`-Überschrift, dann 1–3 klare Sätze oder eine kompakte Liste.',
-          '- **Keine** Kapitel-Zusammenfassung (`## 1. …`, `## Zusammenfassung:`) — nur die gefragte Info liefern.',
-          '- Kein künstliches Aufblähen; Fachbegriffe kurz erklären.',
-          '- Optional 1 freundlicher Satz am Schluss — kein `### Verbesserungen`.',
+          'Aufgabentyp Erklärung — Einschätzung: vermutlich kurz (Richtwert, keine Vorgabe):',
+          '- Vorschlag: eine `##`-Überschrift, dann 1–3 klare Sätze oder eine kompakte Liste.',
+          '- Entscheide selbst anhand der Frage: Wenn mehr Tiefe nötig ist, antworte ausführlicher statt künstlich kurz zu bleiben.',
+          '- Falls kurz passend: keine Kapitel-Zusammenfassung, kein künstliches Aufblähen; Fachbegriffe kurz erklären.',
         ].join('\n')
       }
       if (analyze.explanation_depth === 'detailed') {
         return [
-          'Aufgabentyp Erklärung — ausführlich (verbindlich):',
-          '- `##`-Hauptüberschrift, dann Kapitel mit `###` oder nummerierten `## 1. …`-Abschnitten.',
-          '- Gemischter Aufbau: Fliesstext + Kacheln/Callouts + Tabellen nur wenn nötig.',
-          '- **3+ parallele Typen/Arten/Kategorien** → ```cards``` (je Eintrag eine Kachel) — nicht `-`-Bullets.',
-          '- Zwischen grösseren Abschnitten `---` für klare Trennung.',
-          '- Gründlich erklären, mit Beispielen — nicht nur Stichwortlisten.',
-          '- Kein `### Verbesserungen`, keine Pflicht-Rückfrage am Schluss.',
+          'Aufgabentyp Erklärung — Einschätzung: vermutlich ausführlich (Richtwert, keine Vorgabe):',
+          '- Vorschlag: `##`-Hauptüberschrift, dann Kapitel mit `###` oder nummerierten `## 1. …`-Abschnitten.',
+          '- Entscheide selbst anhand der Frage: Wenn eine kürzere Antwort tatsächlich reicht, halte dich kürzer statt künstlich aufzublähen.',
+          '- Falls ausführlich passend: **3+ parallele Typen/Arten/Kategorien** → ```cards```; zwischen grösseren Abschnitten `---`; mit Beispielen erklären statt nur Stichwortlisten.',
         ].join('\n')
       }
       return [
-        'Aufgabentyp Erklärung — Standard (verbindlich):',
-        '- `##`-Überschrift, dann passende Tiefe: Absätze, optional kurze Liste oder Tabelle.',
-        '- Einfache Sprache; komplexe Themen in verständliche Schritte gliedern.',
-        '- Schluss optional: 1 kurzer Satz — kein langes Vorwort.',
+        'Aufgabentyp Erklärung — Einschätzung: Standardtiefe (Richtwert, keine Vorgabe):',
+        '- Vorschlag: `##`-Überschrift, dann passende Tiefe: Absätze, optional kurze Liste oder Tabelle.',
+        '- Entscheide selbst anhand der Frage, wie viel Tiefe wirklich nötig ist — einfache Sprache, komplexe Themen in verständliche Schritte gliedern.',
       ].join('\n')
   }
 }

@@ -11,21 +11,21 @@ import {
 
 /** Gemini Context Cache — Thinking Draft. */
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_STANDARD =
-  'straton-thinking-draft-standard-gemini-v1' as const
+  'straton-thinking-draft-standard-gemini-v2' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH =
-  'straton-thinking-draft-rich-gemini-v1' as const
+  'straton-thinking-draft-rich-gemini-v2' as const
 
 /** Gemini Context Cache — Thinking Review. */
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_STANDARD =
-  'straton-thinking-review-standard-gemini-v1' as const
+  'straton-thinking-review-standard-gemini-v2' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH =
-  'straton-thinking-review-rich-gemini-v1' as const
+  'straton-thinking-review-rich-gemini-v2' as const
 
 /** Gemini Context Cache — Thinking finale Antwort. */
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_STANDARD =
-  'straton-thinking-reply-standard-gemini-v1' as const
+  'straton-thinking-reply-standard-gemini-v2' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_RICH =
-  'straton-thinking-reply-rich-gemini-v1' as const
+  'straton-thinking-reply-rich-gemini-v2' as const
 
 export type ThinkingGeminiCacheMode = 'analyze' | 'draft' | 'review' | 'reply'
 
@@ -58,12 +58,13 @@ export function buildThinkingGeminiKernelPrompt(): string {
     getSwissGermanOrthographyInstruction(),
     getChatThinkingWorkflowInstruction(),
     getChatThinkingEmojiStyleInstruction(),
-    'Markdown-Visualisierung (App rendert diese Syntax — verbindlich):',
-    '- ```cards` mit `tone`, `label`, `title`, `body`, optional `badges` — Kacheln durch `---` trennen.',
+    'Markdown-Visualisierung (App rendert diese Syntax):',
+    '- Grundsatz: Fliesstext ist der Normalfall. Setze visuelles Layout gezielt ein, wenn es Verständnis/Übersicht wirklich verbessert — nicht automatisch bei jeder Aufzählung.',
+    '- ```cards` mit `tone`, `label`, `title`, `body`, optional `badges` — Kacheln durch `---` trennen. Sinnvoll bei 3+ parallelen Typen/Kategorien **mit eigenem Inhalt** (mind. ein Satz pro Eintrag); bei reinen Kurz-Stichworten reicht eine Liste.',
     '- ```divided-list` mit `-` Zeilen für 4–8 gleichwertige Fakten.',
     '- Callouts: `> !` Hinweis, `> ?` Frage, `> !!` Warnung, `> ✓` Tipp.',
     '- Zwischen Hauptkapiteln `---`; Glossar nur als `| Begriff | Erklärung |` Tabelle.',
-    '- **VERBOTEN:** 3+ parallele Typen als `-`-Liste oder rohe Pipe-Tabelle — nutze ```cards```.',
+    '- Tabellen nur für echte mehrdimensionale Vergleiche (mehrere Zeilen und Spalten) — nicht für einfache Aufzählungen.',
   ].join('\n')
 }
 

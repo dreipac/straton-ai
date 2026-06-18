@@ -67,13 +67,25 @@ import {
   adminSetChatFoldersEnabled,
   adminSetThinkingGeminiModelsDraft,
   adminDeployThinkingGeminiModelsDraft,
+  adminSetInstantAnalyzeModelDraft,
+  adminDeployInstantAnalyzeModelDraft,
+  adminSetThinkingAnalyzeModelDraft,
+  adminDeployThinkingAnalyzeModelDraft,
+  adminSetChatIntentModelRoutingDraft,
+  adminDeployChatIntentModelRoutingDraft,
+  getChatIntentModelRouting,
   getAppFeatureFlags,
   LEARN_AI_DEFAULT_OPENAI_MODEL,
   type LearnAiModelId,
   type LearnAiProvider,
   type ThinkingGeminiModelsDraft,
 } from '../features/auth/services/appFeatureFlags.service'
-import type { ThinkingGeminiModelId } from '../features/chat/constants/geminiModels'
+import type { AnalyzeModelId, ThinkingGeminiModelId } from '../features/chat/constants/geminiModels'
+import { ANALYZE_MODEL_IDS } from '../features/chat/constants/geminiModels'
+import {
+  CHAT_INTENT_MODEL_ROUTING_ENTRIES,
+  type ChatIntentModelRoutingRow,
+} from '../features/chat/constants/chatIntentModelRouting'
 import {
   estimateAiTokenCostsUsd,
   formatUsdEstimate,
@@ -186,6 +198,50 @@ function labelForThinkingGeminiModel(model: ThinkingGeminiModelId): string {
     default:
       return model
   }
+}
+
+function labelForAnalyzeModel(model: AnalyzeModelId): string {
+  switch (model) {
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-2.5-flash':
+      return 'Gemini 2.5 Flash'
+    case 'gemini-3-flash-preview':
+      return 'Gemini 3 Flash Preview'
+    case 'gpt-4o-mini':
+      return 'GPT-4 mini (4o mini)'
+    case 'gpt-5-mini':
+      return 'GPT-5 mini'
+    case 'gpt-5.4-mini':
+      return 'GPT-5.4 mini'
+    case 'gpt-5.4':
+      return 'GPT-5.4'
+    default:
+      return model
+  }
+}
+
+function parseAnalyzeModelDraftValue(value: string): AnalyzeModelId {
+  return (ANALYZE_MODEL_IDS as readonly string[]).includes(value)
+    ? (value as AnalyzeModelId)
+    : 'gemini-3.1-flash-lite'
+}
+
+function chatIntentModelRoutingKey(category: string, action: string): string {
+  return `${category}:${action}`
+}
+
+function parseChatIntentRoutingModelDraftValue(value: string): ChatIntentModelRoutingRow['modelActive'] {
+  if (
+    value === 'gpt-5.4' ||
+    value === 'gpt-5.4-mini' ||
+    value === 'gpt-5-mini' ||
+    value === 'gpt-4o' ||
+    value === 'gpt-4o-mini'
+  ) {
+    return value
+  }
+  return 'gpt-5.4-mini'
 }
 
 function parseThinkingGeminiModelDraftValue(value: string): ThinkingGeminiModelId {
@@ -381,6 +437,26 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isSavingThinkingGeminiModelsDraft, setIsSavingThinkingGeminiModelsDraft] = useState(false)
   const [isDeployingThinkingGeminiModels, setIsDeployingThinkingGeminiModels] = useState(false)
   const [thinkingGeminiModelsInfo, setThinkingGeminiModelsInfo] = useState<string | null>(null)
+  const [instantAnalyzeModelActive, setInstantAnalyzeModelActive] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [instantAnalyzeModelDraft, setInstantAnalyzeModelDraft] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [thinkingAnalyzeModelActive, setThinkingAnalyzeModelActive] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [thinkingAnalyzeModelDraft, setThinkingAnalyzeModelDraft] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [isSavingInstantAnalyzeModelDraft, setIsSavingInstantAnalyzeModelDraft] = useState(false)
+  const [isDeployingInstantAnalyzeModel, setIsDeployingInstantAnalyzeModel] = useState(false)
+  const [isSavingThinkingAnalyzeModelDraft, setIsSavingThinkingAnalyzeModelDraft] = useState(false)
+  const [isDeployingThinkingAnalyzeModel, setIsDeployingThinkingAnalyzeModel] = useState(false)
+  const [analyzeModelsInfo, setAnalyzeModelsInfo] = useState<string | null>(null)
+  const [chatIntentModelRoutingRows, setChatIntentModelRoutingRows] = useState<ChatIntentModelRoutingRow[]>([])
+  const [chatIntentModelRoutingDrafts, setChatIntentModelRoutingDrafts] = useState<
+    Record<string, ChatIntentModelRoutingRow['modelDraft']>
+  >({})
+  const [savingChatIntentModelRoutingKey, setSavingChatIntentModelRoutingKey] = useState<string | null>(null)
+  const [isDeployingChatIntentModelRouting, setIsDeployingChatIntentModelRouting] = useState(false)
+  const [chatIntentModelRoutingInfo, setChatIntentModelRoutingInfo] = useState<string | null>(null)
   const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
   const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
@@ -628,6 +704,10 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setThinkingGeminiRichActive(flags.thinking_gemini_model_rich_active)
         setThinkingGeminiStandardDraft(flags.thinking_gemini_model_standard_draft)
         setThinkingGeminiRichDraft(flags.thinking_gemini_model_rich_draft)
+        setInstantAnalyzeModelActive(flags.instant_analyze_model_active)
+        setInstantAnalyzeModelDraft(flags.instant_analyze_model_draft)
+        setThinkingAnalyzeModelActive(flags.thinking_analyze_model_active)
+        setThinkingAnalyzeModelDraft(flags.thinking_analyze_model_draft)
         const nextVersion = flags.deployed_app_version ?? ''
         setDeployedAppVersion(nextVersion)
         setDeployedAppVersionDraft(nextVersion)
@@ -644,6 +724,34 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAiModelDraft(LEARN_AI_DEFAULT_OPENAI_MODEL)
         setDeployedAppVersion('')
         setDeployedAppVersionDraft('')
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const rows = await getChatIntentModelRouting()
+        if (!isMounted) {
+          return
+        }
+        setChatIntentModelRoutingRows(rows)
+        setChatIntentModelRoutingDrafts(
+          rows.reduce<Record<string, ChatIntentModelRoutingRow['modelDraft']>>((acc, row) => {
+            acc[chatIntentModelRoutingKey(row.category, row.action)] = row.modelDraft
+            return acc
+          }, {}),
+        )
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setChatIntentModelRoutingRows([])
       }
     })()
 
@@ -1651,6 +1759,117 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleSaveInstantAnalyzeModelDraft(nextModel: AnalyzeModelId) {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsSavingInstantAnalyzeModelDraft(true)
+    try {
+      await adminSetInstantAnalyzeModelDraft(nextModel)
+      setInstantAnalyzeModelDraft(nextModel)
+      setAnalyzeModelsInfo(`Instant-Analyze-Modell-Entwurf gespeichert: ${labelForAnalyzeModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyze-Modell-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingInstantAnalyzeModelDraft(false)
+    }
+  }
+
+  async function handleDeployInstantAnalyzeModelDraft() {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsDeployingInstantAnalyzeModel(true)
+    try {
+      await adminDeployInstantAnalyzeModelDraft()
+      setInstantAnalyzeModelActive(instantAnalyzeModelDraft)
+      setAnalyzeModelsInfo(`Instant-Analyze-Modell aktiv: ${labelForAnalyzeModel(instantAnalyzeModelDraft)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyze-Modell konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingInstantAnalyzeModel(false)
+    }
+  }
+
+  async function handleSaveThinkingAnalyzeModelDraft(nextModel: AnalyzeModelId) {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsSavingThinkingAnalyzeModelDraft(true)
+    try {
+      await adminSetThinkingAnalyzeModelDraft(nextModel)
+      setThinkingAnalyzeModelDraft(nextModel)
+      setAnalyzeModelsInfo(`Thinking-Analyze-Modell-Entwurf gespeichert: ${labelForAnalyzeModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Analyze-Modell-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingThinkingAnalyzeModelDraft(false)
+    }
+  }
+
+  async function handleDeployThinkingAnalyzeModelDraft() {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsDeployingThinkingAnalyzeModel(true)
+    try {
+      await adminDeployThinkingAnalyzeModelDraft()
+      setThinkingAnalyzeModelActive(thinkingAnalyzeModelDraft)
+      setAnalyzeModelsInfo(`Thinking-Analyze-Modell aktiv: ${labelForAnalyzeModel(thinkingAnalyzeModelDraft)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Analyze-Modell konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingAnalyzeModel(false)
+    }
+  }
+
+  async function handleSaveChatIntentModelRoutingDraft(category: string, action: string) {
+    const key = chatIntentModelRoutingKey(category, action)
+    const model = chatIntentModelRoutingDrafts[key]
+    if (!model) {
+      return
+    }
+    setSubscriptionPlansError(null)
+    setChatIntentModelRoutingInfo(null)
+    setSavingChatIntentModelRoutingKey(key)
+    try {
+      await adminSetChatIntentModelRoutingDraft(category, action, model)
+      setChatIntentModelRoutingRows((prev) =>
+        prev.map((row) =>
+          row.category === category && row.action === action ? { ...row, modelDraft: model } : row,
+        ),
+      )
+      setChatIntentModelRoutingInfo(`Entwurf gespeichert: ${category}.${action} → ${model}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Modell-Routing-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setSavingChatIntentModelRoutingKey(null)
+    }
+  }
+
+  async function handleDeployChatIntentModelRoutingDraft() {
+    setSubscriptionPlansError(null)
+    setChatIntentModelRoutingInfo(null)
+    setIsDeployingChatIntentModelRouting(true)
+    try {
+      await adminDeployChatIntentModelRoutingDraft()
+      setChatIntentModelRoutingRows((prev) => prev.map((row) => ({ ...row, modelActive: row.modelDraft })))
+      setChatIntentModelRoutingInfo('Modell-Routing deployt — alle Entwürfe sind jetzt aktiv.')
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Modell-Routing konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingChatIntentModelRouting(false)
+    }
+  }
+
   async function handleToggleInstantAnalyzeDebugEnabled(nextEnabled: boolean) {
     setSubscriptionPlansError(null)
     setInstantAnalyzeDebugInfo(null)
@@ -2123,6 +2342,135 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   <code>gemini-3-flash-preview</code>. Live-Schaltung unter <strong>Deployment</strong>.
                 </p>
                 {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Analyze-Modelle (Intent-Klassifikation)</p>
+                <p className="admin-users-hint">
+                  Aktiv: Instant <strong>{labelForAnalyzeModel(instantAnalyzeModelActive)}</strong>, Thinking{' '}
+                  <strong>{labelForAnalyzeModel(thinkingAnalyzeModelActive)}</strong>. Modell für den ersten
+                  Einordnungsschritt (Kategorie/Aktion/Tiefe-Hinweis) — unabhängig vom Modell der finalen Antwort.
+                </p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={instantAnalyzeModelDraft}
+                    disabled={isSavingInstantAnalyzeModelDraft}
+                    aria-label="Instant-Analyze-Modell"
+                    onChange={(event) => {
+                      setInstantAnalyzeModelDraft(parseAnalyzeModelDraftValue(event.target.value))
+                    }}
+                  >
+                    {ANALYZE_MODEL_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        Instant: {labelForAnalyzeModel(id)}
+                      </option>
+                    ))}
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingInstantAnalyzeModelDraft}
+                    onClick={() => void handleSaveInstantAnalyzeModelDraft(instantAnalyzeModelDraft)}
+                  >
+                    {isSavingInstantAnalyzeModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingAnalyzeModelDraft}
+                    disabled={isSavingThinkingAnalyzeModelDraft}
+                    aria-label="Thinking-Analyze-Modell"
+                    onChange={(event) => {
+                      setThinkingAnalyzeModelDraft(parseAnalyzeModelDraftValue(event.target.value))
+                    }}
+                  >
+                    {ANALYZE_MODEL_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        Thinking: {labelForAnalyzeModel(id)}
+                      </option>
+                    ))}
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingThinkingAnalyzeModelDraft}
+                    onClick={() => void handleSaveThinkingAnalyzeModelDraft(thinkingAnalyzeModelDraft)}
+                  >
+                    {isSavingThinkingAnalyzeModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">Live-Schaltung unter <strong>Deployment</strong>.</p>
+                {analyzeModelsInfo ? <p className="admin-ai-info">{analyzeModelsInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Modell pro Kategorie &amp; Aktion (finale Antwort, Smart Instant)</p>
+                <p className="admin-users-hint">
+                  Gilt nur für den Smart-Instant-Modus. Bild-Generierung/-Suche läuft über eine eigene Bild-API und
+                  ist hier nicht aufgeführt. Thinking-Modus nutzt weiterhin die Standard/Rich-Konfiguration oben.
+                </p>
+                <table className="admin-token-usage-table">
+                  <thead>
+                    <tr>
+                      <th>Kategorie / Aktion</th>
+                      <th>Aktiv</th>
+                      <th>Entwurf</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CHAT_INTENT_MODEL_ROUTING_ENTRIES.map((entry) => {
+                      const row = chatIntentModelRoutingRows.find(
+                        (r) => r.category === entry.category && r.action === entry.action,
+                      )
+                      const key = chatIntentModelRoutingKey(entry.category, entry.action)
+                      const draftValue = chatIntentModelRoutingDrafts[key] ?? row?.modelDraft ?? entry.defaultModel
+                      return (
+                        <tr key={key}>
+                          <td>{entry.label}</td>
+                          <td>{row ? row.modelActive : entry.defaultModel}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={draftValue}
+                              disabled={savingChatIntentModelRoutingKey === key}
+                              aria-label={`Modell für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextModel = parseChatIntentRoutingModelDraftValue(event.target.value)
+                                setChatIntentModelRoutingDrafts((prev) => ({ ...prev, [key]: nextModel }))
+                              }}
+                            >
+                              <option value="gpt-5.4">GPT-5.4</option>
+                              <option value="gpt-5.4-mini">GPT-5.4 mini</option>
+                              <option value="gpt-5-mini">GPT-5 mini</option>
+                              <option value="gpt-4o">GPT-4</option>
+                              <option value="gpt-4o-mini">GPT-4 mini</option>
+                            </select>
+                          </td>
+                          <td>
+                            <SecondaryButton
+                              type="button"
+                              disabled={savingChatIntentModelRoutingKey === key}
+                              onClick={() => void handleSaveChatIntentModelRoutingDraft(entry.category, entry.action)}
+                            >
+                              {savingChatIntentModelRoutingKey === key ? 'Speichern…' : 'Speichern'}
+                            </SecondaryButton>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="admin-subscriptions-create-row" style={{ marginTop: '0.6rem' }}>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isDeployingChatIntentModelRouting}
+                    onClick={() => void handleDeployChatIntentModelRoutingDraft()}
+                  >
+                    {isDeployingChatIntentModelRouting ? 'Deployment läuft…' : 'Alle Entwürfe deployen'}
+                  </PrimaryButton>
+                </div>
+                {chatIntentModelRoutingInfo ? (
+                  <p className="admin-ai-info">{chatIntentModelRoutingInfo}</p>
+                ) : null}
               </div>
               <div className="chat-setting-row chat-setting-row--stacked">
                 <div className="chat-setting-copy">
@@ -3240,6 +3588,55 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   {isDeployingThinkingGeminiModels ? 'Deployment läuft…' : 'Thinking-Modelle jetzt deployen'}
                 </PrimaryButton>
                 {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
+              </article>
+              <article className="settings-card">
+                <p className="admin-subscriptions-field-label">Analyze-Modelle deployen</p>
+                <p className="admin-users-hint">
+                  Instant aktiv: <strong>{labelForAnalyzeModel(instantAnalyzeModelActive)}</strong>
+                  <br />
+                  Instant Entwurf: <strong>{labelForAnalyzeModel(instantAnalyzeModelDraft)}</strong>
+                  <br />
+                  Thinking aktiv: <strong>{labelForAnalyzeModel(thinkingAnalyzeModelActive)}</strong>
+                  <br />
+                  Thinking Entwurf: <strong>{labelForAnalyzeModel(thinkingAnalyzeModelDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingInstantAnalyzeModel || instantAnalyzeModelActive === instantAnalyzeModelDraft}
+                  onClick={() => void handleDeployInstantAnalyzeModelDraft()}
+                >
+                  {isDeployingInstantAnalyzeModel ? 'Deployment läuft…' : 'Instant-Analyze-Modell jetzt deployen'}
+                </PrimaryButton>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingThinkingAnalyzeModel || thinkingAnalyzeModelActive === thinkingAnalyzeModelDraft
+                  }
+                  onClick={() => void handleDeployThinkingAnalyzeModelDraft()}
+                >
+                  {isDeployingThinkingAnalyzeModel ? 'Deployment läuft…' : 'Thinking-Analyze-Modell jetzt deployen'}
+                </PrimaryButton>
+                {analyzeModelsInfo ? <p className="admin-ai-info">{analyzeModelsInfo}</p> : null}
+                <p className="admin-subscriptions-field-label" style={{ marginTop: '1rem' }}>
+                  Modell-Routing (Kategorie/Aktion) deployen
+                </p>
+                <p className="admin-users-hint">
+                  {chatIntentModelRoutingRows.filter((r) => r.modelActive !== r.modelDraft).length} von{' '}
+                  {chatIntentModelRoutingRows.length} Zeilen mit ungespeichertem Entwurf.
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingChatIntentModelRouting ||
+                    chatIntentModelRoutingRows.every((r) => r.modelActive === r.modelDraft)
+                  }
+                  onClick={() => void handleDeployChatIntentModelRoutingDraft()}
+                >
+                  {isDeployingChatIntentModelRouting ? 'Deployment läuft…' : 'Modell-Routing jetzt deployen'}
+                </PrimaryButton>
+                {chatIntentModelRoutingInfo ? (
+                  <p className="admin-ai-info">{chatIntentModelRoutingInfo}</p>
+                ) : null}
               </article>
               <article className="settings-card">
                 <p className="admin-subscriptions-field-label">App-Version für Settings pushen</p>

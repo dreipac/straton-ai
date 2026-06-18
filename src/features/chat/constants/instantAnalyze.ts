@@ -419,6 +419,10 @@ export function applyConversationalFollowUpHeuristic(
   priorTurns: ReadonlyArray<{ role: string; content?: string | null }> | undefined,
   analyze: InstantAnalyzeResult,
 ): InstantAnalyzeResult {
+  /** Respektiert eine bereits konkrete (nicht-chat) LLM-Einordnung — kein Zurückzwingen auf chat.*. */
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   const mediaRoute = detectRouteHeuristic(userMessage, false, priorTurns as ImageSearchPriorTurn[] | undefined, false)
   if (mediaRoute?.category === 'chart' || mediaRoute?.category === 'diagram') {
     return analyze
@@ -542,6 +546,10 @@ export function applyTableExerciseHeuristic(
   analyze: InstantAnalyzeResult,
   hasVisionAttachment = false,
 ): InstantAnalyzeResult {
+  /** Respektiert eine bereits konkrete (nicht-chat) LLM-Einordnung — kein Zurückzwingen auf chat.*. */
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   const t = userMessage.trim()
   if (!hasVisionAttachment && !userMessageSuggestsTableExercise(t)) {
     return analyze
@@ -568,6 +576,10 @@ export function applyIdentityQuestionHeuristic(
   userMessage: string,
   analyze: InstantAnalyzeResult,
 ): InstantAnalyzeResult {
+  /** Respektiert eine bereits konkrete (nicht-chat) LLM-Einordnung — kein Zurückzwingen auf chat.*. */
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   if (!IDENTITY_OR_ACCOUNT_META_RE.test(userMessage.trim())) {
     return analyze
   }
@@ -588,6 +600,10 @@ export function applySubscriptionUsageHeuristic(
   analyze: InstantAnalyzeResult,
   priorTurns?: ReadonlyArray<{ role: string; content?: string | null }>,
 ): InstantAnalyzeResult {
+  /** Respektiert eine bereits konkrete (nicht-chat) LLM-Einordnung — kein Zurückzwingen auf chat.*. */
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   if (!userMessageAsksAboutPriorSubscriptionUsage(userMessage, priorTurns)) {
     return analyze
   }
@@ -612,9 +628,12 @@ export function applyLiveWebHeuristic(
   if (!h.needs) {
     return analyze
   }
+  /** Respektiert eine bereits konkrete (nicht-chat) LLM-Einordnung — kein Zurückzwingen auf chat.*. */
+  if (analyze.category !== 'chat') {
+    return analyze
+  }
   const reply_mode = analyze.reply_mode === 'ask_only' ? 'short_answer' : analyze.reply_mode
-  const route =
-    analyze.category === 'chat' ? routeFromReplyMode(reply_mode) : { category: 'chat' as const, action: 'answer' as const }
+  const route = routeFromReplyMode(reply_mode)
   return syncReplyModeWithRoute({
     ...analyze,
     ...route,
@@ -823,16 +842,16 @@ export function applyGeneratedImageReferenceHeuristic(
 
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {
   const lines = [
-    'Smart Instant — Einordnung (verbindlich für diese Antwort):',
+    'Smart Instant — Einordnung (Kategorie/Aktion verbindlich für das Routing; Antwortmodus/Erklärungstiefe sind Einschätzungen — du entscheidest anhand der Frage selbst, ob mehr oder weniger Tiefe nötig ist):',
     `Kategorie: ${analyze.category}`,
     `Aktion: ${analyze.action}`,
     `Aufgabentyp: ${analyze.task_type}`,
     ...(analyze.task_type === 'explanation'
-      ? [`Erklärungstiefe: ${analyze.explanation_depth}`]
+      ? [`Erklärungstiefe (Richtwert): ${analyze.explanation_depth}`]
       : []),
     `Klarheit: ${analyze.clarity}`,
     `Nutzerabsicht: ${analyze.intent}`,
-    `Antwortmodus: ${analyze.reply_mode}`,
+    `Antwortmodus (Richtwert): ${analyze.reply_mode}`,
   ]
   if (analyze.missing.length > 0) {
     lines.push(`Fehlende Infos: ${analyze.missing.join('; ')}`)
@@ -864,17 +883,17 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
 
   if (analyze.action === 'clarify' || analyze.reply_mode === 'ask_only') {
     lines.push(
-      'Nur wenn wirklich blockiert: **eine** kurze Frage. Sonst: **Lösung mit Annahme** liefern — keine Tipps «wie du selbst vorgehen könntest».',
+      'Einschätzung: nur wenn wirklich blockiert eine kurze Frage — entscheide selbst; meist reicht eine **Lösung mit Annahme** statt nachzufragen.',
     )
   } else if (analyze.reply_mode === 'one_step') {
-    lines.push('Ein klarer Prüfschritt oder eine fokussierte Kurzlösung — nicht alles auf einmal.')
+    lines.push('Einschätzung: ein fokussierter Prüfschritt könnte reichen — entscheide selbst, ob mehr in einem Schritt sinnvoller ist.')
   } else if (
     analyze.reply_mode === 'short_answer' &&
     /multiple[- ]?choice|auswahlfrage|direktantwort|mcq|zertifizierung/i.test(analyze.intent)
   ) {
     lines.push(buildInstantAnalyzeDirectAnswerBriefing())
   } else if (analyze.reply_mode === 'short_answer') {
-    lines.push('Kompakte **fertige** Antwort — direkt liefern, nicht nachfragen.')
+    lines.push('Einschätzung: vermutlich reicht eine kompakte Antwort — entscheide selbst, ob mehr Kontext nötig ist.')
   } else if (analyze.category === 'image' && analyze.action === 'search') {
     lines.push(
       'Unsplash-Fotosuche — die App zeigt bis zu 4 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',

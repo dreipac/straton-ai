@@ -36,10 +36,14 @@ import {
   resolveLearnGeminiContextCacheKey,
   fetchGeminiInstantEnabled,
   fetchActiveThinkingGeminiModels,
+  fetchActiveAnalyzeModels,
+  isGeminiAnalyzeModelEdge,
   isGeminiInstantEnabled,
   resolveThinkingGeminiModelEdge,
   sanitizeThinkingOutputTierEdge,
   setRequestGeminiInstantEnabled,
+  ANALYZE_MODEL_DEFAULT,
+  type AnalyzeModelIdEdge,
   type ThinkingGeminiModelsConfigEdge,
 } from './geminiModels.ts'
 
@@ -159,7 +163,7 @@ type OpenAiPromptCacheOptions = {
 }
 
 /** Gleicher Default wie Client `chat.service.ts` (`OPENAI_PROMPT_CACHE_KEY_MAIN`). */
-const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v5'
+const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v6'
 
 function sanitizePromptCacheKey(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -223,6 +227,17 @@ function resolveOpenAiPromptCacheForRequest(
     key: clientKey ?? def!.key,
     retention: clientRetention ?? def?.retention ?? '24h',
   }
+}
+
+/** Hängt das tatsächlich verwendete Modell an den Cache-Key — saubere Trennung pro Modell, kein Cross-Model-Hit. */
+function withModelPromptCacheSuffix(
+  options: OpenAiPromptCacheOptions | undefined,
+  modelId: string,
+): OpenAiPromptCacheOptions | undefined {
+  if (!options) {
+    return options
+  }
+  return { ...options, key: `${options.key}-${modelId.replace(/[^a-z0-9]/gi, '')}` }
 }
 
 type OpenAiVisionContentPart =
@@ -1777,6 +1792,10 @@ async function callOpenAi(
             ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
           }
         }
+        console.warn(
+          '[chat-completion] OpenAI leere Antwort (kein content) — naechstes Modell in der Kette',
+          { model, includeReasoningLow, finishReason: data.choices?.[0]?.message ? 'empty_content' : 'no_choices' },
+        )
         break
       }
     }
@@ -2326,9 +2345,10 @@ const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
 /** Chat-Titel (Instant + Thinking): günstig, kein GPT-5.4-mini aus der Hauptchat-Staffel. */
 const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
-/** Smart Instant — Einordnung (JSON). */
-const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 280
-const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
+/** Smart Instant — Einordnung (JSON). Hoch genug fuer gpt-5-Modelle (verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens, sonst leerer content). */
+const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 900
+/** Fallback-Kette, wenn kein OpenAI-Analyze-Modell konfiguriert ist (z. B. Gemini-Analyze nicht verfuegbar) — gpt-5-mini zuerst, nicht gpt-4o-mini. */
+const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini', 'gpt-4o'] as const
 
 type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart' | 'diagram'
 type InstantAnalyzeActionEdge =
@@ -2559,8 +2579,8 @@ function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: st
   return { userMessage: userMessage.slice(0, 8000), contextBlock }
 }
 
-/** Thinking — Aufgabenanalyse (JSON). */
-const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 480
+/** Thinking — Aufgabenanalyse (JSON). Hoch genug fuer gpt-5-Modelle (verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens, sonst leerer content). */
+const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 900
 const THINKING_DRAFT_MAX_OUTPUT_TOKENS = 7200
 const THINKING_REVIEW_MAX_OUTPUT_TOKENS = 420
 const THINKING_REVIEW_RICH_MAX_OUTPUT_TOKENS = 2048
@@ -2930,12 +2950,11 @@ async function thinkingAnalyzeWithAi(
   userMessage: string,
   contextBlock: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
-  thinkingModels?: ThinkingGeminiModelsConfigEdge,
+  configuredModel: AnalyzeModelIdEdge = ANALYZE_MODEL_DEFAULT,
 ): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
-  if (isGeminiInstantEnabled()) {
+  if (isGeminiAnalyzeModelEdge(configuredModel) && isGeminiInstantEnabled()) {
     try {
-      const model = resolveThinkingGeminiModelEdge('standard', thinkingModels)
-      return await thinkingAnalyzeWithGemini(userMessage, contextBlock, model)
+      return await thinkingAnalyzeWithGemini(userMessage, contextBlock, configuredModel)
     } catch (geminiErr) {
       if (!isGeminiTransientFailure(geminiErr)) {
         throw geminiErr
@@ -2952,10 +2971,13 @@ async function thinkingAnalyzeWithAi(
     { role: 'system', content: withSwissOrthography(system) },
     { role: 'user', content: userParts.trim() },
   ]
+  const openAiModelChain = isGeminiAnalyzeModelEdge(configuredModel)
+    ? [...THINKING_PIPELINE_OPENAI_MODELS]
+    : [configuredModel, ...THINKING_PIPELINE_OPENAI_MODELS.filter((m) => m !== configuredModel)]
   const usage = await callOpenAi(
     messages,
     apiKey,
-    [...THINKING_PIPELINE_OPENAI_MODELS],
+    openAiModelChain,
     openAiPromptCache,
     THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
   )
@@ -3122,6 +3144,7 @@ function sanitizeGeminiModelOverride(value: unknown): GeminiModelId {
 async function instantAnalyzeWithGemini(
   userMessage: string,
   contextBlock: string,
+  model: GeminiModelId = GEMINI_MODEL_FLASH_LITE,
 ): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
   const system = [
     'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
@@ -3161,8 +3184,8 @@ async function instantAnalyzeWithGemini(
     contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
     `Aktuelle Nutzeranfrage:\n${userMessage}`,
   ].join('')
-  const { text, usage, model } = await geminiGenerateText(userParts.trim(), {
-    model: GEMINI_MODEL_FLASH_LITE,
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
     systemInstruction: withSwissOrthography(system),
     contextCacheKey: GEMINI_CONTEXT_CACHE_INTENT,
     maxOutputTokens: INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
@@ -3173,7 +3196,7 @@ async function instantAnalyzeWithGemini(
     analyze,
     usage: {
       text,
-      model,
+      model: usedModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
@@ -3188,10 +3211,11 @@ async function instantAnalyzeWithAi(
   userMessage: string,
   contextBlock: string,
   openAiPromptCache?: OpenAiPromptCacheOptions,
+  configuredModel: AnalyzeModelIdEdge = ANALYZE_MODEL_DEFAULT,
 ): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
-  if (isGeminiInstantEnabled()) {
+  if (isGeminiAnalyzeModelEdge(configuredModel) && isGeminiInstantEnabled()) {
     try {
-      return await instantAnalyzeWithGemini(userMessage, contextBlock)
+      return await instantAnalyzeWithGemini(userMessage, contextBlock, configuredModel)
     } catch (geminiErr) {
       if (!isGeminiTransientFailure(geminiErr)) {
         throw geminiErr
@@ -3235,10 +3259,13 @@ async function instantAnalyzeWithAi(
     { role: 'system', content: withSwissOrthography(system) },
     { role: 'user', content: userParts.trim() },
   ]
+  const openAiModelChain = isGeminiAnalyzeModelEdge(configuredModel)
+    ? [...INSTANT_ANALYZE_OPENAI_MODELS]
+    : [configuredModel, ...INSTANT_ANALYZE_OPENAI_MODELS.filter((m) => m !== configuredModel)]
   const usage = await callOpenAi(
     messages,
     apiKey,
-    [...INSTANT_ANALYZE_OPENAI_MODELS],
+    openAiModelChain,
     openAiPromptCache,
     INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
   )
@@ -4031,12 +4058,14 @@ serve(async (req) => {
         clientPromptCacheKey,
         clientPromptCacheRetention,
       )
+      const analyzeModels = await fetchActiveAnalyzeModels(admin)
       const openAiKey = await getProviderApiKey('openai')
       const { analyze, usage } = await instantAnalyzeWithAi(
         openAiKey,
         analyzePayload.userMessage,
         analyzePayload.contextBlock,
-        openAiPc,
+        withModelPromptCacheSuffix(openAiPc, analyzeModels.instant),
+        analyzeModels.instant,
       )
       const loggedProvider = usage.model.includes('gemini') ? 'gemini' : 'openai'
       await tryLogTokenUsage(admin, user.id, loggedProvider, mode, usage)
@@ -4048,7 +4077,7 @@ serve(async (req) => {
       if (!analyzePayload) {
         return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
       }
-      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
+      const analyzeModels = await fetchActiveAnalyzeModels(admin)
       const openAiKey = await getProviderApiKey('openai')
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'thinking_analyze',
@@ -4059,10 +4088,11 @@ serve(async (req) => {
         openAiKey,
         analyzePayload.userMessage,
         analyzePayload.contextBlock,
-        openAiPc,
-        thinkingGeminiModels,
+        withModelPromptCacheSuffix(openAiPc, analyzeModels.thinking),
+        analyzeModels.thinking,
       )
-      await tryLogTokenUsage(admin, user.id, isGeminiInstantEnabled() ? 'gemini' : 'openai', mode, usage)
+      const loggedProvider = usage.model.includes('gemini') ? 'gemini' : 'openai'
+      await tryLogTokenUsage(admin, user.id, loggedProvider, mode, usage)
       return jsonResponse({ analyze })
     }
 
