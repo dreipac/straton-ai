@@ -51,26 +51,28 @@ export function buildDocumentExportSummaryTurnBriefing(): string {
     '- **6–12+** Hauptkapitel als `heading` (level 1–2).',
     '- **Rhythmus pro Kapitel (Pflicht — nicht nur ein langer paragraph):**',
     '  1) `paragraph`: 1–2 Einleitungssätze (Fliesstext).',
-    '  2) `paragraph`(e): Stichpunkte — **je Punkt ein eigener** `paragraph`-Block mit «• …» am Anfang, ODER `table` mit Spalten z. B. | Punkt | Erklärung |.',
-    '  3) optional `table`: Vergleiche, Glossar (| Begriff | Erklärung |), Übersichten.',
-    '- **Mindestens 2–3 `table`-Blöcke** im gesamten Dokument (z. B. Steuerarten, Zuständigkeiten, Glossar).',
+    '  2) `paragraph`(e): Stichpunkte — **je Punkt ein eigener** `paragraph`-Block mit «• …» am Anfang (kurze parallele Aussagen ohne mehrere Spalten).',
+    '  3) `table` NUR wenn der Inhalt wirklich tabellarisch ist: ≥2 Elemente mit ≥2 vergleichbaren Spalten (Vergleiche, Glossar Begriff+Erklärung, Übersichten). Kein 1-Spalten-`table`, keine Zellen mit langem Fliesstext.',
+    '- `table`-Anzahl ergibt sich aus dem Inhalt — **keine** erzwungene Mindestzahl; ein Thema ohne echten tabellarischen Inhalt bleibt bei Fliesstext + Stichpunkten.',
     '- VERBOTEN: Jedes Kapitel nur aus **einem** langen Fliesstext-`paragraph` ohne Stichpunkte/Tabelle.',
     '- **Kein** Chat-Markdown statt JSON — der maschinenlesbare JSON-Block ist Pflicht.',
   ].join('\n')
 }
 
 const OUTLINE_MIXED_LAYOUT_RULES = [
-  '**Layout-Mix (wie Chat-Zusammenfassung — verbindlich):**',
-  '- Nicht nur Fliesstext-Wände: pro Hauptkapitel Einleitungs-`paragraph` + Stichpunkt-`paragraph`(e) und/oder `table`.',
-  '- Stichpunkte: je Bullet **eigener** `paragraph`-Block («• Kernpunkt …») — nicht alles in einen Absatz.',
-  '- Vergleiche, Typen-Übersichten, Glossare: **`table`-Block** mit `header: true`.',
+  '**Layout-Mix — Entscheidung pro Abschnitt nach Inhalt, nicht pauschal (verbindlich):**',
+  '- Nicht nur Fliesstext-Wände: pro Hauptkapitel Einleitungs-`paragraph` + passendes Layout für den Rest (Stichpunkte und/oder `table`, je nach Inhalt).',
+  '- `table`: nur wenn ≥2 Elemente mit ≥2 vergleichbaren Spalten vorliegen (Specs, Preisstufen, Vergleiche, Glossar Begriff+Erklärung, Zeitpläne). `header: true`.',
+  '- Stichpunkte (parallele kurze Aussagen OHNE mehrere Spalten, z. B. Vorteile, Kernpunkte, Merkmale): je Bullet **eigener** `paragraph`-Block («• Kernpunkt …») — dafür **kein** `table`.',
+  '- Beispiel: «Vor- und Nachteile von X» → 2-Spalten-`table` (Vorteil | Nachteil) NUR wenn jeder Vorteil einem Nachteil paarweise gegenübersteht; sonst zwei separate Stichpunkt-Abschnitte («Vorteile» / «Nachteile»).',
+  '- **Verboten:** `table` mit nur 1 Spalte oder Zeilen mit langem Fliesstext statt kurzen Werten — das ist eine Liste/ein Absatz, keine Tabelle.',
   '- Unterkapitel: `heading` level 2–3 zwischen Fliesstext und Listen.',
 ].join('\n')
 
 const DOCUMENT_EXPORT_SUMMARY_OUTLINE_RULES = [
   '**Summary-Dokument (verbindlich):** Umfang wie ausführliche Instant-Zusammenfassung (8000-Token-Niveau).',
   '- Alle wesentlichen Themen abdecken — nichts Wichtiges weglassen.',
-  '- Mindestens 6 Hauptkapitel; **jeweils** Mix aus Fliesstext, Stichpunkten und mindestens 1 Tabelle im Dokument.',
+  '- Mindestens 6 Hauptkapitel; **jeweils** Mix aus Fliesstext und Stichpunkten; `table` nur dort, wo der Inhalt tatsächlich tabellarisch ist (siehe Layout-Mix-Regel) — **keine** erzwungenen Tabellen ohne passenden Inhalt.',
   OUTLINE_MIXED_LAYOUT_RULES,
 ].join('\n')
 

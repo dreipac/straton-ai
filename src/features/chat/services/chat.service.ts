@@ -1364,11 +1364,11 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
 const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v6'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
-const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v6'
+const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v7'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v2'
-const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v6'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v7'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()

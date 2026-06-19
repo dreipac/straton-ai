@@ -200,7 +200,7 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v6', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v7', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
     thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
     thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
@@ -3196,6 +3196,7 @@ async function instantAnalyzeWithGemini(
     'Aufbau: Fragezeile (?: oder ?) + darunter 2–6 Kandidaten (auch nackte IPs/Zeilen ohne Bullet) → short_answer, nicht Erklärung — auch bei «was ist …» mit Liste.',
     'Strukturhinweis [Struktur erkannt: Auswahlfrage] im Text → short_answer übernehmen.',
     '«zeige/such/finde Foto/Bild von …» → image.search. «generiere/erstelle Bild» → image.generate.',
+    'Verlauf zeigt «Straton hat zuvor ein Word-Dokument/PDF/Excel/Chart/Diagramm generiert»: das ist KEIN Grund, die aktuelle Nachricht ebenfalls als document/chart/diagram einzuordnen — nur wenn die **aktuelle** Nutzer-Nachricht selbst explizit ein neues/weiteres Dokument, eine Änderung am bestehenden (z. B. «füge ein Kapitel hinzu», «ändere den Titel») oder einen neuen Chart/Diagramm-Wunsch enthält. Sonst category chat, passend zur eigentlichen Frage.',
     'Rechtschreibung Schweizer Hochdeutsch (ss statt ß).',
   ].join('\n')
   const userParts = [
@@ -3262,6 +3263,7 @@ async function instantAnalyzeWithAi(
     'Anhang + beschreiben ohne Neuerstellung → image.describe.',
     'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
     'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
+    'Verlauf zeigt «Straton hat zuvor ein Word-Dokument/PDF/Excel/Chart/Diagramm generiert»: das ist KEIN Grund, die aktuelle Nachricht ebenfalls als document/chart/diagram einzuordnen — nur wenn die **aktuelle** Nutzer-Nachricht selbst explizit ein neues/weiteres Dokument, eine Änderung am bestehenden (z. B. «füge ein Kapitel hinzu», «ändere den Titel») oder einen neuen Chart/Diagramm-Wunsch enthält. Sonst category chat, passend zur eigentlichen Frage.',
     'Bei reply_mode "ask_only" / chat.clarify: needs_live_web false. Bei document/image.generate/image.search: needs_live_web false.',
     'Kurze Folgenachricht mit Verlauf: chat.short_answer. Folgen «zeige Bilder», «von ihm», «ich meine den Schauspieler» nach Fotosuche: image.search — intent aus Verlauf (Name), nie «ihm» wörtlich.',
     'Aufgabe/lösen/Übung: chat.answer.',

@@ -65,6 +65,7 @@ import {
   userMessageAsksAboutPriorSubscriptionUsage,
   userMessageRequestsSubscriptionUsage,
 } from './chatSubscriptionUsageMarker'
+import { assistantGeneratedArtifactContextMarker } from '../utils/generatedArtifactContext'
 
 export type { InstantAnalyzeAction, InstantAnalyzeCategory } from './instantAnalyzeRoute'
 export type { InstantChatTaskType, InstantExplanationDepth } from './chatInstantTaskType'
@@ -999,11 +1000,15 @@ export function formatInstantAnalyzeContextLines(
     .slice(-8)
     .map((t) => {
       const label = t.role === 'user' ? 'Nutzer' : 'Assistent'
-      const body = t.content
-        .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
-        .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
-        .trim()
-      const clipped = body.length > 900 ? `${body.slice(0, 900)}…` : body
+      const artifactMarker =
+        t.role === 'assistant' ? assistantGeneratedArtifactContextMarker(t.content) : null
+      const body = (
+        artifactMarker ??
+        t.content
+          .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
+          .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+/gi, '[Bild]')
+      ).trim()
+      const clipped = artifactMarker ?? (body.length > 900 ? `${body.slice(0, 900)}…` : body)
       const topic =
         t.unsplashQuery?.trim() && t.role === 'assistant'
           ? ` [Thema Fotosuche: «${t.unsplashQuery.trim()}»]`

@@ -170,7 +170,7 @@ export async function fetchActiveThinkingGeminiModels(
     }
   }
 }
-export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v3'
+export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v4'
 export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3'
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1'
 export {

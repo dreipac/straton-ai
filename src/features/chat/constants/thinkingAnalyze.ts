@@ -23,6 +23,7 @@ import type {
 } from '../types'
 import { getSecretSafetyInstruction } from './chatSecretSafety'
 import { resolveDocumentCoverageTopics } from './documentSummaryPlaybook'
+import { assistantGeneratedArtifactContextMarker } from '../utils/generatedArtifactContext'
 import {
   parseThinkingLayoutHint,
   parseThinkingOutputTier,
@@ -406,11 +407,15 @@ export function formatThinkingAnalyzeContextLines(
     .slice(-8)
     .map((t) => {
       const label = t.role === 'user' ? 'Nutzer' : 'Assistent'
-      const body = t.content
-        .replace(/<<<STRATON_THINKING_CLARIFY>>>[\s\S]*?<<<END_STRATON_THINKING_CLARIFY>>>/g, '[Rückfrage]')
-        .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
-        .trim()
-      const clipped = body.length > 900 ? `${body.slice(0, 900)}…` : body
+      const artifactMarker =
+        t.role === 'assistant' ? assistantGeneratedArtifactContextMarker(t.content) : null
+      const body = (
+        artifactMarker ??
+        t.content
+          .replace(/<<<STRATON_THINKING_CLARIFY>>>[\s\S]*?<<<END_STRATON_THINKING_CLARIFY>>>/g, '[Rückfrage]')
+          .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild]')
+      ).trim()
+      const clipped = artifactMarker ?? (body.length > 900 ? `${body.slice(0, 900)}…` : body)
       return `${label}: ${clipped}`
     })
     .join('\n')
