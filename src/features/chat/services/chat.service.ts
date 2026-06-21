@@ -218,6 +218,7 @@ import type {
   ChatMessage,
   ChatMessageExcelExport,
   ChatMessagePdfExport,
+  ChatMessagePptxExport,
   ChatMessageWordExport,
   WordOutlineV1,
 } from '../types'
@@ -1373,6 +1374,45 @@ export async function generatePdfFromOutline(input: {
 
   return {
     pdfExport: { bucket, path, fileName },
+    displayContent,
+  }
+}
+
+export async function generatePptxFromOutline(input: {
+  messageId: string
+  threadId: string
+  html: string
+  fileName?: string
+}): Promise<{ pptxExport: ChatMessagePptxExport; displayContent: string }> {
+  const supabase = getSupabaseClient()
+  const { data, error, response } = await supabase.functions.invoke('generate-pptx-from-outline', {
+    body: input,
+  })
+
+  if (error) {
+    throw new Error(await messageFromFunctionsInvokeFailure(error, response))
+  }
+
+  const payload = data as { pptxExport?: unknown; displayContent?: unknown; error?: unknown } | undefined
+  if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+    throw new Error(payload.error.trim())
+  }
+
+  const pptxExport = payload?.pptxExport as Record<string, unknown> | undefined
+  const displayContent = payload?.displayContent
+  if (!pptxExport || typeof displayContent !== 'string') {
+    throw new Error('PowerPoint-Export konnte nicht abgeschlossen werden.')
+  }
+  const bucket = typeof pptxExport.bucket === 'string' ? pptxExport.bucket : ''
+  const path = typeof pptxExport.path === 'string' ? pptxExport.path : ''
+  const fileName = typeof pptxExport.fileName === 'string' ? pptxExport.fileName : ''
+  const slideCount = typeof pptxExport.slideCount === 'number' ? pptxExport.slideCount : 0
+  if (!bucket || !path || !fileName) {
+    throw new Error('Ungültige PowerPoint-Antwort.')
+  }
+
+  return {
+    pptxExport: { bucket, path, fileName, slideCount },
     displayContent,
   }
 }

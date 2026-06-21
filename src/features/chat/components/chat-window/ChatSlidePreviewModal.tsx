@@ -16,16 +16,22 @@ type ChatSlidePreviewModalProps = {
   onGoToSlide: (index: number) => void
   onNextSlide: () => void
   onPrevSlide: () => void
+  /** `pptxExport` liegt bereits auf der Nachricht vor — Button lädt direkt herunter statt zu generieren. */
+  downloadReady: boolean
+  downloadBusy: boolean
+  onDownload: () => void | Promise<void>
 }
 
 /**
  * Skaliert das feste 1280×720-Folien-Dokument auf beiden Achsen in die tatsächlich verfügbare
- * Stage-Fläche (min von Breite/Höhe) — dadurch ist die Folie immer vollständig sichtbar, nie
- * angeschnitten, egal wie das Modal-Fenster gerade proportioniert ist.
+ * Viewport-Fläche (min von Breite/Höhe) — dadurch ist die Folie immer vollständig sichtbar, nie
+ * angeschnitten, egal wie das Modal-Fenster gerade proportioniert ist. Liefert zusätzlich die
+ * daraus resultierende Pixel-Box, damit der sichtbare Rahmen exakt den skalierten Inhalt umschliesst
+ * (kein Leerraum innerhalb der Umrandung).
  */
-function useSlideStageScale() {
+function useSlideStageFit() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
+  const [box, setBox] = useState({ width: PPTX_SLIDE_NATIVE_WIDTH, height: PPTX_SLIDE_NATIVE_HEIGHT })
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) {
@@ -34,7 +40,8 @@ function useSlideStageScale() {
     const update = () => {
       const { width, height } = el.getBoundingClientRect()
       if (width > 0 && height > 0) {
-        setScale(Math.min(width / PPTX_SLIDE_NATIVE_WIDTH, height / PPTX_SLIDE_NATIVE_HEIGHT))
+        const scale = Math.min(width / PPTX_SLIDE_NATIVE_WIDTH, height / PPTX_SLIDE_NATIVE_HEIGHT)
+        setBox({ width: scale * PPTX_SLIDE_NATIVE_WIDTH, height: scale * PPTX_SLIDE_NATIVE_HEIGHT })
       }
     }
     update()
@@ -42,7 +49,7 @@ function useSlideStageScale() {
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-  return { containerRef, scale }
+  return { containerRef, box }
 }
 
 export function ChatSlidePreviewModal({
@@ -54,10 +61,14 @@ export function ChatSlidePreviewModal({
   onGoToSlide,
   onNextSlide,
   onPrevSlide,
+  downloadReady,
+  downloadBusy,
+  onDownload,
 }: ChatSlidePreviewModalProps) {
   const { slides } = preview
   const activeSlide = slides[activeIndex] ?? slides[0]
-  const { containerRef, scale } = useSlideStageScale()
+  const { containerRef, box } = useSlideStageFit()
+  const scale = box.width / PPTX_SLIDE_NATIVE_WIDTH
   if (!activeSlide) {
     return null
   }
@@ -88,33 +99,36 @@ export function ChatSlidePreviewModal({
         <div className="chat-slide-preview-body">
           <aside className="chat-slide-preview-rail" aria-label="Alle Folien">
             {slides.map((slide, i) => (
-              <button
-                key={`rail-${i}`}
-                type="button"
-                className={`chat-slide-preview-rail-item${i === activeIndex ? ' is-active' : ''}`}
-                onClick={() => onGoToSlide(i)}
-                aria-current={i === activeIndex}
-                aria-label={extractPptxSlideTitle(slide) || `Folie ${i + 1}`}
-              >
-                <span className="chat-slide-preview-rail-thumb">
-                  <span className="chat-slide-preview-rail-index">{i + 1}</span>
-                  <iframe
-                    className="chat-slide-preview-rail-iframe"
-                    sandbox="allow-same-origin"
-                    srcDoc={buildPptxSlideSrcDoc(slide)}
-                    tabIndex={-1}
-                    aria-hidden="true"
-                    title=""
-                  />
+              <div key={`rail-${i}`} className="chat-slide-preview-rail-row">
+                <span className="chat-slide-preview-rail-num" aria-hidden="true">
+                  {i + 1}
                 </span>
-              </button>
+                <button
+                  type="button"
+                  className={`chat-slide-preview-rail-item${i === activeIndex ? ' is-active' : ''}`}
+                  onClick={() => onGoToSlide(i)}
+                  aria-current={i === activeIndex}
+                  aria-label={extractPptxSlideTitle(slide) || `Folie ${i + 1}`}
+                >
+                  <span className="chat-slide-preview-rail-thumb">
+                    <iframe
+                      className="chat-slide-preview-rail-iframe"
+                      sandbox="allow-same-origin"
+                      srcDoc={buildPptxSlideSrcDoc(slide)}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      title=""
+                    />
+                  </span>
+                </button>
+              </div>
             ))}
           </aside>
 
           <div className="chat-slide-preview-main">
-            <h2 className="chat-slide-preview-slide-label">
+            <p className="chat-slide-preview-slide-label">
               Folie {activeIndex + 1} von {slides.length}
-            </h2>
+            </p>
             <div className="chat-slide-preview-stage">
               <button
                 type="button"
@@ -125,19 +139,24 @@ export function ChatSlidePreviewModal({
               >
                 ‹
               </button>
-              <div className="chat-slide-preview-frame" ref={containerRef}>
-                <iframe
-                  key={activeIndex}
-                  className="chat-slide-preview-iframe"
-                  sandbox="allow-same-origin"
-                  srcDoc={buildPptxSlideSrcDoc(activeSlide)}
-                  title={extractPptxSlideTitle(activeSlide) || `Folie ${activeIndex + 1}`}
-                  style={{
-                    width: `${PPTX_SLIDE_NATIVE_WIDTH}px`,
-                    height: `${PPTX_SLIDE_NATIVE_HEIGHT}px`,
-                    transform: `scale(${scale})`,
-                  }}
-                />
+              <div className="chat-slide-preview-viewport" ref={containerRef}>
+                <div
+                  className="chat-slide-preview-frame"
+                  style={{ width: `${box.width}px`, height: `${box.height}px` }}
+                >
+                  <iframe
+                    key={activeIndex}
+                    className="chat-slide-preview-iframe"
+                    sandbox="allow-same-origin"
+                    srcDoc={buildPptxSlideSrcDoc(activeSlide)}
+                    title={extractPptxSlideTitle(activeSlide) || `Folie ${activeIndex + 1}`}
+                    style={{
+                      width: `${PPTX_SLIDE_NATIVE_WIDTH}px`,
+                      height: `${PPTX_SLIDE_NATIVE_HEIGHT}px`,
+                      transform: `scale(${scale})`,
+                    }}
+                  />
+                </div>
               </div>
               <button
                 type="button"
@@ -153,8 +172,19 @@ export function ChatSlidePreviewModal({
         </div>
 
         <footer className="chat-slide-preview-footer">
-          <button type="button" className="chat-slide-preview-download" disabled title="Bald verfügbar">
-            Als PowerPoint herunterladen
+          <button
+            type="button"
+            className="chat-slide-preview-download"
+            disabled={downloadBusy}
+            onClick={() => {
+              void onDownload()
+            }}
+          >
+            {downloadBusy
+              ? 'Wird vorbereitet…'
+              : downloadReady
+                ? 'Als PowerPoint herunterladen'
+                : 'PowerPoint generieren & herunterladen'}
           </button>
         </footer>
       </div>

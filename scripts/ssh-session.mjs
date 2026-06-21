@@ -89,6 +89,22 @@ export class SshSession {
   runRemote(label, remoteCmd) {
     this.run(label, 'ssh', [...this.sshBaseArgs, this.sshTarget, remoteCmd])
   }
+
+  /**
+   * Wie `runRemote`, aber mit `-t` (Pseudo-TTY) — nötig, wenn der Remote-Befehl interaktiv
+   * `sudo` nach einem Passwort fragen könnte (z.B. solange NOPASSWD noch nicht eingerichtet ist).
+   * Schlägt bei Fehler NICHT mit `process.exit` ab, sondern gibt `{ ok }` zurück — der Aufrufer
+   * entscheidet, ob das fatal ist (z.B. Restart-Schritt soll den Rest des Deploys nicht blockieren).
+   */
+  runRemoteInteractiveSoft(label, remoteCmd) {
+    console.log(`\n→ ${label}`)
+    const result = spawnSync(
+      'ssh',
+      [...this.sshBaseArgs, '-t', this.sshTarget, remoteCmd],
+      { stdio: 'inherit' },
+    )
+    return { ok: result.status === 0 }
+  }
 }
 
 /** @param {string} sshTarget @param {(session: SshSession) => void} fn */

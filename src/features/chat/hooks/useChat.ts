@@ -36,6 +36,7 @@ import {
   generateExcelFromSpec,
   generateWordFromOutline,
   generatePdfFromOutline,
+  generatePptxFromOutline,
   mergePersistedAiChatMemoryAfterTurn,
   extractChatDocumentsOnServer,
   instantAnalyzeUserMessage,
@@ -144,6 +145,12 @@ import {
   canFinalizePdfExportFromThread,
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
+import {
+  buildPptxExportHtml,
+  canFinalizePptxExportFromThread,
+  extractPptxSlidesFromThread,
+  extractPptxSlideTitle,
+} from '../utils/pptxOutline'
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import { buildThinkingAnalyzeDebugMeta } from '../constants/thinkingAnalyze'
 import {
@@ -441,6 +448,7 @@ export function useChat(
   const [wordFinalizeBusy, setWordFinalizeBusy] = useState(false)
   const [pdfFinalizeBusy, setPdfFinalizeBusy] = useState(false)
   const [excelFinalizeBusy, setExcelFinalizeBusy] = useState(false)
+  const [pptxFinalizeBusy, setPptxFinalizeBusy] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [composerModelId, setComposerModelId] = useState<ChatComposerModelId>(() =>
@@ -1327,6 +1335,62 @@ export function useChat(
       setError(err instanceof Error ? err.message : 'PDF-Export ist fehlgeschlagen.')
     } finally {
       setPdfFinalizeBusy(false)
+    }
+  }
+
+  async function finalizePptxDocumentExport() {
+    if (!activeThreadId) {
+      return
+    }
+    if (!usesGatewayAi()) {
+      setError('PowerPoint-Export ist im Demo-Modus nicht verfügbar.')
+      return
+    }
+    const list = messagesByThreadId[activeThreadId] ?? []
+    if (!canFinalizePptxExportFromThread(list)) {
+      setError(
+        'Es gibt noch keine exportierbaren Folien. Bitte mit /PowerPoint eine Vorschau erzeugen.',
+      )
+      return
+    }
+    const slides = extractPptxSlidesFromThread(list)
+    if (!slides) {
+      return
+    }
+    const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.pptxExport)
+    if (!targetAssistant) {
+      return
+    }
+    setPptxFinalizeBusy(true)
+    setError(null)
+    try {
+      const pptxResult = await generatePptxFromOutline({
+        messageId: targetAssistant.id,
+        threadId: activeThreadId,
+        html: buildPptxExportHtml(slides),
+        fileName: extractPptxSlideTitle(slides[0]),
+      })
+      const meta = { ...(targetAssistant.metadata ?? {}) }
+      delete meta.liveStream
+      const updated: ChatMessage = {
+        ...targetAssistant,
+        content: pptxResult.displayContent,
+        metadata: {
+          ...meta,
+          pptxExport: pptxResult.pptxExport,
+        },
+      }
+      setMessagesByThreadId((prev) => ({
+        ...prev,
+        [activeThreadId]: (prev[activeThreadId] ?? []).map((m) => (m.id === targetAssistant.id ? updated : m)),
+      }))
+      void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+      return pptxResult.pptxExport
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PowerPoint-Export ist fehlgeschlagen.')
+      return undefined
+    } finally {
+      setPptxFinalizeBusy(false)
     }
   }
 
@@ -3280,6 +3344,8 @@ export function useChat(
     pdfFinalizeBusy,
     finalizeExcelDocumentExport,
     excelFinalizeBusy,
+    finalizePptxDocumentExport,
+    pptxFinalizeBusy,
     createNewChat,
     renameChat,
     deleteChat,

@@ -44,12 +44,13 @@ import {
 } from '../../diagram/diagramSpec'
 import { PptxPresentationCard, PptxPresentationCardBuilding } from '../PptxPresentationCard'
 import {
+  canFinalizePptxExportFromThread,
   hasPptxHtmlMarkers,
   parsePptxSlidesFromAssistantContent,
   stripPptxHtmlBlock,
   type PptxSlide,
 } from '../../utils/pptxOutline'
-import type { ChatMessage } from '../../types'
+import type { ChatMessage, ChatMessagePptxExport } from '../../types'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
 import { renderAssistantRichContent } from '../../utils/renderAssistantRichContent'
 import type { AssistantRichContentOptions } from '../../utils/renderAssistantRichContent'
@@ -128,18 +129,22 @@ export type ChatMessageListProps = {
   downloadExcelExport: (message: ChatMessage) => void | Promise<void>
   downloadWordExport: (message: ChatMessage) => void | Promise<void>
   downloadPdfExport: (message: ChatMessage) => void | Promise<void>
+  downloadPptxExport: (message: ChatMessage) => void | Promise<void>
   excelDownloadBusyId: string | null
   wordDownloadBusyId: string | null
   pdfDownloadBusyId: string | null
+  pptxDownloadBusyId: string | null
   onFinalizeWordDocument?: () => void | Promise<void>
   wordFinalizeBusy: boolean
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy: boolean
   onFinalizeExcelDocument?: () => void | Promise<void>
   excelFinalizeBusy: boolean
+  onFinalizePptxDocument?: () => Promise<ChatMessagePptxExport | undefined> | void
+  pptxFinalizeBusy: boolean
   onCopyUserMessage: (text: string) => boolean | Promise<boolean>
   subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
-  onPptxPreview?: (slides: PptxSlide[]) => void
+  onPptxPreview?: (messageId: string, slides: PptxSlide[]) => void
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -177,15 +182,19 @@ export function ChatMessageList(props: ChatMessageListProps) {
     downloadExcelExport,
     downloadWordExport,
     downloadPdfExport,
+    downloadPptxExport,
     excelDownloadBusyId,
     wordDownloadBusyId,
     pdfDownloadBusyId,
+    pptxDownloadBusyId,
     onFinalizeWordDocument,
     wordFinalizeBusy,
     onFinalizePdfDocument,
     pdfFinalizeBusy,
     onFinalizeExcelDocument,
     excelFinalizeBusy,
+    onFinalizePptxDocument,
+    pptxFinalizeBusy,
     onCopyUserMessage,
     subscriptionUsageDisplay,
     onPptxPreview,
@@ -334,6 +343,10 @@ export function ChatMessageList(props: ChatMessageListProps) {
             isAssistant &&
             Boolean(message.metadata?.pdfExport) &&
             !String(displayContent ?? '').trim()
+          const showPptxFallbackText =
+            isAssistant &&
+            Boolean(message.metadata?.pptxExport) &&
+            !String(displayContent ?? '').trim()
           const isLatestMessage = message.id === messages[messages.length - 1]?.id
           const showWordFinalizeHint =
             isAssistant &&
@@ -356,6 +369,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
             Boolean(onFinalizeExcelDocument) &&
             canFinalizeExcelExportFromThread(messages) &&
             !message.metadata?.excelExport
+          const showPptxFinalizeHint =
+            isAssistant &&
+            isLatestMessage &&
+            !isSending &&
+            Boolean(onFinalizePptxDocument) &&
+            canFinalizePptxExportFromThread(messages) &&
+            !message.metadata?.pptxExport
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
@@ -849,10 +869,40 @@ export function ChatMessageList(props: ChatMessageListProps) {
               {pptxSlidesForPreview.length > 0 ? (
                 <PptxPresentationCard
                   slides={pptxSlidesForPreview}
-                  onOpen={() => onPptxPreview?.(pptxSlidesForPreview)}
+                  onOpen={() => onPptxPreview?.(message.id, pptxSlidesForPreview)}
                 />
               ) : showPptxCardBuilding ? (
                 <PptxPresentationCardBuilding />
+              ) : null}
+              {showPptxFallbackText ? (
+                isMobileComposer ? (
+                  <ChatExportActionHint
+                    label={
+                      pptxDownloadBusyId === message.id
+                        ? 'Wird vorbereitet…'
+                        : 'PowerPoint-Datei herunterladen'
+                    }
+                    busy={pptxDownloadBusyId === message.id}
+                    onAction={() => {
+                      void downloadPptxExport(message)
+                    }}
+                  />
+                ) : (
+                  <p className="chat-message-body chat-excel-fallback-text">
+                    Die PowerPoint-Datei ist bereit — nutze den Download-Button unten.
+                  </p>
+                )
+              ) : null}
+              {showPptxFinalizeHint ? (
+                <ChatExportActionHint
+                  label={
+                    pptxFinalizeBusy ? 'PowerPoint wird erstellt…' : 'PowerPoint generieren'
+                  }
+                  busy={pptxFinalizeBusy}
+                  onAction={() => {
+                    void onFinalizePptxDocument?.()
+                  }}
+                />
               ) : null}
               {showExcelFinalizeHint ? (
                 <ChatExportActionHint
@@ -898,6 +948,19 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   }}
                 />
               ) : null}
+              {isMobileComposer && message.metadata?.pptxExport && !showPptxFallbackText ? (
+                <ChatExportActionHint
+                  label={
+                    pptxDownloadBusyId === message.id
+                      ? 'Wird vorbereitet…'
+                      : 'PowerPoint-Datei herunterladen'
+                  }
+                  busy={pptxDownloadBusyId === message.id}
+                  onAction={() => {
+                    void downloadPptxExport(message)
+                  }}
+                />
+              ) : null}
 
               {message.metadata?.excelExport && !isMobileComposer ? (
                 <div className="chat-excel-download">
@@ -940,6 +1003,21 @@ export function ChatMessageList(props: ChatMessageListProps) {
                     }}
                   >
                     {pdfDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'PDF herunterladen'}
+                  </button>
+                </div>
+              ) : null}
+
+              {message.metadata?.pptxExport && !isMobileComposer ? (
+                <div className="chat-excel-download">
+                  <button
+                    type="button"
+                    className="chat-excel-download-button"
+                    disabled={pptxDownloadBusyId === message.id}
+                    onClick={() => {
+                      void downloadPptxExport(message)
+                    }}
+                  >
+                    {pptxDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'PowerPoint herunterladen'}
                   </button>
                 </div>
               ) : null}

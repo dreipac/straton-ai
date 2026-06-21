@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type TransitionEvent } fr
 import type { PptxSlide } from '../utils/pptxOutline'
 
 export type ChatSlidePreviewState = {
+  messageId: string
   slides: PptxSlide[]
 }
 
@@ -24,11 +25,11 @@ export function useChatSlidePreview() {
     return () => cancelAnimationFrame(id)
   }, [preview])
 
-  function openSlidePreview(slides: PptxSlide[]) {
+  function openSlidePreview(messageId: string, slides: PptxSlide[]) {
     if (slides.length === 0) {
       return
     }
-    setPreview({ slides })
+    setPreview({ messageId, slides })
   }
 
   function closeSlidePreview() {

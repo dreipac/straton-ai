@@ -179,6 +179,8 @@ export function ChatPage() {
     pdfFinalizeBusy,
     finalizeExcelDocumentExport,
     excelFinalizeBusy,
+    finalizePptxDocumentExport,
+    pptxFinalizeBusy,
     createNewChat,
     renameChat,
     archiveChat,
@@ -1150,6 +1152,8 @@ export function ChatPage() {
           pdfFinalizeBusy={pdfFinalizeBusy}
           onFinalizeExcelDocument={finalizeExcelDocumentExport}
           excelFinalizeBusy={excelFinalizeBusy}
+          onFinalizePptxDocument={finalizePptxDocumentExport}
+          pptxFinalizeBusy={pptxFinalizeBusy}
           thinkingCreditsRemaining={
             profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
           }

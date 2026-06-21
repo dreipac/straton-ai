@@ -20,6 +20,7 @@
     "db:repair:server": "node scripts/supabase-db.mjs repair:remote",
     "functions:deploy:server": "node scripts/supabase-functions.mjs",
     "functions:list:server": "node scripts/supabase-functions.mjs --list",
+    "pptx-renderer:deploy:server": "node scripts/pptx-renderer-deploy.mjs",
     "db:pull": "npx supabase db pull",
     "db:pull:storage": "npx supabase db pull --schema storage",
     "db:status": "npx supabase migration list"

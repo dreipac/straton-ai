@@ -203,6 +203,7 @@ export function useChatMessageList({
   const [excelDownloadBusyId, setExcelDownloadBusyId] = useState<string | null>(null)
   const [wordDownloadBusyId, setWordDownloadBusyId] = useState<string | null>(null)
   const [pdfDownloadBusyId, setPdfDownloadBusyId] = useState<string | null>(null)
+  const [pptxDownloadBusyId, setPptxDownloadBusyId] = useState<string | null>(null)
   const animatedAssistantIdsRef = useRef<Set<string>>(new Set())
   const animationTimersRef = useRef<number[]>([])
   /** Zuletzt bekannte Listenlänge (für „genau eine neue Nachricht“ = Stream). */
@@ -513,6 +514,38 @@ export function useChatMessageList({
     }
   }
 
+  async function downloadPptxExport(message: ChatMessage) {
+    const xx = message.metadata?.pptxExport
+    if (!xx) {
+      return
+    }
+    setPptxDownloadBusyId(message.id)
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.storage.from(xx.bucket).createSignedUrl(xx.path, 3600)
+      if (error || !data?.signedUrl) {
+        throw new Error(error?.message ?? 'Download-Link konnte nicht erstellt werden.')
+      }
+      const res = await fetch(data.signedUrl)
+      if (!res.ok) {
+        throw new Error('Datei konnte nicht geladen werden.')
+      }
+      const blob = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = xx.fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setPptxDownloadBusyId(null)
+    }
+  }
+
   function getQuizAnswerKey(messageId: string, questionId: string) {
     return `${messageId}::${questionId}`
   }
@@ -595,6 +628,7 @@ export function useChatMessageList({
     excelDownloadBusyId,
     wordDownloadBusyId,
     pdfDownloadBusyId,
+    pptxDownloadBusyId,
     getQuizAnswerState,
     updateQuizAnswerValue,
     checkQuizAnswer,
@@ -602,5 +636,6 @@ export function useChatMessageList({
     downloadExcelExport,
     downloadWordExport,
     downloadPdfExport,
+    downloadPptxExport,
   }
 }

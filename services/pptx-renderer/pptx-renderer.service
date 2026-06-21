@@ -1,0 +1,17 @@
+[Unit]
+Description=Straton PPTX Renderer (FastAPI/python-pptx)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pptx-renderer
+EnvironmentFile=/opt/pptx-renderer/.env
+ExecStart=/opt/pptx-renderer/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8800
+Restart=on-failure
+RestartSec=2
+User=pptx-renderer
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

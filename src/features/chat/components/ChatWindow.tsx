@@ -12,7 +12,12 @@ import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedb
 import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import duringIcon from '../../../assets/icons/during.svg'
 import sendIcon from '../../../assets/icons/send.svg'
-import type { ChatMessage, InstantAnalyzeDebugMeta, ThinkingAnalyzeDebugMeta } from '../types'
+import type {
+  ChatMessage,
+  ChatMessagePptxExport,
+  InstantAnalyzeDebugMeta,
+  ThinkingAnalyzeDebugMeta,
+} from '../types'
 import type { AssistantRichContentOptions } from '../utils/renderAssistantRichContent'
 import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
 import { ChatContextUsageRing } from './ChatContextUsageRing'
@@ -103,6 +108,9 @@ type ChatWindowProps = {
   /** Nach /Excel: .xlsx erzeugen, wenn die Tabellen-Vorschau passt. */
   onFinalizeExcelDocument?: () => void | Promise<void>
   excelFinalizeBusy?: boolean
+  /** Nach /PowerPoint: .pptx erzeugen, wenn die Folien-Vorschau passt. */
+  onFinalizePptxDocument?: () => Promise<ChatMessagePptxExport | undefined> | void
+  pptxFinalizeBusy?: boolean
   /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
   mainChatContextMaxTokens?: number | null
   /** Live Abo-Verbrauch — Karten in Assistentenantworten. */
@@ -145,6 +153,8 @@ export function ChatWindow({
   pdfFinalizeBusy = false,
   onFinalizeExcelDocument,
   excelFinalizeBusy = false,
+  onFinalizePptxDocument,
+  pptxFinalizeBusy = false,
   mainChatContextMaxTokens = null,
   subscriptionUsageDisplay = null,
 }: ChatWindowProps) {
@@ -175,6 +185,7 @@ export function ChatWindow({
     excelDownloadBusyId,
     wordDownloadBusyId,
     pdfDownloadBusyId,
+    pptxDownloadBusyId,
     getQuizAnswerState,
     updateQuizAnswerValue,
     checkQuizAnswer,
@@ -182,6 +193,7 @@ export function ChatWindow({
     downloadExcelExport,
     downloadWordExport,
     downloadPdfExport,
+    downloadPptxExport,
   } = messageListModel
   const isEmptyState = messageList.length === 0 && !isSending
   const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
@@ -474,6 +486,25 @@ export function ChatWindow({
       />
     ) : null
 
+  const slidePreviewMessage = slidePreview.preview
+    ? messageList.find((m) => m.id === slidePreview.preview?.messageId)
+    : undefined
+  const slidePreviewPptxExport = slidePreviewMessage?.metadata?.pptxExport
+
+  async function handleSlidePreviewDownload() {
+    if (slidePreviewPptxExport && slidePreviewMessage) {
+      await downloadPptxExport(slidePreviewMessage)
+      return
+    }
+    const result = await onFinalizePptxDocument?.()
+    if (result && slidePreviewMessage) {
+      await downloadPptxExport({
+        ...slidePreviewMessage,
+        metadata: { ...slidePreviewMessage.metadata, pptxExport: result },
+      })
+    }
+  }
+
   const slidePreviewEl =
     slidePreview.preview !== null ? (
       <ChatSlidePreviewModal
@@ -485,6 +516,9 @@ export function ChatWindow({
         onGoToSlide={slidePreview.goToSlide}
         onNextSlide={slidePreview.goNextSlide}
         onPrevSlide={slidePreview.goPrevSlide}
+        downloadReady={Boolean(slidePreviewPptxExport)}
+        downloadBusy={pptxFinalizeBusy || pptxDownloadBusyId === slidePreviewMessage?.id}
+        onDownload={handleSlidePreviewDownload}
       />
     ) : null
 
@@ -615,15 +649,19 @@ export function ChatWindow({
         downloadExcelExport={downloadExcelExport}
         downloadWordExport={downloadWordExport}
         downloadPdfExport={downloadPdfExport}
+        downloadPptxExport={downloadPptxExport}
         excelDownloadBusyId={excelDownloadBusyId}
         wordDownloadBusyId={wordDownloadBusyId}
         pdfDownloadBusyId={pdfDownloadBusyId}
+        pptxDownloadBusyId={pptxDownloadBusyId}
         onFinalizeWordDocument={onFinalizeWordDocument}
         wordFinalizeBusy={wordFinalizeBusy}
         onFinalizePdfDocument={onFinalizePdfDocument}
         pdfFinalizeBusy={pdfFinalizeBusy}
         onFinalizeExcelDocument={onFinalizeExcelDocument}
         excelFinalizeBusy={excelFinalizeBusy}
+        onFinalizePptxDocument={onFinalizePptxDocument}
+        pptxFinalizeBusy={pptxFinalizeBusy}
         onCopyUserMessage={handleCopyUserMessageText}
         subscriptionUsageDisplay={subscriptionUsageDisplay}
         onPptxPreview={slidePreview.openSlidePreview}
