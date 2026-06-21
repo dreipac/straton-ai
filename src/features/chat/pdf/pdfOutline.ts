@@ -2,7 +2,16 @@ import type { ChatMessage } from '../types'
 import { extractWordOutlineFromThread } from '../utils/wordOutline'
 
 export function extractPdfOutlineFromThread(messages: ChatMessage[]) {
-  return extractWordOutlineFromThread(messages)
+  return extractWordOutlineFromThread(messages, 'pdf')
+}
+
+function findLastUserMessage(messages: ChatMessage[]): ChatMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      return messages[i]
+    }
+  }
+  return undefined
 }
 
 export function canFinalizePdfExportFromThread(messages: ChatMessage[]): boolean {
@@ -16,7 +25,8 @@ export function canFinalizePdfExportFromThread(messages: ChatMessage[]): boolean
   if (last.metadata?.liveStream) {
     return false
   }
-  if (!messages.some((m) => m.role === 'user' && m.metadata?.userPdfCommand === true)) {
+  const lastUser = findLastUserMessage(messages)
+  if (lastUser?.metadata?.userPdfCommand !== true) {
     return false
   }
   return extractPdfOutlineFromThread(messages) !== null

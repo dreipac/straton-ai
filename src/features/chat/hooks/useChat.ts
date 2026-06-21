@@ -11,6 +11,7 @@ import { stripDiagramCommandMarker, userWantsDiagramExport } from '../constants/
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
 import { stripPdfCommandMarker, userWantsPdfExport } from '../constants/pdfExportPrompt'
+import { stripPptxCommandMarker, userWantsPptxExport } from '../constants/pptxExportPrompt'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -1354,13 +1355,21 @@ export function useChat(
     let wantsWord = userWantsWordExport(content)
     let wantsPdf = !wantsWord && userWantsPdfExport(content)
     let wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
-    let wantsChart = !wantsWord && !wantsPdf && !wantsExcel && userWantsChartExport(content)
+    let wantsPptx = !wantsWord && !wantsPdf && !wantsExcel && userWantsPptxExport(content)
+    let wantsChart =
+      !wantsWord && !wantsPdf && !wantsExcel && !wantsPptx && userWantsChartExport(content)
     let wantsDiagram =
-      !wantsWord && !wantsPdf && !wantsExcel && !wantsChart && userWantsDiagramExport(content)
+      !wantsWord &&
+      !wantsPdf &&
+      !wantsExcel &&
+      !wantsPptx &&
+      !wantsChart &&
+      userWantsDiagramExport(content)
     let trimmed = stripDiagramCommandMarker(stripChartCommandMarker(content))
     trimmed = stripExcelCommandMarker(trimmed)
     trimmed = stripWordCommandMarker(trimmed)
     trimmed = stripPdfCommandMarker(trimmed)
+    trimmed = stripPptxCommandMarker(trimmed)
     /** Routing ohne Anhang-Blöcke/Dateinamen — verhindert fälschliches pdf_generate. */
     const routingText = stripComposerAttachmentBlocksForRouting(stripSectionRefBlock(trimmed))
     const hasPendingServerDocuments =
@@ -1420,6 +1429,7 @@ export function useChat(
         wantsWord ||
         wantsPdf ||
         wantsExcel ||
+        wantsPptx ||
         wantsChart ||
         wantsDiagram ||
         isComposerImageGenRequest(routingText)
@@ -1439,18 +1449,28 @@ export function useChat(
         wantsWord = true
         wantsPdf = false
         wantsExcel = false
+        wantsPptx = false
         wantsChart = false
         wantsDiagram = false
       } else if (thinkingMediaEarly.wantsPdf) {
         wantsPdf = true
         wantsWord = false
         wantsExcel = false
+        wantsPptx = false
         wantsChart = false
         wantsDiagram = false
       } else if (thinkingMediaEarly.wantsExcel) {
         wantsExcel = true
         wantsWord = false
         wantsPdf = false
+        wantsPptx = false
+        wantsChart = false
+        wantsDiagram = false
+      } else if (thinkingMediaEarly.wantsPptx) {
+        wantsPptx = true
+        wantsWord = false
+        wantsPdf = false
+        wantsExcel = false
         wantsChart = false
         wantsDiagram = false
       } else if (thinkingMediaEarly.wantsChart) {
@@ -1458,12 +1478,14 @@ export function useChat(
         wantsWord = false
         wantsPdf = false
         wantsExcel = false
+        wantsPptx = false
         wantsDiagram = false
       } else if (thinkingMediaEarly.wantsDiagram) {
         wantsDiagram = true
         wantsWord = false
         wantsPdf = false
         wantsExcel = false
+        wantsPptx = false
         wantsChart = false
       }
       if (thinkingMediaEarly.imageSearchQuery) {
@@ -1480,6 +1502,7 @@ export function useChat(
       !wantsDiagram &&
       !wantsWord &&
       !wantsPdf &&
+      !wantsPptx &&
       !imageGenPrompt &&
       !imageSearchQuery
 
@@ -1638,6 +1661,7 @@ export function useChat(
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
+        ...(wantsPptx ? { userPptxCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
         ...(wantsDiagram ? { userDiagramCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
@@ -1760,6 +1784,7 @@ export function useChat(
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
+        ...(wantsPptx ? { userPptxCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
         ...(wantsDiagram ? { userDiagramCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
@@ -1839,6 +1864,7 @@ export function useChat(
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
+        !wantsPptx &&
         !wantsChart &&
         !wantsDiagram &&
         (Boolean(routingText) || hasDocumentFileAttachment) &&
@@ -1907,6 +1933,7 @@ export function useChat(
             wantsWord ||
             wantsPdf ||
             wantsExcel ||
+            wantsPptx ||
             wantsChart ||
             wantsDiagram ||
             isComposerImageGenRequest(routingText)
@@ -1929,18 +1956,28 @@ export function useChat(
             wantsWord = true
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
+            wantsPptx = false
+            wantsChart = false
+            wantsDiagram = false
+          } else if (routeOverrides.wantsPptx) {
+            wantsPptx = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsChart) {
@@ -1948,12 +1985,14 @@ export function useChat(
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsDiagram = false
           } else if (routeOverrides.wantsDiagram) {
             wantsDiagram = true
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
           }
           if (routeOverrides.imageSearchQuery) {
@@ -1983,6 +2022,7 @@ export function useChat(
             !wantsWord &&
             !wantsPdf &&
             !wantsExcel &&
+            !wantsPptx &&
             !wantsChart &&
             !wantsDiagram
           ) {
@@ -2005,6 +2045,7 @@ export function useChat(
             userMetadataBase.userWordCommand = true
             delete userMetadataBase.userPdfCommand
             delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userPptxCommand
             if (!trimmed) {
               userContent = 'Word-Dokument vorbereiten'
             }
@@ -2012,6 +2053,7 @@ export function useChat(
             userMetadataBase.userPdfCommand = true
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userPptxCommand
             if (!trimmed) {
               userContent = 'PDF-Dokument vorbereiten'
             }
@@ -2019,12 +2061,23 @@ export function useChat(
             userMetadataBase.userExcelCommand = true
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userPptxCommand
             delete userMetadataBase.userChartCommand
+          } else if (wantsPptx) {
+            userMetadataBase.userPptxCommand = true
+            delete userMetadataBase.userWordCommand
+            delete userMetadataBase.userPdfCommand
+            delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userChartCommand
+            if (!trimmed) {
+              userContent = 'PowerPoint-Präsentation vorbereiten'
+            }
           } else if (wantsChart) {
             userMetadataBase.userChartCommand = true
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
             delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userPptxCommand
             delete userMetadataBase.userDiagramCommand
             if (!trimmed) {
               userContent = 'Diagramm erstellen'
@@ -2034,6 +2087,7 @@ export function useChat(
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
             delete userMetadataBase.userExcelCommand
+            delete userMetadataBase.userPptxCommand
             delete userMetadataBase.userChartCommand
             if (!trimmed) {
               userContent = 'Struktur-Diagramm erstellen'
@@ -2123,6 +2177,7 @@ export function useChat(
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
+        !wantsPptx &&
         !wantsChart &&
         !wantsDiagram &&
         !imageGenPrompt &&
@@ -2159,18 +2214,28 @@ export function useChat(
             wantsWord = true
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsPdf) {
             wantsPdf = true
             wantsWord = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsExcel) {
             wantsExcel = true
             wantsWord = false
             wantsPdf = false
+            wantsPptx = false
+            wantsChart = false
+            wantsDiagram = false
+          } else if (routeOverrides.wantsPptx) {
+            wantsPptx = true
+            wantsWord = false
+            wantsPdf = false
+            wantsExcel = false
             wantsChart = false
             wantsDiagram = false
           } else if (routeOverrides.wantsChart) {
@@ -2178,12 +2243,14 @@ export function useChat(
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsDiagram = false
           } else if (routeOverrides.wantsDiagram) {
             wantsDiagram = true
             wantsWord = false
             wantsPdf = false
             wantsExcel = false
+            wantsPptx = false
             wantsChart = false
           }
           if (routeOverrides.imageSearchQuery) {
@@ -2213,6 +2280,7 @@ export function useChat(
             !wantsWord &&
             !wantsPdf &&
             !wantsExcel &&
+            !wantsPptx &&
             !wantsChart &&
             !wantsDiagram
           ) {
@@ -2239,6 +2307,7 @@ export function useChat(
             !wantsDiagram &&
             !wantsWord &&
             !wantsPdf &&
+            !wantsPptx &&
             !imageGenPrompt &&
             !imageSearchQuery
         } catch (thinkingRouteErr) {
@@ -2307,7 +2376,7 @@ export function useChat(
       const shouldRename =
         (aclThread?.title === 'Neuer Chat' || isTemporaryThread) && userOwnsThread
       const provisionalTitle = shouldRename
-        ? createChatTitle(trimmed || (wantsWord ? 'Word' : wantsPdf ? 'PDF' : ''))
+        ? createChatTitle(trimmed || (wantsWord ? 'Word' : wantsPdf ? 'PDF' : wantsPptx ? 'PowerPoint' : ''))
         : aclThread?.title
 
       if (provisionalTitle && shouldRename && userOwnsThread) {
@@ -2569,6 +2638,7 @@ export function useChat(
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
+        !wantsPptx &&
         !wantsChart &&
         !wantsDiagram &&
         trimmed
@@ -2836,6 +2906,7 @@ export function useChat(
             userRequestedPdf: wantsPdf,
             userRequestedChart: wantsChart,
             userRequestedDiagram: wantsDiagram,
+            userRequestedPptx: wantsPptx,
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
             chatThinkingMode,
@@ -2903,6 +2974,7 @@ export function useChat(
           userRequestedPdf: wantsPdf,
           userRequestedChart: wantsChart,
           userRequestedDiagram: wantsDiagram,
+          userRequestedPptx: wantsPptx,
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
           chatThinkingMode,
@@ -3040,7 +3112,8 @@ export function useChat(
         !wantsChart &&
         !wantsDiagram &&
         !wantsWord &&
-        !wantsPdf
+        !wantsPdf &&
+        !wantsPptx
       ) {
         const rawAssistant = mergedAssistantMessage.content
         if (!hasExcelSpecMarkers(rawAssistant)) {

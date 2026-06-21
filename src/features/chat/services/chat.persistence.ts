@@ -63,6 +63,10 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     out.userDiagramCommand = true
   }
 
+  if (o.userPptxCommand === true) {
+    out.userPptxCommand = true
+  }
+
   if (o.userDirectAnswerCommand === true) {
     out.userDirectAnswerCommand = true
   }
@@ -180,6 +184,18 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     const fileName = typeof p.fileName === 'string' ? p.fileName : ''
     if (bucket && path && fileName) {
       out.pdfExport = { bucket, path, fileName }
+    }
+  }
+
+  const ppx = o.pptxExport
+  if (ppx && typeof ppx === 'object') {
+    const p = ppx as Record<string, unknown>
+    const bucket = typeof p.bucket === 'string' ? p.bucket : ''
+    const path = typeof p.path === 'string' ? p.path : ''
+    const fileName = typeof p.fileName === 'string' ? p.fileName : ''
+    const slideCount = typeof p.slideCount === 'number' ? p.slideCount : 0
+    if (bucket && path && fileName) {
+      out.pptxExport = { bucket, path, fileName, slideCount }
     }
   }
 

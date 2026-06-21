@@ -42,6 +42,13 @@ import {
   parseDiagramSpecFromContent,
   stripDiagramSpecBlock,
 } from '../../diagram/diagramSpec'
+import { PptxPresentationCard, PptxPresentationCardBuilding } from '../PptxPresentationCard'
+import {
+  hasPptxHtmlMarkers,
+  parsePptxSlidesFromAssistantContent,
+  stripPptxHtmlBlock,
+  type PptxSlide,
+} from '../../utils/pptxOutline'
 import type { ChatMessage } from '../../types'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
 import { renderAssistantRichContent } from '../../utils/renderAssistantRichContent'
@@ -132,6 +139,7 @@ export type ChatMessageListProps = {
   excelFinalizeBusy: boolean
   onCopyUserMessage: (text: string) => boolean | Promise<boolean>
   subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
+  onPptxPreview?: (slides: PptxSlide[]) => void
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -180,6 +188,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     excelFinalizeBusy,
     onCopyUserMessage,
     subscriptionUsageDisplay,
+    onPptxPreview,
   } = props
 
   const userMessageMenuAnchorRef = useRef<HTMLDivElement | null>(null)
@@ -205,6 +214,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userPdfCommand)
           const isExcelAssistantTurn =
             isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userExcelCommand)
+          const isPptxAssistantTurn =
+            isAssistant && Boolean(precedingUserForWordPaper?.metadata?.userPptxCommand)
           const isChartAssistantTurn =
             isAssistant &&
             Boolean(
@@ -266,23 +277,33 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const diagramSpecForPreview = isDiagramAssistantTurn
             ? parseDiagramSpecFromContent(rawContent).spec
             : null
+          const pptxSlidesForPreview =
+            isPptxAssistantTurn && !message.metadata?.pptxExport
+              ? parsePptxSlidesFromAssistantContent(rawContent)
+              : []
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
-            ? stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawContent)))
-            : message.metadata?.excelExport || message.metadata?.wordExport || message.metadata?.pdfExport
+            ? stripPptxHtmlBlock(stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawContent))))
+            : message.metadata?.excelExport ||
+                message.metadata?.wordExport ||
+                message.metadata?.pdfExport ||
+                message.metadata?.pptxExport
               ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
           /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor den Spec-Markern. */
           const assistantAfterExcel = stripSubscriptionUsageMarker(
-            stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))),
+            stripPptxHtmlBlock(
+              stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))),
+            ),
           )
           const thinkingClarifyStreaming =
             isAssistant &&
             !isWordAssistantTurn &&
+            !isPptxAssistantTurn &&
             chatThinkingMode === 'thinking' &&
             Boolean(message.metadata?.liveStream) &&
             message.metadata?.thinkingStreamKind === 'clarify' &&
@@ -341,6 +362,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !message.metadata?.excelExport &&
             !message.metadata?.wordExport &&
             !message.metadata?.pdfExport &&
+            !message.metadata?.pptxExport &&
             (Boolean(message.metadata?.liveStream) ||
               animatedContent.length < rawContent.length)
           const showSubscriptionUsagePreview =
@@ -377,6 +399,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
             !diagramSpecForPreview &&
             !showDiagramSpecPreviewBuilding &&
             !isSending
+          const showPptxCardBuilding =
+            isPptxAssistantTurn &&
+            !message.metadata?.pptxExport &&
+            pptxSlidesForPreview.length === 0 &&
+            (isStreamingAssistant ||
+              Boolean(message.metadata?.liveStream) ||
+              hasPptxHtmlMarkers(rawContent))
           const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
           const assistantCopySource = hasInteractiveQuiz ? parsed?.cleanText || '' : rawContent
           const assistantCopyText = isAssistant
@@ -816,6 +845,14 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   Das Struktur-Diagramm konnte nicht geladen werden — die KI hat keinen gültigen Mermaid-Block
                   geliefert. Bitte die Anfrage erneut senden.
                 </p>
+              ) : null}
+              {pptxSlidesForPreview.length > 0 ? (
+                <PptxPresentationCard
+                  slides={pptxSlidesForPreview}
+                  onOpen={() => onPptxPreview?.(pptxSlidesForPreview)}
+                />
+              ) : showPptxCardBuilding ? (
+                <PptxPresentationCardBuilding />
               ) : null}
               {showExcelFinalizeHint ? (
                 <ChatExportActionHint

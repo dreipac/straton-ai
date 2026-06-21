@@ -1,25 +1,40 @@
 import {
   buildThinkingGeminiKernelPrompt,
   buildThinkingGeminiRichTierPrompt,
+  buildThinkingGeminiStandardTierPrompt,
 } from './thinkingGeminiPromptCache'
 
 /**
- * Gemeinsamer OpenAI Prompt-Cache-Key für Rich-Thinking (Draft, Review, Final).
- * Gleicher Key + identischer System-Kernel → Cache-Treffer innerhalb des Workflows.
+ * Draft+Review (interner Kernel ohne Cards-/Layout-Pflicht) und Reply (eigener Kernel mit
+ * Cards-/Layout-Regeln) haben jetzt unterschiedlichen Prompt-Text — getrennte Cache-Keys,
+ * kein gemeinsamer Key mehr.
  */
-export const OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED =
-  'straton-thinking-rich-openai-v3' as const
-
+export const OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_INTERNAL =
+  'straton-thinking-rich-internal-v1' as const
 export const OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY =
-  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED
+  'straton-thinking-rich-reply-v1' as const
+/** Reply, Standard-Tier, OpenAI-only (Gemini global deaktiviert) — eigener statischer Kernel fürs Prompt-Caching. */
+export const OPENAI_PROMPT_CACHE_KEY_THINKING_STANDARD_REPLY =
+  'straton-thinking-standard-reply-v1' as const
+
 export const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT_RICH =
-  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED
+  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_INTERNAL
 export const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW_RICH =
-  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_SHARED
+  OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_INTERNAL
 
 /** Stabiler Kernel — identisch in Draft, Review und Final (OpenAI Prompt Cache). */
 export function buildThinkingRichOpenAiCachedKernel(): string {
   return [buildThinkingGeminiKernelPrompt(), buildThinkingGeminiRichTierPrompt()].join('\n\n')
+}
+
+/**
+ * Stabiler Kernel für Reply, Standard-Tier, wenn OpenAI ohne Gemini-Fallback läuft
+ * (Gemini global deaktiviert). Tier-abhängiger Inhalt, aber turn-/task-type-unabhängig —
+ * macht den System-Prefix cachefähig (die task-type-spezifische Anweisung wandert in den
+ * dynamischen Turn-Block, siehe `thinkingOpenAiStandardCacheSplit` in chat.service.ts).
+ */
+export function buildThinkingStandardOpenAiCachedKernel(): string {
+  return [buildThinkingGeminiKernelPrompt(), buildThinkingGeminiStandardTierPrompt()].join('\n\n')
 }
 
 export function buildThinkingRichOpenAiDraftStepPrompt(): string {

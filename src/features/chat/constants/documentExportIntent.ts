@@ -86,11 +86,12 @@ export function buildInstantAnalyzeDocumentGenerateSection(): string {
     '  - «Word/Docx erstellen», «als Word», /Word → document.**word_generate**.',
     '  - «PDF erstellen», «als PDF», /PDF → document.**pdf_generate**.',
     '  - «Excel/XLSX», «Tabelle exportieren», /Excel → document.**excel_generate**.',
+    '  - «PowerPoint», «PPTX», «Präsentation», «Folien erstellen», /PowerPoint → document.**pptx_generate**.',
     '- **Summary-PDF/Word:** «ausführliches/zusammenfassendes PDF», «PDF zusammenfassen», «Word mit Zusammenfassung» → document.* **und** task_type **summary**.',
     '- Bei document.*: reply_mode **normal**, needs_live_web **false**, clarity **clear**.',
     '- escalate_model **false** bei einzelnem Export oder Zusammenfassung — nur true bei Multi-Dokument-Vergleich oder komplexem Sheet-Merge.',
     '',
-    'Nachgelagerte App: KI liefert Outline-JSON (voller Dokumentinhalt) im Chat; Nutzer klickt «generieren» → Server (.docx / .pdf / .xlsx).',
+    'Nachgelagerte App: KI liefert Outline-JSON (Word/PDF), Spec-JSON (Excel) oder HTML-Folien (PowerPoint) im Chat; Nutzer klickt «generieren» → Server (.docx / .pdf / .xlsx / .pptx).',
   ].join('\n')
 }
 
@@ -104,7 +105,17 @@ export function buildInstantAnalyzeDocumentExportBriefing(
       ? 'Word (.docx)'
       : action === 'pdf_generate'
         ? 'PDF'
-        : 'Excel (.xlsx)'
+        : action === 'pptx_generate'
+          ? 'PowerPoint (.pptx)'
+          : 'Excel (.xlsx)'
+
+  if (action === 'pptx_generate') {
+    return [
+      `Dokument-Export (verbindlich — ${label}):`,
+      '- Phase 1 (diese Antwort): HTML-Folien im Chat (siehe PowerPoint-Export-Regeln). **Keine** Behauptung, die Datei sei schon fertig.',
+      '- Phase 2: Nutzer klickt «PowerPoint generieren»; die App baut die `.pptx` serverseitig aus dem HTML.',
+    ].join('\n')
+  }
 
   if (action === 'pdf_generate' || action === 'word_generate') {
     const lines = [

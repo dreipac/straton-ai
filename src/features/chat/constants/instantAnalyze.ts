@@ -920,7 +920,8 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     const docAction =
       analyze.action === 'word_generate' ||
       analyze.action === 'pdf_generate' ||
-      analyze.action === 'excel_generate'
+      analyze.action === 'excel_generate' ||
+      analyze.action === 'pptx_generate'
         ? analyze.action
         : 'word_generate'
     lines.push(buildInstantAnalyzeDocumentExportBriefing(docAction, { summaryStyle: isDocumentSummaryExport }))

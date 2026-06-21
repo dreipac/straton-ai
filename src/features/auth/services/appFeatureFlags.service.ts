@@ -12,6 +12,10 @@ import {
   parseChatIntentModelRoutingRows,
   type ChatIntentModelRoutingRow,
 } from '../../chat/constants/chatIntentModelRouting'
+import {
+  parseThinkingTaskTypeModelRoutingRows,
+  type ThinkingTaskTypeModelRoutingRow,
+} from '../../chat/constants/thinkingTaskTypeModelRouting'
 
 export type LearnAiProvider = 'openai' | 'anthropic' | 'gemini'
 
@@ -332,5 +336,50 @@ export async function getChatIntentModelRouting(): Promise<ChatIntentModelRoutin
     throw error
   }
   return parseChatIntentModelRoutingRows(data)
+}
+
+export async function adminSetThinkingTaskTypeModelRoutingDraft(
+  taskType: string,
+  model: string,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_thinking_task_type_model_routing_draft', {
+    p_task_type: taskType,
+    p_model: model,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetThinkingTaskTypeTierDraft(
+  taskType: string,
+  tier: string,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_thinking_task_type_tier_draft', {
+    p_task_type: taskType,
+    p_tier: tier,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeployThinkingTaskTypeModelRoutingDraft(): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_deploy_thinking_task_type_model_routing_draft')
+  if (error) {
+    throw error
+  }
+}
+
+export async function getThinkingTaskTypeModelRouting(): Promise<ThinkingTaskTypeModelRoutingRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('get_thinking_task_type_model_routing')
+  if (error) {
+    throw error
+  }
+  return parseThinkingTaskTypeModelRoutingRows(data)
 }
 

@@ -93,6 +93,13 @@ export type ChatMessagePdfExport = {
   fileName: string
 }
 
+export type ChatMessagePptxExport = {
+  bucket: string
+  path: string
+  fileName: string
+  slideCount: number
+}
+
 /** User-Nachricht: hochgeladenes Dokument in `chat-media` (PDF/Word/Excel …). */
 export type ChatMessageDocumentAttachment = {
   id: string
@@ -148,6 +155,7 @@ export type ChatMessage = {
     excelExport?: ChatMessageExcelExport
     wordExport?: ChatMessageWordExport
     pdfExport?: ChatMessagePdfExport
+    pptxExport?: ChatMessagePptxExport
     /** Laufender OpenAI-SSE-Stream: UI blendet Text live ein (ohne Schreib-Animation). */
     liveStream?: boolean
     /** User-Nachricht: Excel-Modus (Marker wurde vor Speichern entfernt). */
@@ -160,6 +168,8 @@ export type ChatMessage = {
     userChartCommand?: boolean
     /** User-Nachricht: Struktur-Diagramm (Stammbaum, Ablauf, Mermaid). */
     userDiagramCommand?: boolean
+    /** User-Nachricht: PowerPoint-Export-Befehl (Marker entfernt). */
+    userPptxCommand?: boolean
     /** User-Nachricht: Multiple-Choice / Direktantwort (nur richtige Option). */
     userDirectAnswerCommand?: boolean
     /** User-Nachricht: Antwort soll mit vorheriger Tavily-Websuche gestützt werden. */

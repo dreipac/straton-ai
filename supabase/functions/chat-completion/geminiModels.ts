@@ -170,7 +170,55 @@ export async function fetchActiveThinkingGeminiModels(
     }
   }
 }
-export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v4'
+/** Tier (standard/rich) + Modell pro Thinking-`task_type`, gilt fuer Draft + Reply (Review unveraendert). */
+export type ThinkingTaskTypeRoutingEdge = Record<string, { tier: 'standard' | 'rich'; model: AnalyzeModelIdEdge }>
+
+const THINKING_TASK_TYPE_ROUTING_DEFAULTS: ThinkingTaskTypeRoutingEdge = {
+  document_summary: { tier: 'rich', model: GEMINI_MODEL_FLASH_3_PREVIEW },
+  server_setup: { tier: 'rich', model: GEMINI_MODEL_FLASH_3_PREVIEW },
+  software_setup: { tier: 'rich', model: GEMINI_MODEL_FLASH_3_PREVIEW },
+  troubleshooting: { tier: 'rich', model: GEMINI_MODEL_FLASH_3_PREVIEW },
+  decision_planning: { tier: 'rich', model: GEMINI_MODEL_FLASH_3_PREVIEW },
+  process_howto: { tier: 'standard', model: GEMINI_MODEL_FLASH_LITE },
+  general_howto: { tier: 'standard', model: GEMINI_MODEL_FLASH_LITE },
+  other: { tier: 'standard', model: GEMINI_MODEL_FLASH_LITE },
+}
+
+export async function fetchActiveThinkingTaskTypeRoutingEdge(
+  admin: SupabaseClient | null,
+): Promise<ThinkingTaskTypeRoutingEdge> {
+  if (!admin) {
+    return THINKING_TASK_TYPE_ROUTING_DEFAULTS
+  }
+  try {
+    const { data, error } = await admin.rpc('get_thinking_task_type_model_routing')
+    if (error || !Array.isArray(data)) {
+      return THINKING_TASK_TYPE_ROUTING_DEFAULTS
+    }
+    const result: ThinkingTaskTypeRoutingEdge = { ...THINKING_TASK_TYPE_ROUTING_DEFAULTS }
+    for (const row of data) {
+      if (!row || typeof row !== 'object') {
+        continue
+      }
+      const r = row as { task_type?: unknown; tier_active?: unknown; model_active?: unknown }
+      const taskType = typeof r.task_type === 'string' ? r.task_type.trim() : ''
+      if (!taskType || !(taskType in THINKING_TASK_TYPE_ROUTING_DEFAULTS)) {
+        continue
+      }
+      const tier = r.tier_active === 'rich' ? 'rich' : 'standard'
+      const model = parseAnalyzeModelIdEdge(
+        r.model_active,
+        THINKING_TASK_TYPE_ROUTING_DEFAULTS[taskType]!.model,
+      )
+      result[taskType] = { tier, model }
+    }
+    return result
+  } catch {
+    return THINKING_TASK_TYPE_ROUTING_DEFAULTS
+  }
+}
+
+export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v5'
 export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3'
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1'
 export {

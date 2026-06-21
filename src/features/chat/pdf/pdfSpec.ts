@@ -42,7 +42,7 @@ export function parsePdfOutlineFromContent(content: string): PdfOutlineV1 | null
       return parsed
     }
   }
-  return parseWordOutlineFromAssistantContent(marked)
+  return parseWordOutlineFromAssistantContent(marked, 'pdf')
 }
 
 export function sanitizePdfFileName(raw: string | undefined): string {

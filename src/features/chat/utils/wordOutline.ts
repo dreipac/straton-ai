@@ -234,11 +234,21 @@ export function stripWordSpecMarkerBlock(content: string): string {
   return `${content.slice(0, i).trimEnd()}\n\n${content.slice(j + WORD_SPEC_JSON_END.length).trimStart()}`.trim()
 }
 
-function parseWordOutlineFromMarkerBlock(content: string): WordOutlineV1 | null {
-  for (const [start, end] of [
-    [WORD_SPEC_JSON_START, WORD_SPEC_JSON_END],
-    [PDF_SPEC_JSON_START, PDF_SPEC_JSON_END],
-  ] as const) {
+/** `kind` schränkt die Marker-Suche auf Word ODER PDF ein — sonst matcht z. B. ein reiner PDF-Block fälschlich auch als Word-Outline. */
+function parseWordOutlineFromMarkerBlock(
+  content: string,
+  kind?: 'word' | 'pdf',
+): WordOutlineV1 | null {
+  const markerPairs =
+    kind === 'word'
+      ? ([[WORD_SPEC_JSON_START, WORD_SPEC_JSON_END]] as const)
+      : kind === 'pdf'
+        ? ([[PDF_SPEC_JSON_START, PDF_SPEC_JSON_END]] as const)
+        : ([
+            [WORD_SPEC_JSON_START, WORD_SPEC_JSON_END],
+            [PDF_SPEC_JSON_START, PDF_SPEC_JSON_END],
+          ] as const)
+  for (const [start, end] of markerPairs) {
     const i = content.indexOf(start)
     const j = content.indexOf(end)
     if (i === -1 || j === -1 || j <= i) {
@@ -254,8 +264,11 @@ function parseWordOutlineFromMarkerBlock(content: string): WordOutlineV1 | null 
 }
 
 /** Letzter ```json-Block im Text (KI-Antwort). */
-export function parseWordOutlineFromAssistantContent(content: string): WordOutlineV1 | null {
-  const fromMarkers = parseWordOutlineFromMarkerBlock(content)
+export function parseWordOutlineFromAssistantContent(
+  content: string,
+  kind?: 'word' | 'pdf',
+): WordOutlineV1 | null {
+  const fromMarkers = parseWordOutlineFromMarkerBlock(content, kind)
   if (fromMarkers) {
     return fromMarkers
   }
@@ -725,26 +738,41 @@ function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
   return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks })
 }
 
-export function extractWordOutlineFromThread(messages: ChatMessage[]): WordOutlineV1 | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i]
-    if (!m || m.role !== 'assistant') {
-      continue
-    }
-    const source = assistantContentForWordOutlineExtraction(m.content)
-    const parsed = parseWordOutlineFromAssistantContent(source)
-    if (parsed) {
-      return outlineForExport(parsed)
-    }
-    const heuristic = tryHeuristicWordOutlineFromPlainText(source)
-    if (heuristic) {
-      return outlineForExport(heuristic)
-    }
+/**
+ * Nur die **letzte** Assistenten-Nachricht zählt — nicht der gesamte Thread-Verlauf.
+ * Sonst hält ein alter Word/PDF-Spec-Block aus einer früheren Antwort den Finalize-Button
+ * für spätere, unabhängige Chat-Antworten künstlich am Leben.
+ */
+export function extractWordOutlineFromThread(
+  messages: ChatMessage[],
+  kind: 'word' | 'pdf' = 'word',
+): WordOutlineV1 | null {
+  const m = messages[messages.length - 1]
+  if (!m || m.role !== 'assistant') {
+    return null
+  }
+  const source = assistantContentForWordOutlineExtraction(m.content)
+  const parsed = parseWordOutlineFromAssistantContent(source, kind)
+  if (parsed) {
+    return outlineForExport(parsed)
+  }
+  const heuristic = tryHeuristicWordOutlineFromPlainText(source)
+  if (heuristic) {
+    return outlineForExport(heuristic)
   }
   return null
 }
 
-/** Word-Datei noch nicht erzeugt, aber Vorschau parsebar und /Word wurde im Thread genutzt. */
+function findLastUserMessage(messages: ChatMessage[]): ChatMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      return messages[i]
+    }
+  }
+  return undefined
+}
+
+/** Word-Datei noch nicht erzeugt, aber Vorschau parsebar und /Word wurde für **diese** Antwort genutzt. */
 export function canFinalizeWordExportFromThread(messages: ChatMessage[]): boolean {
   if (messages.length < 2) {
     return false
@@ -756,8 +784,9 @@ export function canFinalizeWordExportFromThread(messages: ChatMessage[]): boolea
   if (last.metadata?.liveStream) {
     return false
   }
-  if (!messages.some((m) => m.role === 'user' && m.metadata?.userWordCommand === true)) {
+  const lastUser = findLastUserMessage(messages)
+  if (lastUser?.metadata?.userWordCommand !== true) {
     return false
   }
-  return extractWordOutlineFromThread(messages) !== null
+  return extractWordOutlineFromThread(messages, 'word') !== null
 }

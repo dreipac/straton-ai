@@ -3,11 +3,11 @@
 import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_STANDARD =
-  'straton-thinking-draft-standard-gemini-v3'
-export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH = 'straton-thinking-draft-rich-gemini-v3'
+  'straton-thinking-draft-standard-gemini-v4'
+export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH = 'straton-thinking-draft-rich-gemini-v4'
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_STANDARD =
-  'straton-thinking-review-standard-gemini-v3'
-export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH = 'straton-thinking-review-rich-gemini-v3'
+  'straton-thinking-review-standard-gemini-v4'
+export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH = 'straton-thinking-review-rich-gemini-v4'
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_STANDARD =
   'straton-thinking-reply-standard-gemini-v3'
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_RICH = 'straton-thinking-reply-rich-gemini-v3'
@@ -48,48 +48,48 @@ function thinkingGeminiKernel(): string {
   ].join('\n')
 }
 
-function thinkingStandardTier(): string {
+/** Reiner Inhalt — keine Formatierungsvorgaben (Cards/Tabellen entscheidet erst Reply anhand des fertigen Inhalts). */
+function thinkingStandardTierContent(): string {
   return [
     'Thinking — Standard-Tier: knapp, präzise; MC zuerst **Antwort: X**; How-to mit nummerierten ##-Kapiteln.',
   ].join('\n')
 }
 
-function thinkingRichTier(): string {
+function thinkingRichTierContent(): string {
   return [
-    'Thinking — Rich-Tier: Zusammenfassungen immer mit ```cards```/```divided-list``` — auch ohne «ausführlich».',
-    'Pro Kapitel max. 1 Einleitungssatz, Rest Kacheln; kein «Dossier deckt/thematisiert…».',
+    'Thinking — Rich-Tier: vollständige, inhaltlich ausgearbeitete Lösung — kein «Dossier deckt/thematisiert…» ohne Substanz.',
     'Schulblatt: integriertes Lernskript — Themen ausarbeiten, Fragen beantworten; kein Aufgabe:/Lösung:-Format.',
     'Jedes Pflicht-Thema aus document_coverage_topics abdecken.',
   ].join('\n')
 }
 
-function thinkingTierKernel(tier: ThinkingOutputTierEdge): string {
-  return tier === 'rich' ? thinkingRichTier() : thinkingStandardTier()
+function thinkingTierContentKernel(tier: ThinkingOutputTierEdge): string {
+  return tier === 'rich' ? thinkingRichTierContent() : thinkingStandardTierContent()
 }
 
 export function buildThinkingDraftGeminiCachedSystemEdge(tier: ThinkingOutputTierEdge): string {
   return [
     thinkingGeminiKernel(),
-    thinkingTierKernel(tier),
-    'INTERNER Entwurf — vollständige Lösung, ##-Kapitel, `---` zwischen Hauptteilen.',
+    thinkingTierContentKernel(tier),
+    'INTERNER Entwurf — reiner Inhalt, keine Formatierungsvorgaben: vollständige Lösung, ##-Kapitel, `---` zwischen Hauptteilen.',
     'Bei [Datei:…]: Inhalt aus Dateiblock — nicht nur Themen aufzählen. Kein Clarify-Block.',
   ].join('\n\n')
 }
 
 export function buildThinkingReviewGeminiCachedSystemEdge(tier: ThinkingOutputTierEdge): string {
-  const cardsStrict =
+  const contentStrict =
     tier === 'rich'
       ? [
-          'Rich/document_summary: fits_intent false bei Meta ohne Fakten, Bullets statt ```cards```, fehlenden Kacheln.',
-          'rewrite_hints: «```cards``` mit tone/badges» explizit fordern.',
+          'Rich/document_summary: fits_intent false bei Meta-Beschreibung ohne Fakten aus dem Anhang oder bei fehlenden wesentlichen Inhalten.',
+          'Bei 3+ parallelen Themen/Kategorien mit eigenem Inhalt: rewrite_hints soll empfehlen, die finale Antwort als ```cards```/```divided-list``` zu strukturieren (der Entwurf selbst muss das nicht sein).',
         ].join(' ')
       : 'Standard: fits_intent false bei leerem oder irrelevantem Entwurf.'
 
   return [
     thinkingGeminiKernel(),
-    thinkingTierKernel(tier),
+    thinkingTierContentKernel(tier),
     'Prüfe Entwurf — nur JSON: fits_intent, gaps[], rewrite_hints, summary, needs_live_web (boolean), web_query (string, max 120, nur wenn needs_live_web), web_reason (string, max 80, nur wenn needs_live_web).',
-    cardsStrict,
+    contentStrict,
     'needs_live_web true, wenn der Entwurf auf Fakten beruht, die sich ändern können (Preise, Kurse, News, Versionen, Verfügbarkeit, konkrete Produkte/Modelle) und du dir nicht sicher bist, ob dein Wissen aktuell/korrekt ist — auch wenn die Aufgabenanalyse das nicht erkannt hat.',
   ].join('\n\n')
 }

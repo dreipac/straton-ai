@@ -37,6 +37,7 @@ import {
   fetchGeminiInstantEnabled,
   fetchActiveThinkingGeminiModels,
   fetchActiveAnalyzeModels,
+  fetchActiveThinkingTaskTypeRoutingEdge,
   isGeminiAnalyzeModelEdge,
   isGeminiInstantEnabled,
   resolveThinkingGeminiModelEdge,
@@ -45,6 +46,7 @@ import {
   ANALYZE_MODEL_DEFAULT,
   type AnalyzeModelIdEdge,
   type ThinkingGeminiModelsConfigEdge,
+  type ThinkingTaskTypeRoutingEdge,
 } from './geminiModels.ts'
 
 declare const Deno: {
@@ -200,7 +202,7 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v7', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v8', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
     thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
     thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
@@ -2363,6 +2365,7 @@ type InstantAnalyzeActionEdge =
   | 'word_generate'
   | 'pdf_generate'
   | 'excel_generate'
+  | 'pptx_generate'
   | 'chart_generate'
   | 'diagram_generate'
 
@@ -2372,7 +2375,7 @@ const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
 > = {
   chat: ['answer', 'short_answer', 'clarify', 'one_step'],
   image: ['generate', 'describe', 'search', 'reference'],
-  document: ['word_generate', 'pdf_generate', 'excel_generate'],
+  document: ['word_generate', 'pdf_generate', 'excel_generate', 'pptx_generate'],
   chart: ['chart_generate'],
   diagram: ['diagram_generate'],
 }
@@ -2755,15 +2758,26 @@ function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdg
   }
 }
 
-function resolveThinkingOutputTierForRequest(
-  outputTier: unknown,
+/**
+ * Tier (standard/rich) + Modell-Override fuer Draft+Reply kommen jetzt einheitlich aus der
+ * admin-konfigurierbaren `thinking_task_type_model_routing`-Tabelle, nicht mehr aus der
+ * frueheren task_type+complexity-Mischung. Review bleibt unberuehrt (eigene Standard/Rich-Dropdowns),
+ * bekommt aber denselben Tier-Wert fuer die Prompt-Variantenwahl.
+ */
+function resolveThinkingTaskTypeRoutingEdge(
   thinkingTaskType: unknown,
-): 'standard' | 'rich' {
+  routing: ThinkingTaskTypeRoutingEdge,
+): { tier: 'standard' | 'rich'; provider: 'gemini' | 'openai'; model: AnalyzeModelIdEdge } | null {
   const taskType = typeof thinkingTaskType === 'string' ? thinkingTaskType.trim() : ''
-  if (taskType === 'document_summary') {
-    return 'rich'
+  const row = routing[taskType]
+  if (!row) {
+    return null
   }
-  return sanitizeThinkingOutputTierEdge(outputTier)
+  return {
+    tier: row.tier,
+    provider: isGeminiAnalyzeModelEdge(row.model) ? 'gemini' : 'openai',
+    model: row.model,
+  }
 }
 
 function sanitizeThinkingReviewPayload(raw: unknown): ThinkingReviewPayloadEdge | null {
@@ -3010,10 +3024,17 @@ async function thinkingDraftWithAi(
   clientGeminiModel?: unknown,
   clientGeminiCacheKey?: unknown,
   openAiModels?: string[],
+  taskTypeOverride?: { tier: 'standard' | 'rich'; provider: 'gemini' | 'openai'; model: AnalyzeModelIdEdge } | null,
 ): Promise<{ draft: string; usage: AiCallResult }> {
-  if (outputTier !== 'rich' && isGeminiInstantEnabled()) {
+  /** Pro task_type admin-konfiguriert: Gemini darf jetzt auch bei Rich-Tier laufen, wenn so eingestellt. */
+  const wantsGemini = taskTypeOverride ? taskTypeOverride.provider === 'gemini' : outputTier !== 'rich'
+  if (wantsGemini && isGeminiInstantEnabled()) {
     try {
-      const model = resolveThinkingGeminiModelEdge(outputTier, thinkingModels, clientGeminiModel)
+      const model = resolveThinkingGeminiModelEdge(
+        outputTier,
+        thinkingModels,
+        taskTypeOverride?.provider === 'gemini' ? taskTypeOverride.model : clientGeminiModel,
+      )
       const cacheKey =
         typeof clientGeminiCacheKey === 'string' ? clientGeminiCacheKey : undefined
       return await thinkingDraftWithGemini(
@@ -3057,10 +3078,15 @@ async function thinkingDraftWithAi(
           },
           { role: 'user', content: userParts.trim() },
         ]
+  const draftBaseChain = resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null)
+  const draftOpenAiChain =
+    taskTypeOverride?.provider === 'openai'
+      ? [taskTypeOverride.model, ...draftBaseChain.filter((m) => m !== taskTypeOverride.model)]
+      : draftBaseChain
   const usage = await callOpenAi(
     messages,
     apiKey,
-    resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null),
+    draftOpenAiChain,
     openAiPromptCache,
     THINKING_DRAFT_MAX_OUTPUT_TOKENS,
   )
@@ -3183,7 +3209,7 @@ async function instantAnalyzeWithGemini(
     'explanation: «über was geht es im Dokument?», Thema-Frage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
     'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate; diagram → diagram_generate.',
+    'document → word_generate|pdf_generate|excel_generate|pptx_generate; chart → chart_generate; diagram → diagram_generate.',
     '',
     buildInstantAnalyzeDocumentGenerateSection(),
     '',
@@ -3256,10 +3282,11 @@ async function instantAnalyzeWithAi(
     'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
     'mc_solve → chat.short_answer; quiz_generate → chat.answer; summary → chat.answer, reply_mode normal.',
     'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate; chart → chart_generate; diagram → diagram_generate.',
+    'document → word_generate|pdf_generate|excel_generate|pptx_generate; chart → chart_generate; diagram → diagram_generate.',
     '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
     '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel → document.*.',
     'Balken/Kreis/Prozent/Statistik → chart.chart_generate. Stammbaum/Ablauf/Prozess/Workflow/Mindmap → diagram.diagram_generate.',
+    'Generisches «mache/erstelle ein Diagramm» ohne genannten Typ, ohne Zahlen/Statistik → ebenfalls diagram.diagram_generate, nicht chat.answer.',
     'Anhang + beschreiben ohne Neuerstellung → image.describe.',
     'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
     'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
@@ -3947,17 +3974,32 @@ serve(async (req) => {
       }
     }
 
+    const thinkingTaskTypeRoutingForChat =
+      mode === 'chat' && body.billingConsumeThinkingCredit === true
+        ? await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+        : null
+    const taskTypeOverrideForChat = thinkingTaskTypeRoutingForChat
+      ? resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRoutingForChat)
+      : null
+
     if (mode === 'chat' && provider === 'openai' && body.billingConsumeThinkingCredit === true) {
-      const thinkingTierForModels = resolveThinkingOutputTierForRequest(
-        body.thinkingOutputTier,
-        body.thinkingTaskType,
-      )
+      const thinkingTierForModels = taskTypeOverrideForChat?.tier ?? 'standard'
       const thinkingRichChat =
         body.thinkingRichOpenAi === true || thinkingTierForModels === 'rich'
       if (thinkingRichChat) {
-        openAiModels = resolveThinkingOpenAiModelsForRequest('rich', openAiModelsOverride)
+        const richChain = resolveThinkingOpenAiModelsForRequest('rich', openAiModelsOverride)
+        openAiModels =
+          taskTypeOverrideForChat?.provider === 'openai'
+            ? [taskTypeOverrideForChat.model, ...richChain.filter((m) => m !== taskTypeOverrideForChat.model)]
+            : richChain
       } else if (!isGeminiInstantEnabled()) {
-        openAiModels = [...THINKING_PIPELINE_OPENAI_MODELS]
+        openAiModels =
+          taskTypeOverrideForChat?.provider === 'openai'
+            ? [
+                taskTypeOverrideForChat.model,
+                ...THINKING_PIPELINE_OPENAI_MODELS.filter((m) => m !== taskTypeOverrideForChat.model),
+              ]
+            : [...THINKING_PIPELINE_OPENAI_MODELS]
       }
     }
 
@@ -4125,15 +4167,13 @@ serve(async (req) => {
         return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
       }
       const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
-      const thinkingOutputTier = resolveThinkingOutputTierForRequest(
-        body.thinkingOutputTier,
-        body.thinkingTaskType,
-      )
+      const thinkingTaskTypeRouting = await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+      const taskTypeOverride = resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRouting)
+      const thinkingOutputTier = taskTypeOverride?.tier ?? 'standard'
       const openAiKey = await getProviderApiKey('openai')
-      const openAiPc = resolveOpenAiPromptCacheForRequest(
-        'thinking_draft',
-        clientPromptCacheKey,
-        clientPromptCacheRetention,
+      const openAiPc = withModelPromptCacheSuffix(
+        resolveOpenAiPromptCacheForRequest('thinking_draft', clientPromptCacheKey, clientPromptCacheRetention),
+        taskTypeOverride?.provider === 'openai' ? taskTypeOverride.model : 'gpt-5-mini',
       )
       const thinkingRichModels = sanitizeOpenAiModelsOverride(body.openAiModels)
       const { draft, usage } = await thinkingDraftWithAi(
@@ -4147,11 +4187,12 @@ serve(async (req) => {
         body.geminiModel,
         body.geminiPromptCacheKey,
         thinkingRichModels ?? undefined,
+        taskTypeOverride,
       )
       await tryLogTokenUsage(
         admin,
         user.id,
-        thinkingOutputTier === 'rich' ? 'openai' : isGeminiInstantEnabled() ? 'gemini' : 'openai',
+        taskTypeOverride?.provider ?? (isGeminiInstantEnabled() ? 'gemini' : 'openai'),
         mode,
         usage,
       )
@@ -4164,10 +4205,10 @@ serve(async (req) => {
         return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
       }
       const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
-      const thinkingOutputTier = resolveThinkingOutputTierForRequest(
-        body.thinkingOutputTier,
-        body.thinkingTaskType,
-      )
+      const thinkingTaskTypeRoutingForReview = await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+      const thinkingOutputTier =
+        resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRoutingForReview)?.tier ??
+        'standard'
       const openAiKey = await getProviderApiKey('openai')
       const openAiPc = resolveOpenAiPromptCacheForRequest(
         'thinking_review',
@@ -4331,10 +4372,7 @@ serve(async (req) => {
       mode === 'chat' && body.billingConsumeThinkingCredit === true
         ? await fetchActiveThinkingGeminiModels(admin)
         : null
-    const thinkingOutputTierForChat = resolveThinkingOutputTierForRequest(
-      body.thinkingOutputTier,
-      body.thinkingTaskType,
-    )
+    const thinkingOutputTierForChat = taskTypeOverrideForChat?.tier ?? 'standard'
     const geminiModelOverride =
       mode === 'chat' &&
       body.billingConsumeThinkingCredit === true &&
@@ -4342,7 +4380,7 @@ serve(async (req) => {
         ? resolveThinkingGeminiModelEdge(
             thinkingOutputTierForChat,
             thinkingGeminiModelsForChat,
-            body.geminiModel,
+            taskTypeOverrideForChat?.provider === 'gemini' ? taskTypeOverrideForChat.model : body.geminiModel,
           )
         : sanitizeGeminiModelOverride(body.geminiModel)
     const geminiPromptCacheKey = sanitizePromptCacheKey(body.geminiPromptCacheKey)
@@ -4354,7 +4392,7 @@ serve(async (req) => {
       body.billingConsumeThinkingCredit === true &&
       isGeminiInstantEnabled() &&
       provider !== 'anthropic' &&
-      !thinkingRichOpenAi
+      (!thinkingRichOpenAi || taskTypeOverrideForChat?.provider === 'gemini')
 
     if (useGeminiThinkingChat) {
       await getProviderApiKey('gemini')

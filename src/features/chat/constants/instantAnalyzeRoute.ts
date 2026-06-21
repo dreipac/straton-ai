@@ -16,7 +16,11 @@ export type InstantAnalyzeCategory = 'chat' | 'image' | 'document' | 'chart' | '
 
 export type InstantAnalyzeChatAction = 'answer' | 'short_answer' | 'clarify' | 'one_step'
 export type InstantAnalyzeImageAction = 'generate' | 'describe' | 'search' | 'reference'
-export type InstantAnalyzeDocumentAction = 'word_generate' | 'pdf_generate' | 'excel_generate'
+export type InstantAnalyzeDocumentAction =
+  | 'word_generate'
+  | 'pdf_generate'
+  | 'excel_generate'
+  | 'pptx_generate'
 export type InstantAnalyzeChartAction = 'chart_generate'
 export type InstantAnalyzeDiagramAction = 'diagram_generate'
 
@@ -33,6 +37,7 @@ const DOCUMENT_ACTIONS: InstantAnalyzeDocumentAction[] = [
   'word_generate',
   'pdf_generate',
   'excel_generate',
+  'pptx_generate',
 ]
 const CHART_ACTIONS: InstantAnalyzeChartAction[] = ['chart_generate']
 const DIAGRAM_ACTIONS: InstantAnalyzeDiagramAction[] = ['diagram_generate']
@@ -165,6 +170,11 @@ const EXCEL_EXPORT_TEXT_RE =
 const EXCEL_EXPORT_VERB_RE =
   /\b(?:erstell|generier|exportier|mach).{0,40}\b(?:excel|xlsx)\b|\b(?:excel|xlsx).{0,40}\b(?:erstell|generier|exportier)\b/i
 
+const PPTX_EXPORT_TEXT_RE =
+  /\b(?:power[\s-]?point|pptx?|präsentation|praesentation|folien|slides?[\s-]?deck)\b/i
+const PPTX_EXPORT_VERB_RE =
+  /\b(?:erstell|generier|exportier|mach|bau).{0,40}\b(?:powerpoint|pptx?|präsentation|praesentation|folien|slides)\b|\b(?:powerpoint|pptx?|präsentation|praesentation|folien|slides).{0,40}\b(?:erstell|generier|exportier)\b/i
+
 const NUMERIC_CHART_TEXT_RE =
   /\b(?:balkendiagramm|liniendiagramm|kreisdiagramm|tortendiagramm|donutdiagramm|säulendiagramm|chart|grafik|visualisier(?:e|en|ung)|prozent|statistik|datenvisualisierung)\b/i
 const CHART_EXPORT_VERB_RE =
@@ -179,6 +189,9 @@ const DIAGRAM_EXPORT_VERB_RE =
   /\b(?:erstell|generier|zeichne|skizzier|darstell|visualisier|mach).{0,40}\b(?:stammbaum|familienbaum|ablauf|prozess|workflow|flussdiagramm|organigramm|mindmap|sequenzdiagramm)\b|\b(?:stammbaum|familienbaum|ablauf|prozess|workflow|flussdiagramm|organigramm|mindmap).{0,40}\b(?:erstell|generier|zeichne|skizzier)\b/i
 const DIAGRAM_SKETCH_RE =
   /\b(?:skizze|überblick)\b/i
+/** Generisches «mache/erstelle ein Diagramm» ohne genannten Typ (kein Stammbaum/Ablauf/…) — Default: Struktur-Diagramm statt Chart. */
+const DIAGRAM_GENERIC_VERB_RE =
+  /\b(?:erstell|generier|zeichne|skizzier|darstell|brauch|mach)\w*\b.{0,30}\bdiagramm\b|\bdiagramm\b.{0,30}\b(?:erstell|generier|zeichne|brauch|mach)\w*\b/i
 const NUMERIC_DATA_HINT_RE = /\b(?:prozent|zahl|daten|statistik|umsatz|verteilung|anteil)\b/i
 
 const IMAGE_DESCRIBE_RE =
@@ -234,7 +247,9 @@ export function userRequestsDocumentExport(userMessage: string): boolean {
     WORD_EXPORT_TEXT_RE.test(t) ||
     WORD_EXPORT_VERB_RE.test(t) ||
     EXCEL_EXPORT_TEXT_RE.test(t) ||
-    EXCEL_EXPORT_VERB_RE.test(t)
+    EXCEL_EXPORT_VERB_RE.test(t) ||
+    PPTX_EXPORT_TEXT_RE.test(t) ||
+    PPTX_EXPORT_VERB_RE.test(t)
   )
 }
 
@@ -284,10 +299,14 @@ export function detectRouteHeuristic(
   if (EXCEL_EXPORT_TEXT_RE.test(t) || EXCEL_EXPORT_VERB_RE.test(t)) {
     return { category: 'document', action: 'excel_generate' }
   }
+  if (PPTX_EXPORT_TEXT_RE.test(t) || PPTX_EXPORT_VERB_RE.test(t)) {
+    return { category: 'document', action: 'pptx_generate' }
+  }
   if (
     DIAGRAM_STRUCTURE_TEXT_RE.test(t) ||
     DIAGRAM_EXPORT_VERB_RE.test(t) ||
-    (DIAGRAM_SKETCH_RE.test(t) && !NUMERIC_DATA_HINT_RE.test(t))
+    (DIAGRAM_SKETCH_RE.test(t) && !NUMERIC_DATA_HINT_RE.test(t)) ||
+    (DIAGRAM_GENERIC_VERB_RE.test(t) && !NUMERIC_DATA_HINT_RE.test(t))
   ) {
     return { category: 'diagram', action: 'diagram_generate' }
   }
@@ -371,6 +390,7 @@ export type InstantRouteOverrides = {
   wantsWord: boolean
   wantsPdf: boolean
   wantsExcel: boolean
+  wantsPptx: boolean
   wantsChart: boolean
   wantsDiagram: boolean
   imageGenPrompt: string | null
@@ -394,6 +414,7 @@ export function resolveInstantRouteOverrides(
     wantsWord: false,
     wantsPdf: false,
     wantsExcel: false,
+    wantsPptx: false,
     wantsChart: false,
     wantsDiagram: false,
     imageGenPrompt: null,
@@ -421,6 +442,7 @@ export function resolveInstantRouteOverrides(
       wantsWord: action === 'word_generate',
       wantsPdf: action === 'pdf_generate',
       wantsExcel: action === 'excel_generate',
+      wantsPptx: action === 'pptx_generate',
     }
   }
 
@@ -489,7 +511,7 @@ export function buildInstantAnalyzeRoutePromptSection(): string {
     '- action (nur passend zur category):',
     '  - chat: "answer" | "short_answer" | "clarify" | "one_step"',
     '  - image: "generate" | "describe" | "search" | "reference"',
-    '  - document: "word_generate" | "pdf_generate" | "excel_generate"',
+    '  - document: "word_generate" | "pdf_generate" | "excel_generate" | "pptx_generate"',
     '  - chart: "chart_generate"',
     '  - diagram: "diagram_generate"',
     '',

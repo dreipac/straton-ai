@@ -41,10 +41,12 @@ import { useChatComposer } from '../hooks/useChatComposer'
 import { useChatComposerSectionReply } from '../hooks/useChatComposerSectionReply'
 import { useChatImageLightbox } from '../hooks/useChatImageLightbox'
 import { useChatDocumentPreview } from '../hooks/useChatDocumentPreview'
+import { useChatSlidePreview } from '../hooks/useChatSlidePreview'
 import { ChatComposerForm } from './chat-window/ChatComposerForm'
 import { ChatComposerThinkingCreditsHint } from './chat-window/ChatComposerThinkingCreditsHint'
 import { ChatImageLightbox } from './chat-window/ChatImageLightbox'
 import { ChatDocumentPreviewModal } from './chat-window/ChatDocumentPreviewModal'
+import { ChatSlidePreviewModal } from './chat-window/ChatSlidePreviewModal'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
 
@@ -208,6 +210,7 @@ export function ChatWindow({
 
   const imageLightbox = useChatImageLightbox()
   const documentPreview = useChatDocumentPreview()
+  const slidePreview = useChatSlidePreview()
 
   const userMessageLongPress = useUserMessageLongPress(composer.isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
@@ -471,6 +474,20 @@ export function ChatWindow({
       />
     ) : null
 
+  const slidePreviewEl =
+    slidePreview.preview !== null ? (
+      <ChatSlidePreviewModal
+        preview={slidePreview.preview}
+        open={slidePreview.open}
+        activeIndex={slidePreview.activeIndex}
+        onClose={slidePreview.closeSlidePreview}
+        onTransitionEnd={slidePreview.handleTransitionEnd}
+        onGoToSlide={slidePreview.goToSlide}
+        onNextSlide={slidePreview.goNextSlide}
+        onPrevSlide={slidePreview.goPrevSlide}
+      />
+    ) : null
+
   function buildAssistantRichOptions(messageId: string): AssistantRichContentOptions {
     return {
       onChatImagePreview: imageLightbox.setImageLightboxSrc,
@@ -552,6 +569,7 @@ export function ChatWindow({
         </div>
         {imageLightboxEl}
         {documentPreviewEl}
+        {slidePreviewEl}
       </section>
     )
   }
@@ -608,6 +626,7 @@ export function ChatWindow({
         excelFinalizeBusy={excelFinalizeBusy}
         onCopyUserMessage={handleCopyUserMessageText}
         subscriptionUsageDisplay={subscriptionUsageDisplay}
+        onPptxPreview={slidePreview.openSlidePreview}
       />
       {error ? <p className="error-text">{error}</p> : null}
 
@@ -645,6 +664,7 @@ export function ChatWindow({
       </div>
       {imageLightboxEl}
       {documentPreviewEl}
+      {slidePreviewEl}
     </section>
   )
 }

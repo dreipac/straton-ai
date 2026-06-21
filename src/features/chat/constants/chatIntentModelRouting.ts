@@ -21,6 +21,7 @@ export const CHAT_INTENT_MODEL_ROUTING_ENTRIES: ReadonlyArray<{
   { category: 'document', action: 'word_generate', defaultModel: 'gpt-5.4-mini', label: 'Dokument – Word' },
   { category: 'document', action: 'pdf_generate', defaultModel: 'gpt-5.4-mini', label: 'Dokument – PDF' },
   { category: 'document', action: 'excel_generate', defaultModel: 'gpt-5.4-mini', label: 'Dokument – Excel' },
+  { category: 'document', action: 'pptx_generate', defaultModel: 'gpt-5.4-mini', label: 'Dokument – PowerPoint' },
   { category: 'chart', action: 'chart_generate', defaultModel: 'gpt-5.4-mini', label: 'Chart' },
   { category: 'diagram', action: 'diagram_generate', defaultModel: 'gpt-5.4-mini', label: 'Diagramm' },
 ]

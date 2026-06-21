@@ -11,15 +11,15 @@ import {
 
 /** Gemini Context Cache — Thinking Draft. */
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_STANDARD =
-  'straton-thinking-draft-standard-gemini-v3' as const
+  'straton-thinking-draft-standard-gemini-v4' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH =
-  'straton-thinking-draft-rich-gemini-v3' as const
+  'straton-thinking-draft-rich-gemini-v4' as const
 
 /** Gemini Context Cache — Thinking Review. */
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_STANDARD =
-  'straton-thinking-review-standard-gemini-v3' as const
+  'straton-thinking-review-standard-gemini-v4' as const
 export const GEMINI_CONTEXT_CACHE_THINKING_REVIEW_RICH =
-  'straton-thinking-review-rich-gemini-v3' as const
+  'straton-thinking-review-rich-gemini-v4' as const
 
 /** Gemini Context Cache — Thinking finale Antwort. */
 export const GEMINI_CONTEXT_CACHE_THINKING_REPLY_STANDARD =

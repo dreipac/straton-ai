@@ -50,76 +50,35 @@ const CHAT_THINKING_WORKFLOW_INSTRUCTION = [
   '- JSON gültig; pro Nachricht nur EIN Clarify-Block.',
 ].join('\n')
 
-const ASSISTANT_THINKING_MARKDOWN_INSTRUCTION = [
-  'Thinking — Antwort-Format (Markdown, ausführlich und lesbar wie ein Lernskript):',
-  '',
-  'Zusammenfassungen von Dokumenten / Unterlagen (wenn der Nutzer z. B. «fasse zusammen», «Zusammenfassung», «überblick» verlangt oder ein [Datei:…]-Block mitgeliefert wurde):',
-  '— Beginne mit `## Zusammenfassung` + kurzem Themennamen (kein «Hier ist…»).',
-  '— Direkt darunter ein Satz: «Diese Zusammenfassung basiert auf deinem Dokument.» (oder sinngleich).',
-  '— Hauptteile als nummerierte Kapitel: `## 1. …`, `## 2. …`, `## 3. …` (fortlaufend, inhaltlich vollständig).',
-  '',
-  'Rhythmus pro Hauptkapitel (verbindlich — keine reine Stichpunktwand):',
-  '1) Zuerst 1–2 kurze Fließtext-Sätze (vollständige Sätze, kein Stichwort-Fraktionieren).',
-  '2) Danach optional **Label:** (fett) + 2–6 Stichpunkte für Details, Fakten, Aufzählungen.',
-  '3) Optional ein abschließender Kurzsatz zur Einordnung.',
-  '4) Nach jedem Hauptkapitel (ausser dem letzten) eine eigene Zeile mit nur `---` (horizontale Trennlinie).',
-].join('\n')
+/**
+ * Cards-/Layout-Vorgaben fuer die sichtbare Antwort liegen jetzt ausschliesslich in der
+ * Reply-eigenen Quelle (src/features/chat/constants/thinkingOpenAiPromptCache.ts via
+ * buildThinkingGeminiRichTierPrompt) — Draft/Review (dieser Kernel) brauchen sie nicht mehr.
+ */
 
-const CHAT_THINKING_MIXED_LAYOUT_INSTRUCTION = [
-  'Thinking — Layout-Mix (Phase 2, gilt für alle ausführlichen Antworten):',
-  '— Grundsatz: Fliesstext bleibt die Basis, auch in ausführlichen Antworten — visuelles Layout (Cards, Tabelle, divided-list) gezielt einsetzen, wenn es Verständnis/Übersicht wirklich verbessert, nicht als Pflichtdekoration für jeden Abschnitt.',
-  '— Jeder nummerierte Hauptabschnitt braucht mindestens einen Fließtext-Satz; Stichpunkte nur als Ergänzung, nicht als Ersatz.',
-  '— Zwischen Hauptabschnitten `---` setzen (visuelle Trennung).',
-  '— Unterkapitel mit `###` wenn das Thema es braucht.',
-  '— Vor Listen gern ein **fettes Label** mit Doppelpunkt (z. B. **Kernpunkte:**, **Ziel:**, **Ablauf:**) — Stichpunkte mit **konkreten Fakten**, nicht nur Themenüberschriften.',
-  '— **3+ parallele Typen/Arten/Kategorien mit eigenem Inhalt** (mind. ein Satz pro Eintrag): ```cards``` (je Eintrag eine Kachel) — bei reinen Kurz-Stichworten ohne eigenen Erklärsatz reicht eine Liste.',
-  '— Vergleiche mit Spaltenwerten: Markdown-Tabelle (| Spalte | Spalte |) — nur wenn echte mehrdimensionale Spaltenvergleiche nötig sind.',
-  '— Kernpunkte ohne eigene Typen: ```divided-list`; Leitfragen: ```cards```; Hinweise: `> !` / `> ?` / `> !!` / `> ✓`.',
-  '— Prozessabläufe auch als Kurzsatz mit Pfeilen (z. B. «Prämien → Versicherer → Leistungen»).',
-  '',
-  'Glossar / Begriffe (verbindlich):',
-  '— Wenn Fachbegriffe, Abkürzungen oder «Wörter erklärt» vorkommen (eigener Abschnitt «Glossar», «Begriffe», «Wichtige Begriffe» oder eingestreut): **immer als Markdown-Tabelle**, nie als reine Bullet-Liste.',
-  '— Standard-Spalten: `| Begriff | Erklärung |` oder `| Wort | Bedeutung |` (Kopfzeile + `| --- | --- |`).',
-  '— Pro Zeile ein Begriff; Erklärung in 1–3 klaren Sätzen (nicht nur ein Stichwort).',
-  '— Alle relevanten Begriffe aus dem Material aufnehmen, nicht nur eine Auswahl.',
-  '',
-  'VERBOTEN in Phase 2:',
-  '— Das gesamte Dokument nur aus `-`-Listen ohne Fließtext-Absätze.',
-  '— Drei gleiche Blöcke «nur Bullets unter Überschrift» hintereinander — variiere: Satz + ```cards```, ```divided-list`, Tabelle, ###-Unterkapitel.',
-  '— Inhaltsreiche Typen/Arten/Kategorien (mit eigenem Erklärsatz) als `-`-Liste statt ```cards```.',
-  '— Schulblatt nur **beschreiben** («enthält Übungen zu…») statt **inhaltlich ausarbeiten**.',
-  '— «Aufgabe:» / «Lösung:» / «Musterlösung» als Struktur — stattdessen **Lernskript** mit Themenüberschriften.',
-  '— Leere Platzhalter oder Meta-Sätze («In diesem Abschnitt…», «Das Dossier deckt…»).',
-  '— Glossar/Begriffserklärungen als Bullet-Liste statt Tabelle.',
-].join('\n')
-
+/**
+ * Kernel fuer Draft + Review (OpenAI Rich-Tier) — bewusst OHNE Cards-/Layout-Pflicht.
+ * Das Sichtformat (Cards/Tabellen/divided-list) entscheidet erst Reply anhand des fertigen
+ * Inhalts (eigener Kernel in src/features/chat/constants/thinkingOpenAiPromptCache.ts) —
+ * Draft/Review brauchen nur inhaltliche Vollstaendigkeit, kein Format-Pre-Commit.
+ */
 export function buildThinkingRichOpenAiCachedKernelEdge(): string {
   return [
+    SECRET_SAFETY_INSTRUCTION,
+    SWISS_GERMAN_ORTHOGRAPHY_INSTRUCTION,
+    CHAT_THINKING_WORKFLOW_INSTRUCTION,
     [
-      SECRET_SAFETY_INSTRUCTION,
-      SWISS_GERMAN_ORTHOGRAPHY_INSTRUCTION,
-      CHAT_THINKING_WORKFLOW_INSTRUCTION,
-      [
-        'Thinking — Stil:',
-        'Keine Emojis in Überschriften (## / ###), auch nicht im Comfort-Modus.',
-        'Im Fließtext höchstens sehr sparsam, wenn es ohne Mehrdeutigkeit hilft.',
-      ].join('\n'),
-      'Markdown-Visualisierung (App rendert diese Syntax):',
-      '- Grundsatz: Fliesstext ist der Normalfall. Setze visuelles Layout gezielt ein, wenn es Verständnis/Übersicht wirklich verbessert — nicht automatisch bei jeder Aufzählung.',
-      '- ```cards` mit `tone`, `label`, `title`, `body`, optional `badges` — Kacheln durch `---` trennen. Sinnvoll bei 3+ parallelen Typen/Kategorien **mit eigenem Inhalt** (mind. ein Satz pro Eintrag); bei reinen Kurz-Stichworten reicht eine Liste.',
-      '- ```divided-list` mit `-` Zeilen für 4–8 gleichwertige Fakten.',
-      '- Callouts: `> !` Hinweis, `> ?` Frage, `> !!` Warnung, `> ✓` Tipp.',
-      '- Zwischen Hauptkapiteln `---`; Glossar nur als `| Begriff | Erklärung |` Tabelle.',
-      '- Tabellen nur für echte mehrdimensionale Vergleiche (mehrere Zeilen und Spalten) — nicht für einfache Aufzählungen.',
+      'Thinking — Stil:',
+      'Keine Emojis in Überschriften (## / ###), auch nicht im Comfort-Modus.',
+      'Im Fließtext höchstens sehr sparsam, wenn es ohne Mehrdeutigkeit hilft.',
     ].join('\n'),
     [
-      'Thinking — Rich-Tier (Zusammenfassungen & komplexe Aufgaben):',
-      ASSISTANT_THINKING_MARKDOWN_INSTRUCTION,
-      CHAT_THINKING_MIXED_LAYOUT_INSTRUCTION,
-      '- **Jede Zusammenfassung** (auch ohne Wort «ausführlich»): volles Kachel-Layout — mindestens 2 ```cards```-Blöcke oder 1 Block mit 3+ Kacheln.',
-      '- Pro Hauptthema: max. 1 Einleitungssatz, Rest als Kacheln/`divided-list`/Callouts — kein Fliesstext-Wall.',
-      buildDocumentSummaryPlaybookEdge(),
-    ].join('\n\n'),
+      'Thinking — Rich-Tier (Zusammenfassungen & komplexe Aufgaben), inhaltliche Vollständigkeit:',
+      '- Vollständige, inhaltlich ausgearbeitete Lösung — kein «Dossier deckt/thematisiert…» ohne Substanz.',
+      '- Schulblatt: integriertes Lernskript — Themen ausarbeiten, Fragen beantworten; kein Aufgabe:/Lösung:-Format.',
+      '- Jedes Pflicht-Thema aus document_coverage_topics abdecken.',
+    ].join('\n'),
+    buildDocumentSummaryPlaybookEdge(),
   ].join('\n\n')
 }
 
@@ -127,6 +86,7 @@ export function buildThinkingRichOpenAiDraftStepPromptEdge(): string {
   return [
     'Thinking — interner Entwurf (Nutzer sieht ihn nicht).',
     'Vollständige inhaltliche Lösung; grob ##-Kapitel und `---` zwischen Hauptteilen.',
+    'Reiner Inhalt — keine Formatierungsvorgaben (Cards/Tabellen entscheidet erst die finale Antwort).',
     'Bei [Datei:…]: Inhalt aus dem Dateiblock ausarbeiten — nicht «das Dossier deckt…».',
     'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
   ].join('\n')
@@ -139,9 +99,8 @@ export function buildThinkingRichOpenAiReviewStepPromptEdge(): string {
     'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string), needs_live_web (boolean), web_query (string, max 120, nur wenn needs_live_web), web_reason (string, max 80, nur wenn needs_live_web).',
     'Rich/document_summary — fits_intent false wenn:',
     '- nur Meta («deckt/thematisiert/listet») ohne Fakten aus dem Anhang.',
-    '- 3+ parallele Typen/Kategorien als Bullet-Liste oder rohe Markdown-Tabelle statt ```cards```.',
-    '- kein ```cards``` oder ```divided-list``` bei Zusammenfassung mit mehreren Themen.',
-    '- rewrite_hints: konkret «```cards``` mit tone/badges je Kategorie» fordern.',
+    '- wesentliche Inhalte/Themen aus der Aufgabe fehlen.',
+    '- bei 3+ parallelen Themen/Kategorien mit eigenem Inhalt: rewrite_hints soll empfehlen, die finale Antwort als ```cards```/```divided-list``` zu strukturieren (der Entwurf selbst muss das nicht sein).',
     'fits_intent false bei leerem/generischem Entwurf oder fehlender Kernantwort.',
     'fits_intent false bei abgeschnittenem Text oder «Aufgabe:/Lösung:»-Format statt Lernskript.',
     'needs_live_web true, wenn der Entwurf auf Fakten beruht, die sich ändern können (Preise, Kurse, News, Versionen, Verfügbarkeit, konkrete Produkte/Modelle) und du dir nicht sicher bist, ob dein Wissen aktuell/korrekt ist — auch wenn die Aufgabenanalyse das nicht erkannt hat.',

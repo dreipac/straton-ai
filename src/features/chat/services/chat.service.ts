@@ -96,6 +96,7 @@ import {
   buildExcelSpecSonnetSystemPrompt,
   EXCEL_SPEC_CACHE_EPOCH,
 } from '../constants/excelExportPrompt'
+import { PPTX_CHAT_DOCUMENT_HTML_HINT, PPTX_EXPORT_COMMAND_MARKER } from '../constants/pptxExportPrompt'
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import { getChatComposerModelMeta } from '../constants/chatComposerModels'
@@ -140,8 +141,10 @@ import {
   OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT_RICH,
   OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW_RICH,
   OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY,
+  OPENAI_PROMPT_CACHE_KEY_THINKING_STANDARD_REPLY,
   buildThinkingRichOpenAiCachedKernel,
   buildThinkingRichOpenAiReplyStepPrompt,
+  buildThinkingStandardOpenAiCachedKernel,
 } from '../constants/thinkingOpenAiPromptCache'
 import {
   buildThinkingTaskTypeTurnBriefing,
@@ -270,6 +273,8 @@ export type SendMessageOptions = {
   userRequestedChart?: boolean
   /** Nutzer hat Struktur-Diagramm angefragt: Mermaid für Vorschau im Chat. */
   userRequestedDiagram?: boolean
+  /** Nutzer hat PowerPoint/PPTX angefragt: Modell liefert HTML-Folien (Vorschau); Datei erst nach «PowerPoint generieren». */
+  userRequestedPptx?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -629,6 +634,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
   const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
   const diagramChatHint = options?.userRequestedDiagram ? DIAGRAM_CHAT_DOCUMENT_JSON_HINT : ''
+  /** Ein Hint-Baustein, identisch in Instant und Thinking (keine getrennte, ggf. widersprüchliche Thinking-Variante). */
+  const pptxChatHint = options?.userRequestedPptx ? PPTX_CHAT_DOCUMENT_HTML_HINT : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
@@ -655,6 +662,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     !options?.userRequestedPdf &&
     !options?.userRequestedChart &&
     !options?.userRequestedDiagram &&
+    !options?.userRequestedPptx &&
     !thinking
   const mainChatThreadContinuity = mainChatInstantPrompts
     ? getAssistantMainChatThreadContinuityInstruction()
@@ -672,12 +680,18 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.instantAnalyze,
     lastUserMessage?.role === 'user' ? lastUserMessage.content : undefined,
   )
-  const wordChatHint = options?.userRequestedWord
-    ? buildWordChatDocumentBodyHint(documentExportSummaryStyle)
-    : ''
-  const pdfChatHint = options?.userRequestedPdf
-    ? buildPdfChatDocumentBodyHint(documentExportSummaryStyle)
-    : ''
+  // Thinking hat mit getChatThinkingWordDocumentInstruction() eine eigene, vollständige
+  // Word/PDF-Anweisung (Markdown-Konvention primär, JSON optional) — der Instant-Hint hier
+  // sagt stattdessen "JSON verbindlich" und würde dem widersprechen, wenn beide gleichzeitig
+  // im Systemprompt stehen (führte zu rohem, unverpacktem JSON in der sichtbaren Antwort).
+  const wordChatHint =
+    options?.userRequestedWord && !thinking
+      ? buildWordChatDocumentBodyHint(documentExportSummaryStyle)
+      : ''
+  const pdfChatHint =
+    options?.userRequestedPdf && !thinking
+      ? buildPdfChatDocumentBodyHint(documentExportSummaryStyle)
+      : ''
   const forceStepByStepIntake = mainChatInstantPrompts && shouldForceStepByStepIntake(lastUserMessage)
   const instantAnalyze = options?.instantAnalyze
   const instantAskOnly = Boolean(
@@ -739,7 +753,8 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.userRequestedPdf ||
     options?.userRequestedExcel ||
     options?.userRequestedChart ||
-    options?.userRequestedDiagram
+    options?.userRequestedDiagram ||
+    options?.userRequestedPptx
 
   let presentationProfileForTurn: PresentationProfile | undefined
   if (
@@ -930,7 +945,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const thinkingGeminiCacheSplit =
     thinking && isGeminiInstantEnabled() && !thinkingRichOpenAi && !thinkingDoc
   const thinkingOpenAiRichCacheSplit = thinking && thinkingRichOpenAi && !thinkingDoc
-  const thinkingStaticCacheSplit = thinkingGeminiCacheSplit || thinkingOpenAiRichCacheSplit
+  const thinkingOpenAiStandardCacheSplit =
+    thinking && !thinkingRichOpenAi && !isGeminiInstantEnabled() && !thinkingDoc
+  const thinkingOpenAiCacheSplit = thinkingOpenAiRichCacheSplit || thinkingOpenAiStandardCacheSplit
+  const thinkingStaticCacheSplit = thinkingGeminiCacheSplit || thinkingOpenAiCacheSplit
   if (
     thinking &&
     thinkingClarifyPhase === 'final' &&
@@ -1008,12 +1026,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
           openAiFinal: thinkingFinalOpenAi,
         })
     : ''
-  const thinkingRichOpenAiFinalCache =
-    thinkingOpenAiRichCacheSplit && thinkingClarifyPhase === 'final'
-  const thinkingRichOpenAiStepBlock = thinkingRichOpenAiFinalCache
+  const thinkingOpenAiFinalCache = thinkingOpenAiCacheSplit && thinkingClarifyPhase === 'final'
+  const thinkingOpenAiStepBlock = thinkingOpenAiFinalCache
     ? buildThinkingRichOpenAiReplyStepPrompt()
     : ''
-  const thinkingDynamicSystemPrefix = thinkingRichOpenAiFinalCache
+  const thinkingDynamicSystemPrefix = thinkingOpenAiFinalCache
     ? [
         baseQuiz,
         options?.systemPrompt?.trim() ?? '',
@@ -1023,6 +1040,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         pdfChatHint,
         chartChatHint,
         diagramChatHint,
+        pptxChatHint,
         mainChatThreadContinuity,
         truthBlock,
         toneBlock,
@@ -1031,19 +1049,23 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         .join('\n\n')
     : ''
   const thinkingBlock = thinking
-    ? thinkingStaticCacheSplit
-      ? thinkingOpenAiRichCacheSplit
-        ? buildThinkingRichOpenAiCachedKernel()
-        : buildThinkingReplyGeminiCachedSystem(thinkingOutputTierForGateway)
-      : [
-          getChatThinkingWorkflowInstruction(),
-          thinkingDoc ? getChatThinkingWordDocumentInstruction() : getAssistantThinkingMarkdownInstruction(),
-          thinkingDoc ? '' : getChatThinkingMixedLayoutInstruction(),
-          thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
-          thinkingTurnInstruction,
-        ]
-          .filter(Boolean)
-          .join('\n\n')
+    ? thinkingOpenAiRichCacheSplit
+      ? buildThinkingRichOpenAiCachedKernel()
+      : thinkingOpenAiStandardCacheSplit
+        ? buildThinkingStandardOpenAiCachedKernel()
+        : thinkingGeminiCacheSplit
+          ? buildThinkingReplyGeminiCachedSystem(thinkingOutputTierForGateway)
+          : [
+              getChatThinkingWorkflowInstruction(),
+              thinkingDoc
+                ? getChatThinkingWordDocumentInstruction()
+                : getAssistantThinkingMarkdownInstruction(),
+              thinkingDoc ? '' : getChatThinkingMixedLayoutInstruction(),
+              thinkingDoc ? '' : getChatThinkingDetailDepthInstruction(),
+              thinkingTurnInstruction,
+            ]
+              .filter(Boolean)
+              .join('\n\n')
     : ''
   const thinkingSupplementalSystem =
     thinkingStaticCacheSplit && thinkingTurnInstruction
@@ -1060,19 +1082,20 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
           ? getChatThinkingFinalAnswerUiReminder()
           : ''
   const combinedSystemPrompt = [
-    ...(thinkingRichOpenAiFinalCache ? [] : [baseQuiz]),
+    ...(thinkingOpenAiFinalCache ? [] : [baseQuiz]),
     ...(thinkingStaticCacheSplit ? [] : [getSecretSafetyInstruction(), getSwissGermanOrthographyInstruction()]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [options?.systemPrompt?.trim() ?? '']),
-    ...(thinkingRichOpenAiFinalCache ? [] : [learnChapterJsonRules]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [excelChatHint]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [wordChatHint]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [pdfChatHint]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [chartChatHint]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [diagramChatHint]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [mainChatThreadContinuity]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [truthBlock]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [toneBlock]),
-    ...(thinkingRichOpenAiFinalCache ? [] : [thinkingBlock]),
+    ...(thinkingOpenAiFinalCache ? [] : [options?.systemPrompt?.trim() ?? '']),
+    ...(thinkingOpenAiFinalCache ? [] : [learnChapterJsonRules]),
+    ...(thinkingOpenAiFinalCache ? [] : [excelChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [wordChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pdfChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [chartChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [diagramChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pptxChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [mainChatThreadContinuity]),
+    ...(thinkingOpenAiFinalCache ? [] : [truthBlock]),
+    ...(thinkingOpenAiFinalCache ? [] : [toneBlock]),
+    ...(thinkingOpenAiFinalCache ? [] : [thinkingBlock]),
     thinking
       ? ''
       : getAssistantMarkdownFormattingInstruction({
@@ -1096,13 +1119,13 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       : (content: string) => content
 
   const gatewaySystemMessages: GatewayMessage[] =
-    thinkingRichOpenAiFinalCache && thinkingBlock
+    thinkingOpenAiFinalCache && thinkingBlock
       ? [{ role: 'system', content: thinkingBlock }]
       : [{ role: 'system', content: combinedSystemPrompt }]
-  if (thinkingRichOpenAiStepBlock) {
+  if (thinkingOpenAiStepBlock) {
     gatewaySystemMessages.push({
       role: 'system',
-      content: thinkingRichOpenAiStepBlock,
+      content: thinkingOpenAiStepBlock,
     })
   }
   if (thinkingSupplementalSystem) {
@@ -1126,6 +1149,10 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
       if (message.role === 'user' && message.metadata?.userPdfCommand) {
         const t = content.trim()
         content = t ? `${t}\n\n${PDF_EXPORT_COMMAND_MARKER}` : PDF_EXPORT_COMMAND_MARKER
+      }
+      if (message.role === 'user' && message.metadata?.userPptxCommand) {
+        const t = content.trim()
+        content = t ? `${t}\n\n${PPTX_EXPORT_COMMAND_MARKER}` : PPTX_EXPORT_COMMAND_MARKER
       }
       if (isMainChat && !thinking && message.role === 'user') {
         const turnBlocks: string[] = []
@@ -1368,7 +1395,7 @@ const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v7'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v2'
-const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v7'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v8'
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -1577,6 +1604,10 @@ function buildChatCompletionRequestBody(
   const thinkingFinalOpenAi =
     thinking &&
     shouldRouteThinkingFinalToOpenAi(options?.thinkingAnalyze, lastUserTextForThinkingRouting)
+  const thinkingDocForCache =
+    thinking && (Boolean(options?.userRequestedWord) || Boolean(options?.userRequestedPdf))
+  const thinkingOpenAiStandardCacheSplit =
+    thinking && !thinkingRichOpenAi && !isGeminiInstantEnabled() && !thinkingDocForCache
   const customModelMeta = custom
     ? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
     : null
@@ -1675,7 +1706,9 @@ function buildChatCompletionRequestBody(
     body.promptCacheKey = thinking
       ? thinkingRichOpenAi
         ? OPENAI_PROMPT_CACHE_KEY_THINKING_RICH_REPLY
-        : OPENAI_PROMPT_CACHE_KEY_THINKING
+        : thinkingOpenAiStandardCacheSplit
+          ? OPENAI_PROMPT_CACHE_KEY_THINKING_STANDARD_REPLY
+          : OPENAI_PROMPT_CACHE_KEY_THINKING
       : mainChatPromptCacheKey(options?.mainChatThreadId, categoryActionModel)
     body.promptCacheRetention = '24h'
   }

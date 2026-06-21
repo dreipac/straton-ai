@@ -74,6 +74,10 @@ import {
   adminSetChatIntentModelRoutingDraft,
   adminDeployChatIntentModelRoutingDraft,
   getChatIntentModelRouting,
+  adminSetThinkingTaskTypeModelRoutingDraft,
+  adminSetThinkingTaskTypeTierDraft,
+  adminDeployThinkingTaskTypeModelRoutingDraft,
+  getThinkingTaskTypeModelRouting,
   getAppFeatureFlags,
   LEARN_AI_DEFAULT_OPENAI_MODEL,
   type LearnAiModelId,
@@ -86,6 +90,11 @@ import {
   CHAT_INTENT_MODEL_ROUTING_ENTRIES,
   type ChatIntentModelRoutingRow,
 } from '../features/chat/constants/chatIntentModelRouting'
+import {
+  THINKING_TASK_TYPE_MODEL_ROUTING_ENTRIES,
+  type ThinkingTaskTypeModelRoutingRow,
+  type ThinkingTaskTypeTier,
+} from '../features/chat/constants/thinkingTaskTypeModelRouting'
 import {
   estimateAiTokenCostsUsd,
   formatUsdEstimate,
@@ -229,6 +238,10 @@ function parseAnalyzeModelDraftValue(value: string): AnalyzeModelId {
 
 function chatIntentModelRoutingKey(category: string, action: string): string {
   return `${category}:${action}`
+}
+
+function parseThinkingTaskTypeTierDraftValue(value: string): ThinkingTaskTypeTier {
+  return value === 'rich' ? 'rich' : 'standard'
 }
 
 function parseChatIntentRoutingModelDraftValue(value: string): ChatIntentModelRoutingRow['modelActive'] {
@@ -457,6 +470,20 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [savingChatIntentModelRoutingKey, setSavingChatIntentModelRoutingKey] = useState<string | null>(null)
   const [isDeployingChatIntentModelRouting, setIsDeployingChatIntentModelRouting] = useState(false)
   const [chatIntentModelRoutingInfo, setChatIntentModelRoutingInfo] = useState<string | null>(null)
+  const [thinkingTaskTypeModelRoutingRows, setThinkingTaskTypeModelRoutingRows] = useState<
+    ThinkingTaskTypeModelRoutingRow[]
+  >([])
+  const [thinkingTaskTypeModelRoutingModelDrafts, setThinkingTaskTypeModelRoutingModelDrafts] = useState<
+    Record<string, AnalyzeModelId>
+  >({})
+  const [thinkingTaskTypeModelRoutingTierDrafts, setThinkingTaskTypeModelRoutingTierDrafts] = useState<
+    Record<string, ThinkingTaskTypeTier>
+  >({})
+  const [savingThinkingTaskTypeModelRoutingKey, setSavingThinkingTaskTypeModelRoutingKey] = useState<
+    string | null
+  >(null)
+  const [isDeployingThinkingTaskTypeModelRouting, setIsDeployingThinkingTaskTypeModelRouting] = useState(false)
+  const [thinkingTaskTypeModelRoutingInfo, setThinkingTaskTypeModelRoutingInfo] = useState<string | null>(null)
   const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
   const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
   const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
@@ -752,6 +779,40 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
           return
         }
         setChatIntentModelRoutingRows([])
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const rows = await getThinkingTaskTypeModelRouting()
+        if (!isMounted) {
+          return
+        }
+        setThinkingTaskTypeModelRoutingRows(rows)
+        setThinkingTaskTypeModelRoutingModelDrafts(
+          rows.reduce<Record<string, AnalyzeModelId>>((acc, row) => {
+            acc[row.taskType] = row.modelDraft
+            return acc
+          }, {}),
+        )
+        setThinkingTaskTypeModelRoutingTierDrafts(
+          rows.reduce<Record<string, ThinkingTaskTypeTier>>((acc, row) => {
+            acc[row.taskType] = row.tierDraft
+            return acc
+          }, {}),
+        )
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setThinkingTaskTypeModelRoutingRows([])
       }
     })()
 
@@ -1870,6 +1931,54 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleSaveThinkingTaskTypeModelRoutingDraft(taskType: string) {
+    const model = thinkingTaskTypeModelRoutingModelDrafts[taskType]
+    const tier = thinkingTaskTypeModelRoutingTierDrafts[taskType]
+    if (!model || !tier) {
+      return
+    }
+    setSubscriptionPlansError(null)
+    setThinkingTaskTypeModelRoutingInfo(null)
+    setSavingThinkingTaskTypeModelRoutingKey(taskType)
+    try {
+      await Promise.all([
+        adminSetThinkingTaskTypeModelRoutingDraft(taskType, model),
+        adminSetThinkingTaskTypeTierDraft(taskType, tier),
+      ])
+      setThinkingTaskTypeModelRoutingRows((prev) =>
+        prev.map((row) =>
+          row.taskType === taskType ? { ...row, modelDraft: model, tierDraft: tier } : row,
+        ),
+      )
+      setThinkingTaskTypeModelRoutingInfo(`Entwurf gespeichert: ${taskType} → ${tier} / ${model}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Modell-Routing-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setSavingThinkingTaskTypeModelRoutingKey(null)
+    }
+  }
+
+  async function handleDeployThinkingTaskTypeModelRoutingDraft() {
+    setSubscriptionPlansError(null)
+    setThinkingTaskTypeModelRoutingInfo(null)
+    setIsDeployingThinkingTaskTypeModelRouting(true)
+    try {
+      await adminDeployThinkingTaskTypeModelRoutingDraft()
+      setThinkingTaskTypeModelRoutingRows((prev) =>
+        prev.map((row) => ({ ...row, modelActive: row.modelDraft, tierActive: row.tierDraft })),
+      )
+      setThinkingTaskTypeModelRoutingInfo('Thinking-Modell-Routing deployt — alle Entwürfe sind jetzt aktiv.')
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Modell-Routing konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingTaskTypeModelRouting(false)
+    }
+  }
+
   async function handleToggleInstantAnalyzeDebugEnabled(nextEnabled: boolean) {
     setSubscriptionPlansError(null)
     setInstantAnalyzeDebugInfo(null)
@@ -2405,7 +2514,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 <p className="admin-subscriptions-field-label">Modell pro Kategorie &amp; Aktion (finale Antwort, Smart Instant)</p>
                 <p className="admin-users-hint">
                   Gilt nur für den Smart-Instant-Modus. Bild-Generierung/-Suche läuft über eine eigene Bild-API und
-                  ist hier nicht aufgeführt. Thinking-Modus nutzt weiterhin die Standard/Rich-Konfiguration oben.
+                  ist hier nicht aufgeführt. Für Thinking-Draft/-Reply gilt die Tabelle weiter unten pro
+                  Aufgabentyp; die Standard/Rich-Konfiguration oben betrifft nur noch Thinking-Review.
                 </p>
                 <table className="admin-token-usage-table">
                   <thead>
@@ -2470,6 +2580,105 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                 </div>
                 {chatIntentModelRoutingInfo ? (
                   <p className="admin-ai-info">{chatIntentModelRoutingInfo}</p>
+                ) : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Tier &amp; Modell pro Aufgabentyp (Thinking — Draft &amp; Reply)</p>
+                <p className="admin-users-hint">
+                  Gilt für Thinking-Entwurf und finale Antwort. Tier steuert die Prompt-Variante (Standard/Rich,
+                  z. B. Cards-Layout); Modell kann Gemini oder OpenAI sein — auch bei Tier «Rich» (kein
+                  automatischer Fallback auf OpenAI mehr). Review nutzt weiterhin die Standard/Rich-Dropdowns oben.
+                </p>
+                <table className="admin-token-usage-table">
+                  <thead>
+                    <tr>
+                      <th>Aufgabentyp</th>
+                      <th>Tier aktiv</th>
+                      <th>Tier-Entwurf</th>
+                      <th>Modell aktiv</th>
+                      <th>Modell-Entwurf</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {THINKING_TASK_TYPE_MODEL_ROUTING_ENTRIES.map((entry) => {
+                      const row = thinkingTaskTypeModelRoutingRows.find((r) => r.taskType === entry.taskType)
+                      const tierDraftValue =
+                        thinkingTaskTypeModelRoutingTierDrafts[entry.taskType] ?? row?.tierDraft ?? entry.defaultTier
+                      const modelDraftValue =
+                        thinkingTaskTypeModelRoutingModelDrafts[entry.taskType] ??
+                        row?.modelDraft ??
+                        entry.defaultModel
+                      const saving = savingThinkingTaskTypeModelRoutingKey === entry.taskType
+                      return (
+                        <tr key={entry.taskType}>
+                          <td>{entry.label}</td>
+                          <td>{row ? row.tierActive : entry.defaultTier}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={tierDraftValue}
+                              disabled={saving}
+                              aria-label={`Tier für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextTier = parseThinkingTaskTypeTierDraftValue(event.target.value)
+                                setThinkingTaskTypeModelRoutingTierDrafts((prev) => ({
+                                  ...prev,
+                                  [entry.taskType]: nextTier,
+                                }))
+                              }}
+                            >
+                              <option value="standard">Standard</option>
+                              <option value="rich">Rich</option>
+                            </select>
+                          </td>
+                          <td>{row ? labelForAnalyzeModel(row.modelActive) : labelForAnalyzeModel(entry.defaultModel)}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={modelDraftValue}
+                              disabled={saving}
+                              aria-label={`Modell für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextModel = parseAnalyzeModelDraftValue(event.target.value)
+                                setThinkingTaskTypeModelRoutingModelDrafts((prev) => ({
+                                  ...prev,
+                                  [entry.taskType]: nextModel,
+                                }))
+                              }}
+                            >
+                              {ANALYZE_MODEL_IDS.map((id) => (
+                                <option key={id} value={id}>
+                                  {labelForAnalyzeModel(id)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <SecondaryButton
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void handleSaveThinkingTaskTypeModelRoutingDraft(entry.taskType)}
+                            >
+                              {saving ? 'Speichern…' : 'Speichern'}
+                            </SecondaryButton>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="admin-subscriptions-create-row" style={{ marginTop: '0.6rem' }}>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isDeployingThinkingTaskTypeModelRouting}
+                    onClick={() => void handleDeployThinkingTaskTypeModelRoutingDraft()}
+                  >
+                    {isDeployingThinkingTaskTypeModelRouting ? 'Deployment läuft…' : 'Alle Entwürfe deployen'}
+                  </PrimaryButton>
+                </div>
+                {thinkingTaskTypeModelRoutingInfo ? (
+                  <p className="admin-ai-info">{thinkingTaskTypeModelRoutingInfo}</p>
                 ) : null}
               </div>
               <div className="chat-setting-row chat-setting-row--stacked">
