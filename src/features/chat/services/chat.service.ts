@@ -64,7 +64,7 @@ import {
   resolveThinkingGeminiModel,
 } from '../constants/geminiModels'
 import { buildThinkingReplyGeminiCachedSystem } from '../constants/thinkingGeminiPromptCache'
-import { resolveChatIntentModel } from '../constants/chatIntentModelRouting'
+import { resolveStickyChatActionModel } from '../constants/chatIntentModelRouting'
 import { ensureGeminiInstantFlagLoaded, isGeminiInstantEnabled } from './geminiInstantFlag'
 import {
   ensureThinkingGeminiModelsLoaded,
@@ -96,7 +96,14 @@ import {
   buildExcelSpecSonnetSystemPrompt,
   EXCEL_SPEC_CACHE_EPOCH,
 } from '../constants/excelExportPrompt'
-import { PPTX_CHAT_DOCUMENT_HTML_HINT, PPTX_EXPORT_COMMAND_MARKER } from '../constants/pptxExportPrompt'
+import {
+  buildPptxChatDocumentHtmlHint,
+  PPTX_CHAT_DOCUMENT_HTML_HINT,
+  PPTX_EDIT_CHAT_HINT,
+  PPTX_EDIT_CHAT_HINT_TEXT_ONLY,
+  PPTX_EXPORT_COMMAND_MARKER,
+  type PptxPresetKey,
+} from '../constants/pptxExportPrompt'
 import { AI_CACHE_TTL, getOrSetCachedResponse } from '../../../integrations/ai/aiResponseCache'
 import type { ChatComposerModelId } from '../constants/chatComposerModels'
 import { getChatComposerModelMeta } from '../constants/chatComposerModels'
@@ -236,6 +243,7 @@ import {
   buildWordChatDocumentBodyHint,
   isSummaryStyleDocumentExport,
 } from '../constants/documentExportIntent'
+import { detectObviousChatRoute, detectRouteHeuristic } from '../constants/instantAnalyzeRoute'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -276,6 +284,14 @@ export type SendMessageOptions = {
   userRequestedDiagram?: boolean
   /** Nutzer hat PowerPoint/PPTX angefragt: Modell liefert HTML-Folien (Vorschau); Datei erst nach «PowerPoint generieren». */
   userRequestedPptx?: boolean
+  /** Editier-Box in der Folien-Vorschau: Modell liefert einen Patch-Block statt eines vollen Foliensatzes. */
+  userRequestedPptxEdit?: boolean
+  /** Nummerierter aktueller Foliensatz für die Editier-Box — wird als Turn-Kontext an die letzte Nutzernachricht gehängt, nicht in den (cachebaren) Systemprompt. */
+  pptxEditCurrentDeckContext?: string
+  /** Vom Nutzer im Preset-Modal gewähltes Design — steuert das `data-theme`, das die KI bei einer Neugenerierung setzen MUSS (siehe `buildPptxChatDocumentHtmlHint`). Ohne Wert: alte freie Palettenwahl (Fallback). */
+  pptxSelectedPreset?: PptxPresetKey
+  /** Anker-Deck dieses Editier-Turns ist Preset-basiert (neu) → enger gefasster Text-only-Hint statt des alten freien Struktur-Patch-Hints (siehe `PPTX_EDIT_CHAT_HINT_TEXT_ONLY`). */
+  pptxEditTextOnly?: boolean
   /**
    * Optional: OpenAI-Modellreihenfolge für `chat-completion`.
    * Bei `useLearnPathModel`: Standard {@link LEARN_PATH_OPENAI_MODELS}, wenn leer.
@@ -635,8 +651,18 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   const excelChatHint = options?.userRequestedExcel ? EXCEL_CHAT_DOCUMENT_JSON_HINT : ''
   const chartChatHint = options?.userRequestedChart ? CHART_CHAT_DOCUMENT_JSON_HINT : ''
   const diagramChatHint = options?.userRequestedDiagram ? DIAGRAM_CHAT_DOCUMENT_JSON_HINT : ''
-  /** Ein Hint-Baustein, identisch in Instant und Thinking (keine getrennte, ggf. widersprüchliche Thinking-Variante). */
-  const pptxChatHint = options?.userRequestedPptx ? PPTX_CHAT_DOCUMENT_HTML_HINT : ''
+  /** Ein Hint-Baustein, identisch in Instant und Thinking (keine getrennte, ggf. widersprüchliche Thinking-Variante). Preset gesetzt → KI MUSS dieses Design verwenden statt frei zu wählen. */
+  const pptxChatHint = options?.userRequestedPptx
+    ? options?.pptxSelectedPreset
+      ? buildPptxChatDocumentHtmlHint(options.pptxSelectedPreset)
+      : PPTX_CHAT_DOCUMENT_HTML_HINT
+    : ''
+  /** Zusätzlich zum Schema-Hint: Editier-Box verlangt einen Patch statt eines vollen Foliensatzes — Text-only für NEUE (Preset-)Decks, sonst der alte freie Struktur-Patch-Hint. */
+  const pptxEditChatHint = options?.userRequestedPptxEdit
+    ? options?.pptxEditTextOnly
+      ? PPTX_EDIT_CHAT_HINT_TEXT_ONLY
+      : PPTX_EDIT_CHAT_HINT
+    : ''
   const isMainChat = !options?.useLearnPathModel
   const contextCap = options?.mainChatContextMaxTokens
   const visionPreparedMessages = isMainChat ? prepareChatMessagesForVisionGateway(messages) : messages
@@ -1042,6 +1068,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         chartChatHint,
         diagramChatHint,
         pptxChatHint,
+        pptxEditChatHint,
         mainChatThreadContinuity,
         truthBlock,
         toneBlock,
@@ -1093,6 +1120,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     ...(thinkingOpenAiFinalCache ? [] : [chartChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [diagramChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [pptxChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pptxEditChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [mainChatThreadContinuity]),
     ...(thinkingOpenAiFinalCache ? [] : [truthBlock]),
     ...(thinkingOpenAiFinalCache ? [] : [toneBlock]),
@@ -1165,6 +1193,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         }
         if (lastUserMessage && message.id === lastUserMessage.id) {
           turnBlocks.push(...lastUserTurnContextBlocks)
+          if (options?.pptxEditCurrentDeckContext) {
+            turnBlocks.push(options.pptxEditCurrentDeckContext)
+          }
         }
         content = prependMainChatTurnContextToUserContent(content, turnBlocks)
       }
@@ -1436,6 +1467,10 @@ const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v2'
 const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v8'
+/** Editier-Turns der Folien-Vorschau: eigener Key, da der Systemprompt (nur `pptxEditChatHint` aktiv) bei jedem Edit identisch ist — maximale Trefferquote unabhängig vom sonst genutzten Hauptchat-Modell. */
+const OPENAI_PROMPT_CACHE_KEY_PPTX_EDIT = 'straton-pptx-edit-v1'
+/** Feste, günstige Modellkette für PPTX-Edits — unabhängig vom gewählten Composer-Modell/Tageskontingent, da es sich um kleine, gezielte Patches handelt (siehe `submitPptxEditMessage`). */
+const PPTX_EDIT_OPENAI_MODELS = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'] as const
 
 function isAnthropicRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase()
@@ -1625,9 +1660,12 @@ function buildChatCompletionRequestBody(
     isSummaryStyleDocumentExport(options?.instantAnalyze, lastUserTextForThinkingRouting || undefined)
   const summaryInstantOpenAi =
     shouldRouteSummaryInstantToOpenAi(options?.instantAnalyze, thinking) || documentExportSummaryInstant
+  /** PPTX-Edits laufen nie über `instant_analyze` (siehe `useChat.ts`, `wantsInstantAnalyze`), brauchen aber trotzdem ein schnelles, günstiges, konsistent gecachtes Modell statt der Haupt-Tageskontingent-Kette. */
+  const pptxEditOpenAi = !thinking && Boolean(options?.userRequestedPptxEdit)
   const categoryActionModel =
     !thinking && !custom && !summaryInstantOpenAi && options?.instantAnalyze
-      ? resolveChatIntentModel(
+      ? resolveStickyChatActionModel(
+          messages,
           options.instantAnalyze.category,
           options.instantAnalyze.action,
           getChatIntentModelRoutingConfig(),
@@ -1661,9 +1699,11 @@ function buildChatCompletionRequestBody(
       ? customModelMeta.provider
       : summaryInstantOpenAi
         ? 'openai'
-        : categoryActionModel
+        : pptxEditOpenAi
           ? 'openai'
-          : providerForMainChat({ hasVision: gatewayHasVisionEarly })
+          : categoryActionModel
+            ? 'openai'
+            : providerForMainChat({ hasVision: gatewayHasVisionEarly })
   const meta =
     mainProvider === 'gemini'
       ? { provider: 'gemini' as const }
@@ -1676,7 +1716,9 @@ function buildChatCompletionRequestBody(
           }
         : summaryInstantOpenAi
           ? { provider: 'openai' as const, openAiModels: [...MAIN_CHAT_SUMMARY_OPENAI_MODELS] }
-          : customModelMeta ?? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
+          : pptxEditOpenAi
+            ? { provider: 'openai' as const, openAiModels: [...PPTX_EDIT_OPENAI_MODELS] }
+            : customModelMeta ?? getChatComposerModelMeta(options?.mainChatModelId ?? 'gpt-5.4-mini')
   const body: Record<string, unknown> = {
     mode: 'chat',
     provider: meta.provider,
@@ -1704,6 +1746,7 @@ function buildChatCompletionRequestBody(
   const routesGeminiInstantMain =
     !thinking &&
     !summaryInstantOpenAi &&
+    !pptxEditOpenAi &&
     !custom &&
     !categoryActionModel &&
     isGeminiInstantEnabled()
@@ -1722,6 +1765,8 @@ function buildChatCompletionRequestBody(
         : [...THINKING_OPENAI_MODEL_CHAIN]
     } else if (!options?.useLearnPathModel && !thinking && summaryInstantOpenAi) {
       body.openAiModels = [...MAIN_CHAT_SUMMARY_OPENAI_MODELS]
+    } else if (!options?.useLearnPathModel && !thinking && pptxEditOpenAi) {
+      body.openAiModels = [...PPTX_EDIT_OPENAI_MODELS]
     } else if (
       !options?.useLearnPathModel &&
       !thinking &&
@@ -1749,7 +1794,9 @@ function buildChatCompletionRequestBody(
         : thinkingOpenAiStandardCacheSplit
           ? OPENAI_PROMPT_CACHE_KEY_THINKING_STANDARD_REPLY
           : OPENAI_PROMPT_CACHE_KEY_THINKING
-      : mainChatPromptCacheKey(options?.mainChatThreadId, categoryActionModel)
+      : pptxEditOpenAi
+        ? OPENAI_PROMPT_CACHE_KEY_PPTX_EDIT
+        : mainChatPromptCacheKey(options?.mainChatThreadId, categoryActionModel)
     body.promptCacheRetention = '24h'
   }
   body.maxTokens = thinking
@@ -2325,6 +2372,14 @@ export async function extractChatDocumentsOnServer(params: {
   return { fileBlocks, documents }
 }
 
+// Stage 2E: In-memory cache for Edge Function results (TTL 60 s)
+const _instantAnalyzeCache = new Map<string, { result: InstantAnalyzeInvokeResult; ts: number }>()
+const INSTANT_ANALYZE_CACHE_TTL_MS = 60_000
+
+function _makeAnalyzeCacheKey(userMsg: string, contextBlock: string): string {
+  return `${userMsg.slice(0, 300)}||${contextBlock.slice(0, 200)}`
+}
+
 export async function instantAnalyzeUserMessage(params: {
   userMessage: string
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string; unsplashQuery?: string }>
@@ -2342,11 +2397,18 @@ export async function instantAnalyzeUserMessage(params: {
   const hasDocFile = params.hasDocumentFileAttachment === true
   const folderFileNames = params.folderContext?.files.map((file) => file.name.trim()).filter(Boolean) ?? []
   const hasFolderSourceFiles = folderFileNames.length > 0 && !hasDocFile
+
+  // Stage 1C: compute heuristic once here, reuse in applyInstantAnalyzeHeuristics
+  const precomputedDetection = trimmed
+    ? detectRouteHeuristic(trimmed, hasVision, params.priorTurns, hasDocFile || hasFolderSourceFiles)
+    : null
+
   const heuristicOpts = {
     priorTurns: params.priorTurns,
     hasVisionAttachment: hasVision,
     hasDocumentFileAttachment: hasDocFile || hasFolderSourceFiles,
     availableFolderFileNames: folderFileNames,
+    precomputedDetection,
   }
   if (!trimmed && !hasVision && !hasDocFile) {
     return { analyze: fallbackInstantAnalyzeResult('', params.priorTurns), source: 'fallback' }
@@ -2376,8 +2438,22 @@ export async function instantAnalyzeUserMessage(params: {
     }
   }
 
-  const contextBlock = params.priorTurns?.length
-    ? formatInstantAnalyzeContextLines(params.priorTurns)
+  // Stage 1A: skip Edge Function for obvious short follow-ups/acknowledgments
+  if (!hasVision && !hasDocFile && !hasFolderSourceFiles) {
+    const obviousChat = detectObviousChatRoute(trimmed)
+    if (obviousChat) {
+      const base = fallbackInstantAnalyzeResult(trimmed, params.priorTurns)
+      return {
+        analyze: applyInstantAnalyzeHeuristics(trimmed, { ...base, category: obviousChat.category, action: obviousChat.action }, heuristicOpts),
+        source: 'fallback',
+      }
+    }
+  }
+
+  // Stage 1B: cap prior turns to last 3 for the Edge Function payload (reduces token overhead)
+  const priorTurnsForAnalyze = params.priorTurns?.slice(-3)
+  const contextBlock = priorTurnsForAnalyze?.length
+    ? formatInstantAnalyzeContextLines(priorTurnsForAnalyze)
     : ''
   const structuralHints = [
     buildInstantAnalyzeStructuralHintForUserMessage(trimmed),
@@ -2393,6 +2469,13 @@ export async function instantAnalyzeUserMessage(params: {
   ].filter(Boolean)
   const userMessageForAnalyze =
     structuralHints.length > 0 ? `${structuralHints.join('')}${trimmed}` : trimmed
+
+  // Stage 2E: check cache before calling Edge Function
+  const cacheKey = _makeAnalyzeCacheKey(userMessageForAnalyze, contextBlock)
+  const cached = _instantAnalyzeCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < INSTANT_ANALYZE_CACHE_TTL_MS) {
+    return cached.result
+  }
 
   try {
     const supabase = getSupabaseClient()
@@ -2423,11 +2506,14 @@ export async function instantAnalyzeUserMessage(params: {
     const parsed = sanitizeInstantAnalyzeResult(data?.analyze)
     if (parsed) {
       const withHeuristics = applyInstantAnalyzeHeuristics(trimmed, parsed, heuristicOpts)
-      return {
+      const edgeResult: InstantAnalyzeInvokeResult = {
         analyze: withHeuristics,
         source: 'edge',
         analyzeFromAi: parsed,
       }
+      // Stage 2E: store in cache
+      _instantAnalyzeCache.set(cacheKey, { result: edgeResult, ts: Date.now() })
+      return edgeResult
     }
   } catch {
     /* Fallback unten */

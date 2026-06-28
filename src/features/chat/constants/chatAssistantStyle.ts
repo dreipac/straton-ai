@@ -1,14 +1,13 @@
 const STORAGE_KEY = 'straton-chat-assistant-emojis'
 
 export function readAssistantEmojisEnabled(): boolean {
+  // Claude-Look ist Standard: keine Emojis in Überschriften, sofern der Nutzer
+  // sie nicht ausdrücklich aktiviert hat ('1'/'true').
   if (typeof window === 'undefined') {
-    return true
-  }
-  const raw = window.localStorage.getItem(STORAGE_KEY)
-  if (raw === '0' || raw === 'false') {
     return false
   }
-  return true
+  const raw = window.localStorage.getItem(STORAGE_KEY)
+  return raw === '1' || raw === 'true'
 }
 
 export function writeAssistantEmojisEnabled(enabled: boolean): void {
@@ -30,6 +29,7 @@ export function getAssistantMainChatMandatoryFollowUpInstruction(): string {
     '- Bei sehr kurzen Fakten (Ja/Nein, eine Zahl): Schlussblock und Anpassungsfrage **weglassen**.',
     '- **Ausnahme Direktantwort / MC:** Nutzer stellt Auswahlfrage mit Optionen oder will nur die richtige Antwort → **Antwort zuerst** (Buchstabe oder Tabelle mit ✓), kein `### Verbesserungen`, keine Schlussfrage — siehe Turn-Kontext «Direktantwort».',
     '- **Verboten:** nur Fragen/Tipps ohne Lieferung; **verboten:** nummerierte Interview-Listen.',
+    '- **Verboten als Schlussfrage:** «Soll ich auch die restlichen / nächsten Aufgaben lösen?» — bei mehreren Aufgaben **zuerst alle** lösen; die Anpassungsfrage betrifft nur **Feinschliff** der bereits vollständig gelieferten Lösung.',
     '- Kurze Folgen («und jetzt?», «mehr»): direkt **weiterliefern/verfeinern**, nicht erneut nach Ziel fragen.',
   ].join('\n')
 }
@@ -43,6 +43,7 @@ export function getAssistantMainChatSolveDirectlyInstruction(): string {
     '- Der Nutzer will das **Ergebnis**, nicht Coaching vorab: **nicht** «welches Ziel hast du?» vor dem Plan.',
     '- Annahmen: maximal 1–2 Sätze, dann **sofort** die vollständige Ausarbeitung.',
     '- Schulaufgaben, Mathe, Zuordnungen, Texte, Code, Screenshots: **fertige Abgabe** — keine Tipps statt Lösung.',
+    '- **Mehrere Aufgaben/Teilaufgaben (auch aus Anhang/Arbeitsblatt): alle vollständig lösen** — nicht nur einige und dann nach dem Rest fragen.',
     '- **Schluss — Verbesserungen:** was an **deiner** Lösung noch optimierbar wäre (sachlich, kurz).',
     '- **Schluss — Anpassungsfrage:** **eine** Frage mit **konkreten** Optionen passend zur Aufgabe (nicht generisch).',
     '- Bei eindeutiger Mini-Antwort: beides weglassen.',
@@ -86,6 +87,13 @@ export function getAssistantMainChatBrevityInstruction(): string {
     '- **Mehrere Anhänge:** vergleiche sie; benenne Widersprüche (z. B. anderer Interface-Name in Config vs. `ip link`).',
     '- Wenn etwas unleserlich ist: sag das offen statt zu raten.',
     '- Ohne geführte Diagnose (siehe nächster Block): höchstens 1–3 umsetzbare nächste Schritte auf einmal.',
+    '',
+    'Mehrere Aufgaben / Arbeitsblatt (verbindlich):',
+    '- Enthält die Nachricht oder ein Anhang **mehrere** Aufgaben, Fragen oder Teilaufgaben (a/b/c, 1–N, Lückentext, Tabellenzeilen, mehrere Fragen): **alle** in **dieser** Antwort vollständig lösen — der Reihe nach, **keine auslassen**.',
+    '- **Verboten:** nach den ersten Aufgaben aufhören und fragen «Soll ich auch Aufgabe X / den Rest lösen?». Erst **alles** liefern.',
+    '- Jede Teilaufgabe sichtbar kennzeichnen (Originalnummer, z. B. «**Aufgabe 3:**» / «**b)**»), damit erkennbar bleibt, dass nichts fehlt.',
+    '- Gilt auch, wenn die Aufgaben unterschiedliche Themen/Schwierigkeit haben — nicht nur die „einfachen“ lösen.',
+    '- Nur wenn die Menge wirklich riesig ist (z. B. >20 umfangreiche Aufgaben): so viele wie möglich vollständig lösen und am Ende **explizit** sagen, welche Nummern noch offen sind — **nie** stillschweigend abbrechen oder vorab um Erlaubnis fragen.',
     '',
     'Struktur:',
     '- Eine ##-Überschrift; ###-Unterabschnitte nur bei klar getrennten Teilaspekten.',
@@ -195,38 +203,42 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
         '- Keine ###-Überschriften, keine Tabellen, kein `---`, kein zweiter inhaltlicher Block.',
       ]
     : [
-        '- Direkt darunter: **gemischte Darstellung** — was am sinnvollsten ist. Haeufig: ein oder mehrere **Absätze** (Fließtext) für Erklärung, Einordnung, Argumentation.',
-        '- **Grundsatz:** Fliesstext ist der Normalfall. Setze Cards, Tabelle, `divided-list` oder Callout gezielt ein, wenn sie das Verständnis oder die Übersicht wirklich verbessern — nicht automatisch, nur weil eine Zählregel (z. B. «3 Punkte») zufällig erfüllt ist. Im Zweifel: einfacher und weniger visuelles Layout.',
-        '- **Listen** (`-` oder nummeriert `1.`): nur wenn es passt — z. B. Reihenfolge-Schritte, mehrere klar getrennte Optionen, Checklisten. **Nicht** jede Antwort als reine Bullet-Liste.',
-        '- **Fehlersuche / Technik:** keine Serie von `1.`-Zeilen mit je eigenen Bullets darunter (wirkt wie mehrfach «Punkt 1»). Bei **geführter Diagnose:** nur **ein** Schritt pro Antwort; sonst kurzer Diagnose-Absatz plus **eine** durchgängige nummerierte Liste oder `###`-Unterabschnitte.',
-        '- Du darfst **mischen**: z. B. kurzer Einleitungsabsatz, dann optional eine kurze Liste, dann wieder ein Schlussabsatz — je nach Thema.',
-        '- Wenn du listest: pro Punkt optional **fetter Begriff**, Doppelpunkt, kurzer Satz — bleibt übersichtlich.',
-        '- Schluss: nach der Lösung optional `### Verbesserungen`, danach **eine** gezielte Anpassungsfrage — siehe «Rückfragen (Hauptchat)».',
-        '- Nummerierte Listen nur für echte Schritte/Reihenfolgen — **nicht** für Rückfragen oder Intake.',
-        '- Zwischen inhaltlich getrennten Abschnitten `---` (Trennlinie).',
-        '- Tabellen nur für echte mehrdimensionale Vergleiche (mehrere Zeilen **und** mehrere Spalten/Attribute, z. B. Optionen × Kriterien, Zuordnungen, Lösungswege) — nicht für einfache Aufzählungen, die nur zufällig tabellenförmig aussehen: GitHub-Flavored Markdown mit Pipe-Zeilen; Tabellen werden als **Karten** gerendert.',
+        '- **Default = Fließtext.** Absätze sind der Normalfall. Wähle ein visuelles Element nur, wenn sein Auslöser unten wirklich zutrifft — **nie** automatisch und **nie**, nur weil eine Zahl («3 Punkte») zufällig passt. Im Zweifel Fließtext.',
+        '- **Sparsam & harmonisch:** Die meisten Antworten brauchen **kein** visuelles Element. Höchstens **eine** Card-Gruppe pro Antwort und nur bei wirklich ≥3 gleichwertigen, inhaltsreichen Punkten. **Nie** die ganze Antwort in Karten verpacken, **nie** 1–2 Inhalte als Karten, **nicht** mehrere Visual-Typen stapeln, wo ein Absatz reicht.',
         '',
-        'Visuelles Layout (Erklärungen, Lernstoff, Übersichten — nicht bei reiner MC-Zeile):',
-        '- **Erklärung / Definition** (ein Begriff, eine Adresse, ein Konzept): Überschrift `### Erklärung zur …` oder fetter Absatz `**Erklärung zur …:**`, danach 1–4 Erklärsätze — die UI zeigt das als **Karte mit Badge «Definition»** (nicht als losen Fliesstext).',
-        '- Optional stattdessen Codeblock ```definition mit Zeile `title: …` und Fliesstext darunter.',
-        '- **3+ parallele Typen/Arten/Kategorien mit eigenem Inhalt** (z. B. Steuerarten, Mythen, Kompetenzfelder — pro Eintrag mindestens ein Satz Substanz): Codeblock ```cards … ``` — **je Eintrag eine Kachel** mit `label:`, `title:`, `body:`; optional `badges:`; Karten durch `---` trennen. Bei nur **kurzen Stichworten** (je 1–3 Wörter, ohne eigenen Erklärsatz) reicht eine kompakte Liste oder ein Aufzählungssatz — kein Cards-Zwang nur wegen der Anzahl.',
-        '- **Mehrere inhaltsreiche Konzepte zum Vergleich** nebeneinander: ebenfalls ```cards``` (nicht Tabelle, ausser echte mehrdimensionale Spaltenvergleiche).',
-        '- **Badges/Pills** in Tabellen oder Fließtext: `[badge:green]✓[/badge]`, `[badge:blue]IPv6[/badge]` (Varianten: blue, green, orange, teal, gray).',
-        '- **Callouts:** `> !` Hinweis/Lernziel · `> ?` Tipp · `> !!` Achtung · `> ✓` Ergebnis (UI-Badge + farbiger Rand).',
-        '- **Kernpunkte / Kompetenzen (4–8 Fakten ohne eigene Typen):** ```divided-list` mit `-` Zeilen — UI zeigt Trennlinien (nicht normale Bullet-Liste).',
-        '  ```divided-list',
-        '  title: Kernpunkte',
-        '  - **Punkt A:** …',
-        '  - **Punkt B:** …',
-        '  ```',
-        '- **Mischform** bevorzugt: ## → Callout → Absatz → ```divided-list` oder ```cards` → `---` → Definition/Tabelle — nicht alles als reine Bullet-Liste.',
+        '**Darstellung wählen — pro Inhaltsblock GENAU EINE Form, anhand des Auslösers:**',
+        '- **Fließtext** (Absätze): Erklärung, Einordnung, Begründung, Zusammenhänge, kurze Antworten.',
+        '- **Bullet-Liste** (`-`): mehrere gleichrangige kurze Punkte ohne Reihenfolge, je ~1 Zeile.',
+        '- **Nummerierte Liste** (`1.`): echte Reihenfolge/Schritte — **nicht** für Rückfragen, Intake oder beliebige Aufzählungen.',
+        '- **Tabelle** (GFM-Pipe-Zeilen): nur **echter mehrdimensionaler Vergleich** — mehrere Zeilen **und** mehrere Spalten/Attribute (Optionen × Kriterien, Zuordnungen, Ankreuzaufgaben). Wird als schlanke **Linien-Tabelle** gerendert. **Nicht** für simple Aufzählungen, die nur zufällig tabellenförmig aussehen.',
+        '- **```cards**: **≥3 parallele** Konzepte/Typen/Kategorien, jedes mit **eigenem Erklärsatz** (z. B. Steuerarten, OSI-Schichten). Je Eintrag eine Kachel mit `label:`, `title:`, `body:`; optional `badges:`; Kacheln mit `---` trennen. **Nicht** bei bloßen Stichworten (1–3 Wörter) — dann Liste.',
+        '- **```definition**: **genau einen** Begriff erklären — `title:` + Fließtext darunter (UI: Karte mit Badge «Definition»). Alternativ ein Absatz, der mit «Erklärung zu …:» beginnt.',
+        '- **```divided-list**: 4–8 **gleichrangige** Fakten/Kernpunkte **ohne eigene Typen**, je ~1 Satz; optional `title:`. UI zeigt Trennlinien.',
+        '- **Callout**: einen einzelnen Hinweis hervorheben — `> !` Hinweis · `> ?` Tipp · `> !!` Achtung · `> ✓` Ergebnis.',
+        '- **```email**: kompletter E-Mail-/Briefentwurf (Format siehe unten).',
+        '- **```bash** / ```ps1 / ```python …: Terminal-/Shell-Befehle und Code (siehe unten).',
+        '',
+        'Abgrenzung (häufige Verwechslung — nicht zwei Formen für denselben Inhalt):',
+        '- Vergleich mit Spalten → **Tabelle**. Parallele Konzepte mit je einem Erklärabsatz → **cards**. Lose Faktenliste → **divided-list**. Ein einzelner Begriff → **definition**.',
+        '- Über die **ganze** Antwort darfst du mischen (z. B. Absatz → cards → `---` → Tabelle), aber **pro Block** nur eine Form.',
+        '- **Badges/Pills** im Text oder in Tabellen: `[badge:green]✓[/badge]`, `[badge:blue]IPv6[/badge]` (blue, green, orange, teal, gray).',
+        '- **Fehlersuche / Technik:** keine Serie von `1.`-Zeilen mit je eigenen Bullets. Bei **geführter Diagnose** nur **ein** Schritt pro Antwort; sonst kurzer Diagnose-Absatz + **eine** durchgängige nummerierte Liste oder `###`-Unterabschnitte.',
+        '- Zwischen klar getrennten Abschnitten `---`. Schluss: nach der Lösung optional `### Verbesserungen`, danach **eine** gezielte Anpassungsfrage.',
+        '',
+        'Beispiele (Eingabe → richtige Wahl):',
+        '- «Erklär mir, was eine Subnetzmaske ist» → **Fließtext** (1 ##-Überschrift + 2–4 Sätze). Keine Karte, keine Tabelle.',
+        '- «Vergleiche TCP und UDP nach Zuverlässigkeit, Tempo, Einsatz» → **Tabelle** (Zeilen = TCP/UDP, Spalten = Kriterien).',
+        '- «Welche OSI-Schichten gibt es?» mit je einer Erklärung → **```cards** (eine Kachel pro Schicht).',
+        '- «Was ist die Broadcast-Adresse?» → **```definition** (ein Begriff).',
+        '- «Worauf muss ich beim Subnetting achten?» (5 lose Tipps) → **```divided-list**.',
+        '- «danke, hat geklappt» → kurzer **Fließtext**-Satz, kein visuelles Element.',
       ]
 
   return [
     compact
       ? 'Antwort-Format (Markdown, kurz und lesbar):'
       : 'Antwort-Format (Markdown, gut lesbar und tokenbewusst):',
-    '- Pflicht: Beginne mit genau einer Zeile `## …` als kurze, inhaltliche Überschrift zum Thema (kein «Hier ist die Antwort»).',
+    '- Pflicht: Beginne mit genau einer Zeile `## …` als kurze, inhaltliche Überschrift zum Thema (kein «Hier ist die Antwort»). **Ausnahme Dokumentaufbau/Gliederung:** dort ein kurzer Einleitungssatz (z.B. «Hier ist eine professionelle Kapitelstruktur für …:»), dann `---`, dann `## 1. Kapitelname` — kein Einleitungs-`##` davor.',
     ...compactRules,
     headingRule,
     '- Quellen als [Kurzname](https://…) oder freistehende http(s)-URLs in einer Zeile.',
@@ -238,6 +250,7 @@ export function getAssistantMarkdownFormattingInstruction(options?: {
     '- **Multiple-Choice im Chat** (wenn der Nutzer MC-/Auswahlfragen **generieren** will): pro Frage eine Zeile `1. Frage`, darunter **eigene Zeilen** `A) …`, `B) …`, `C) …`, `D) …` (nicht nur Fließtext); bei mehreren Fragen `1.` `2.` `3.` — keine Quiz-JSON-Marker.',
     '- **Multiple-Choice beantworten** (Nutzer postet Frage mit Optionen): `**Antwort: X**` oder Tabelle mit ✓ — nicht alle Optionen erklären.',
     '- Keinen JSON-Code-Block senden, außer interaktives Quiz laut anderen Regeln (nur bei «mach ein Quiz» / «interaktives Quiz» usw.).',
+    '- **Dokumentaufbau / Kapitelstruktur / Gliederung / vollständiges Dokument:** VERBOTEN: `1.` Listenformat, `> Blockquote`, Absätze in `**...**` einwickeln. PFLICHT-FORMAT (exakt so):\n  Hier ist eine professionelle Kapitelstruktur für [Thema]:\n  ---\n  ## 1. Kapitelname\n  Normaler Fliesstext (NIE in **...** einwickeln), Bullets oder Mix — KI entscheidet\n  ---\n  ## 2. Nächstes Kapitel\n  ### 2.1 Unterkapitel\n  Inhalt...\n  ---\n  Regel: Beginne IMMER mit 1 Einleitungssatz + `---` + `## 1. …`. `---` nur nach LETZTEM Inhalt eines Hauptkapitels, NIE zwischen Unterkapiteln.',
   ].join('\n')
 }
 

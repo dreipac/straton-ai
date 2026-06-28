@@ -11,7 +11,14 @@ import { stripDiagramCommandMarker, userWantsDiagramExport } from '../constants/
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
 import { stripWordCommandMarker, userWantsWordExport } from '../constants/wordExportPrompt'
 import { stripPdfCommandMarker, userWantsPdfExport } from '../constants/pdfExportPrompt'
-import { stripPptxCommandMarker, userWantsPptxExport } from '../constants/pptxExportPrompt'
+import {
+  PPTX_EDIT_COMMAND_MARKER,
+  PPTX_PRESET_DISPLAY,
+  stripPptxCommandMarker,
+  userWantsPptxEdit,
+  userWantsPptxExport,
+  type PptxPresetKey,
+} from '../constants/pptxExportPrompt'
 import {
   CHAT_COMPOSER_MODEL_STORAGE_KEY,
   type ChatComposerModelId,
@@ -30,6 +37,8 @@ import {
 } from '../constants/chatThinkingMode'
 import type { ChatDailyOpenAiTierConfig } from '../constants/chatDailyOpenAiTier'
 import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../constants/mainChatContext'
+import { resolveStickyChatActionModel } from '../constants/chatIntentModelRouting'
+import { getChatIntentModelRoutingConfig } from '../services/chatIntentModelRoutingFlag'
 import {
   generateChatImageFromPrompt,
   generateChatTitleWithAi,
@@ -54,6 +63,7 @@ import {
   folderFilesToDocumentAttachments,
   resolveFolderFilesToLoad,
   resolveShouldUseFolderSources,
+  userMessageWantsFolderSources,
   type ChatThreadFolderContext,
 } from '../constants/folderSourceIntent'
 import { isThinkingContinuationFollowUp } from '../constants/thinkingPipeline'
@@ -127,6 +137,7 @@ import {
   listMessagesForThread,
   mapMessage,
   touchChatThread,
+  updateChatMessageContent,
   updateChatThreadTitle,
   type ChatMessageRow,
 } from '../services/chat.persistence'
@@ -146,11 +157,24 @@ import {
   extractPdfOutlineFromThread,
 } from '../pdf/pdfOutline'
 import {
+  applyPptxPatchToSlides,
+  applyPptxTextOnlyPatchToSlides,
+  buildPptxEditContextBlock,
   buildPptxExportHtml,
   canFinalizePptxExportFromThread,
   extractPptxSlidesFromThread,
   extractPptxSlideTitle,
+  findPptxExportTargetMessage,
+  hasPptxPatchMarkers,
+  parsePptxPatchFromContent,
+  parsePptxSlidesFromAssistantContent,
+  parsePptxTextPatchFromContent,
+  PPTX_PRESET_LEGACY_THEME_FALLBACK,
+  type PptxSlide,
 } from '../utils/pptxOutline'
+
+/** Ergebnis von `submitPptxEditMessage` — entweder erfolgreich aufgelöster Patch ODER vom Modell abgelehnter, nicht umsetzbarer Wunsch (siehe `PPTX_EDIT_UNSUPPORTED_RULE`). */
+export type PptxEditResult = { messageId: string; slides: PptxSlide[] } | { unsupported: true; message: string }
 import { buildInstantAnalyzeDebugMeta } from '../constants/instantAnalyze'
 import { buildThinkingAnalyzeDebugMeta } from '../constants/thinkingAnalyze'
 import {
@@ -481,6 +505,8 @@ export function useChat(
   )
   const removeTimersRef = useRef<Record<string, number>>({})
   const loadedMessageThreadIdsRef = useRef<Set<string>>(new Set())
+  /** Letztes Ergebnis eines Editier-Turns (Patch aufgelöst ODER als "nicht umsetzbar" abgelehnt) — `submitMessage` selbst gibt nichts zurück, daher hier zwischenlegen, damit `submitPptxEditMessage` das Modal nach Abschluss entsprechend aktualisieren kann. */
+  const pptxEditResultRef = useRef<PptxEditResult | null>(null)
 
   useEffect(() => {
     if (options?.isSuperadmin === true) {
@@ -1206,24 +1232,25 @@ export function useChat(
       })
       const meta = { ...(targetAssistant.metadata ?? {}) }
       delete meta.liveStream
+      const updatedMeta = { ...meta, wordExport: wordResult.wordExport }
       const updated: ChatMessage = {
         ...targetAssistant,
-        content: wordResult.displayContent,
-        metadata: {
-          ...meta,
-          wordExport: wordResult.wordExport,
-        },
+        metadata: updatedMeta,
       }
+      // Restore original content in DB (edge function overwrites it with displayContent)
+      await updateChatMessageContent(targetAssistant.id, targetAssistant.content, updatedMeta)
       setMessagesByThreadId((prev) => ({
         ...prev,
         [activeThreadId]: (prev[activeThreadId] ?? []).map((m) => (m.id === targetAssistant.id ? updated : m)),
       }))
       void options?.onProfileMemoryUpdated?.()?.catch(() => {})
+      return wordResult.wordExport
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Word-Export ist fehlgeschlagen.')
     } finally {
       setWordFinalizeBusy(false)
     }
+    return undefined
   }
 
   async function finalizeExcelDocumentExport() {
@@ -1318,14 +1345,13 @@ export function useChat(
       })
       const meta = { ...(targetAssistant.metadata ?? {}) }
       delete meta.liveStream
+      const updatedMeta = { ...meta, pdfExport: pdfResult.pdfExport }
       const updated: ChatMessage = {
         ...targetAssistant,
-        content: pdfResult.displayContent,
-        metadata: {
-          ...meta,
-          pdfExport: pdfResult.pdfExport,
-        },
+        metadata: updatedMeta,
       }
+      // Restore original content in DB (edge function overwrites it with displayContent)
+      await updateChatMessageContent(targetAssistant.id, targetAssistant.content, updatedMeta)
       setMessagesByThreadId((prev) => ({
         ...prev,
         [activeThreadId]: (prev[activeThreadId] ?? []).map((m) => (m.id === targetAssistant.id ? updated : m)),
@@ -1357,7 +1383,8 @@ export function useChat(
     if (!slides) {
       return
     }
-    const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.pptxExport)
+    /** Immer der Anker (die ursprüngliche Präsentations-Nachricht) — nie ein versteckter Editier-Turn, auch wenn der bereits einen (jetzt veralteten) `pptxExport` trägt. */
+    const targetAssistant = findPptxExportTargetMessage(list)
     if (!targetAssistant) {
       return
     }
@@ -1377,7 +1404,7 @@ export function useChat(
         content: pptxResult.displayContent,
         metadata: {
           ...meta,
-          pptxExport: pptxResult.pptxExport,
+          pptxExport: { ...pptxResult.pptxExport, slides },
         },
       }
       setMessagesByThreadId((prev) => ({
@@ -1420,6 +1447,10 @@ export function useChat(
     let wantsPdf = !wantsWord && userWantsPdfExport(content)
     let wantsExcel = !wantsWord && !wantsPdf && userWantsExcelExport(content)
     let wantsPptx = !wantsWord && !wantsPdf && !wantsExcel && userWantsPptxExport(content)
+    /** Editier-Box in der Folien-Vorschau: gezielte Änderung statt Neugenerierung — siehe `submitPptxEditMessage`. */
+    const wantsPptxEdit = wantsPptx && userWantsPptxEdit(content)
+    /** Editier-Turns laufen immer über Smart Instant — schnelle Rückmeldung für gezielte Änderungen, unabhängig vom globalen Thinking-Toggle. */
+    const effectiveThinkingMode: ChatThinkingMode = wantsPptxEdit ? 'normal' : chatThinkingMode
     let wantsChart =
       !wantsWord && !wantsPdf && !wantsExcel && !wantsPptx && userWantsChartExport(content)
     let wantsDiagram =
@@ -1488,7 +1519,7 @@ export function useChat(
     let imageGenPrompt: string | null = null
     let imageSearchQuery: string | null = null
 
-    if (chatThinkingMode === 'thinking') {
+    if (effectiveThinkingMode === 'thinking') {
       const composerRouteLockedEarly =
         wantsWord ||
         wantsPdf ||
@@ -1560,7 +1591,7 @@ export function useChat(
 
     let wantsThinkingTurn =
       usesGatewayAi() &&
-      chatThinkingMode === 'thinking' &&
+      effectiveThinkingMode === 'thinking' &&
       !wantsExcel &&
       !wantsChart &&
       !wantsDiagram &&
@@ -1682,7 +1713,7 @@ export function useChat(
       const folderFileNames =
         folderContext?.files.map((file) => file.name.trim()).filter(Boolean) ?? []
 
-      if (chatThinkingMode !== 'thinking') {
+      if (effectiveThinkingMode !== 'thinking') {
         imageSearchQuery =
           !imageGenPrompt &&
           !wantsWord &&
@@ -1848,11 +1879,14 @@ export function useChat(
         ...(wantsExcel ? { userExcelCommand: true as const } : {}),
         ...(wantsWord ? { userWordCommand: true as const } : {}),
         ...(wantsPdf ? { userPdfCommand: true as const } : {}),
-        ...(wantsPptx ? { userPptxCommand: true as const } : {}),
+        ...(wantsPptx && !wantsPptxEdit ? { userPptxCommand: true as const } : {}),
         ...(wantsChart ? { userChartCommand: true as const } : {}),
         ...(wantsDiagram ? { userDiagramCommand: true as const } : {}),
         ...(wantsDirectAnswer ? { userDirectAnswerCommand: true as const } : {}),
         ...(sendOpts?.quizFormat ? { userQuizFormat: sendOpts.quizFormat } : {}),
+        ...(sendOpts?.pptxEditAnchorMessageId
+          ? { pptxEditAnchorMessageId: sendOpts.pptxEditAnchorMessageId }
+          : {}),
         ...(documentAttachments.length > 0
           ? {
               documentAttachments: documentAttachments.map((attachment) => ({
@@ -1924,7 +1958,7 @@ export function useChat(
 
       const wantsInstantAnalyze =
         usesGatewayAi() &&
-        chatThinkingMode !== 'thinking' &&
+        effectiveThinkingMode !== 'thinking' &&
         !wantsWord &&
         !wantsPdf &&
         !wantsExcel &&
@@ -1978,6 +2012,21 @@ export function useChat(
 
       try {
         if (wantsInstantAnalyze) {
+          // Stage 2D: start folder content extraction in parallel with instant analyze
+          // when the heuristic already knows folder sources are needed (no analyze result required)
+          const heuristicWantsFolderSources =
+            folderContext != null &&
+            folderContext.files.length > 0 &&
+            documentAttachments.length === 0 &&
+            userMessageWantsFolderSources(routingText, folderFileNames)
+
+          let speculativeFolderPromise: Promise<{ fileBlocks: string }> | null = null
+          if (heuristicWantsFolderSources) {
+            const filesToLoad = resolveFolderFilesToLoad(routingText, folderContext!.files)
+            const attachments = folderFilesToDocumentAttachments(filesToLoad)
+            speculativeFolderPromise = extractChatDocumentsOnServer({ attachments, signal })
+          }
+
           const invokeResult = await instantAnalyzeUserMessage({
             userMessage: routingText,
             priorTurns,
@@ -1987,10 +2036,51 @@ export function useChat(
             signal,
           })
           instantAnalyze = invokeResult.analyze
-          try {
-            await injectFolderSourcesIfNeeded(instantAnalyze)
-          } catch {
-            return
+
+          if (speculativeFolderPromise) {
+            const shouldUse = resolveShouldUseFolderSources({
+              userMessage: routingText,
+              fileNames: folderFileNames,
+              hasDirectDocumentAttachment: documentAttachments.length > 0,
+              analyze: instantAnalyze,
+            })
+            if (shouldUse) {
+              setSendPhase('document_processing')
+              let folderData: { fileBlocks: string } | null = null
+              try {
+                folderData = await speculativeFolderPromise
+              } catch (extractErr) {
+                if (!isAbortErrorLike(extractErr)) {
+                  setError(
+                    extractErr instanceof Error
+                      ? extractErr.message
+                      : 'Ordner-Dateien konnten nicht gelesen werden.',
+                  )
+                }
+                dropOptimisticUserMessage()
+                return
+              }
+              if (folderData) {
+                userContent = stripEmptyDateiPlaceholders(userContent)
+                userContent = [userContent, folderData.fileBlocks].filter(Boolean).join('\n\n')
+                if (!userContent.trim()) {
+                  userContent = 'Bitte werte die Ordner-Dateien aus.'
+                }
+                hasDocumentFileAttachment = true
+                syncOptimisticUserMessage(
+                  userContent,
+                  Object.keys(userMetadataBase).length > 0 ? userMetadataBase : undefined,
+                )
+              }
+            }
+            // if shouldUse is false: discard speculative result, injectFolderSourcesIfNeeded
+            // will also return false since heuristic was the only trigger
+          } else {
+            try {
+              await injectFolderSourcesIfNeeded(instantAnalyze)
+            } catch {
+              return
+            }
           }
 
           const composerRouteLocked =
@@ -2127,7 +2217,7 @@ export function useChat(
             delete userMetadataBase.userPdfCommand
             delete userMetadataBase.userPptxCommand
             delete userMetadataBase.userChartCommand
-          } else if (wantsPptx) {
+          } else if (wantsPptx && !wantsPptxEdit) {
             userMetadataBase.userPptxCommand = true
             delete userMetadataBase.userWordCommand
             delete userMetadataBase.userPdfCommand
@@ -2236,7 +2326,7 @@ export function useChat(
       }
 
       const wantsThinkingMediaAnalyze =
-        chatThinkingMode === 'thinking' &&
+        effectiveThinkingMode === 'thinking' &&
         usesGatewayAi() &&
         !wantsWord &&
         !wantsPdf &&
@@ -2365,7 +2455,7 @@ export function useChat(
           }
           wantsThinkingTurn =
             usesGatewayAi() &&
-            chatThinkingMode === 'thinking' &&
+            effectiveThinkingMode === 'thinking' &&
             !wantsExcel &&
             !wantsChart &&
             !wantsDiagram &&
@@ -2971,9 +3061,13 @@ export function useChat(
             userRequestedChart: wantsChart,
             userRequestedDiagram: wantsDiagram,
             userRequestedPptx: wantsPptx,
+            userRequestedPptxEdit: wantsPptxEdit,
+            pptxEditCurrentDeckContext: sendOpts?.pptxEditCurrentDeckContext,
+            pptxSelectedPreset: sendOpts?.pptxSelectedPreset,
+            pptxEditTextOnly: Boolean(sendOpts?.pptxEditCurrentSlides?.[0]?.preset),
             mainChatModelId: effectiveComposerModelId,
             chatReplyMode,
-            chatThinkingMode,
+            chatThinkingMode: effectiveThinkingMode,
             mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
             mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
             mainChatThinkingTierConfig: options?.mainChatThinkingTierConfig,
@@ -3039,9 +3133,13 @@ export function useChat(
           userRequestedChart: wantsChart,
           userRequestedDiagram: wantsDiagram,
           userRequestedPptx: wantsPptx,
+          userRequestedPptxEdit: wantsPptxEdit,
+          pptxEditCurrentDeckContext: sendOpts?.pptxEditCurrentDeckContext,
+          pptxSelectedPreset: sendOpts?.pptxSelectedPreset,
+          pptxEditTextOnly: Boolean(sendOpts?.pptxEditCurrentSlides?.[0]?.preset),
           mainChatModelId: effectiveComposerModelId,
           chatReplyMode,
-          chatThinkingMode,
+          chatThinkingMode: effectiveThinkingMode,
           mainChatUsedTokensToday: options?.mainChatUsedTokensToday,
           mainChatDailyTierConfig: options?.mainChatDailyTierConfig,
           mainChatThinkingTierConfig: options?.mainChatThinkingTierConfig,
@@ -3078,9 +3176,44 @@ export function useChat(
             )
           : undefined
 
+      /**
+       * Editier-Box: Antwort ist ein Patch (kein voller Foliensatz) — sofort gegen den Foliensatz
+       * auflösen, der beim Senden aktuell war, und das Ergebnis persistieren. Downstream (Karte,
+       * Modal, Export) liest dann `metadata.pptxSlides` statt den (rohen Patch-)Text zu parsen.
+       */
+      const pptxEditIsTextOnly = Boolean(sendOpts?.pptxEditCurrentSlides?.[0]?.preset)
+      const pptxPatchResolvedSlides =
+        wantsPptxEdit && hasPptxPatchMarkers(finalAssistantContent)
+          ? pptxEditIsTextOnly
+            ? applyPptxTextOnlyPatchToSlides(
+                sendOpts?.pptxEditCurrentSlides ?? [],
+                parsePptxTextPatchFromContent(finalAssistantContent) ?? [],
+              )
+            : applyPptxPatchToSlides(
+                sendOpts?.pptxEditCurrentSlides ?? [],
+                parsePptxPatchFromContent(finalAssistantContent) ?? [],
+              )
+          : null
+      /** Sobald ein Thread-Turn ein 'chat'-Aktions-Modell gewählt hat, bleibt es für den Rest des Threads gleich (siehe `resolveStickyChatActionModel`) — stabilisiert OpenAI-Prompt-Caching, das sonst bei jedem Action-Wechsel (answer ⇄ short_answer/clarify/one_step) das Modell und damit den Cache-Scope wechselt. */
+      const mainChatActionModelForTurn =
+        instantAnalyze?.category === 'chat'
+          ? resolveStickyChatActionModel(
+              nextMessages,
+              instantAnalyze.category,
+              instantAnalyze.action,
+              getChatIntentModelRoutingConfig(),
+            )
+          : undefined
       const assistantMetadataBase = {
         ...(usedAutoWebSearch ? { assistantAutoWebSearch: true as const } : {}),
+        ...(mainChatActionModelForTurn ? { mainChatActionModel: mainChatActionModelForTurn } : {}),
         ...(layoutMetricsForDebug ? { presentationLayoutMetrics: layoutMetricsForDebug } : {}),
+        ...(pptxPatchResolvedSlides && pptxPatchResolvedSlides.length > 0
+          ? { pptxSlides: pptxPatchResolvedSlides }
+          : {}),
+        ...(wantsPptxEdit && sendOpts?.pptxEditAnchorMessageId
+          ? { pptxEditAnchorMessageId: sendOpts.pptxEditAnchorMessageId }
+          : {}),
       }
       const storedAssistantMessage = await createChatMessage(
         targetThreadId,
@@ -3088,6 +3221,24 @@ export function useChat(
         finalAssistantContent,
         Object.keys(assistantMetadataBase).length > 0 ? assistantMetadataBase : undefined,
       )
+      if (wantsPptxEdit) {
+        /** Fallback: Modell hat das Patch-Format ignoriert und einen vollen Foliensatz geliefert — trotzdem auflösbar. */
+        const fallbackSlides =
+          pptxPatchResolvedSlides && pptxPatchResolvedSlides.length > 0
+            ? pptxPatchResolvedSlides
+            : parsePptxSlidesFromAssistantContent(finalAssistantContent)
+        /** Anker bleibt stabil — die Vorschau zeigt immer dieselbe (erste) Präsentations-Nachricht, nie die neue Editier-Nachricht selbst (siehe `resolvePptxPresentationState`). */
+        const anchorMessageId = sendOpts?.pptxEditAnchorMessageId
+        if (fallbackSlides.length > 0 && anchorMessageId) {
+          pptxEditResultRef.current = { messageId: anchorMessageId, slides: fallbackSlides }
+        } else if (fallbackSlides.length === 0) {
+          /** Modell hat bewusst keinen Patch geliefert — der Wunsch liegt ausserhalb der festen Wertelisten (siehe `PPTX_EDIT_UNSUPPORTED_RULE`). Klartext-Antwort als Hinweis ans Modal zurückgeben statt stillschweigend nichts zu tun. */
+          pptxEditResultRef.current = {
+            unsupported: true,
+            message: finalAssistantContent.trim() || 'Diese Änderung konnte nicht umgesetzt werden.',
+          }
+        }
+      }
 
       const mergedAssistantMessage = storedAssistantMessage
 
@@ -3171,7 +3322,7 @@ export function useChat(
 
       if (
         usesGatewayAi() &&
-        chatThinkingMode === 'thinking' &&
+        effectiveThinkingMode === 'thinking' &&
         !wantsExcel &&
         !wantsChart &&
         !wantsDiagram &&
@@ -3270,7 +3421,7 @@ export function useChat(
       }
 
       const persistMemory = options?.persistAiChatMemory !== false
-      const skipMemoryMergeForThinkingTurn = chatThinkingMode === 'thinking'
+      const skipMemoryMergeForThinkingTurn = effectiveThinkingMode === 'thinking'
       const messagesInThreadAfterTurn = nextMessages.length + 1
       const shouldMergeMemoryByInterval =
         messagesInThreadAfterTurn > 0 &&
@@ -3320,6 +3471,61 @@ export function useChat(
     }
   }
 
+  /**
+   * Editier-Box in der Folien-Vorschau — sichtbarer Chat-Bubble-Text ist nur `instruction`,
+   * der aktuelle Foliensatz geht als versteckter Turn-Kontext mit (siehe `pptxEditCurrentDeckContext`
+   * in `chat.service.ts`). Läuft über den ganz normalen `submitMessage`-Pfad, daher entsteht eine
+   * echte, persistierte Chat-Nachricht mit eigenem Verlauf/eigener Versionierung.
+   */
+  async function submitPptxEditMessage(
+    instruction: string,
+    currentSlides: PptxSlide[],
+    anchorMessageId: string,
+  ): Promise<PptxEditResult | undefined> {
+    const trimmedInstruction = instruction.trim()
+    if (!trimmedInstruction || currentSlides.length === 0 || !anchorMessageId) {
+      return undefined
+    }
+    pptxEditResultRef.current = null
+    const content = `${trimmedInstruction}\n\n${PPTX_EDIT_COMMAND_MARKER}`
+    await submitMessage(content, {
+      pptxEditCurrentSlides: currentSlides,
+      pptxEditCurrentDeckContext: buildPptxEditContextBlock(currentSlides),
+      pptxEditAnchorMessageId: anchorMessageId,
+    })
+    return pptxEditResultRef.current ?? undefined
+  }
+
+  /**
+   * "Design ändern" — nur für neue (Preset-basierte) Decks: wechselt NUR `preset`/`theme`, Inhalt/
+   * Struktur bleiben unverändert, KEIN KI-Aufruf. Nutzt dieselbe Editier-Turn-Maschinerie wie
+   * `submitPptxEditMessage` (Anker + `pptxSlides`-Metadata), damit `resolvePptxPresentationState`
+   * den neuen Stand ohne weitere Code-Änderung als "aktuell" erkennt.
+   */
+  async function applyPptxPresetSwitch(
+    anchorMessageId: string,
+    currentSlides: PptxSlide[],
+    preset: PptxPresetKey,
+  ): Promise<PptxSlide[] | undefined> {
+    if (!activeThreadId || !anchorMessageId || currentSlides.length === 0) {
+      return undefined
+    }
+    const targetThreadId = activeThreadId
+    const newSlides = currentSlides.map((slide) => ({
+      ...slide,
+      preset,
+      theme: PPTX_PRESET_LEGACY_THEME_FALLBACK[preset],
+    }))
+    const assistantMessage = await createChatMessage(
+      targetThreadId,
+      'assistant',
+      `Design auf «${PPTX_PRESET_DISPLAY[preset].label}» geändert.`,
+      { pptxEditAnchorMessageId: anchorMessageId, pptxSlides: newSlides },
+    )
+    setMessagesByThreadId((prev) => upsertThreadMessages(prev, targetThreadId, assistantMessage))
+    return newSlides
+  }
+
   return {
     threads,
     activeThreadId,
@@ -3337,6 +3543,8 @@ export function useChat(
     isBootstrapping,
     error,
     submitMessage,
+    submitPptxEditMessage,
+    applyPptxPresetSwitch,
     cancelSend,
     finalizeWordDocumentExport,
     wordFinalizeBusy,

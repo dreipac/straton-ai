@@ -170,10 +170,17 @@ const EXCEL_EXPORT_TEXT_RE =
 const EXCEL_EXPORT_VERB_RE =
   /\b(?:erstell|generier|exportier|mach).{0,40}\b(?:excel|xlsx)\b|\b(?:excel|xlsx).{0,40}\b(?:erstell|generier|exportier)\b/i
 
+/**
+ * `präsentation`/`praesentation` brauchen eine eigene (nicht `\b`-gebundene) Behandlung: deutsche
+ * Komposita wie "Kurzpräsentation"/"Verkaufspräsentation"/"Geschäftspräsentation" haben KEINE
+ * Wortgrenze zwischen Präfix und "präsentation" (beide Wortzeichen) — ein führendes `\b` lässt sie
+ * sonst durchfallen. Das negative Lookbehind `(?<!re)` schliesst gezielt nur "Repräsentation(en)"
+ * aus (unrelated: "Vertretung"), ohne echte Komposita zu blockieren.
+ */
 const PPTX_EXPORT_TEXT_RE =
-  /\b(?:power[\s-]?point|pptx?|präsentation|praesentation|folien|slides?[\s-]?deck)\b/i
+  /\b(?:power[\s-]?point|pptx?|folien|slides?[\s-]?deck)\b|(?<!re)(?:präsentation|praesentation)/i
 const PPTX_EXPORT_VERB_RE =
-  /\b(?:erstell|generier|exportier|mach|bau).{0,40}\b(?:powerpoint|pptx?|präsentation|praesentation|folien|slides)\b|\b(?:powerpoint|pptx?|präsentation|praesentation|folien|slides).{0,40}\b(?:erstell|generier|exportier)\b/i
+  /\b(?:erstell|generier|exportier|mach|bau).{0,40}\b(?:powerpoint|pptx?|folien|slides)\b|\b(?:erstell|generier|exportier|mach|bau).{0,40}(?<!re)(?:präsentation|praesentation)|\b(?:powerpoint|pptx?|folien|slides).{0,40}\b(?:erstell|generier|exportier)\b|(?<!re)(?:präsentation|praesentation).{0,40}\b(?:erstell|generier|exportier)\b/i
 
 const NUMERIC_CHART_TEXT_RE =
   /\b(?:balkendiagramm|liniendiagramm|kreisdiagramm|tortendiagramm|donutdiagramm|säulendiagramm|chart|grafik|visualisier(?:e|en|ung)|prozent|statistik|datenvisualisierung)\b/i
@@ -234,6 +241,21 @@ export function userMessageRequestsDiagram(
   }
   const detected = detectRouteHeuristic(t, false, undefined, false)
   return detected?.category === 'diagram' && detected.action === 'diagram_generate'
+}
+
+/**
+ * User-Nachricht ist (laut Heuristik) ein PowerPoint-Generierungs-Wunsch — fürs synchrone
+ * Compose-Gate (Preset-Modal, `ChatWindow.tsx`) VOR dem eigentlichen Senden, unabhängig vom
+ * asynchronen Instant-Analyze-Override, der dieselbe Heuristik später nochmal für die finale
+ * Routing-Entscheidung anwendet (siehe `resolveInstantRouteOverrides`).
+ */
+export function userMessageRequestsPptxGenerate(userMessage: string): boolean {
+  const t = userMessage.trim()
+  if (!t) {
+    return false
+  }
+  const detected = detectRouteHeuristic(t, false, undefined, false)
+  return detected?.category === 'document' && detected.action === 'pptx_generate'
 }
 
 export function userRequestsDocumentExport(userMessage: string): boolean {
@@ -317,6 +339,21 @@ export function detectRouteHeuristic(
   return null
 }
 
+/** Kurze Bestätigungen/Follow-ups, die definitiv kein Web-Search oder Ordner-Quellen brauchen. */
+const OBVIOUS_CHAT_SHORT_RE =
+  /^(?:danke(?:\s+dir)?|ok(?:\s+danke)?|gut|super|verstanden|alles\s+klar|na\s+gut|prima|genau|stimmt|richtig|klar|weiter|mehr|gerne|ja|nein|bitte|natürlich|selbstverständlich|passt|toll)\s*[!.?]?$/i
+
+export function detectObviousChatRoute(
+  userMessage: string,
+): { category: 'chat'; action: InstantAnalyzeChatAction } | null {
+  const t = userMessage.trim()
+  if (!t) return null
+  if (OBVIOUS_CHAT_SHORT_RE.test(t)) {
+    return { category: 'chat', action: 'short_answer' }
+  }
+  return null
+}
+
 export function applyRouteHeuristics(
   userMessage: string,
   analyze: InstantAnalyzeResult,
@@ -324,6 +361,7 @@ export function applyRouteHeuristics(
     hasVisionAttachment?: boolean
     hasDocumentFileAttachment?: boolean
     priorTurns?: ReadonlyArray<ImageSearchPriorTurn>
+    precomputedDetection?: { category: InstantAnalyzeCategory; action: InstantAnalyzeAction } | null
   },
 ): InstantAnalyzeResult {
   const hasVision = options?.hasVisionAttachment === true
@@ -336,12 +374,10 @@ export function applyRouteHeuristics(
     action = 'answer'
   }
 
-  const detected = detectRouteHeuristic(
-    userMessage,
-    hasVision,
-    options?.priorTurns,
-    hasDocFile,
-  )
+  const detected =
+    options !== undefined && 'precomputedDetection' in options
+      ? options.precomputedDetection
+      : detectRouteHeuristic(userMessage, hasVision, options?.priorTurns, hasDocFile)
   if (detected) {
     const documentFromAi = category === 'document'
     const chartFromAi = category === 'chart'

@@ -20,6 +20,7 @@ import {
   splitTextWithDisplayMath,
   tryParseDisplayMathBlock,
 } from './renderMath'
+import { highlightCode } from './codeHighlight'
 
 export type AssistantRichContentOptions = AssistantInlineImageOptions & {
   /** Abschnitts-Referenz (Antwort auf Teil der KI-Nachricht). */
@@ -147,7 +148,7 @@ function splitCardBodyIntoDisplayLines(body: string): string[] {
 export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
   const sections = raw
     .replace(/\r\n/g, '\n')
-    .split(/\n---\n/)
+    .split(/\n\s*-{3,}\s*\n/)
     .map((section) => section.trim())
     .filter(Boolean)
 
@@ -155,14 +156,12 @@ export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
   for (const section of sections) {
     const card: ChatVisualCard = { label: '', title: '', body: '', badges: [], tone: 'blue' }
     const bodyLines: string[] = []
-    let inBody = false
     let toneRaw: string | undefined
 
     for (const line of section.split('\n')) {
       const trimmed = line.trim()
       const field = trimmed.match(/^(label|title|body|badges|tone):\s*(.*)$/i)
       if (field) {
-        inBody = field[1]!.toLowerCase() === 'body'
         const value = field[2]!.trim()
         if (field[1]!.toLowerCase() === 'label') {
           card.label = value
@@ -195,7 +194,8 @@ export function parseChatCardsBlock(raw: string): ChatVisualCard[] {
         }
         continue
       }
-      if (inBody && trimmed) {
+      // Toleranz: Text nach title/label auch ohne explizites `body:` als Body übernehmen.
+      if (trimmed) {
         bodyLines.push(trimmed)
       }
     }
@@ -961,20 +961,32 @@ function parseBlocks(raw: string): Block[] {
   function flushCode() {
     if (codeLines) {
       const raw = codeLines.join('\n')
+      // Toleranz: Fence-Label normalisieren (Bindestriche/Leerzeichen weg), damit kleine
+      // Modell-Abweichungen wie ```card, ```Kacheln, ```divided trotzdem greifen.
       const lang = codeLanguage.trim().toLowerCase()
-      if (lang === 'email' || lang === 'mail' || lang === 'e-mail') {
+      const langKey = lang.replace(/[\s_-]+/g, '')
+      if (lang === 'email' || lang === 'mail' || lang === 'e-mail' || langKey === 'brief') {
         blocks.push({ type: 'emailDraft', body: raw })
-      } else if (lang === 'cards' || lang === 'card') {
+      } else if (
+        langKey === 'cards' ||
+        langKey === 'card' ||
+        langKey === 'kacheln' ||
+        langKey === 'kachel' ||
+        langKey === 'karten' ||
+        langKey === 'karte'
+      ) {
         blocks.push({ type: 'cards', cards: parseChatCardsBlock(raw) })
-      } else if (lang === 'definition' || lang === 'def') {
+      } else if (langKey === 'definition' || langKey === 'def' || langKey === 'begriff') {
         const parsed = parseDefinitionBlockRaw(raw)
         if (parsed) {
           blocks.push({ type: 'definition', title: parsed.title, body: parsed.body })
         }
       } else if (
-        lang === 'divided-list' ||
-        lang === 'dividedlist' ||
-        lang === 'list-divided'
+        langKey === 'dividedlist' ||
+        langKey === 'listdivided' ||
+        langKey === 'divided' ||
+        langKey === 'trennliste' ||
+        langKey === 'kernpunkte'
       ) {
         const parsed = parseDividedListBlock(raw)
         if (parsed.items.length > 0) {
@@ -2358,7 +2370,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         </button>
       </div>
       <pre className="chat-md-code-pre">
-        <code>{code}</code>
+        <code>{highlightCode(code, language)}</code>
       </pre>
     </div>
   )

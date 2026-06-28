@@ -247,34 +247,36 @@ export function getChatThinkingEmojiStyleInstruction(): string {
   ].join('\n')
 }
 
-/** Thinking + /Word: Word-Konvention, Tabellen, ausführlicher Dokumentinhalt. */
+/** Thinking + /Word: vollständiges Markdown-Dokument im Chat, danach Export-Hinweis. */
 export function getChatThinkingWordDocumentInstruction(): string {
   return [
-    'Thinking — Word-Dokument (/Word, Vorschau für späteres .docx):',
-    'Der Nutzer will ein **fertiges Word-Dokument** (kein Chat-Tutorial). **Kein Clarify-Block** — liefere in **dieser** Antwort direkt den vollständigen Dokumentinhalt (eine Runde).',
+    'Thinking — Word/PDF-Dokument (Vorschau für späteres .docx/.pdf):',
+    'Der Nutzer sieht zuerst den vollständigen Inhalt im Chat, die Datei entsteht erst nach Bestätigung.',
+    '**Kein Clarify-Block** — liefere direkt den vollständigen Dokumentinhalt (eine Runde).',
     '',
-    'Struktur im Dokumentkörper (nicht normales Chat-#):',
-    '- `##### ` = Überschrift 1',
-    '- `###### ` = Überschrift 2',
-    '- `#### ` = Absatz/Fließtext',
-    'Fortsetzungszeilen ohne Präfix gehören zum letzten `####`-Absatz.',
+    'Format (verbindlich — VERBOTEN: `1.` Listenformat, `> Blockquote`, Absätze in `**...**` einwickeln):',
+    'Hier ist eine professionelle Kapitelstruktur für [Thema]:',
     '',
-    'Glossar/Begriffe im Word-Dokument: immer als Tabelle (`type: "table"` oder GFM), Spalten z. B. Begriff | Erklärung — nie nur Stichwortliste.',
+    '---',
     '',
-    'Tabelle vs. Stichpunkte (Entscheidung nach Inhalt, nicht pauschal):',
-    '- `table` NUR wenn ≥2 Elemente mit ≥2 vergleichbaren Spalten vorliegen (Vergleiche, Kennzahlen, Glossar Begriff+Erklärung, Übersichten).',
-    '- Parallele kurze Aussagen ohne mehrere Spalten (Vorteile, Kernpunkte, Merkmale): Stichpunktliste — **kein** `table` dafür.',
-    '- **Verboten:** `table` mit nur 1 Spalte oder Zeilen mit langem Fliesstext statt kurzen Werten — das ist eine Liste/ein Absatz, keine Tabelle.',
-    '- Entweder GFM im Fließtext unter einem `####`-Absatz:',
-    '  | Spalte A | Spalte B |',
-    '  | --- | --- |',
-    '  | Wert | Wert |',
-    '- Oder im optionalen WordOutline-JSON-Block `type: "table"` mit `rows` (string[][]) und optional `"header": true`.',
-    '  Beispiel: `{"type":"table","header":true,"rows":[["Kriterium","Wert"],["A","1"]]}`.',
+    '## 1. Kapitelname',
+    'Normaler Fliesstext (NIE in **...** einwickeln), Bullets oder Mix — KI entscheidet',
+    '---',
+    '## 2. Nächstes Kapitel',
+    '### 2.1 Unterkapitel',
+    'Inhalt...',
+    '---',
+    'Regel: Beginne IMMER mit 1 Einleitungssatz + `---` + `## 1. …`. `---` nur nach LETZTEM Inhalt eines Hauptkapitels, NIE zwischen Unterkapiteln. Kein JSON, keine <<<STRATON_...>>>-Marker.',
     '',
-    'Optional zusätzlich gültiges WordOutline-JSON in ```json … ``` (`version`: 1, `blocks`: heading, paragraph, table).',
-    'VERBOTEN: Meta-Anleitungen («In diesem Kapitel beschreiben Sie…»); leere Platzhalter; nur Stichwortlisten ohne Sätze.',
-    'Vollständiger Dokumentinhalt mit echten Absätzen und Tabellen in einer Antwort — kein <<<STRATON_THINKING_CLARIFY>>>.',
+    'Professioneller Inhalt — kein Bullet-Wust:',
+    '- Jedes Kapitel beginnt mit 2–4 Sätzen Fliesstext; Stichpunkte nur für echte Aufzählungen, nicht das ganze Kapitel.',
+    '- Aufzählungen als aufeinanderfolgende `- `-Zeilen (werden zu echten Word-Listen). `**fett**` für Schlüsselbegriffe/Lead-ins erlaubt.',
+    'Tabelle vs. Stichpunkte (Entscheidung nach Inhalt):',
+    '- Tabelle NUR bei ≥2 Elementen mit ≥2 vergleichbaren Spalten (Vergleiche, Glossar, Übersichten).',
+    '- Parallele kurze Aussagen (Vorteile, Kernpunkte): Stichpunktliste — keine Tabelle.',
+    '',
+    'Letzter Satz der Antwort (verbindlich, natürliche Frage): «Soll ich das als Word-/PDF-Datei für dich exportieren?»',
+    'VERBOTEN: Meta-Anleitungen («In diesem Kapitel…»); leere Platzhalter; nur Stichwortlisten ohne Sätze; kein <<<STRATON_THINKING_CLARIFY>>>.',
   ].join('\n')
 }
 

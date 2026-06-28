@@ -91,6 +91,15 @@
   border-radius: 10px;
 }
 
+.thread-menu.thread-menu-popover.thread-menu-popover--up {
+  transform-origin: left bottom;
+  transform: scale(0.94) translateY(-4px);
+}
+
+.thread-menu.thread-menu-popover.thread-menu-popover--up.is-visible {
+  transform: scale(1) translateY(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .thread-menu.thread-menu-popover {
     transition: none;

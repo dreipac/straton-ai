@@ -358,12 +358,14 @@ export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult):
           '- Vorschlag: `##`-Hauptüberschrift, dann Kapitel mit `###` oder nummerierten `## 1. …`-Abschnitten.',
           '- Entscheide selbst anhand der Frage: Wenn eine kürzere Antwort tatsächlich reicht, halte dich kürzer statt künstlich aufzublähen.',
           '- Falls ausführlich passend: **3+ parallele Typen/Arten/Kategorien** → ```cards```; zwischen grösseren Abschnitten `---`; mit Beispielen erklären statt nur Stichwortlisten.',
+          '- Bei **mehreren** Aufgaben/Fragen im Text oder Anhang: **alle** vollständig lösen, keine auslassen, nicht nach dem Rest fragen.',
         ].join('\n')
       }
       return [
         'Aufgabentyp Erklärung — Einschätzung: Standardtiefe (Richtwert, keine Vorgabe):',
         '- Vorschlag: `##`-Überschrift, dann passende Tiefe: Absätze, optional kurze Liste oder Tabelle.',
         '- Entscheide selbst anhand der Frage, wie viel Tiefe wirklich nötig ist — einfache Sprache, komplexe Themen in verständliche Schritte gliedern.',
+        '- Bei **mehreren** Aufgaben/Fragen im Text oder Anhang: **alle** in dieser Antwort lösen, keine auslassen, nicht nach dem Rest fragen.',
       ].join('\n')
   }
 }

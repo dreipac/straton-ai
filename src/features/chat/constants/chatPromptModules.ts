@@ -431,7 +431,7 @@ export function buildPromptCacheSuppressTurnBlocks(params: {
       blocks.push(getAssistantMainChatSolveDirectlyInstruction())
     } else if (analyze?.task_type === 'summary') {
       blocks.push(
-        'Arbeitsmodus Zusammenfassung (verbindlich): Gilt bei **jeder** Zusammenfassung — auch ohne Wort «ausführlich». Alle Themen **inhaltlich ausarbeiten** in ```cards```; Fragen beantworten, Übungen lösen — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
+        'Arbeitsmodus Zusammenfassung (verbindlich): Gilt bei **jeder** Zusammenfassung — auch ohne Wort «ausführlich». Alle Themen **inhaltlich ausarbeiten** (Fragen beantworten, Übungen lösen) — **kein** «Aufgabe:/Lösung:»-Format; in thematische Kapitel (`##`) gliedern und je Kapitel die laut Format-Regeln **passende** Darstellung wählen (`cards` nur bei ≥3 parallelen Themen mit eigenem Inhalt, sonst Fließtext, Listen oder Tabelle), Abschnitte mit `---` trennen.',
       )
     }
     if (!suppressBrevity) {

@@ -8,8 +8,8 @@ import { ChatPendingReplyLoader } from '../ChatPendingReplyLoader'
 import { ChatMessageReplyQuotePreview } from '../ChatComposerReplyQuoteBar'
 import { ChatUserMessageActionMenu } from '../ChatUserMessageMenuSelect'
 import { ChatAssistantMessageCopyButton } from './ChatAssistantMessageCopyButton'
+import { ChatDocumentExportButton } from './ChatDocumentExportButton'
 import { extractAssistantMessageCopyText } from '../../utils/chatMessageCopy'
-import { WordOutlinePaper, WordOutlinePaperBuilding } from '../WordOutlinePaper'
 import { UnsplashPhotoResults } from '../UnsplashPhotoResults'
 import {
   canFinalizeExcelExportFromThread,
@@ -46,8 +46,9 @@ import { PptxPresentationCard, PptxPresentationCardBuilding } from '../PptxPrese
 import {
   canFinalizePptxExportFromThread,
   hasPptxHtmlMarkers,
-  parsePptxSlidesFromAssistantContent,
+  resolvePptxPresentationState,
   stripPptxHtmlBlock,
+  stripPptxPatchBlock,
   type PptxSlide,
 } from '../../utils/pptxOutline'
 import type { ChatMessage, ChatMessagePptxExport } from '../../types'
@@ -62,13 +63,13 @@ import {
 } from '../../utils/thinkingClarify'
 import {
   canFinalizeWordExportFromThread,
-  extractLeadingBannerTitleFromOutlineText,
-  normalizeHeadingLevelsForWord,
-  tryHeuristicWordOutlineFromPlainText,
-  usesStratonWordMarkdownConvention,
-  resolveWordOutlinePresentation,
-  isLikelyDocumentOutlinePayload,
+  extractWordOutlineFromAssistantContent,
+  stripWordSpecMarkerBlock,
 } from '../../utils/wordOutline'
+import { WordDocumentCard, WordDocumentCardBuilding } from '../WordDocumentCard'
+import { ChatGenDotsLoader } from '../ChatGenDotsLoader'
+import type { WordPage } from '../../utils/wordPaginate'
+import { stripPdfSpecMarkerBlock } from '../../pdf/pdfOutline'
 import { canFinalizePdfExportFromThread } from '../../pdf/pdfOutline'
 import type { ChatThinkingMode } from '../../constants/chatThinkingMode'
 import type { useUserMessageLongPress } from '../../hooks/useUserMessageLongPress'
@@ -116,6 +117,7 @@ export type ChatMessageListProps = {
   pendingPdfGeneration: boolean
   pendingChartGeneration: boolean
   pendingDiagramGeneration: boolean
+  pendingPptxGeneration: boolean
   pendingStatusLabel: string | undefined
   sendPhase: ChatSendPhaseState
   showLatestAssistantOrbitLoader: boolean
@@ -145,6 +147,7 @@ export type ChatMessageListProps = {
   onCopyUserMessage: (text: string) => boolean | Promise<boolean>
   subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
   onPptxPreview?: (messageId: string, slides: PptxSlide[]) => void
+  onWordPreview?: (messageId: string, pages: WordPage[], fileName?: string) => void
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -169,6 +172,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     pendingPdfGeneration,
     pendingChartGeneration,
     pendingDiagramGeneration,
+    pendingPptxGeneration,
     pendingStatusLabel,
     sendPhase,
     showLatestAssistantOrbitLoader,
@@ -198,14 +202,31 @@ export function ChatMessageList(props: ChatMessageListProps) {
     onCopyUserMessage,
     subscriptionUsageDisplay,
     onPptxPreview,
+    onWordPreview,
   } = props
 
   const userMessageMenuAnchorRef = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * Editier-Turns (`pptxEditAnchorMessageId` gesetzt) werden unten komplett übersprungen (kein
+   * eigener Bubble/Karte) — die "letzte" Nachricht für Enter-Animation/Finalize-Hinweis ist deshalb
+   * nicht zwingend `messages[messages.length-1]`, sondern die letzte tatsächlich gerenderte.
+   */
+  let lastVisibleMessageId: string | undefined
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (!messages[i].metadata?.pptxEditAnchorMessageId) {
+      lastVisibleMessageId = messages[i].id
+      break
+    }
+  }
 
   return (
     <div className="chat-messages" ref={messagesScrollRef}>
         <div className="chat-messages-inner">
         {messages.map((message, messageIndex) => {
+          if (message.metadata?.pptxEditAnchorMessageId) {
+            return null
+          }
           const rawContent = safeMessageContent(message.content)
           const isAssistant = message.role === 'assistant'
           let precedingUserForWordPaper: (typeof messages)[number] | null = null
@@ -274,8 +295,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   messageIndex,
                 )
               : null
-          /** Papier-Karte nur nach explizitem /Word oder /PDF — nicht bei zufälligen ####-Zeilen im Normalchat. */
-          const showWordPaperLayout = isWordAssistantTurn || isPdfAssistantTurn
           const excelSpecForPreview =
             isExcelAssistantTurn && !message.metadata?.excelExport
               ? parseExcelSpecFromContent(rawContent).spec
@@ -286,16 +305,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
           const diagramSpecForPreview = isDiagramAssistantTurn
             ? parseDiagramSpecFromContent(rawContent).spec
             : null
-          const pptxSlidesForPreview =
-            isPptxAssistantTurn && !message.metadata?.pptxExport
-              ? parsePptxSlidesFromAssistantContent(rawContent)
-              : []
+          /** Berücksichtigt bereits erfolgte Editier-Turns dieser Präsentation (siehe `resolvePptxPresentationState`) — die Karte/das Modal zeigen so immer den aktuellsten Stand, nicht nur den dieser einen Nachricht. */
+          const pptxSlidesForPreview = isPptxAssistantTurn
+            ? resolvePptxPresentationState(messages, message.id)?.slides ?? []
+            : []
           const parsed = isAssistant ? parseInteractiveContentWithFallback(rawContent) : null
           const hasInteractiveQuiz = Boolean(parsed?.quiz)
           const animatedContent = safeMessageContent(animatedAssistantContent[message.id] ?? rawContent)
           /** Nach Excel-Export: gespeicherten Text nutzen (ohne Spec), nicht den Animations-Puffer mit altem JSON. */
           const baseAssistantForDisplay = message.metadata?.liveStream
-            ? stripPptxHtmlBlock(stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawContent))))
+            ? stripPptxPatchBlock(
+                stripPptxHtmlBlock(stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawContent)))),
+              )
             : message.metadata?.excelExport ||
                 message.metadata?.wordExport ||
                 message.metadata?.pdfExport ||
@@ -303,10 +324,16 @@ export function ChatMessageList(props: ChatMessageListProps) {
               ? rawContent
               : animatedContent
           const rawAssistantDisplay = hasInteractiveQuiz ? parsed?.cleanText || '' : baseAssistantForDisplay
-          /** JSON-Spec im Chat nie anzeigen — nur Einleitungstext vor den Spec-Markern. */
+          /** JSON-Spec und alte Word/PDF-Outline-Blöcke nie anzeigen — nur lesbaren Text. */
           const assistantAfterExcel = stripSubscriptionUsageMarker(
-            stripPptxHtmlBlock(
-              stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))),
+            stripWordSpecMarkerBlock(
+              stripPdfSpecMarkerBlock(
+                stripPptxPatchBlock(
+                  stripPptxHtmlBlock(
+                    stripDiagramSpecBlock(stripChartSpecBlock(stripExcelSpecBlock(rawAssistantDisplay))),
+                  ),
+                ),
+              ),
             ),
           )
           const thinkingClarifyStreaming =
@@ -347,7 +374,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
             isAssistant &&
             Boolean(message.metadata?.pptxExport) &&
             !String(displayContent ?? '').trim()
-          const isLatestMessage = message.id === messages[messages.length - 1]?.id
+          const isLatestMessage = message.id === lastVisibleMessageId
           const showWordFinalizeHint =
             isAssistant &&
             isLatestMessage &&
@@ -369,13 +396,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
             Boolean(onFinalizeExcelDocument) &&
             canFinalizeExcelExportFromThread(messages) &&
             !message.metadata?.excelExport
+          /** `canFinalizePptxExportFromThread` berücksichtigt bereits, ob ein vorhandener `pptxExport` durch spätere Edits veraltet ist — kein zusätzliches `!message.metadata?.pptxExport` nötig (das würde nach einem Edit fälschlich blockieren). */
           const showPptxFinalizeHint =
             isAssistant &&
             isLatestMessage &&
             !isSending &&
             Boolean(onFinalizePptxDocument) &&
-            canFinalizePptxExportFromThread(messages) &&
-            !message.metadata?.pptxExport
+            canFinalizePptxExportFromThread(messages)
           const isStreamingAssistant =
             isAssistant &&
             !hasInteractiveQuiz &&
@@ -426,7 +453,35 @@ export function ChatMessageList(props: ChatMessageListProps) {
             (isStreamingAssistant ||
               Boolean(message.metadata?.liveStream) ||
               hasPptxHtmlMarkers(rawContent))
-          const showOrbitLoader = isAssistant && isLatestMessage && showLatestAssistantOrbitLoader
+          /**
+           * Word-Vorschau-Karte: erst wenn der Entwurf fertig ist (nicht mehr streamt). Gleiche
+           * Outline-Pipeline wie der Export → Karte/Modal zeigen exakt, was die .docx wird. Ersetzt
+           * die Roh-Markdown-Wand im Chat (analog zur Präsentations-Karte).
+           */
+          const wordCardOutline =
+            isWordAssistantTurn && !isStreamingAssistant && !message.metadata?.liveStream
+              ? extractWordOutlineFromAssistantContent(rawContent, 'word')
+              : null
+          const showWordCard = wordCardOutline !== null
+          /** Word steht im Export-Popover IMMER zur Verfügung (auch wenn die Karte/das Modal schon eine Word-Aktion bietet) — gleicher Inhalt, beide Formate (Word + PDF) wählbar. */
+          const effectiveCanExportWord = showWordFinalizeHint
+          /**
+           * Word-Turn wird gerade generiert: KEIN Roh-Markdown im Chat zeigen, nur einen Loader, bis die
+           * fertige Vorschau-Karte erscheint (analog Präsentation). `showWordCard` ist während des Streams
+           * noch false (siehe `wordCardOutline`), daher greift dieser Zweig nur in der Bauphase.
+           */
+          const showWordCardBuilding =
+            isWordAssistantTurn &&
+            !showWordCard &&
+            !message.metadata?.wordExport &&
+            (isStreamingAssistant || Boolean(message.metadata?.liveStream))
+          const showOrbitLoader =
+            isAssistant &&
+            isLatestMessage &&
+            showLatestAssistantOrbitLoader &&
+            !isWordAssistantTurn &&
+            !isPptxAssistantTurn &&
+            !isPdfAssistantTurn
           const assistantCopySource = hasInteractiveQuiz ? parsed?.cleanText || '' : rawContent
           const assistantCopyText = isAssistant
             ? extractAssistantMessageCopyText(assistantCopySource)
@@ -628,6 +683,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 <p className="chat-thinking-stream-hint" role="status">
                   KI formuliert eine Rückfrage…
                 </p>
+              ) : showWordCard && wordCardOutline ? (
+                <WordDocumentCard
+                  outline={wordCardOutline}
+                  onOpen={(pages) => onWordPreview?.(message.id, pages, wordCardOutline.fileName)}
+                />
+              ) : showWordCardBuilding ? (
+                <WordDocumentCardBuilding />
               ) : displayContent ? (
                 !hasInteractiveQuiz ? (
                     (() => {
@@ -639,71 +701,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                               buildAssistantRichOptions(message.id),
                             )}
                           </div>
-                        )
-                      }
-                      const fence = resolveWordOutlinePresentation(displayContent)
-                      if (fence && showWordPaperLayout) {
-                        const outlineForPaper = normalizeHeadingLevelsForWord({
-                          ...fence.outline,
-                          title: undefined,
-                        })
-                        const peeledBefore = extractLeadingBannerTitleFromOutlineText(fence.before)
-                        const bannerTitle =
-                          fence.outline.title?.trim() ||
-                          peeledBefore.bannerTitle ||
-                          null
-                        const beforeMarkdown = fence.before.trim()
-                          ? peeledBefore.bodyWithoutBanner.trim()
-                          : ''
-                        return (
-                          <>
-                            {beforeMarkdown ? (
-                              <div className="chat-message-body chat-message-body--rich">
-                                {renderAssistantRichContent(
-                                  beforeMarkdown,
-                                  buildAssistantRichOptions(message.id),
-                                )}
-                              </div>
-                            ) : null}
-                            <WordOutlinePaper outline={outlineForPaper} bannerTitle={bannerTitle} />
-                            {fence.after.trim() ? (
-                              <div className="chat-message-body chat-message-body--rich">
-                                {renderAssistantRichContent(
-                                  fence.after,
-                                  buildAssistantRichOptions(message.id),
-                                )}
-                              </div>
-                            ) : null}
-                          </>
-                        )
-                      }
-                      if (
-                        showWordPaperLayout &&
-                        isLikelyDocumentOutlinePayload(displayContent) &&
-                        (isStreamingAssistant || message.metadata?.liveStream)
-                      ) {
-                        return <WordOutlinePaperBuilding />
-                      }
-                      const wordConventionActive = usesStratonWordMarkdownConvention(displayContent)
-                      const peeledFull = wordConventionActive
-                        ? { bannerTitle: null, bodyWithoutBanner: displayContent }
-                        : extractLeadingBannerTitleFromOutlineText(displayContent)
-                      const heuristicOutline = tryHeuristicWordOutlineFromPlainText(
-                        peeledFull.bodyWithoutBanner,
-                      )
-                      if (
-                        showWordPaperLayout &&
-                        heuristicOutline &&
-                        heuristicOutline.blocks.length > 0
-                      ) {
-                        return (
-                          <WordOutlinePaper
-                            outline={normalizeHeadingLevelsForWord({
-                              ...heuristicOutline,
-                              title: undefined,
-                            })}
-                            bannerTitle={peeledFull.bannerTitle}
-                          />
                         )
                       }
                       const unsplash = message.metadata?.unsplashSearch
@@ -757,10 +754,24 @@ export function ChatMessageList(props: ChatMessageListProps) {
                     </div>
                   )
               ) : null}
-              {showAssistantCopyButton ? (
-                <ChatAssistantMessageCopyButton
-                  onCopy={() => onCopyUserMessage(assistantCopyText)}
-                />
+              {(showAssistantCopyButton || effectiveCanExportWord || showPdfFinalizeHint) ? (
+                <div className="chat-message-actions">
+                  {showAssistantCopyButton ? (
+                    <ChatAssistantMessageCopyButton
+                      onCopy={() => onCopyUserMessage(assistantCopyText)}
+                    />
+                  ) : null}
+                  {(effectiveCanExportWord || showPdfFinalizeHint) ? (
+                    <ChatDocumentExportButton
+                      canExportWord={effectiveCanExportWord}
+                      canExportPdf={showPdfFinalizeHint}
+                      wordBusy={wordFinalizeBusy}
+                      pdfBusy={pdfFinalizeBusy}
+                      onExportWord={() => void onFinalizeWordDocument?.()}
+                      onExportPdf={() => void onFinalizePdfDocument?.()}
+                    />
+                  ) : null}
+                </div>
               ) : null}
               {showExcelFallbackText ? (
                 isMobileComposer ? (
@@ -814,32 +825,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
                     Die PDF-Datei ist bereit — nutze den Download-Button unten.
                   </p>
                 )
-              ) : null}
-              {showWordFinalizeHint ? (
-                <ChatExportActionHint
-                  label={
-                    wordFinalizeBusy
-                      ? 'Word wird erstellt…'
-                      : 'Word generieren'
-                  }
-                  busy={wordFinalizeBusy}
-                  onAction={() => {
-                    void onFinalizeWordDocument?.()
-                  }}
-                />
-              ) : null}
-              {showPdfFinalizeHint ? (
-                <ChatExportActionHint
-                  label={
-                    pdfFinalizeBusy
-                      ? 'PDF wird erstellt…'
-                      : 'PDF generieren'
-                  }
-                  busy={pdfFinalizeBusy}
-                  onAction={() => {
-                    void onFinalizePdfDocument?.()
-                  }}
-                />
               ) : null}
               {excelSpecForPreview ? (
                 <ExcelSpecPreview spec={excelSpecForPreview} />
@@ -978,31 +963,68 @@ export function ChatMessageList(props: ChatMessageListProps) {
               ) : null}
 
               {message.metadata?.wordExport && !isMobileComposer ? (
-                <div className="chat-excel-download">
+                <div className="chat-file-card">
+                  <div className="chat-file-card__icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline points="14 2 14 8 20 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      <line x1="9" y1="13" x2="15" y2="13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                      <line x1="9" y1="17" x2="13" y2="17" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <div className="chat-file-card__info">
+                    <span className="chat-file-card__name">{message.metadata.wordExport.fileName}</span>
+                    <span className="chat-file-card__type">Word-Dokument</span>
+                  </div>
                   <button
                     type="button"
-                    className="chat-excel-download-button"
+                    className="chat-file-card__download-btn"
                     disabled={wordDownloadBusyId === message.id}
-                    onClick={() => {
-                      void downloadWordExport(message)
-                    }}
+                    aria-label="Word-Datei herunterladen"
+                    title="Herunterladen"
+                    onClick={() => { void downloadWordExport(message) }}
                   >
-                    {wordDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'Word herunterladen'}
+                    {wordDownloadBusyId === message.id ? (
+                      <span style={{ fontSize: '0.75rem' }}>…</span>
+                    ) : (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M12 3v13M7 11l5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M4 19h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               ) : null}
 
               {message.metadata?.pdfExport && !isMobileComposer ? (
-                <div className="chat-excel-download">
+                <div className="chat-file-card">
+                  <div className="chat-file-card__icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline points="14 2 14 8 20 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M9 15h1.5a1.5 1.5 0 0 0 0-3H9v6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                  <div className="chat-file-card__info">
+                    <span className="chat-file-card__name">{message.metadata.pdfExport.fileName}</span>
+                    <span className="chat-file-card__type">PDF-Dokument</span>
+                  </div>
                   <button
                     type="button"
-                    className="chat-excel-download-button"
+                    className="chat-file-card__download-btn"
                     disabled={pdfDownloadBusyId === message.id}
-                    onClick={() => {
-                      void downloadPdfExport(message)
-                    }}
+                    aria-label="PDF-Datei herunterladen"
+                    title="Herunterladen"
+                    onClick={() => { void downloadPdfExport(message) }}
                   >
-                    {pdfDownloadBusyId === message.id ? 'Wird vorbereitet…' : 'PDF herunterladen'}
+                    {pdfDownloadBusyId === message.id ? (
+                      <span style={{ fontSize: '0.75rem' }}>…</span>
+                    ) : (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M12 3v13M7 11l5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M4 19h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               ) : null}
@@ -1090,13 +1112,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
               className={`chat-message is-assistant chat-message--pending${
                 pendingImageGeneration
                   ? ' chat-message--pending-image'
-                  : pendingExcelGeneration
+                  : pendingExcelGeneration ||
+                      pendingWordGeneration ||
+                      pendingPptxGeneration ||
+                      pendingPdfGeneration
                     ? ' chat-message--pending-excel'
-                    : pendingWordGeneration
-                      ? ' chat-message--pending-excel'
-                      : pendingPdfGeneration
-                        ? ' chat-message--pending-excel'
-                        : ''
+                    : ''
               }`}
               aria-live="polite"
               aria-busy="true"
@@ -1136,8 +1157,23 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   </div>
                   <p className="chat-pending-status">{getChatSendPhaseLabel('image')}</p>
                 </div>
+              ) : pendingWordGeneration ? (
+                <>
+                  <strong className="chat-message-author">Straton AI</strong>
+                  <div className="chat-pending-orbit-wrap chat-pending-special-loader">
+                    <ChatGenDotsLoader shape="document" ariaLabel="Word-Dokument wird generiert" />
+                    <p className="chat-pending-status">{getChatSendPhaseLabel('word')}</p>
+                  </div>
+                </>
+              ) : pendingPptxGeneration ? (
+                <>
+                  <strong className="chat-message-author">Straton AI</strong>
+                  <div className="chat-pending-orbit-wrap chat-pending-special-loader">
+                    <ChatGenDotsLoader shape="slide" ariaLabel="Präsentation wird generiert" />
+                    <p className="chat-pending-status">Präsentation wird vorbereitet …</p>
+                  </div>
+                </>
               ) : pendingExcelGeneration ||
-                pendingWordGeneration ||
                 pendingPdfGeneration ||
                 pendingChartGeneration ||
                 pendingDiagramGeneration ? (
@@ -1148,15 +1184,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   className="chat-excel-gen-loader-panel"
                   role="status"
                   aria-label={
-                    pendingWordGeneration
-                      ? 'Word-Vorschau wird erstellt'
-                      : pendingPdfGeneration
-                        ? 'PDF-Vorschau wird erstellt'
-                        : pendingChartGeneration
-                          ? 'Diagramm wird erstellt'
-                          : pendingDiagramGeneration
-                            ? 'Struktur-Diagramm wird erstellt'
-                            : 'Excel-Vorschau wird erstellt'
+                    pendingPdfGeneration
+                      ? 'PDF-Vorschau wird erstellt'
+                      : pendingChartGeneration
+                        ? 'Diagramm wird erstellt'
+                        : pendingDiagramGeneration
+                          ? 'Struktur-Diagramm wird erstellt'
+                          : 'Excel-Vorschau wird erstellt'
                   }
                 >
                   <div
@@ -1178,15 +1212,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 </div>
                 <p className="chat-pending-status">
                   {getChatSendPhaseLabel(
-                    pendingWordGeneration
-                      ? 'word'
-                      : pendingPdfGeneration
-                        ? 'pdf'
-                        : pendingChartGeneration
-                          ? 'chart'
-                          : pendingDiagramGeneration
-                            ? 'diagram'
-                            : 'excel',
+                    pendingPdfGeneration
+                      ? 'pdf'
+                      : pendingChartGeneration
+                        ? 'chart'
+                        : pendingDiagramGeneration
+                          ? 'diagram'
+                          : 'excel',
                   )}
                 </p>
                 </div>

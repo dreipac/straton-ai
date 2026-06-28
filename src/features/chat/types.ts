@@ -98,6 +98,9 @@ export type ChatMessagePptxExport = {
   path: string
   fileName: string
   slideCount: number
+  /** Geparste Folien zum Zeitpunkt des Exports — hält die Chat-Vorschau-Karte sichtbar, auch nachdem
+   *  der serverseitige Nachrichtentext durch den Hinweistext ersetzt wurde (Original-HTML geht dabei verloren). */
+  slides?: import('./utils/pptxOutline').PptxSlide[]
 }
 
 /** User-Nachricht: hochgeladenes Dokument in `chat-media` (PDF/Word/Excel …). */
@@ -133,7 +136,7 @@ export type ImageSearchPhotoResult = {
   downloadLocation?: string
 }
 
-/** KI/Gliederung für «Word aus Vorlage» – wird zu OOXML in die Vorlage injiziert. */
+/** KI/Gliederung für den Word-Export – feste Formatierung, serverseitig via python-docx zu .docx gerendert (siehe `wordDocStyle.ts`). */
 export type WordOutlineV1 = {
   version: 1
   fileName?: string
@@ -141,6 +144,7 @@ export type WordOutlineV1 = {
   blocks: Array<
     | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
     | { type: 'paragraph'; text: string }
+    | { type: 'list'; ordered?: boolean; items: string[] }
     | { type: 'table'; rows: string[][]; header?: boolean }
   >
 }
@@ -156,6 +160,10 @@ export type ChatMessage = {
     wordExport?: ChatMessageWordExport
     pdfExport?: ChatMessagePdfExport
     pptxExport?: ChatMessagePptxExport
+    /** Assistant-Nachricht: per Patch aufgelöste Folien (Editier-Antwort, kein voller `<<<STRATON_PPTX_HTML>>>`-Block). */
+    pptxSlides?: import('./utils/pptxOutline').PptxSlide[]
+    /** User- UND Assistant-Nachricht eines Editier-Turns: ID der ursprünglichen Präsentations-Nachricht (Anker) — blendet beide aus dem normalen Chatverlauf aus (siehe `resolvePptxPresentationState`), stattdessen im Editier-Verlauf des Vorschau-Modals sichtbar. */
+    pptxEditAnchorMessageId?: string
     /** Laufender OpenAI-SSE-Stream: UI blendet Text live ein (ohne Schreib-Animation). */
     liveStream?: boolean
     /** User-Nachricht: Excel-Modus (Marker wurde vor Speichern entfernt). */
@@ -178,6 +186,8 @@ export type ChatMessage = {
     autoWebSearch?: boolean
     /** Assistant-Nachricht: Antwort nutzte automatische Websuche. */
     assistantAutoWebSearch?: boolean
+    /** Assistant-Nachricht (nur Smart-Instant category:'chat'): angefragtes Aktions-Modell — sobald in einem Thread gesetzt, bleibt es für alle weiteren 'chat'-Turns dieses Threads gleich (siehe `resolveStickyChatActionModel`), damit OpenAI-Prompt-Caching nicht bei jedem Action-Wechsel (answer ⇄ short_answer/clarify/one_step) das Modell und damit den Cache-Scope wechselt. */
+    mainChatActionModel?: import('./constants/chatComposerModels').ChatDailyTierOpenAiModelId
     /** User-Nachricht: Smart-Instant Einordnung (nur wenn Admin-Debug aktiv). */
     instantAnalyzeDebug?: InstantAnalyzeDebugMeta
     /** User-Nachricht: Thinking-Aufgabenanalyse (nur wenn Admin-Debug aktiv). */

@@ -78,18 +78,18 @@ export function useChatMessageList({
     }
     return -1
   })()
-  const assistantHasWordExportAfterLastWordUser =
+  /** Sobald die Assistenten-Antwort beginnt, übernimmt die Bau-Karte (`WordDocumentCardBuilding`) den
+   *  Loader — die Pending-Zeile muss dann verschwinden, sonst stehen zwei identische Loader übereinander. */
+  const assistantStartedAfterLastWordUser =
     lastWordUserIndex >= 0 &&
-    messageList
-      .slice(lastWordUserIndex + 1)
-      .some((m) => m.role === 'assistant' && Boolean(m.metadata?.wordExport))
+    messageList.slice(lastWordUserIndex + 1).some((m) => m.role === 'assistant')
   const pendingWordGeneration =
     isSending &&
     !pendingImageGeneration &&
     !pendingImageSearch &&
     !pendingExcelGeneration &&
     lastWordUserIndex >= 0 &&
-    !assistantHasWordExportAfterLastWordUser
+    !assistantStartedAfterLastWordUser
 
   const lastPdfUserIndex = (() => {
     for (let i = messageList.length - 1; i >= 0; i -= 1) {
@@ -170,6 +170,30 @@ export function useChatMessageList({
     lastDiagramUserIndex >= 0 &&
     !assistantHasDiagramSpecAfterLastDiagramUser
 
+  const lastPptxUserIndex = (() => {
+    for (let i = messageList.length - 1; i >= 0; i -= 1) {
+      if (messageList[i].role === 'user' && messageList[i].metadata?.userPptxCommand) {
+        return i
+      }
+    }
+    return -1
+  })()
+  /** Wie bei Word: sobald die Assistenten-Antwort beginnt, übernimmt `PptxPresentationCardBuilding`. */
+  const assistantStartedAfterLastPptxUser =
+    lastPptxUserIndex >= 0 &&
+    messageList.slice(lastPptxUserIndex + 1).some((m) => m.role === 'assistant')
+  const pendingPptxGeneration =
+    isSending &&
+    !pendingImageGeneration &&
+    !pendingImageSearch &&
+    !pendingExcelGeneration &&
+    !pendingWordGeneration &&
+    !pendingPdfGeneration &&
+    !pendingChartGeneration &&
+    !pendingDiagramGeneration &&
+    lastPptxUserIndex >= 0 &&
+    !assistantStartedAfterLastPptxUser
+
   const showBootstrapPendingRow = isSending && messageList.length === 0
   const bootstrapStatusLabel =
     getChatSendPhaseLabel(sendPhase) ?? (isSending ? 'Denkt nach …' : undefined)
@@ -182,7 +206,8 @@ export function useChatMessageList({
     !pendingWordGeneration &&
     !pendingPdfGeneration &&
     !pendingChartGeneration &&
-    !pendingDiagramGeneration
+    !pendingDiagramGeneration &&
+    !pendingPptxGeneration
   const showPendingAssistantRow =
     showPendingTextOrbitRow ||
     pendingImageSearch ||
@@ -191,7 +216,8 @@ export function useChatMessageList({
     pendingWordGeneration ||
     pendingPdfGeneration ||
     pendingChartGeneration ||
-    pendingDiagramGeneration
+    pendingDiagramGeneration ||
+    pendingPptxGeneration
   const pendingStatusLabel =
     getChatSendPhaseLabel(sendPhase) ??
     (isSending && showPendingTextOrbitRow ? 'Denkt nach …' : undefined)
@@ -621,6 +647,7 @@ export function useChatMessageList({
     pendingPdfGeneration,
     pendingChartGeneration,
     pendingDiagramGeneration,
+    pendingPptxGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,

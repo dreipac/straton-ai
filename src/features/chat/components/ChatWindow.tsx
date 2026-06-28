@@ -15,10 +15,16 @@ import sendIcon from '../../../assets/icons/send.svg'
 import type {
   ChatMessage,
   ChatMessagePptxExport,
+  ChatMessageWordExport,
   InstantAnalyzeDebugMeta,
   ThinkingAnalyzeDebugMeta,
 } from '../types'
 import type { AssistantRichContentOptions } from '../utils/renderAssistantRichContent'
+import type { PptxEditResult } from '../hooks/useChat'
+import { stripPptxCommandMarker, type PptxPresetKey } from '../constants/pptxExportPrompt'
+import { userMessageRequestsPptxGenerate } from '../constants/instantAnalyzeRoute'
+import { resolvePptxPresentationState, stripPptxHtmlBlock, stripPptxPatchBlock, type PptxSlide } from '../utils/pptxOutline'
+import { PptxPresetPickerModal } from './chat-window/PptxPresetPickerModal'
 import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
 import { ChatContextUsageRing } from './ChatContextUsageRing'
 import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
@@ -47,11 +53,13 @@ import { useChatComposerSectionReply } from '../hooks/useChatComposerSectionRepl
 import { useChatImageLightbox } from '../hooks/useChatImageLightbox'
 import { useChatDocumentPreview } from '../hooks/useChatDocumentPreview'
 import { useChatSlidePreview } from '../hooks/useChatSlidePreview'
+import { useChatWordPreview } from '../hooks/useChatWordPreview'
 import { ChatComposerForm } from './chat-window/ChatComposerForm'
 import { ChatComposerThinkingCreditsHint } from './chat-window/ChatComposerThinkingCreditsHint'
 import { ChatImageLightbox } from './chat-window/ChatImageLightbox'
 import { ChatDocumentPreviewModal } from './chat-window/ChatDocumentPreviewModal'
 import { ChatSlidePreviewModal } from './chat-window/ChatSlidePreviewModal'
+import { ChatWordPreviewModal } from './chat-window/ChatWordPreviewModal'
 
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
 
@@ -100,7 +108,7 @@ type ChatWindowProps = {
   /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
   onCancelSend?: () => void
   /** Nach /Word: Word-Datei erzeugen, wenn die Papier-Vorschau passt. */
-  onFinalizeWordDocument?: () => void | Promise<void>
+  onFinalizeWordDocument?: () => Promise<ChatMessageWordExport | undefined> | void
   wordFinalizeBusy?: boolean
   /** Nach /PDF: PDF-Datei erzeugen, wenn die Papier-Vorschau passt. */
   onFinalizePdfDocument?: () => void | Promise<void>
@@ -111,6 +119,18 @@ type ChatWindowProps = {
   /** Nach /PowerPoint: .pptx erzeugen, wenn die Folien-Vorschau passt. */
   onFinalizePptxDocument?: () => Promise<ChatMessagePptxExport | undefined> | void
   pptxFinalizeBusy?: boolean
+  /** Editier-Box in der Folien-Vorschau: gezielte Änderung statt Neugenerierung. */
+  onSubmitPptxEdit?: (
+    instruction: string,
+    currentSlides: PptxSlide[],
+    anchorMessageId: string,
+  ) => Promise<PptxEditResult | undefined>
+  /** "Design ändern" in der Folien-Vorschau (nur neue, Preset-basierte Decks) — kein KI-Aufruf, tauscht nur `preset`/`theme`. */
+  onSwitchPptxPreset?: (
+    anchorMessageId: string,
+    currentSlides: PptxSlide[],
+    preset: PptxPresetKey,
+  ) => Promise<PptxSlide[] | undefined>
   /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
   mainChatContextMaxTokens?: number | null
   /** Live Abo-Verbrauch — Karten in Assistentenantworten. */
@@ -155,6 +175,8 @@ export function ChatWindow({
   excelFinalizeBusy = false,
   onFinalizePptxDocument,
   pptxFinalizeBusy = false,
+  onSubmitPptxEdit,
+  onSwitchPptxPreset,
   mainChatContextMaxTokens = null,
   subscriptionUsageDisplay = null,
 }: ChatWindowProps) {
@@ -178,6 +200,7 @@ export function ChatWindow({
     pendingPdfGeneration,
     pendingChartGeneration,
     pendingDiagramGeneration,
+    pendingPptxGeneration,
     pendingStatusLabel,
     showLatestAssistantOrbitLoader,
     streamingStatusLabel,
@@ -200,6 +223,29 @@ export function ChatWindow({
 
   const clearSectionReplyEmbedRef = useRef<() => void>(() => {})
 
+  /**
+   * PowerPoint-Generierung läuft nie direkt aus dem Composer — vorher MUSS der Nutzer ein Design
+   * wählen (siehe `PptxPresetPickerModal`). Die Heuristik läuft synchron auf dem Roh-Text (gleiche
+   * Erkennung wie `detectRouteHeuristic`/`resolveInstantRouteOverrides`, siehe `userMessageRequestsPptxGenerate`)
+   * — die Editier-Box der Folien-Vorschau ist ein komplett separater Pfad (`onSubmitPptxEdit`),
+   * landet also nie hier.
+   */
+  const [pendingPptxGenerateSend, setPendingPptxGenerateSend] = useState<{
+    content: string
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions
+  } | null>(null)
+
+  const handleSendMessageWithPptxGate = async (
+    content: string,
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions,
+  ) => {
+    if (userMessageRequestsPptxGenerate(content)) {
+      setPendingPptxGenerateSend({ content, opts })
+      return
+    }
+    await onSendMessage(content, opts)
+  }
+
   const composer = useChatComposer({
     threadKey,
     composerUserId,
@@ -207,7 +253,7 @@ export function ChatWindow({
     tokenLimitReached,
     thinkingCreditsBlocked,
     chatThinkingMode,
-    onSendMessage,
+    onSendMessage: handleSendMessageWithPptxGate,
     onClearSectionReplyEmbed: () => clearSectionReplyEmbedRef.current(),
   })
 
@@ -223,6 +269,7 @@ export function ChatWindow({
   const imageLightbox = useChatImageLightbox()
   const documentPreview = useChatDocumentPreview()
   const slidePreview = useChatSlidePreview()
+  const wordPreview = useChatWordPreview()
 
   const userMessageLongPress = useUserMessageLongPress(composer.isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
@@ -489,7 +536,29 @@ export function ChatWindow({
   const slidePreviewMessage = slidePreview.preview
     ? messageList.find((m) => m.id === slidePreview.preview?.messageId)
     : undefined
-  const slidePreviewPptxExport = slidePreviewMessage?.metadata?.pptxExport
+  /** Ein vorhandener `pptxExport` gilt als veraltet, sobald seither editiert wurde — sonst würde der Download-Button eine alte, nicht mehr passende Datei anbieten. */
+  const slidePreviewHasEdits = slidePreview.preview
+    ? resolvePptxPresentationState(messageList, slidePreview.preview.messageId)?.hasEdits ?? false
+    : false
+  const slidePreviewPptxExport =
+    slidePreviewHasEdits ? undefined : slidePreviewMessage?.metadata?.pptxExport
+
+  const pptxEditHistory = useMemo(() => {
+    const anchorId = slidePreview.preview?.messageId
+    if (!anchorId) {
+      return []
+    }
+    return messageList
+      .filter((m) => m.metadata?.pptxEditAnchorMessageId === anchorId)
+      .map((m) => ({
+        id: m.id,
+        role: m.role,
+        content:
+          m.role === 'user'
+            ? stripPptxCommandMarker(m.content)
+            : stripPptxPatchBlock(stripPptxHtmlBlock(m.content)).trim() || 'Änderung übernommen.',
+      }))
+  }, [messageList, slidePreview.preview?.messageId])
 
   async function handleSlidePreviewDownload() {
     if (slidePreviewPptxExport && slidePreviewMessage) {
@@ -503,6 +572,46 @@ export function ChatWindow({
         metadata: { ...slidePreviewMessage.metadata, pptxExport: result },
       })
     }
+  }
+
+  const [pptxEditHint, setPptxEditHint] = useState<string | null>(null)
+  useEffect(() => {
+    setPptxEditHint(null)
+  }, [slidePreview.preview?.messageId])
+
+  /** Neue (Preset-basierte) Präsentation: nur Text editierbar, Design über den eigenen Button. */
+  const slidePreviewIsTextOnly = Boolean(slidePreview.preview?.slides[0]?.preset)
+  const [presetSwitchOpen, setPresetSwitchOpen] = useState(false)
+
+  async function handleConfirmPresetSwitch(preset: PptxPresetKey) {
+    const slides = slidePreview.preview?.slides
+    const anchorMessageId = slidePreview.preview?.messageId
+    setPresetSwitchOpen(false)
+    if (!slides || slides.length === 0 || !anchorMessageId) {
+      return
+    }
+    const newSlides = await onSwitchPptxPreset?.(anchorMessageId, slides, preset)
+    if (newSlides) {
+      slidePreview.updatePreviewSlides(newSlides)
+    }
+  }
+
+  async function handleSlidePreviewEdit(instruction: string) {
+    const slides = slidePreview.preview?.slides
+    const anchorMessageId = slidePreview.preview?.messageId
+    if (!slides || slides.length === 0 || !anchorMessageId) {
+      return
+    }
+    setPptxEditHint(null)
+    const result = await onSubmitPptxEdit?.(instruction, slides, anchorMessageId)
+    if (!result) {
+      return
+    }
+    if ('unsupported' in result) {
+      setPptxEditHint(result.message)
+      return
+    }
+    slidePreview.updatePreviewSlides(result.slides)
   }
 
   const slidePreviewEl =
@@ -519,6 +628,79 @@ export function ChatWindow({
         downloadReady={Boolean(slidePreviewPptxExport)}
         downloadBusy={pptxFinalizeBusy || pptxDownloadBusyId === slidePreviewMessage?.id}
         onDownload={handleSlidePreviewDownload}
+        onSubmitEdit={onSubmitPptxEdit ? handleSlidePreviewEdit : undefined}
+        editBusy={isSending}
+        editHint={pptxEditHint}
+        editHistory={pptxEditHistory}
+        isTextOnly={slidePreviewIsTextOnly}
+        onChangeDesign={
+          slidePreviewIsTextOnly && onSwitchPptxPreset ? () => setPresetSwitchOpen(true) : undefined
+        }
+      />
+    ) : null
+
+  const wordPreviewMessage = wordPreview.preview
+    ? messageList.find((m) => m.id === wordPreview.preview?.messageId)
+    : undefined
+  const wordPreviewWordExport = wordPreviewMessage?.metadata?.wordExport
+
+  async function handleWordPreviewDownload() {
+    if (wordPreviewWordExport && wordPreviewMessage) {
+      await downloadWordExport(wordPreviewMessage)
+      return
+    }
+    const result = await onFinalizeWordDocument?.()
+    if (result && wordPreviewMessage) {
+      await downloadWordExport({
+        ...wordPreviewMessage,
+        metadata: { ...wordPreviewMessage.metadata, wordExport: result },
+      })
+    }
+  }
+
+  const wordPreviewEl =
+    wordPreview.preview !== null ? (
+      <ChatWordPreviewModal
+        preview={wordPreview.preview}
+        open={wordPreview.open}
+        activeIndex={wordPreview.activeIndex}
+        onClose={wordPreview.closeWordPreview}
+        onTransitionEnd={wordPreview.handleTransitionEnd}
+        onGoToPage={wordPreview.goToPage}
+        onNextPage={wordPreview.goNextPage}
+        onPrevPage={wordPreview.goPrevPage}
+        downloadReady={Boolean(wordPreviewWordExport)}
+        downloadBusy={wordFinalizeBusy || wordDownloadBusyId === wordPreviewMessage?.id}
+        onDownload={handleWordPreviewDownload}
+      />
+    ) : null
+
+  const pptxPresetPickerEl = pendingPptxGenerateSend ? (
+    <PptxPresetPickerModal
+      open
+      mode="pick"
+      onCancel={() => {
+        composer.handleDraftChange(pendingPptxGenerateSend.content)
+        setPendingPptxGenerateSend(null)
+      }}
+      onConfirm={(preset) => {
+        const { content, opts } = pendingPptxGenerateSend
+        setPendingPptxGenerateSend(null)
+        void onSendMessage(content, { ...opts, pptxSelectedPreset: preset })
+      }}
+    />
+  ) : null
+
+  const pptxPresetSwitchEl =
+    presetSwitchOpen && slidePreview.preview ? (
+      <PptxPresetPickerModal
+        open
+        mode="switch"
+        currentPreset={slidePreview.preview.slides[0]?.preset}
+        onCancel={() => setPresetSwitchOpen(false)}
+        onConfirm={(preset) => {
+          void handleConfirmPresetSwitch(preset)
+        }}
       />
     ) : null
 
@@ -604,6 +786,9 @@ export function ChatWindow({
         {imageLightboxEl}
         {documentPreviewEl}
         {slidePreviewEl}
+        {wordPreviewEl}
+        {pptxPresetPickerEl}
+        {pptxPresetSwitchEl}
       </section>
     )
   }
@@ -636,6 +821,7 @@ export function ChatWindow({
         pendingPdfGeneration={pendingPdfGeneration}
         pendingChartGeneration={pendingChartGeneration}
         pendingDiagramGeneration={pendingDiagramGeneration}
+        pendingPptxGeneration={pendingPptxGeneration}
         pendingStatusLabel={pendingStatusLabel}
         sendPhase={sendPhase}
         showLatestAssistantOrbitLoader={showLatestAssistantOrbitLoader}
@@ -665,6 +851,7 @@ export function ChatWindow({
         onCopyUserMessage={handleCopyUserMessageText}
         subscriptionUsageDisplay={subscriptionUsageDisplay}
         onPptxPreview={slidePreview.openSlidePreview}
+        onWordPreview={wordPreview.openWordPreview}
       />
       {error ? <p className="error-text">{error}</p> : null}
 
@@ -703,6 +890,9 @@ export function ChatWindow({
       {imageLightboxEl}
       {documentPreviewEl}
       {slidePreviewEl}
+      {wordPreviewEl}
+      {pptxPresetPickerEl}
+      {pptxPresetSwitchEl}
     </section>
   )
 }

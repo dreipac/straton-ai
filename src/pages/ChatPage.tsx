@@ -172,6 +172,8 @@ export function ChatPage() {
     isBootstrapping,
     error,
     submitMessage,
+    submitPptxEditMessage,
+    applyPptxPresetSwitch,
     cancelSend,
     finalizeWordDocumentExport,
     wordFinalizeBusy,
@@ -1113,6 +1115,9 @@ export function ChatPage() {
             isLearnPathCreateButtonDisabled={isLearnPathCreateButtonDisabled}
             learningPathDraftLoading={learnDraft.learningPathDraftLoading}
             learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
+            activeThread={activeThread}
+            onRenameThread={pageMenus.openRenameModal}
+            onDeleteThread={(id) => void deleteChat(id)}
             onToolbarAvatarsClick={collaboration.handleToolbarAvatarsClick}
             onShareChipClick={collaboration.handleShareChipClick}
             onOpenLearningPathDraft={learnDraft.openLearningPathDraft}
@@ -1154,6 +1159,8 @@ export function ChatPage() {
           excelFinalizeBusy={excelFinalizeBusy}
           onFinalizePptxDocument={finalizePptxDocumentExport}
           pptxFinalizeBusy={pptxFinalizeBusy}
+          onSubmitPptxEdit={submitPptxEditMessage}
+          onSwitchPptxPreset={applyPptxPresetSwitch}
           thinkingCreditsRemaining={
             profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
           }

@@ -1,5 +1,15 @@
 import type { ChatMessage } from '../types'
 import { extractWordOutlineFromThread } from '../utils/wordOutline'
+import { PDF_SPEC_JSON_START, PDF_SPEC_JSON_END } from '../constants/documentExportIntent'
+
+export function stripPdfSpecMarkerBlock(content: string): string {
+  const i = content.indexOf(PDF_SPEC_JSON_START)
+  const j = content.indexOf(PDF_SPEC_JSON_END)
+  if (i === -1 || j === -1 || j < i) {
+    return content
+  }
+  return `${content.slice(0, i).trimEnd()}\n\n${content.slice(j + PDF_SPEC_JSON_END.length).trimStart()}`.trim()
+}
 
 export function extractPdfOutlineFromThread(messages: ChatMessage[]) {
   return extractWordOutlineFromThread(messages, 'pdf')
@@ -26,7 +36,7 @@ export function canFinalizePdfExportFromThread(messages: ChatMessage[]): boolean
     return false
   }
   const lastUser = findLastUserMessage(messages)
-  if (lastUser?.metadata?.userPdfCommand !== true) {
+  if (!lastUser?.metadata?.userPdfCommand && !lastUser?.metadata?.userWordCommand) {
     return false
   }
   return extractPdfOutlineFromThread(messages) !== null

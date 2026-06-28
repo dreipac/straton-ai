@@ -4,8 +4,37 @@ import {
   sanitizeChatMessageContentForDb,
   sanitizeForJsonbStorage,
 } from '../../../utils/sanitizeDatabaseText'
+import { PPTX_PRESET_KEYS, PPTX_SLIDE_LAYOUTS, PPTX_THEME_KEYS, PPTX_VALIGN_KEYS } from '../constants/pptxExportPrompt'
+import { CHAT_DAILY_TIER_OPENAI_MODELS, type ChatDailyTierOpenAiModelId } from '../constants/chatComposerModels'
 import type { ChatMessage, ChatRole, ChatThread } from '../types'
+import type { PptxSlide } from '../utils/pptxOutline'
 import { UNSPLASH_SEARCH_MAX_PHOTOS } from './unsplashSearch.service'
+
+/** Persistierte `PptxSlide[]` aus rohem JSONB validieren (Layout/Theme gegen die bekannten Enums) — verwendet für `metadata.pptxSlides` und `metadata.pptxExport.slides`. */
+function parsePptxSlidesFromRaw(raw: unknown): PptxSlide[] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const layouts: readonly string[] = PPTX_SLIDE_LAYOUTS
+  const themes: readonly string[] = PPTX_THEME_KEYS
+  const presets: readonly string[] = PPTX_PRESET_KEYS
+  const valigns: readonly string[] = PPTX_VALIGN_KEYS
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .map((item) => {
+      const layout = typeof item.layout === 'string' && layouts.includes(item.layout) ? item.layout : null
+      const html = typeof item.html === 'string' ? item.html : null
+      const theme = typeof item.theme === 'string' && themes.includes(item.theme) ? item.theme : null
+      if (!layout || html === null || !theme) {
+        return null
+      }
+      /** Neue, Preset-basierte Decks — `theme` bleibt zusätzlich als Fallback-Wert vorhanden (siehe `pptxOutline.ts`), daher unverändert Pflicht oben. */
+      const preset = typeof item.preset === 'string' && presets.includes(item.preset) ? item.preset : null
+      const valign = typeof item.valign === 'string' && valigns.includes(item.valign) ? item.valign : null
+      return { layout, html, theme, ...(preset ? { preset } : {}), ...(valign ? { valign } : {}) } as PptxSlide
+    })
+    .filter((slide): slide is PptxSlide => slide !== null)
+}
 
 type ChatThreadRow = {
   id: string
@@ -35,6 +64,8 @@ function mapThread(row: ChatThreadRow): ChatThread {
     archivedAt: row.archived_at ?? null,
   }
 }
+
+const KNOWN_CHAT_ACTION_MODEL_IDS = new Set<string>(CHAT_DAILY_TIER_OPENAI_MODELS.map((m) => m.id))
 
 function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
   if (!raw || typeof raw !== 'object') {
@@ -79,6 +110,9 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
   }
   if (o.assistantAutoWebSearch === true) {
     out.assistantAutoWebSearch = true
+  }
+  if (typeof o.mainChatActionModel === 'string' && KNOWN_CHAT_ACTION_MODEL_IDS.has(o.mainChatActionModel)) {
+    out.mainChatActionModel = o.mainChatActionModel as ChatDailyTierOpenAiModelId
   }
 
   const dbg = o.instantAnalyzeDebug
@@ -195,8 +229,24 @@ function mapMessageMetadata(raw: unknown): ChatMessage['metadata'] {
     const fileName = typeof p.fileName === 'string' ? p.fileName : ''
     const slideCount = typeof p.slideCount === 'number' ? p.slideCount : 0
     if (bucket && path && fileName) {
-      out.pptxExport = { bucket, path, fileName, slideCount }
+      const exportSlides = parsePptxSlidesFromRaw(p.slides)
+      out.pptxExport = {
+        bucket,
+        path,
+        fileName,
+        slideCount,
+        ...(exportSlides.length > 0 ? { slides: exportSlides } : {}),
+      }
     }
+  }
+
+  const pptxSlides = parsePptxSlidesFromRaw(o.pptxSlides)
+  if (pptxSlides.length > 0) {
+    out.pptxSlides = pptxSlides
+  }
+
+  if (typeof o.pptxEditAnchorMessageId === 'string' && o.pptxEditAnchorMessageId) {
+    out.pptxEditAnchorMessageId = o.pptxEditAnchorMessageId
   }
 
   const unsplash = o.unsplashSearch
@@ -443,6 +493,23 @@ export async function createChatMessage(
   }
 
   return mapMessage(data as ChatMessageRow)
+}
+
+export async function updateChatMessageContent(
+  messageId: string,
+  content: string,
+  metadata?: ChatMessage['metadata'],
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const safeContent = sanitizeChatMessageContentForDb(content)
+  const patch: { content: string; metadata?: ChatMessage['metadata'] } = { content: safeContent }
+  if (metadata && Object.keys(metadata).length > 0) {
+    patch.metadata = sanitizeForJsonbStorage(metadata)
+  }
+  const { error } = await supabase.from('chat_messages').update(patch).eq('id', messageId)
+  if (error) {
+    throw error
+  }
 }
 
 export async function archiveChatThread(threadId: string): Promise<void> {

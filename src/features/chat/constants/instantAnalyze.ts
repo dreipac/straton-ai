@@ -691,6 +691,7 @@ export function applyInstantAnalyzeHeuristics(
     hasVisionAttachment?: boolean
     hasDocumentFileAttachment?: boolean
     availableFolderFileNames?: string[]
+    precomputedDetection?: { category: InstantAnalyzeCategory; action: InstantAnalyzeAction } | null
   },
 ): InstantAnalyzeResult {
   let result = applyLiveWebHeuristic(userMessage, analyze)
@@ -721,6 +722,9 @@ export function applyInstantAnalyzeHeuristics(
     hasVisionAttachment: options?.hasVisionAttachment === true,
     hasDocumentFileAttachment: options?.hasDocumentFileAttachment === true,
     priorTurns: options?.priorTurns as ImageSearchPriorTurn[] | undefined,
+    ...(options !== undefined && 'precomputedDetection' in options
+      ? { precomputedDetection: options.precomputedDetection }
+      : {}),
   })
   result = applyDocumentVisibilityHeuristic(
     userMessage,

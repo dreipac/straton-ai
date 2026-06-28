@@ -62,6 +62,18 @@ export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
     } else if (t === 'paragraph') {
       const text = typeof b.text === 'string' ? b.text : ''
       blocks.push({ type: 'paragraph', text })
+    } else if (t === 'list') {
+      if (!Array.isArray(b.items)) {
+        return null
+      }
+      const items = b.items
+        .map((it) => (typeof it === 'string' ? it : String(it ?? '')))
+        .map((it) => it.trim())
+        .filter(Boolean)
+      if (items.length === 0) {
+        return null
+      }
+      blocks.push({ type: 'list', ordered: b.ordered === true, items })
     } else if (t === 'table') {
       const table = parseWordOutlineTableBlock(b)
       if (!table) {
@@ -501,13 +513,13 @@ const SECTION_HEADING_KEYWORDS =
 
 /**
  * Word: Hauptabschnitte = Überschrift 1, Unterpunkte wie 1.1 = Überschrift 2.
- * «##» zählt wie Hauptteil (H1), «###» wie Unterkapitel (H2), usw.
+ * «#»/«##»/«###» zählen als H1 (Hauptkapitel), «####» als H2 (Unterkapitel), usw.
  */
 function markdownHashesToOutlineLevel(hashCount: number): HeadingLevel {
-  if (hashCount <= 2) {
+  if (hashCount <= 3) {
     return 1
   }
-  return Math.min(6, hashCount - 1) as HeadingLevel
+  return Math.min(6, hashCount - 2) as HeadingLevel
 }
 
 function tryMarkdownHeadingLine(line: string): HeadingLevel | null {
@@ -519,9 +531,9 @@ function tryMarkdownHeadingLine(line: string): HeadingLevel | null {
   return markdownHashesToOutlineLevel(hashes)
 }
 
-/** «1.1 Titel» / «2.3.1 Detail» als Unterkapitel (H2 / H3). */
+/** «1.1 Titel» / «2.3.1 Detail» als Unterkapitel (H2 / H3). Funktioniert auch mit führendem Bullet-Zeichen («• 1.1 …», «- 1.1 …»). */
 function tryDecimalSubsectionHeading(line: string): { level: HeadingLevel; text: string } | null {
-  const t = line.trim().replace(/\*\*/g, '').trim()
+  const t = line.trim().replace(/\*\*/g, '').replace(/^[•·▪▸\-–]\s+/, '').trim()
   if (t.length > 200) {
     return null
   }
@@ -622,7 +634,9 @@ function classifyPlainLineToBlock(rawLine: string, lastHeadingLevel = 0): WordBl
     return { type: 'heading', level: lv, text: sanitizeHeadingTextForTemplate(boldOnly[1].trim()) }
   }
 
-  return { type: 'paragraph', text: line }
+  // Absatz/Bullet: Originaltext (inkl. `**fett**`-Inline) erhalten — `line` ist nur für die
+  // Überschriften-Erkennung bold-bereinigt; der Renderer wertet Inline-Fett im Fliesstext aus.
+  return { type: 'paragraph', text: rawLine.trim() }
 }
 
 /**
@@ -635,7 +649,7 @@ export function refineWordOutlineBlocksForExport(
   const out: WordOutlineV1['blocks'] = []
   let lastHeadingLevel = 0
   for (const b of blocks) {
-    if (b.type === 'table') {
+    if (b.type === 'table' || b.type === 'list') {
       out.push(b)
       continue
     }
@@ -731,10 +745,98 @@ export function normalizeHeadingLevelsForWord(outline: WordOutlineV1): WordOutli
   return outline
 }
 
+/** Aufzählungszeichen am Zeilenanfang: «- », «• », «* », «‣ », «▪ », «· » → ungeordnetes Listenelement. */
+const UNORDERED_BULLET_RE = /^[-•*‣▪·–]\s+(.+)$/
+/** «1. » / «1) » → geordnetes Listenelement (nur als Listenkontext, Kapitelnummern sind hier schon Überschriften). */
+const ORDERED_BULLET_RE = /^\d+[.)]\s+(.+)$/
+
+type BulletItem = { ordered: boolean; text: string }
+
+function matchBullet(text: string): BulletItem | null {
+  const t = text.trim()
+  const u = t.match(UNORDERED_BULLET_RE)
+  if (u?.[1]) {
+    return { ordered: false, text: u[1].trim() }
+  }
+  const o = t.match(ORDERED_BULLET_RE)
+  if (o?.[1]) {
+    return { ordered: true, text: o[1].trim() }
+  }
+  return null
+}
+
+/**
+ * Aufeinanderfolgende Bullet-Absätze («- …» / «• …») zu **einem** `list`-Block bündeln (statt N
+ * Einzel-Absätze) — Voraussetzung für echte Word-Listen mit Aufzählungszeichen und hängendem Einzug.
+ * Ein Lauf bricht, sobald sich geordnet↔ungeordnet ändert oder ein Nicht-Bullet-Block kommt.
+ */
+function coalesceListBlocks(blocks: WordOutlineV1['blocks']): WordOutlineV1['blocks'] {
+  const out: WordOutlineV1['blocks'] = []
+  let buf: { ordered: boolean; items: string[] } | null = null
+  const flush = () => {
+    if (buf && buf.items.length > 0) {
+      // Einzelnes Bullet bleibt ein normaler Absatz (keine „Liste" mit nur einem Punkt).
+      if (buf.items.length === 1) {
+        out.push({ type: 'paragraph', text: buf.items[0]! })
+      } else {
+        out.push({ type: 'list', ordered: buf.ordered, items: buf.items })
+      }
+    }
+    buf = null
+  }
+  for (const block of blocks) {
+    if (block.type !== 'paragraph') {
+      flush()
+      out.push(block)
+      continue
+    }
+    const bullet = matchBullet(block.text)
+    if (!bullet) {
+      flush()
+      out.push(block)
+      continue
+    }
+    if (buf && buf.ordered !== bullet.ordered) {
+      flush()
+    }
+    if (!buf) {
+      buf = { ordered: bullet.ordered, items: [] }
+    }
+    buf.items.push(bullet.text)
+  }
+  flush()
+  return out
+}
+
+/** Kurzes Doppelpunkt-Label («Kernpunkte:») direkt vor einer Liste → echte Unterüberschrift (H3). */
+function promoteLabelParagraphsToSubheadings(
+  blocks: WordOutlineV1['blocks'],
+): WordOutlineV1['blocks'] {
+  return blocks.map((block, i) => {
+    if (block.type !== 'paragraph') {
+      return block
+    }
+    const t = block.text.trim()
+    const next = blocks[i + 1]
+    const followedByList = next?.type === 'list' || next?.type === 'table'
+    const looksLikeLabel =
+      t.length > 0 &&
+      t.length <= 64 &&
+      /[:：]$/.test(t) &&
+      !/[.!?]/.test(t.slice(0, -1)) // kein vollständiger Satz davor
+    if (followedByList && looksLikeLabel) {
+      return { type: 'heading', level: 3, text: t.replace(/[:：]\s*$/, '').trim() }
+    }
+    return block
+  })
+}
+
 function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
   const { title: _d, ...rest } = stripTitle
   const refined = refineWordOutlineBlocksForExport(rest.blocks)
-  const blocks = coalesceMarkdownTablesAcrossBlocks(refined)
+  const withTables = coalesceMarkdownTablesAcrossBlocks(refined)
+  const withLists = coalesceListBlocks(withTables)
+  const blocks = promoteLabelParagraphsToSubheadings(withLists)
   return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks })
 }
 
@@ -743,6 +845,87 @@ function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
  * Sonst hält ein alter Word/PDF-Spec-Block aus einer früheren Antwort den Finalize-Button
  * für spätere, unabhängige Chat-Antworten künstlich am Leben.
  */
+/** Einleitungs-Geplauder der KI vor dem ersten Kapitel («Hier ist eine Gliederung für …:»). */
+function isLikelyIntroChatter(text: string): boolean {
+  const t = text.trim().toLowerCase()
+  if (t.length === 0 || t.length > 200) {
+    return false
+  }
+  return (
+    /[:：]\s*$/.test(t) ||
+    /^(hier ist|hier sind|gerne|klar|natürlich|sehr gerne|im folgenden|nachfolgend|nachstehend|anbei|untenstehend|folgend)/.test(t) ||
+    t.includes('kapitelstruktur') ||
+    t.includes('folgende struktur') ||
+    t.includes('professionelle struktur')
+  )
+}
+
+/** Abschluss-Meta-Frage der KI («Soll ich das als Word-Datei für dich exportieren?»). */
+function isExportMetaQuestion(text: string): boolean {
+  const t = text.trim()
+  const lower = t.toLowerCase()
+  const startsTrigger = /^(soll ich|möchtest du|willst du|wünschst du|brauchst du|kann ich|sag mir|lass mich wissen)/.test(lower)
+  const exportMention = /(als|ins?)\s+(word|pdf|docx|datei)|exportier|herunterladen|generier|word-datei|pdf-datei/.test(lower)
+  return (t.endsWith('?') && (startsTrigger || exportMention)) || (startsTrigger && exportMention)
+}
+
+/**
+ * Reine KI-Chat-Sätze aus dem Dokument entfernen: führendes Einleitungs-Geplauder **vor** dem ersten
+ * Kapitel und abschliessende Export-Rückfragen am Ende. Die .docx/PDF und die Vorschau enthalten so nur
+ * den verlangten Inhalt, nicht die Meta-Sätze der KI.
+ */
+/** Markdown-Trennlinie («---», «***», «___») — Struktur-Rauschen, kein Dokumentinhalt. */
+function isHorizontalRuleParagraph(text: string): boolean {
+  const compact = text.replace(/\s+/g, '')
+  return /^[-*_]{3,}$/.test(compact)
+}
+
+function stripChatterBlocks(outline: WordOutlineV1): WordOutlineV1 {
+  // Trennlinien überall entfernen (die KI setzt «---» zwischen Kapiteln).
+  const blocks = outline.blocks.filter(
+    (b) => !(b.type === 'paragraph' && isHorizontalRuleParagraph(b.text)),
+  )
+  // Führendes Einleitungs-Geplauder (nur wenn danach noch eine Überschrift kommt → echtes Dokument).
+  while (
+    blocks.length > 0 &&
+    blocks[0]!.type === 'paragraph' &&
+    isLikelyIntroChatter((blocks[0] as { text: string }).text) &&
+    blocks.slice(1).some((b) => b.type === 'heading')
+  ) {
+    blocks.shift()
+  }
+  // Abschliessende Export-Rückfrage(n).
+  while (
+    blocks.length > 0 &&
+    blocks[blocks.length - 1]!.type === 'paragraph' &&
+    isExportMetaQuestion((blocks[blocks.length - 1] as { text: string }).text)
+  ) {
+    blocks.pop()
+  }
+  return blocks.length > 0 ? { ...outline, blocks } : outline
+}
+
+/**
+ * Export-fertiges Outline aus **einer** Assistenten-Nachricht — gleiche Pipeline wie
+ * {@link extractWordOutlineFromThread}, aber für eine bestimmte Nachricht (z. B. die Chat-Vorschau-Karte,
+ * die nicht nur die letzte Nachricht betrachtet). So ist die Karten-/Modal-Vorschau identisch zum Export.
+ */
+export function extractWordOutlineFromAssistantContent(
+  content: string,
+  kind: 'word' | 'pdf' = 'word',
+): WordOutlineV1 | null {
+  const source = assistantContentForWordOutlineExtraction(content)
+  const parsed = parseWordOutlineFromAssistantContent(source, kind)
+  if (parsed) {
+    return stripChatterBlocks(outlineForExport(parsed))
+  }
+  const heuristic = tryHeuristicWordOutlineFromPlainText(source)
+  if (heuristic) {
+    return stripChatterBlocks(outlineForExport(heuristic))
+  }
+  return null
+}
+
 export function extractWordOutlineFromThread(
   messages: ChatMessage[],
   kind: 'word' | 'pdf' = 'word',
@@ -751,16 +934,7 @@ export function extractWordOutlineFromThread(
   if (!m || m.role !== 'assistant') {
     return null
   }
-  const source = assistantContentForWordOutlineExtraction(m.content)
-  const parsed = parseWordOutlineFromAssistantContent(source, kind)
-  if (parsed) {
-    return outlineForExport(parsed)
-  }
-  const heuristic = tryHeuristicWordOutlineFromPlainText(source)
-  if (heuristic) {
-    return outlineForExport(heuristic)
-  }
-  return null
+  return extractWordOutlineFromAssistantContent(m.content, kind)
 }
 
 function findLastUserMessage(messages: ChatMessage[]): ChatMessage | undefined {
@@ -785,7 +959,7 @@ export function canFinalizeWordExportFromThread(messages: ChatMessage[]): boolea
     return false
   }
   const lastUser = findLastUserMessage(messages)
-  if (lastUser?.metadata?.userWordCommand !== true) {
+  if (!lastUser?.metadata?.userWordCommand && !lastUser?.metadata?.userPdfCommand) {
     return false
   }
   return extractWordOutlineFromThread(messages, 'word') !== null

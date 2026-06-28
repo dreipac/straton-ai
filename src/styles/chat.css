@@ -1051,6 +1051,58 @@
   background: color-mix(in srgb, #fda4af 78%, #64748b);
 }
 
+/* Einheitlicher Generier-Loader (Foto-Stil, gleiche Punkt-Animation) in Zielform:
+   16:9-Rechteck für Präsentationen, A4-Hochformat für Word. */
+.chat-gen-dots-panel {
+  flex-shrink: 0;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #e9e9ee;
+  border: 1px solid color-mix(in srgb, #64748b 16%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, #ffffff 72%, transparent),
+    0 10px 28px color-mix(in srgb, #0f172a 7%, transparent);
+}
+
+.chat-gen-dots-wrap {
+  margin-top: 0.15rem;
+}
+
+.chat-message-body--rich + .chat-gen-dots-wrap {
+  margin-top: 0.75rem;
+}
+
+/* Kleinere Punkte als beim Foto-Loader (feineres Raster in grösserer Fläche) */
+.chat-gen-dots-panel .chat-image-gen-matrix-dot {
+  max-width: 4px;
+  max-height: 4px;
+}
+
+.chat-gen-dots-panel--slide {
+  width: 18rem;
+  aspect-ratio: 16 / 9;
+}
+
+.chat-gen-dots-panel--document {
+  width: 11.5rem;
+  aspect-ratio: 794 / 1123;
+}
+
+:root[data-theme='dark'] .chat-gen-dots-panel {
+  background: color-mix(in srgb, #1e293b 88%, #334155);
+  border-color: color-mix(in srgb, #94a3b8 22%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, #f8fafc 6%, transparent),
+    0 10px 28px color-mix(in srgb, #000 28%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-gen-dots-panel {
+  background: color-mix(in srgb, #1a1520 86%, #831843 14%);
+  border-color: color-mix(in srgb, #f472b6 26%, transparent);
+}
+
 /* Excel-Erstellung: Rechteck mit moderaten Ecken (nicht Squircle wie Bild); gleiches Raster / Wellen */
 .chat-excel-gen-loader-panel {
   flex-shrink: 0;
@@ -1392,6 +1444,111 @@
   color: #94a3b8;
 }
 
+.chat-file-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  max-width: 22rem;
+}
+
+.chat-file-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #3b82f6 12%, #ffffff);
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.chat-file-card__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-file-card__name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-file-card__type {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.05rem;
+}
+
+.chat-file-card__download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.chat-file-card__download-btn:hover:enabled {
+  background: color-mix(in srgb, #3b82f6 10%, #ffffff);
+  border-color: color-mix(in srgb, #3b82f6 35%, #e2e8f0);
+  color: #2563eb;
+}
+
+.chat-file-card__download-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:root[data-theme='dark'] .chat-file-card {
+  background: #1a2233;
+  border-color: #2d3748;
+}
+
+:root[data-theme='dark'] .chat-file-card__icon {
+  background: color-mix(in srgb, #3b82f6 18%, #1e293b);
+  color: #60a5fa;
+}
+
+:root[data-theme='dark'] .chat-file-card__name {
+  color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .chat-file-card__type {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .chat-file-card__download-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .chat-file-card__download-btn:hover:enabled {
+  background: color-mix(in srgb, #3b82f6 18%, #1e293b);
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
 .chat-excel-download {
   margin-top: 0.65rem;
 }
@@ -1597,6 +1754,75 @@
   display: block;
 }
 
+.chat-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.chat-message-actions .chat-assistant-message-copy {
+  margin-top: 0;
+}
+
+.chat-export-menu-anchor {
+  position: relative;
+}
+
+.chat-export-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+  white-space: nowrap;
+}
+
+.chat-export-menu-btn:hover:enabled {
+  background: color-mix(in srgb, var(--color-border, #cbd5e1) 35%, transparent);
+  color: var(--color-text-secondary, #475569);
+}
+
+.chat-export-menu-btn.is-open {
+  background: color-mix(in srgb, var(--color-border, #cbd5e1) 35%, transparent);
+  color: var(--color-text-secondary, #475569);
+}
+
+.chat-export-menu-btn.is-busy {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.chat-export-menu-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent, #2563eb) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-export-menu-btn__icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.chat-export-menu-btn__chevron {
+  display: block;
+  flex-shrink: 0;
+  transition: transform 180ms ease;
+}
+
+.chat-export-menu-btn__chevron.is-open {
+  transform: rotate(180deg);
+}
+
 .chat-message-body--rich {
   margin: 0.25rem 0 0;
   width: 100%;
@@ -1694,6 +1920,79 @@
 }
 
 .pptx-presentation-card__count {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* Word-Dokument-Karte im Chat — A4-Hochformat-Cover (erste Seite), Klick öffnet das Seiten-Modal */
+.word-doc-card {
+  display: block;
+  width: 100%;
+  max-width: 13rem;
+  margin-top: 0.15rem;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px color-mix(in srgb, #0f172a 10%, transparent),
+    0 10px 28px color-mix(in srgb, #0f172a 6%, transparent);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.chat-message-body--rich + .word-doc-card {
+  margin-top: 0.75rem;
+}
+
+.word-doc-card:hover,
+.word-doc-card:focus-visible {
+  box-shadow: 0 2px 6px color-mix(in srgb, #0f172a 16%, transparent),
+    0 16px 36px color-mix(in srgb, #0f172a 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.word-doc-card__thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 794 / 1123;
+  overflow: hidden;
+  background: #fff;
+}
+
+.word-doc-card__iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 794px;
+  height: 1123px;
+  border: none;
+  pointer-events: none;
+  transform-origin: top left;
+}
+
+.word-doc-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  background: #fafafa;
+  border: 1px solid color-mix(in srgb, #cbd5e1 75%, #94a3b8);
+  border-top: none;
+}
+
+.word-doc-card__icon {
+  display: inline-flex;
+  align-items: center;
+  color: #1f4e79;
+}
+
+.word-doc-card__count {
   font-size: 0.8125rem;
   font-weight: 600;
   color: #475569;
@@ -1858,6 +2157,9 @@
   flex-direction: column;
   gap: 0.6rem;
   min-width: 0;
+  /* Claude-Look: Assistant-Fließtext und Überschriften in Serif; Code/Inline-Code
+     behalten ihre eigene Monospace-Regel. */
+  font-family: Georgia, Cambria, 'Times New Roman', 'Liberation Serif', serif;
 }
 
 .chat-md-h {
@@ -1874,21 +2176,23 @@
   margin-top: 0.35rem;
 }
 
-/* ## … — Abschnittstitel */
+/* ## … — Kapitelüberschrift (Dokument-Haupttitel) */
 .chat-md-h2 {
-  font-size: clamp(1.18rem, 2.6vw, 1.3rem);
-  font-weight: 750;
-  line-height: 1.28;
-  letter-spacing: -0.015em;
-  margin-top: 0.45rem;
+  font-size: clamp(1.28rem, 2.8vw, 1.45rem);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin-top: 0.5rem;
+  color: #0f172a;
 }
 
-/* ### … — Untertitel */
+/* ### … — Unterkapitel */
 .chat-md-h3 {
-  font-size: clamp(1.04rem, 2vw, 1.12rem);
-  font-weight: 700;
-  line-height: 1.32;
-  margin-top: 0.28rem;
+  font-size: clamp(1.08rem, 2.2vw, 1.2rem);
+  font-weight: 750;
+  line-height: 1.3;
+  margin-top: 0.55rem;
+  color: #1e293b;
 }
 
 /* #### … — Mini-Abschnitt (z. B. «Beispiel») */
@@ -1897,8 +2201,6 @@
   font-weight: 700;
   line-height: 1.34;
   margin-top: 0.32rem;
-  padding-left: 0.55rem;
-  border-left: 2px solid color-mix(in srgb, #3b82f6 38%, #64748b);
   color: color-mix(in srgb, currentColor 90%, #64748b);
 }
 
@@ -1934,9 +2236,14 @@
 .chat-md-hr {
   border: none;
   height: 1px;
-  margin: 0.35rem 0;
-  background: color-mix(in srgb, #cbd5e1 85%, #64748b);
-  opacity: 0.85;
+  margin: 0.7rem 0;
+  background: color-mix(in srgb, #94a3b8 70%, #cbd5e1);
+  opacity: 1;
+}
+
+/* Nach einer Trennlinie braucht die nächste Kapitelüberschrift keinen Extra-Abstand */
+.chat-md-hr + .chat-md-h2 {
+  margin-top: 0;
 }
 
 .chat-md-callout {
@@ -1969,6 +2276,7 @@
   align-self: flex-start;
   padding: 0.12rem 0.5rem;
   border-radius: 999px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -2007,33 +2315,33 @@
 .chat-md-divided-list {
   margin: 0.15rem 0 0;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #3b82f6 18%, #cbd5e1);
-  background: color-mix(in srgb, #ffffff 94%, #f0f9ff);
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 92%, #cbd5e1);
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 97%, #f1f5f9);
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .chat-md-divided-list-title {
   margin: 0;
-  padding: 0.65rem 0.9rem 0.5rem;
-  font-size: 0.82rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, currentColor 62%, #64748b);
-  border-bottom: 1px solid color-mix(in srgb, #cbd5e1 80%, #94a3b8);
+  padding: 0.6rem 0.9rem 0.5rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-accent, #2563eb);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 85%, #cbd5e1);
 }
 
 .chat-md-divided-list-items {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-left: 3px solid color-mix(in srgb, #3b82f6 55%, #6366f1);
 }
 
 .chat-md-divided-list-item {
   margin: 0;
-  padding: 0.72rem 0.9rem 0.72rem 0.85rem;
-  border-bottom: 1px solid color-mix(in srgb, #cbd5e1 75%, #94a3b8);
+  padding: 0.72rem 0.9rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 85%, #cbd5e1);
   line-height: 1.55;
   font-size: 0.98em;
 }
@@ -2067,6 +2375,7 @@
   align-self: flex-start;
   padding: 0.14rem 0.55rem;
   border-radius: 999px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -2097,11 +2406,24 @@
 
 .chat-md-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  /* Max. 2 Karten pro Reihe: jede Spur ist mind. ~halbe Breite, daher passen nie 3
+     nebeneinander. Einzelne Karte bleibt durch auto-fit volle Breite. */
+  grid-template-columns: repeat(auto-fit, minmax(calc(50% - 0.33rem), 1fr));
   gap: 0.65rem;
   margin: 0.15rem 0 0;
   width: 100%;
   min-width: 0;
+}
+
+/* Letzte Karte allein in der Reihe (ungerade Gesamtzahl) → volle Breite statt halb mit Leerraum rechts. */
+.chat-md-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 440px) {
+  .chat-md-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chat-md-card {
@@ -2109,119 +2431,46 @@
   flex-direction: column;
   gap: 0.4rem;
   min-width: 0;
-  padding: 0.7rem 0.85rem 0.75rem;
+  padding: 0.8rem 0.9rem 0.85rem;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #cbd5e1 88%, #64748b);
-  border-left-width: 3px;
-  background: color-mix(in srgb, #ffffff 92%, #f1f5f9);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 92%, #cbd5e1);
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 97%, #f1f5f9);
 }
 
-.chat-md-card--blue {
-  border-left-color: #3b82f6;
-  border-color: color-mix(in srgb, #3b82f6 28%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #3b82f6 9%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #eff6ff) 100%
-  );
-}
-
-.chat-md-card--teal {
-  border-left-color: #14b8a6;
-  border-color: color-mix(in srgb, #14b8a6 28%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #14b8a6 9%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #f0fdfa) 100%
-  );
-}
-
-.chat-md-card--green {
-  border-left-color: #22c55e;
-  border-color: color-mix(in srgb, #22c55e 26%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #22c55e 8%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #f0fdf4) 100%
-  );
-}
-
-.chat-md-card--orange {
-  border-left-color: #f97316;
-  border-color: color-mix(in srgb, #f97316 28%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #f97316 9%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #fff7ed) 100%
-  );
-}
-
-.chat-md-card--purple {
-  border-left-color: #a855f7;
-  border-color: color-mix(in srgb, #a855f7 26%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #a855f7 8%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #faf5ff) 100%
-  );
-}
-
-.chat-md-card--indigo {
-  border-left-color: #6366f1;
-  border-color: color-mix(in srgb, #6366f1 28%, #cbd5e1);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #6366f1 8%, #ffffff) 0%,
-    color-mix(in srgb, #ffffff 96%, #eef2ff) 100%
-  );
-}
-
+/* Karten bewusst dezent (Claude-Look): Farbe steckt nur in den Badges, nicht in der Fläche. */
+.chat-md-card--blue,
+.chat-md-card--teal,
+.chat-md-card--green,
+.chat-md-card--orange,
+.chat-md-card--purple,
+.chat-md-card--indigo,
 .chat-md-card--gray {
-  border-left-color: #64748b;
+  border-color: color-mix(in srgb, var(--color-border, #e2e8f0) 92%, #cbd5e1);
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 97%, #f1f5f9);
 }
 
+/* Oberster Label: GROSSBUCHSTABEN in Akzentfarbe, ohne Pill-Look, ohne Serif. */
 .chat-md-card-label {
   align-self: flex-start;
   margin: 0;
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  background: color-mix(in srgb, #64748b 14%, #e2e8f0);
-  color: #334155;
+  background: transparent;
+  color: var(--color-accent, #2563eb);
 }
 
-.chat-md-card-label--blue {
-  background: color-mix(in srgb, #3b82f6 18%, #dbeafe);
-  color: #1d4ed8;
-}
-
-.chat-md-card-label--teal {
-  background: color-mix(in srgb, #14b8a6 18%, #ccfbf1);
-  color: #0f766e;
-}
-
-.chat-md-card-label--green {
-  background: color-mix(in srgb, #22c55e 18%, #dcfce7);
-  color: #15803d;
-}
-
-.chat-md-card-label--orange {
-  background: color-mix(in srgb, #f97316 18%, #ffedd5);
-  color: #c2410c;
-}
-
-.chat-md-card-label--purple {
-  background: color-mix(in srgb, #a855f7 18%, #f3e8ff);
-  color: #7e22ce;
-}
-
+.chat-md-card-label--blue,
+.chat-md-card-label--teal,
+.chat-md-card-label--green,
+.chat-md-card-label--orange,
+.chat-md-card-label--purple,
 .chat-md-card-label--indigo {
-  background: color-mix(in srgb, #6366f1 18%, #e0e7ff);
-  color: #4338ca;
+  background: transparent;
+  color: var(--color-accent, #2563eb);
 }
 
 .chat-md-card-title {
@@ -2274,6 +2523,7 @@
   max-width: 100%;
   padding: 0.16rem 0.5rem;
   border-radius: 999px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1.35;
@@ -2338,7 +2588,6 @@
   font-size: 1em;
   list-style-type: disc;
   list-style-position: outside;
-  border-left: 2px solid color-mix(in srgb, #3b82f6 22%, #cbd5e1);
   background: transparent;
 }
 
@@ -2349,7 +2598,6 @@
   font-size: 1em;
   list-style-type: decimal;
   list-style-position: outside;
-  border-left: 2px solid color-mix(in srgb, #3b82f6 22%, #cbd5e1);
   background: transparent;
 }
 
@@ -3103,6 +3351,48 @@
   white-space: pre;
 }
 
+/* Syntax-Highlighting-Tokens (codeHighlight.tsx) — Light */
+.chat-md-code-pre .tok-comment {
+  color: #6b7280;
+  font-style: italic;
+}
+.chat-md-code-pre .tok-string {
+  color: #15803d;
+}
+.chat-md-code-pre .tok-number {
+  color: #b45309;
+}
+.chat-md-code-pre .tok-keyword {
+  color: #7c3aed;
+  font-weight: 600;
+}
+.chat-md-code-pre .tok-var {
+  color: #be185d;
+}
+.chat-md-code-pre .tok-param {
+  color: #0e7490;
+}
+
+/* Syntax-Highlighting-Tokens — Dark */
+:root[data-theme='dark'] .chat-md-code-pre .tok-comment {
+  color: #94a3b8;
+}
+:root[data-theme='dark'] .chat-md-code-pre .tok-string {
+  color: #86efac;
+}
+:root[data-theme='dark'] .chat-md-code-pre .tok-number {
+  color: #fbbf24;
+}
+:root[data-theme='dark'] .chat-md-code-pre .tok-keyword {
+  color: #c4b5fd;
+}
+:root[data-theme='dark'] .chat-md-code-pre .tok-var {
+  color: #f9a8d4;
+}
+:root[data-theme='dark'] .chat-md-code-pre .tok-param {
+  color: #67e8f9;
+}
+
 /* min-width:0 + max-content-Tabelle: sonst quetscht width:100% die Spalten, kein overflow → kein Scroll auf Mobile */
 .chat-md-table-wrap {
   display: block;
@@ -3115,17 +3405,14 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
   touch-action: pan-x pan-y pinch-zoom;
-  margin: 0.15rem 0 0;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #cbd5e1 90%, #64748b);
-  background: color-mix(in srgb, #f8fafc 88%, transparent);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  margin: 0.35rem 0 0.15rem;
+  /* Linien-Tabelle (Claude-Look): kein Außenrahmen, kein Hintergrund, kein Schatten. */
 }
 
 .chat-md-table {
-  width: max-content;
-  min-width: 100%;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border-collapse: collapse;
   font-size: 0.98em;
   line-height: 1.45;
@@ -3134,21 +3421,32 @@
 
 .chat-md-th,
 .chat-md-td {
-  border: 1px solid color-mix(in srgb, #cbd5e1 85%, #94a3b8);
-  padding: 0.45rem 0.6rem;
+  /* Nur horizontale Linien, keine vertikalen Zellrahmen. */
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, #cbd5e1 70%, transparent);
+  padding: 0.5rem 0.85rem 0.5rem 0;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.chat-md-th:last-child,
+.chat-md-td:last-child {
+  padding-right: 0;
 }
 
 .chat-md-th {
-  background: color-mix(in srgb, #3b82f6 8%, #f1f5f9);
+  /* Kräftigere Linie unter der Kopfzeile, keine Füllfläche. */
+  background: transparent;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 38%, transparent);
   font-weight: 650;
-  font-size: 0.92em;
-  color: color-mix(in srgb, currentColor 82%, #334155);
+  font-size: 0.9em;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, currentColor 70%, #475569);
 }
 
-.chat-md-table tbody tr:nth-child(even) .chat-md-td {
-  background: color-mix(in srgb, #f8fafc 70%, transparent);
+.chat-md-table tbody tr:last-child .chat-md-td {
+  border-bottom: 0;
 }
 
 .chat-message-body--unsplash .chat-unsplash-results {
@@ -3254,8 +3552,8 @@
 
 .chat-md-th {
   font-weight: 700;
-  background: color-mix(in srgb, #f1f5f9 95%, #e2e8f0);
-  white-space: nowrap;
+  /* Linien-Tabelle: keine Header-Füllfläche (sonst weißer Kopf im Black-Mode). */
+  background: transparent;
 }
 
 .chat-md-td {
@@ -3648,6 +3946,9 @@
 
 .chat-slide-preview-close {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 2rem;
   height: 2rem;
   border: none;
@@ -3669,6 +3970,13 @@
   gap: 0.85rem;
   flex: 1 1 auto;
   min-height: 0;
+  transition: filter 0.25s ease, opacity 0.25s ease;
+}
+
+.chat-slide-preview-body.is-editing {
+  filter: blur(6px);
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .chat-slide-preview-rail {
@@ -3679,6 +3987,40 @@
   gap: 0.5rem;
   overflow-y: auto;
   padding: 0.15rem 0.35rem 0.15rem 0.05rem;
+}
+
+.chat-slide-preview-history {
+  flex-shrink: 0;
+  width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  padding: 0.15rem 0.05rem 0.15rem 0.35rem;
+  border-left: 1px solid rgba(248, 250, 252, 0.12);
+}
+
+.chat-slide-preview-history-bubble {
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-slide-preview-history-bubble--user {
+  align-self: flex-end;
+  background: rgba(99, 102, 241, 0.25);
+  color: #e0e7ff;
+  border-bottom-right-radius: 0.2rem;
+}
+
+.chat-slide-preview-history-bubble--assistant {
+  align-self: flex-start;
+  background: rgba(248, 250, 252, 0.08);
+  color: #f1f5f9;
+  border-bottom-left-radius: 0.2rem;
 }
 
 .chat-slide-preview-rail-row {
@@ -3735,6 +4077,18 @@
   transform-origin: top left;
 }
 
+/* Word-Vorschau: A4-Hochformat statt 16:9 für die Seiten-Thumbnails im Rail */
+.chat-word-preview-rail-thumb {
+  width: 84px;
+  height: 119px;
+}
+
+.chat-word-preview-rail-iframe {
+  width: 794px;
+  height: 1123px;
+  transform: scale(0.10579);
+}
+
 .chat-slide-preview-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -3763,6 +4117,9 @@
 
 .chat-slide-preview-nav {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 999px;
@@ -3829,9 +4186,112 @@
   }
 }
 
+.chat-slide-preview-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.chat-slide-preview-edit-hint {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.6rem;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #fecaca;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.chat-slide-preview-edit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.chat-slide-preview-edit-chip {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.85);
+  background: rgba(248, 250, 252, 0.1);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.chat-slide-preview-edit-chip:hover:not(:disabled),
+.chat-slide-preview-edit-chip:focus-visible:not(:disabled) {
+  background: rgba(248, 250, 252, 0.18);
+}
+
+.chat-slide-preview-edit-chip:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.chat-slide-preview-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 34rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.chat-slide-preview-edit-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+  background: rgba(248, 250, 252, 0.12);
+  color: #f8fafc;
+}
+
+.chat-slide-preview-edit-input::placeholder {
+  color: rgba(248, 250, 252, 0.5);
+}
+
+.chat-slide-preview-edit-input:focus-visible {
+  outline: 2px solid rgba(248, 250, 252, 0.4);
+  outline-offset: 2px;
+}
+
+.chat-slide-preview-edit-input:disabled {
+  opacity: 0.6;
+}
+
+.chat-slide-preview-edit-send {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.92);
+  color: #0f172a;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.chat-slide-preview-edit-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .chat-slide-preview-footer {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .chat-slide-preview-download {
@@ -3840,11 +4300,134 @@
   padding: 0.55rem 1.1rem;
   font-size: 0.8125rem;
   font-weight: 700;
-  cursor: not-allowed;
+  cursor: pointer;
   background: rgba(248, 250, 252, 0.92);
   color: #0f172a;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 0.7;
+  opacity: 1;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.chat-slide-preview-download:hover:not(:disabled),
+.chat-slide-preview-download:focus-visible:not(:disabled) {
+  opacity: 0.88;
+}
+
+.chat-slide-preview-download:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.chat-slide-preview-secondary-btn {
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+  color: #f8fafc;
+  opacity: 1;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.chat-slide-preview-secondary-btn:hover:not(:disabled),
+.chat-slide-preview-secondary-btn:focus-visible:not(:disabled) {
+  background: rgba(248, 250, 252, 0.12);
+}
+
+.chat-preset-picker-panel {
+  height: auto;
+  max-height: min(92vh, 94dvh);
+  width: min(100%, 46rem);
+}
+
+.chat-preset-picker-hint {
+  margin: -0.2rem 0 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(248, 250, 252, 0.72);
+}
+
+.chat-preset-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+.chat-preset-picker-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.7rem;
+  border-radius: 14px;
+  border: 1.5px solid rgba(248, 250, 252, 0.14);
+  background: rgba(248, 250, 252, 0.06);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.chat-preset-picker-card:hover,
+.chat-preset-picker-card:focus-visible {
+  border-color: rgba(248, 250, 252, 0.4);
+  background: rgba(248, 250, 252, 0.1);
+  transform: translateY(-1px);
+}
+
+.chat-preset-picker-card.is-active {
+  border-color: #38bdf8;
+}
+
+.chat-preset-picker-swatch {
+  width: 100%;
+  height: 4.4rem;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  padding: 0.45rem 0.5rem;
+}
+
+.chat-preset-picker-swatch-bar {
+  display: block;
+  height: 0.32rem;
+  width: 70%;
+  border-radius: 999px;
+}
+
+.chat-preset-picker-swatch-bar--short {
+  width: 42%;
+}
+
+.chat-preset-picker-card-label {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.chat-preset-picker-card-description {
+  font-size: 0.74rem;
+  line-height: 1.3;
+  color: rgba(248, 250, 252, 0.62);
+}
+
+.chat-preset-picker-card-active-badge {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.16);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6070,6 +6653,16 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     0 4px 12px rgba(15, 23, 42, 0.18);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+
+/* During-Send (Stop-Zustand): sekundäre Farbe statt Akzent */
+.chat-input-row--stacked.is-sending > button[type='submit'],
+.chat-input-row--stacked.is-sending > .chat-composer-send-actions > button[type='submit'] {
+  background: #e8edf5;
+  border: 1.5px solid #d0d9e8;
+  color: #334155;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
 .chat-input-row--stacked > button[type='submit']:hover:enabled,
@@ -6146,6 +6739,14 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     0 4px 12px rgba(0, 0, 0, 0.26);
+}
+
+:root[data-theme='dark'] .chat-input-row--stacked.is-sending > button[type='submit'],
+:root[data-theme='dark'] .chat-input-row--stacked.is-sending > .chat-composer-send-actions > button[type='submit'] {
+  background: #1e293b !important;
+  border: 1.5px solid #334155 !important;
+  color: #94a3b8 !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
 }
 
 :root[data-theme='dark'] .chat-input-row--stacked > button[type='submit']:hover:enabled,
@@ -7769,6 +8370,16 @@
   color: #4ade80;
 }
 
+:root[data-theme='dark'] .chat-export-menu-btn {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .chat-export-menu-btn:hover:enabled,
+:root[data-theme='dark'] .chat-export-menu-btn.is-open {
+  background: color-mix(in srgb, #334155 55%, transparent);
+  color: #e2e8f0;
+}
+
 :root[data-theme='dark'] .chat-user-message-menu-backdrop {
   background: rgba(2, 6, 23, 0.52);
 }
@@ -7860,7 +8471,6 @@
 
 :root[data-theme='dark'] .chat-md-h4 {
   color: #e2e8f0;
-  border-left-color: color-mix(in srgb, #60a5fa 42%, #64748b);
 }
 
 :root[data-theme='dark'] .chat-md-h5 {
@@ -7904,72 +8514,46 @@
   color: color-mix(in srgb, #fbcfe8 58%, #9ca3af);
 }
 
-:root[data-theme='dark'] .chat-md-table-wrap {
-  border-color: color-mix(in srgb, #475569 80%, #64748b);
-  background: color-mix(in srgb, #1e293b 92%, #0f172a);
-}
-
 :root[data-theme='dark'] .chat-md-th,
 :root[data-theme='dark'] .chat-md-td {
-  border-color: color-mix(in srgb, #475569 90%, #334155);
+  border-bottom-color: color-mix(in srgb, #475569 60%, transparent);
   color: #e5e7eb;
 }
 
 :root[data-theme='dark'] .chat-md-th {
-  background: color-mix(in srgb, #334155 75%, #1e293b);
-}
-
-:root[data-theme='dark'] .chat-md-table tbody tr:nth-child(even) .chat-md-td {
-  background: color-mix(in srgb, #1e293b 55%, transparent);
-}
-
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-table-wrap {
-  border-color: color-mix(in srgb, #f472b6 30%, #475569);
-  background: color-mix(in srgb, #ec4899 11%, rgba(36, 10, 34, 0.94));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #f9a8d4 8%, transparent);
+  border-bottom-color: color-mix(in srgb, #94a3b8 55%, transparent);
+  color: color-mix(in srgb, #e5e7eb 72%, #94a3b8);
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-th,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-td {
-  border-color: color-mix(in srgb, #f472b6 20%, #4b5563);
+  border-bottom-color: color-mix(in srgb, #f472b6 26%, transparent);
   color: #fce7f3;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-th {
-  background: color-mix(in srgb, #db2777 18%, rgba(52, 12, 50, 0.92));
+  border-bottom-color: color-mix(in srgb, #f9a8d4 45%, transparent);
   color: #fdf2f8;
-}
-
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-table tbody tr:nth-child(even) .chat-md-td {
-  background: color-mix(in srgb, #9d174d 14%, transparent);
-}
-
-:root[data-theme='dark'][data-theme-variant='black'] .chat-md-table-wrap {
-  border-color: color-mix(in srgb, #3b82f6 20%, #3f3f46);
-  background: color-mix(in srgb, #2563eb 8%, #121212);
 }
 
 :root[data-theme='dark'][data-theme-variant='black'] .chat-md-th,
 :root[data-theme='dark'][data-theme-variant='black'] .chat-md-td {
-  border-color: color-mix(in srgb, #52525b 88%, #27272a);
+  border-bottom-color: color-mix(in srgb, #52525b 70%, transparent);
   color: #f4f4f5;
 }
 
 :root[data-theme='dark'][data-theme-variant='black'] .chat-md-th {
-  background: color-mix(in srgb, #3f3f46 70%, #18181b);
+  border-bottom-color: color-mix(in srgb, #71717a 58%, transparent);
+  color: color-mix(in srgb, #f4f4f5 72%, #a1a1aa);
 }
 
-:root[data-theme='dark'][data-theme-variant='black'] .chat-md-table tbody tr:nth-child(even) .chat-md-td {
-  background: color-mix(in srgb, #27272a 55%, transparent);
-}
-
-:root[data-theme='light'] .chat-md-table-wrap {
-  border-color: color-mix(in srgb, #3b82f6 18%, #cbd5e1);
-  background: color-mix(in srgb, #3b82f6 5%, #f8fafc);
+:root[data-theme='light'] .chat-md-th,
+:root[data-theme='light'] .chat-md-td {
+  border-bottom-color: color-mix(in srgb, #cbd5e1 72%, transparent);
 }
 
 :root[data-theme='light'] .chat-md-th {
-  background: color-mix(in srgb, #3b82f6 9%, #f1f5f9);
+  border-bottom-color: color-mix(in srgb, #94a3b8 58%, transparent);
 }
 
 :root[data-theme='dark'] .chat-md-callout {
@@ -7993,21 +8577,45 @@
 }
 
 :root[data-theme='dark'] .chat-md-divided-list {
-  border-color: color-mix(in srgb, #3b82f6 28%, #334155);
-  background: color-mix(in srgb, #1e293b 92%, #0f172a);
+  border-color: color-mix(in srgb, #475569 60%, transparent);
+  background: color-mix(in srgb, #1e293b 72%, transparent);
 }
 
 :root[data-theme='dark'] .chat-md-divided-list-title {
-  border-bottom-color: color-mix(in srgb, #475569 80%, #334155);
-  color: color-mix(in srgb, #e5e7eb 70%, #94a3b8);
-}
-
-:root[data-theme='dark'] .chat-md-divided-list-items {
-  border-left-color: color-mix(in srgb, #60a5fa 55%, #818cf8);
+  border-bottom-color: color-mix(in srgb, #475569 50%, transparent);
+  color: var(--color-accent, #93c5fd);
 }
 
 :root[data-theme='dark'] .chat-md-divided-list-item {
-  border-bottom-color: color-mix(in srgb, #475569 75%, #334155);
+  border-bottom-color: color-mix(in srgb, #475569 50%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-divided-list {
+  border-color: color-mix(in srgb, #52525b 68%, transparent);
+  background: color-mix(in srgb, #18181b 76%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-divided-list-title {
+  border-bottom-color: color-mix(in srgb, #52525b 55%, transparent);
+  color: var(--color-accent, #93c5fd);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-divided-list-item {
+  border-bottom-color: color-mix(in srgb, #52525b 55%, transparent);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-divided-list {
+  border-color: color-mix(in srgb, #f472b6 22%, #4b5563);
+  background: color-mix(in srgb, #ec4899 8%, rgba(36, 10, 34, 0.82));
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-divided-list-title {
+  border-bottom-color: color-mix(in srgb, #f472b6 18%, rgba(75, 85, 99, 0.5));
+  color: var(--color-accent, #f9a8d4);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-divided-list-item {
+  border-bottom-color: color-mix(in srgb, #f472b6 14%, rgba(75, 85, 99, 0.4));
 }
 
 :root[data-theme='dark'] .chat-md-definition-card {
@@ -8054,100 +8662,59 @@
   color: color-mix(in srgb, #f4f4f5 86%, #a1a1aa);
 }
 
-:root[data-theme='dark'] .chat-md-card {
-  border-color: color-mix(in srgb, #475569 82%, #64748b);
-  background: color-mix(in srgb, #1e293b 92%, #0f172a);
+:root[data-theme='dark'] .chat-md-card,
+:root[data-theme='dark'] .chat-md-card--blue,
+:root[data-theme='dark'] .chat-md-card--teal,
+:root[data-theme='dark'] .chat-md-card--green,
+:root[data-theme='dark'] .chat-md-card--orange,
+:root[data-theme='dark'] .chat-md-card--purple,
+:root[data-theme='dark'] .chat-md-card--indigo,
+:root[data-theme='dark'] .chat-md-card--gray {
+  border-color: color-mix(in srgb, #475569 60%, transparent);
+  background: color-mix(in srgb, #1e293b 72%, transparent);
   box-shadow: none;
 }
 
-:root[data-theme='dark'] .chat-md-card--blue {
-  border-left-color: #60a5fa;
-  border-color: color-mix(in srgb, #3b82f6 32%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #3b82f6 14%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
+/* Black-Variante: tiefes Neutralgrau, dezenter Rand. */
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--blue,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--teal,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--green,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--orange,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--purple,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--indigo,
+:root[data-theme='dark'][data-theme-variant='black'] .chat-md-card--gray {
+  border-color: color-mix(in srgb, #52525b 68%, transparent);
+  background: color-mix(in srgb, #18181b 76%, transparent);
 }
 
-:root[data-theme='dark'] .chat-md-card--teal {
-  border-left-color: #2dd4bf;
-  border-color: color-mix(in srgb, #14b8a6 30%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #14b8a6 12%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
+/* Pink-Glass: dezent plum-getönt, leichter rosa Rand. */
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--blue,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--teal,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--green,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--orange,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--purple,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--indigo,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card--gray {
+  border-color: color-mix(in srgb, #f472b6 22%, #4b5563);
+  background: color-mix(in srgb, #ec4899 8%, rgba(36, 10, 34, 0.82));
 }
 
-:root[data-theme='dark'] .chat-md-card--green {
-  border-left-color: #4ade80;
-  border-color: color-mix(in srgb, #22c55e 28%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #22c55e 12%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
-}
-
-:root[data-theme='dark'] .chat-md-card--orange {
-  border-left-color: #fb923c;
-  border-color: color-mix(in srgb, #f97316 30%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #f97316 12%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
-}
-
-:root[data-theme='dark'] .chat-md-card--purple {
-  border-left-color: #c084fc;
-  border-color: color-mix(in srgb, #a855f7 28%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #a855f7 12%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
-}
-
-:root[data-theme='dark'] .chat-md-card--indigo {
-  border-left-color: #818cf8;
-  border-color: color-mix(in srgb, #6366f1 30%, #334155);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, #6366f1 12%, #0f172a) 0%,
-    color-mix(in srgb, #1e293b 94%, #0f172a) 100%
-  );
-}
-
-:root[data-theme='dark'] .chat-md-card-label--blue {
-  background: color-mix(in srgb, #3b82f6 24%, #1e3a8a);
-  color: #bfdbfe;
-}
-
-:root[data-theme='dark'] .chat-md-card-label--teal {
-  background: color-mix(in srgb, #14b8a6 22%, #134e4a);
-  color: #99f6e4;
-}
-
-:root[data-theme='dark'] .chat-md-card-label--green {
-  background: color-mix(in srgb, #22c55e 22%, #14532d);
-  color: #bbf7d0;
-}
-
-:root[data-theme='dark'] .chat-md-card-label--orange {
-  background: color-mix(in srgb, #f97316 24%, #7c2d12);
-  color: #fed7aa;
-}
-
-:root[data-theme='dark'] .chat-md-card-label--purple {
-  background: color-mix(in srgb, #a855f7 24%, #581c87);
-  color: #e9d5ff;
-}
-
+/* Label in Dark-Themes: Akzentfarbe, kein Pill. */
+:root[data-theme='dark'] .chat-md-card-label,
+:root[data-theme='dark'] .chat-md-card-label--blue,
+:root[data-theme='dark'] .chat-md-card-label--teal,
+:root[data-theme='dark'] .chat-md-card-label--green,
+:root[data-theme='dark'] .chat-md-card-label--orange,
+:root[data-theme='dark'] .chat-md-card-label--purple,
 :root[data-theme='dark'] .chat-md-card-label--indigo {
-  background: color-mix(in srgb, #6366f1 24%, #312e81);
-  color: #c7d2fe;
+  background: transparent;
+  color: var(--color-accent, #93c5fd);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-md-card-label {
+  color: var(--color-accent, #f9a8d4);
 }
 
 :root[data-theme='dark'] .chat-md-card-body-line {
@@ -9129,6 +9696,72 @@ button.chat-onboarding-tour-block {
   gap: 0.5rem;
 }
 
+.chat-main-toolbar-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  flex-shrink: 1;
+  /* Auto-margin pushes the share-row pill to the right,
+     even when the toolbar override uses justify-content: flex-end */
+  margin-right: auto;
+  /* Toolbar sets pointer-events: none; restore it here */
+  pointer-events: auto;
+}
+
+.chat-main-toolbar-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  opacity: 0.9;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22rem;
+  line-height: 1.3;
+}
+
+:root[data-theme='dark'] .chat-main-toolbar-title {
+  color: #e2e8f0;
+}
+
+.chat-main-toolbar-title-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 130ms ease;
+}
+
+.chat-main-toolbar-title-btn:hover {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.chat-main-toolbar-title-btn.is-open {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.chat-main-toolbar-title-btn svg {
+  transition: transform 180ms ease;
+  display: block;
+  flex-shrink: 0;
+}
+
+.chat-main-toolbar-title-btn.is-open svg {
+  transform: rotate(180deg);
+}
+
+:root[data-theme='dark'] .chat-main-toolbar-title-btn:hover,
+:root[data-theme='dark'] .chat-main-toolbar-title-btn.is-open {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* Mobile / PWA: Freigabe-Leiste schwebend + Chat wie ChatGPT: Inhalt scrollt unter Notch/Dynamic Island */
 @media (max-width: 860px) {
   /*
@@ -9655,9 +10288,9 @@ button.chat-onboarding-tour-block {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  max-width: 100%;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .chat-main-toolbar-avatars {

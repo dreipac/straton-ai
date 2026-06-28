@@ -43,3 +43,32 @@ export function buildExcelGenMatrixCells(): { key: string; delayMs: number }[] {
 }
 
 export const EXCEL_GEN_MATRIX_CELLS = buildExcelGenMatrixCells()
+
+/** Generischer, radial pulsierender Punkt-Raster (Ripple aus der Mitte) für rechteckige Gen-Loader. */
+function buildGenMatrixCells(
+  prefix: string,
+  cols: number,
+  rows: number,
+): { key: string; delayMs: number }[] {
+  const cx = (cols - 1) / 2
+  const cy = (rows - 1) / 2
+  const maxD = Math.hypot(cx, cy) || 1
+  const out: { key: string; delayMs: number }[] = []
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const dist = Math.hypot(col - cx, row - cy)
+      out.push({ key: `${prefix}-${row}-${col}`, delayMs: Math.round((dist / maxD) * 740) })
+    }
+  }
+  return out
+}
+
+/** Folien-Loader (16:9-Querformat) — feineres Raster (kleinere Punkte). */
+export const SLIDE_GEN_MATRIX_COLS = 16
+export const SLIDE_GEN_MATRIX_ROWS = 9
+export const SLIDE_GEN_MATRIX_CELLS = buildGenMatrixCells('sl', SLIDE_GEN_MATRIX_COLS, SLIDE_GEN_MATRIX_ROWS)
+
+/** Dokument-Loader (A4-Hochformat) — feineres Raster (kleinere Punkte). */
+export const DOC_GEN_MATRIX_COLS = 10
+export const DOC_GEN_MATRIX_ROWS = 14
+export const DOC_GEN_MATRIX_CELLS = buildGenMatrixCells('dc', DOC_GEN_MATRIX_COLS, DOC_GEN_MATRIX_ROWS)

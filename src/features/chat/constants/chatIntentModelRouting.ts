@@ -2,6 +2,7 @@ import {
   type ChatDailyTierOpenAiModelId,
   parseChatDailyTierOpenAiModelId,
 } from './chatComposerModels'
+import type { ChatMessage } from '../types'
 
 /**
  * Admin-konfigurierbares Modell pro Intent-Kategorie+Action (Smart-Instant-Hauptantwort).
@@ -81,4 +82,29 @@ export function resolveChatIntentModel(
     return row.modelActive
   }
   return defaultModelFor(category, action)
+}
+
+/**
+ * Wie `resolveChatIntentModel`, aber für `category:'chat'` thread-stabil: sobald ein früherer
+ * Turn dieses Threads bereits ein Modell gewählt hat (`metadata.mainChatActionModel`), bleibt
+ * es für alle weiteren 'chat'-Turns gleich — sonst wechselt die Action-Klassifikation (answer ⇄
+ * short_answer/clarify/one_step) bei praktisch jeder Nachricht das Modell und damit den
+ * OpenAI-Prompt-Cache-Scope (Caching ist pro Modell gescoped, ein Wechsel verwirft den Cache).
+ * Andere Kategorien (document/chart/diagram) routen unverändert pro Action — die nutzen ohnehin
+ * durchgängig dasselbe Modell, eine Sperre wäre dort wirkungslos.
+ */
+export function resolveStickyChatActionModel(
+  messages: ReadonlyArray<Pick<ChatMessage, 'role' | 'metadata'>>,
+  category: string | undefined | null,
+  action: string | undefined | null,
+  config?: ChatIntentModelRoutingConfig | null,
+): ChatDailyTierOpenAiModelId {
+  if (category === 'chat') {
+    const locked = messages.find((m) => m.role === 'assistant' && m.metadata?.mainChatActionModel)
+      ?.metadata?.mainChatActionModel
+    if (locked) {
+      return locked
+    }
+  }
+  return resolveChatIntentModel(category, action, config)
 }

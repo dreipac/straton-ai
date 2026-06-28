@@ -46,27 +46,26 @@ export function buildDocumentExportSummaryTurnBriefing(): string {
     buildDocumentSummaryPlaybook(),
     '',
     'Dokument-Export + Zusammenfassung (verbindlich — gleicher Mix wie Chat-Summary):',
-    '- Der JSON-Inhalt entspricht der **Chat-Zusammenfassung** (Stoff + gelöste Aufgaben, Fliesstext + Stichpunkte + Tabellen) — nur als `blocks` statt Markdown.',
-    '- `title`: z. B. «Zusammenfassung: [Thema]» oder «[Thema]: Ein umfassender Leitfaden».',
-    '- **6–12+** Hauptkapitel als `heading` (level 1–2).',
-    '- **Rhythmus pro Kapitel (Pflicht — nicht nur ein langer paragraph):**',
-    '  1) `paragraph`: 1–2 Einleitungssätze (Fliesstext).',
-    '  2) `paragraph`(e): Stichpunkte — **je Punkt ein eigener** `paragraph`-Block mit «• …» am Anfang (kurze parallele Aussagen ohne mehrere Spalten).',
-    '  3) `table` NUR wenn der Inhalt wirklich tabellarisch ist: ≥2 Elemente mit ≥2 vergleichbaren Spalten (Vergleiche, Glossar Begriff+Erklärung, Übersichten). Kein 1-Spalten-`table`, keine Zellen mit langem Fliesstext.',
-    '- `table`-Anzahl ergibt sich aus dem Inhalt — **keine** erzwungene Mindestzahl; ein Thema ohne echten tabellarischen Inhalt bleibt bei Fliesstext + Stichpunkten.',
-    '- VERBOTEN: Jedes Kapitel nur aus **einem** langen Fliesstext-`paragraph` ohne Stichpunkte/Tabelle.',
-    '- **Kein** Chat-Markdown statt JSON — der maschinenlesbare JSON-Block ist Pflicht.',
+    '- Antworte mit **vollständig strukturiertem Text** im Chat: `### 1. Kapitel` für Hauptkapitel, `#### 1.1 Unterkapitel` für Unterkapitel, `---` zwischen Hauptkapiteln, Fliesstext, Stichpunkte, Tabellen.',
+    '- **6–12+** Hauptkapitel. Keine `##`-Headings, kein Fliesstext in `**...**` einwickeln, kein JSON, keine Spec-Blöcke.',
+    '- **Rhythmus pro Kapitel:** Einleitungssatz + Stichpunkte («- Punkt …») + Tabelle nur wenn tabellarisch sinnvoll.',
+    '- `table` (GFM) NUR bei ≥2 Elementen mit ≥2 vergleichbaren Spalten.',
+    '- Letzter Satz (natürliche Frage): «Soll ich das als Word-/PDF-Datei für dich exportieren?»',
+    '- VERBOTEN: JSON-Blöcke, <<<STRATON_...>>>-Marker, nur Stichpunkte ohne Einleitung.',
   ].join('\n')
 }
 
 const OUTLINE_MIXED_LAYOUT_RULES = [
-  '**Layout-Mix — Entscheidung pro Abschnitt nach Inhalt, nicht pauschal (verbindlich):**',
-  '- Nicht nur Fliesstext-Wände: pro Hauptkapitel Einleitungs-`paragraph` + passendes Layout für den Rest (Stichpunkte und/oder `table`, je nach Inhalt).',
-  '- `table`: nur wenn ≥2 Elemente mit ≥2 vergleichbaren Spalten vorliegen (Specs, Preisstufen, Vergleiche, Glossar Begriff+Erklärung, Zeitpläne). `header: true`.',
-  '- Stichpunkte (parallele kurze Aussagen OHNE mehrere Spalten, z. B. Vorteile, Kernpunkte, Merkmale): je Bullet **eigener** `paragraph`-Block («• Kernpunkt …») — dafür **kein** `table`.',
-  '- Beispiel: «Vor- und Nachteile von X» → 2-Spalten-`table` (Vorteil | Nachteil) NUR wenn jeder Vorteil einem Nachteil paarweise gegenübersteht; sonst zwei separate Stichpunkt-Abschnitte («Vorteile» / «Nachteile»).',
-  '- **Verboten:** `table` mit nur 1 Spalte oder Zeilen mit langem Fliesstext statt kurzen Werten — das ist eine Liste/ein Absatz, keine Tabelle.',
-  '- Unterkapitel: `heading` level 2–3 zwischen Fliesstext und Listen.',
+  '**Layout-Mix — professionelles Dokument, nicht nur Stichpunkte (verbindlich):**',
+  '- **Fliesstext zuerst:** Jedes Kapitel beginnt mit **2–4 ausformulierten Sätzen** echter Prosa (kein Bullet, kein Doppelpunkt-Label). Stichpunkte sind die Ausnahme für echte Aufzählungen, nicht der Standard.',
+  '- **Verboten: ganze Kapitel als Bullet-Wand.** Wenn ein Abschnitt nur aus «- »-Zeilen besteht, in Fliesstext umschreiben oder als Tabelle strukturieren.',
+  '- **Echte Aufzählung** (parallele kurze Punkte: Merkmale, Schritte, Beispiele): aufeinanderfolgende Zeilen, **jede beginnt mit «- »** (Bindestrich + Leerzeichen). Diese werden zu einer echten Word-Liste mit Aufzählungszeichen und Einzug. Pro Liste mind. 2 Punkte; lieber 3–6 knappe Punkte als ein langer Bullet.',
+  '- **Unterüberschriften als `#### Titel`** (eigene Zeile, **ohne** abschliessenden Doppelpunkt) — NICHT «Kernpunkte:» / «Lichtreaktionen:» als normale Textzeile. Gilt für jede Zwischenüberschrift innerhalb eines Kapitels.',
+  '- **Fett** (`**…**`) für Schlüsselbegriffe und Lead-ins («**Definition:** …», «**Wichtig:** …»), sparsam und gezielt.',
+  '- `table`: nur wenn ≥2 Elemente mit ≥2 vergleichbaren Spalten vorliegen (Specs, Werte, Vergleiche, Glossar Begriff+Erklärung, Zeitpläne). `header: true`. Tatsächliche tabellarische Daten gehören in eine Tabelle, nicht in Bullets.',
+  '- Beispiel: «Vor- und Nachteile von X» → 2-Spalten-`table` (Vorteil | Nachteil) NUR wenn jeder Vorteil einem Nachteil paarweise gegenübersteht; sonst zwei separate Stichpunkt-Listen («**Vorteile**» / «**Nachteile**»).',
+  '- Auch Schritt-für-Schritt-Abläufe als «- »-Liste schreiben — **nicht** «1.»/«2.» am Zeilenanfang (das wird als Überschrift interpretiert).',
+  '- **Verboten:** `table` mit nur 1 Spalte oder Zeilen mit langem Fliesstext statt kurzen Werten; Doppelpunkt-Labels als Pseudo-Überschriften; jeder einzelne Satz als eigener Bullet.',
 ].join('\n')
 
 const DOCUMENT_EXPORT_SUMMARY_OUTLINE_RULES = [
@@ -91,7 +90,7 @@ export function buildInstantAnalyzeDocumentGenerateSection(): string {
     '- Bei document.*: reply_mode **normal**, needs_live_web **false**, clarity **clear**.',
     '- escalate_model **false** bei einzelnem Export oder Zusammenfassung — nur true bei Multi-Dokument-Vergleich oder komplexem Sheet-Merge.',
     '',
-    'Nachgelagerte App: KI liefert Outline-JSON (Word/PDF), Spec-JSON (Excel) oder HTML-Folien (PowerPoint) im Chat; Nutzer klickt «generieren» → Server (.docx / .pdf / .xlsx / .pptx).',
+    'Nachgelagerte App: KI liefert Markdown-Dokument (Word/PDF), Spec-JSON (Excel) oder HTML-Folien (PowerPoint) im Chat; Nutzer klickt «generieren» → Server (.docx / .pdf / .xlsx / .pptx).',
   ].join('\n')
 }
 
@@ -120,21 +119,21 @@ export function buildInstantAnalyzeDocumentExportBriefing(
   if (action === 'pdf_generate' || action === 'word_generate') {
     const lines = [
       `Dokument-Export (verbindlich — ${label}${summaryStyle ? ', Summary-Tiefe' : ''}):`,
-      '- Phase 1 (diese Antwort): **Outline-JSON** im Chat — das ist der **vollständige Dokumentinhalt** für die spätere Datei, nicht nur Stichworte.',
-      '- Phase 2: Nutzer klickt «Word/PDF generieren»; die App baut die Datei **1:1** aus dem JSON — alles Wesentliche muss schon im JSON stehen.',
+      '- Phase 1 (diese Antwort): **vollständig strukturiertes Dokument** im Chat — `### 1. Kapitel` für Hauptkapitel, `#### 1.1 Unterkapitel` für Unterkapitel, `---` zwischen Hauptkapiteln. Kein JSON, keine `##`-Headings, kein Fliesstext in `**...**` einwickeln.',
+      '- Phase 2: Nutzer klickt «Word/PDF generieren»; die App baut die Datei aus dem Markdown.',
     ]
     if (summaryStyle) {
       lines.push(
-        '- **Summary-Modus:** Ausführliche Kapitel-Zusammenfassung im JSON — gleiche Tiefe wie Instant task_type summary (viele Kapitel, Fliesstext, Tabellen).',
+        '- **Summary-Modus:** Ausführliche Kapitel-Zusammenfassung — gleiche Tiefe wie Instant task_type summary (viele Kapitel, Fliesstext, Tabellen).',
       )
     } else {
       lines.push(
-        '- **Umfang:** Ausformulierte Absätze, nummerierte Kapitel, Tabellen wo sinnvoll; bei «ausführlich/erweitern/vertiefen» gründlich und vollständig.',
+        '- **Umfang:** Ausformulierte Absätze, `### N. Kapitel`-Überschriften, Tabellen wo sinnvoll; bei «ausführlich/erweitern/vertiefen» gründlich und vollständig.',
       )
     }
     lines.push(
-      '- Optional 1 kurzer Einleitungssatz vor dem JSON-Block; der **Hauptteil** ist das JSON mit echtem Fliesstext in `paragraph`-Blöcken.',
-      '- **Verboten:** «Die Datei wurde erstellt», Download-Links erfinden, Lernfragen/Quiz, reine Meta-Gliederung ohne Inhalt.',
+      '- Letzter Satz (natürliche Frage): «Soll ich das als Word-/PDF-Datei für dich exportieren?»',
+      '- **Verboten:** JSON-Blöcke, <<<STRATON_...>>>-Marker, «Die Datei wurde erstellt», Download-Links erfinden, Lernfragen.',
     )
     return lines.join('\n')
   }
@@ -154,17 +153,30 @@ export const WORD_SPEC_JSON_END = '<<<END_STRATON_WORD_SPEC_JSON>>>'
 export const PDF_SPEC_JSON_START = '<<<STRATON_PDF_SPEC_JSON>>>'
 export const PDF_SPEC_JSON_END = '<<<END_STRATON_PDF_SPEC_JSON>>>'
 
-const OUTLINE_JSON_RULES = [
-  'Pflicht: gültiges Outline-JSON (`version`: 1, `blocks`: heading mit `level` 1–6, paragraph, table).',
-  'Form: ```json … ``` (ein Block) oder Marker <<<STRATON_WORD_SPEC_JSON>>> / <<<STRATON_PDF_SPEC_JSON>>> … <<<END_…>>>.',
-  'Optional `fileName`, `title`. Tabellen: `{"type":"table","header":true,"rows":[["A","B"]]}`.',
-  'Markdown ####/##### nur als Fallback — JSON hat Vorrang.',
-  'Blocktypen: `heading` = Kapitelüberschrift; `paragraph` = Fliesstext **oder** ein Stichpunkt (je Bullet ein Block); `table` = Tabellen/Glossare.',
+const MARKDOWN_DOCUMENT_RULES = [
+  'Format (verbindlich — VERBOTEN: `> Blockquote`, Fliesstext in `**...**` einwickeln, kein JSON, keine Marker):',
+  'Hier ist eine professionelle Kapitelstruktur für [Thema]:',
+  '',
+  '---',
+  '',
+  '### 1. Kapitelname',
+  'Einleitender Fliesstext über das Kapitel — 2–4 vollständige Sätze, die den Inhalt erklären (NIE in **...** einwickeln).',
+  '',
+  '#### Unterüberschrift (ohne Doppelpunkt)',
+  'Weiterer Fliesstext, dann bei Bedarf eine echte Aufzählung:',
+  '- erster Punkt',
+  '- zweiter Punkt',
+  '- dritter Punkt',
+  '---',
+  '### 2. Nächstes Kapitel',
+  'Fliesstext … bei vergleichbaren Daten eine Markdown-Tabelle (| Spalte | Spalte |).',
+  '---',
+  'Regel: Beginne IMMER mit 1 Einleitungssatz + `---` + `### 1. …`. `---` nur nach LETZTEM Inhalt eines Hauptkapitels, NIE zwischen Unterkapiteln. Aufzählungen IMMER als aufeinanderfolgende «- »-Zeilen (werden zu echten Word-Listen).',
 ].join('\n')
 
-const OUTLINE_JSON_DEPTH_RULES = [
-  '**Umfang (verbindlich):** Der JSON-Inhalt ist das fertige Dokument — nicht nur Gliederung.',
-  '- Mehrere `heading`-Kapitel (level 1–3) mit **gemischtem** Layout (Fliesstext + Stichpunkte + Tabellen).',
+const MARKDOWN_DEPTH_RULES = [
+  '**Umfang (verbindlich):** Vollständiger Dokumentinhalt — nicht nur Stichwortgliederung.',
+  '- Jedes Hauptkapitel mit beschreibendem Fliesstext; Unterkapitel wo sinnvoll.',
   '- Bei Erweiterung/Vertiefung: neue Abschnitte ergänzen und vorhandenes ausarbeiten.',
   OUTLINE_MIXED_LAYOUT_RULES,
   '- Nichts Wesentliches aus dem Nutzerauftrag oder Anhang weglassen.',
@@ -173,32 +185,38 @@ const OUTLINE_JSON_DEPTH_RULES = [
 export function buildWordChatDocumentBodyHint(summaryStyle = false): string {
   const parts = [
     'Word-Export (verbindlich):',
-    'Der Nutzer will eine .docx. Du lieferst **Outline-JSON** mit **vollem Dokumentinhalt** — die Datei entsteht erst nach «Word generieren».',
-    OUTLINE_JSON_RULES,
-    OUTLINE_JSON_DEPTH_RULES,
+    'Antworte mit vollständigem, schön lesbarem Markdown-Dokument im Chat — der Nutzer sieht den Inhalt zuerst, die .docx-Datei entsteht erst nach Klick auf «Word generieren».',
+    MARKDOWN_DOCUMENT_RULES,
+    MARKDOWN_DEPTH_RULES,
   ]
   if (summaryStyle) {
     parts.push(DOCUMENT_EXPORT_SUMMARY_OUTLINE_RULES)
   } else {
     parts.push(OUTLINE_MIXED_LAYOUT_RULES)
   }
-  parts.push('VERBOTEN: Meta-Anleitungen («In diesem Kapitel…»), Lernfragen, Quiz, leere Platzhalter-Kapitel.')
+  parts.push(
+    'Letzter Satz (verbindlich, natürliche Frage — kein UI-Verweis): «Soll ich das als Word-Datei für dich exportieren?»',
+    'VERBOTEN: `##`-Headings, Fliesstext in `**...**` einwickeln, JSON-Blöcke, <<<STRATON_...>>>-Marker, Meta-Anleitungen, Lernfragen, leere Platzhalter-Kapitel.',
+  )
   return parts.join('\n')
 }
 
 export function buildPdfChatDocumentBodyHint(summaryStyle = false): string {
   const parts = [
     'PDF-Export (verbindlich):',
-    'Der Nutzer will eine PDF. Du lieferst **Outline-JSON** (gleiches Schema wie Word) mit **vollem Dokumentinhalt** — Erzeugung erst nach «PDF generieren».',
-    OUTLINE_JSON_RULES,
-    OUTLINE_JSON_DEPTH_RULES,
+    'Antworte mit vollständigem, schön lesbarem Markdown-Dokument im Chat — der Nutzer sieht den Inhalt zuerst, die .pdf-Datei entsteht erst nach Klick auf «PDF generieren».',
+    MARKDOWN_DOCUMENT_RULES,
+    MARKDOWN_DEPTH_RULES,
   ]
   if (summaryStyle) {
     parts.push(DOCUMENT_EXPORT_SUMMARY_OUTLINE_RULES)
   } else {
     parts.push(OUTLINE_MIXED_LAYOUT_RULES)
   }
-  parts.push('VERBOTEN: Meta-Erklärungen («Hier ist die Struktur…»), Lernfragen, reine Überschriften ohne Fliesstext.')
+  parts.push(
+    'Letzter Satz (verbindlich, natürliche Frage — kein UI-Verweis): «Soll ich das als PDF-Datei für dich exportieren?»',
+    'VERBOTEN: `##`-Headings, Fliesstext in `**...**` einwickeln, JSON-Blöcke, <<<STRATON_...>>>-Marker, Meta-Erklärungen, Lernfragen, reine Überschriften ohne Inhalt.',
+  )
   return parts.join('\n')
 }
 

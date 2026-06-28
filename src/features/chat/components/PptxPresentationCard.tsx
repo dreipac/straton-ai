@@ -1,18 +1,17 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { buildPptxSlideSrcDoc, PPTX_SLIDE_NATIVE_WIDTH, type PptxSlide } from '../utils/pptxOutline'
+import { ChatGenDotsLoader } from './ChatGenDotsLoader'
 
 type Props = {
   slides: PptxSlide[]
   onOpen: () => void
 }
 
-/** Platzhalter während HTML-Folien noch streamen — kein Rohtext-Codeblock. */
+/** Loader während die Präsentation generiert wird — Punkt-Loader im 16:9-Format (kein Textblock). */
 export function PptxPresentationCardBuilding() {
   return (
-    <div className="word-outline-paper word-outline-paper--building" role="status" aria-live="polite">
-      <div className="word-outline-paper__body">
-        <p className="word-outline-paper__building-hint">Präsentation wird aufgebaut …</p>
-      </div>
+    <div className="chat-gen-dots-wrap" aria-live="polite">
+      <ChatGenDotsLoader shape="slide" ariaLabel="Präsentation wird generiert" />
     </div>
   )
 }
