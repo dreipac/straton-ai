@@ -13,6 +13,8 @@ from io import BytesIO
 
 from bs4 import BeautifulSoup
 from docx import Document
+from docx.enum.section import WD_SECTION_START
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt as DocxPt, RGBColor as DocxRGB
@@ -1359,6 +1361,10 @@ WORD_FONT_NAME = "Arial"
 WORD_HEADING_RGB = DocxRGB(0x1F, 0x4E, 0x79)  # Dunkelblau für H1 UND H2 (identisch)
 WORD_BODY_RGB = DocxRGB(0x00, 0x00, 0x00)
 WORD_HEADER_FILL = "F1F4F8"  # helles Tabellenkopf-Grau (entspricht der CSS-Vorschau)
+WORD_HEADER_TEXT_RGB = DocxRGB(0x80, 0x80, 0x80)  # Kopfzeilen-Titel in Grau
+WORD_HEADER_LINE_HEX = "C8C8C8"  # Kopfzeilen-Unterlinie
+WORD_COVER_SUBTITLE_RGB = DocxRGB(0x44, 0x44, 0x44)  # Untertitel auf dem Titelblatt
+WORD_COVER_META_RGB = DocxRGB(0x55, 0x55, 0x55)  # Autor + Datum unten auf dem Titelblatt
 
 WORD_SPEC = {
     "body": {"size": 11.0, "line": 1.15, "after": 8.0},
@@ -1367,6 +1373,8 @@ WORD_SPEC = {
     "h3": {"size": 11.5, "before": 8.0, "after": 2.0},
     "list": {"item_gap": 2.0, "after": 8.0},
     "table": {"size": 11.0},
+    "cover": {"title_size": 28.0, "subtitle_size": 15.0, "meta_size": 11.0, "top_space": 96.0},
+    "header": {"size": 9.0},
 }
 MAX_WORD_BLOCKS = 5000
 
@@ -1490,16 +1498,71 @@ def _add_table_block(doc, block: dict) -> None:
     spacer.add_run("").font.size = DocxPt(4)
 
 
-def build_document(outline: dict) -> bytes:
-    doc = Document()
-    # A4-Hochformat mit 1-Zoll-Rand (= 72 pt, wie `WORD_DOC_SPEC.marginPt`).
-    section = doc.sections[0]
+def _apply_a4_section(section) -> None:
+    """A4-Hochformat mit 1-Zoll-Rand (= 72 pt, wie `WORD_DOC_SPEC.marginPt`)."""
     section.page_width = Cm(21.0)
     section.page_height = Cm(29.7)
     section.top_margin = Cm(2.54)
     section.bottom_margin = Cm(2.54)
     section.left_margin = Cm(2.54)
     section.right_margin = Cm(2.54)
+
+
+def _add_bottom_border(paragraph, *, color_hex: str, size: int) -> None:
+    """Untere Linie unter einem Absatz (für Kopfzeile + Titelblatt-Akzentlinie)."""
+    p_pr = paragraph._p.get_or_add_pPr()
+    p_bdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), str(size))
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), color_hex)
+    p_bdr.append(bottom)
+    p_pr.append(p_bdr)
+
+
+def _add_cover_page(doc, title: str, subtitle: str, author: str, date: str) -> None:
+    """Titelblatt: linksbündiger Titel (dunkelblau) + Untertitel oben; Autor + Datum unten in der
+    Fusszeile der Cover-Sektion. Keine Trennlinie."""
+    spec = WORD_SPEC["cover"]
+
+    p_title = doc.add_paragraph()
+    p_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _style_paragraph(p_title, before_pt=spec["top_space"], after_pt=0.0, line=1.2)
+    _add_runs(p_title, title, bold=True, color=WORD_HEADING_RGB, size_pt=spec["title_size"])
+
+    if subtitle:
+        p_sub = doc.add_paragraph()
+        p_sub.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _style_paragraph(p_sub, before_pt=6.0, after_pt=0.0, line=1.3)
+        _add_runs(p_sub, subtitle, bold=False, color=WORD_COVER_SUBTITLE_RGB, size_pt=spec["subtitle_size"])
+
+    # Autor + Datum unten: Fusszeile der Cover-Sektion (sitzt im unteren Seitenrand).
+    meta_lines = [(author, True), (date, False)]
+    meta_lines = [(txt, bold) for (txt, bold) in meta_lines if txt]
+    footer = doc.sections[0].footer
+    footer.is_linked_to_previous = False
+    for idx, (txt, bold) in enumerate(meta_lines):
+        para = footer.paragraphs[0] if idx == 0 else footer.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _style_paragraph(para, before_pt=0.0, after_pt=0.0, line=1.4)
+        _add_runs(para, txt, bold=bold, color=WORD_COVER_META_RGB, size_pt=spec["meta_size"])
+
+
+def _add_running_header(section, title: str) -> None:
+    """Laufende Kopfzeile: Titel grau + Unterlinie. Sektion wird vom Vorgänger entkoppelt."""
+    header = section.header
+    header.is_linked_to_previous = False
+    para = header.paragraphs[0]
+    para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _style_paragraph(para, before_pt=0.0, after_pt=0.0, line=1.2)
+    _add_bottom_border(para, color_hex=WORD_HEADER_LINE_HEX, size=6)
+    _add_runs(para, title, bold=False, color=WORD_HEADER_TEXT_RGB, size_pt=WORD_SPEC["header"]["size"])
+
+
+def build_document(outline: dict) -> bytes:
+    doc = Document()
+    _apply_a4_section(doc.sections[0])
 
     normal = doc.styles["Normal"]
     normal.font.name = WORD_FONT_NAME
@@ -1512,6 +1575,19 @@ def build_document(outline: dict) -> bytes:
         normal_rpr.append(normal_rfonts)
     for attr in ("w:ascii", "w:hAnsi", "w:cs", "w:eastAsia"):
         normal_rfonts.set(qn(attr), WORD_FONT_NAME)
+
+    title = str(outline.get("title") or "").strip()
+    subtitle = str(outline.get("subtitle") or "").strip()
+    author = str(outline.get("author") or "").strip()
+    date = str(outline.get("date") or "").strip()
+    if title:
+        # Titelblatt in Sektion 0 (ohne Kopfzeile, Autor/Datum in der Fusszeile), danach eigene
+        # Inhaltssektion mit laufender Kopfzeile (Titel grau + Linie) und leerer Fusszeile.
+        _add_cover_page(doc, title, subtitle, author, date)
+        content_section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+        _apply_a4_section(content_section)
+        _add_running_header(content_section, title)
+        content_section.footer.is_linked_to_previous = False
 
     blocks = outline.get("blocks") or []
     for block in blocks[:MAX_WORD_BLOCKS]:
@@ -1540,6 +1616,9 @@ class WordOutlineModel(BaseModel):
     version: int = 1
     fileName: str | None = None
     title: str | None = None
+    subtitle: str | None = None
+    author: str | None = None
+    date: str | None = None
     blocks: list[dict]
 
 

@@ -43,7 +43,13 @@ export function getChatSendPhaseStatus(
     case 'analyzing':
       return {
         mainLabel: 'Wird eingeordnet …',
-        subSteps: ['Nachricht verstanden', 'Thema erkannt', 'Antwort wird vorbereitet'],
+        subSteps: [
+          'Nachricht verstanden',
+          'Absicht wird erkannt',
+          'Thema wird eingegrenzt',
+          'Passender Ansatz wird gewählt',
+          'Antwort wird vorbereitet',
+        ],
       }
     case 'web_search':
       return {
@@ -53,7 +59,19 @@ export function getChatSendPhaseStatus(
     case 'generating':
       return {
         mainLabel: 'Denkt nach …',
-        subSteps: ['Kontext wird geladen', 'Formulierung läuft', 'Antwort wird geschärft'],
+        subSteps: [
+          'Kontext wird geladen',
+          'Kerngedanken werden sortiert',
+          'Argumente werden abgewogen',
+          'Formulierung läuft',
+          'Beispiele werden geprüft',
+          'Zusammenhänge werden verknüpft',
+          'Details werden ergänzt',
+          'Antwort wird strukturiert',
+          'Ton wird angepasst',
+          'Antwort wird geschärft',
+          'Letzte Feinheiten werden gesetzt',
+        ],
       }
     case 'thinking_analyze':
       return {
@@ -68,7 +86,16 @@ export function getChatSendPhaseStatus(
     case 'thinking_draft':
       return {
         mainLabel: 'Entwurf wird erstellt …',
-        subSteps: ['Struktur wird festgelegt', 'Inhalt wird ausgearbeitet', 'Formulierung wird verfeinert'],
+        subSteps: [
+          'Struktur wird festgelegt',
+          'Gliederung wird aufgebaut',
+          'Inhalt wird ausgearbeitet',
+          'Kernaussagen werden geschärft',
+          'Übergänge werden geglättet',
+          'Beispiele werden ergänzt',
+          'Formulierung wird verfeinert',
+          'Roter Faden wird geprüft',
+        ],
       }
     case 'thinking_review':
       return {

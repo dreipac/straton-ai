@@ -97,6 +97,16 @@ export function WordOutlinePaper({ outline, bannerTitle }: Props) {
               </p>
             )
           }
+          if (b.type === 'list') {
+            const ListTag = b.ordered ? 'ol' : 'ul'
+            return (
+              <ListTag key={`l-${i}`} className="word-outline-paper__list">
+                {b.items.map((item, ii) => (
+                  <li key={`li-${ii}`}>{item}</li>
+                ))}
+              </ListTag>
+            )
+          }
           return (
             <p key={`p-${i}`} className="word-outline-paper__paragraph">
               {b.text}

@@ -39,7 +39,17 @@ export const WORD_DOC_SPEC = {
   /** Listen: Einzug (hängend) + enger Abstand zwischen den Punkten (nicht der volle Absatz-Abstand). */
   list: { indentPt: 18, itemGapPt: 2, spaceAfterPt: 8 },
   table: { sizePt: 11, cellPadPt: 4 },
+  /** Titelblatt: grosser linksbündiger Titel + Untertitel oben, Autor + Datum unten (keine Linie). */
+  cover: { titleSizePt: 28, subtitleSizePt: 15, metaSizePt: 11, topPt: 96, bottomPt: 36 },
+  /** Laufende Kopfzeile auf Inhaltsseiten (Titel grau + Unterlinie), sitzt im oberen Seitenrand. */
+  header: { sizePt: 9, topPt: 36 },
 } as const
+
+/** Grautöne für Kopfzeile/Titelblatt-Meta (gespiegelt im Python-Renderer). */
+export const WORD_HEADER_TEXT_COLOR = '#808080'
+export const WORD_HEADER_LINE_COLOR = '#c8c8c8'
+export const WORD_COVER_SUBTITLE_COLOR = '#444444'
+export const WORD_COVER_META_COLOR = '#555555'
 
 /** Nutzbare Texthöhe einer Seite in px (für die Pagination). */
 export const WORD_CONTENT_HEIGHT_PX = WORD_PAGE_NATIVE_HEIGHT - 2 * ptToPx(WORD_DOC_SPEC.marginPt)
@@ -88,11 +98,30 @@ export function buildWordPageCss(): string {
   return [
     '*{margin:0;padding:0;box-sizing:border-box;}',
     `html,body{width:${WORD_PAGE_NATIVE_WIDTH}px;height:${WORD_PAGE_NATIVE_HEIGHT}px;}`,
-    `body{background:#ffffff;font-family:${WORD_FONT_FAMILY};color:${WORD_BODY_COLOR};`,
+    `body{position:relative;background:#ffffff;font-family:${WORD_FONT_FAMILY};color:${WORD_BODY_COLOR};`,
     `font-size:${ptToPx(s.body.sizePt)}px;line-height:${s.body.lineHeight};`,
     `padding:${ptToPx(s.marginPt)}px;overflow:hidden;-webkit-font-smoothing:antialiased;}`,
     // erste Überschrift/erster Absatz ohne oberen Abstand (Seitenanfang)
+    'body>.word-flow>*:first-child{margin-top:0;}',
     'body>*:first-child{margin-top:0;}',
+    // Inhaltsfluss-Container (lässt Platz für die absolut positionierte Kopfzeile im Rand)
+    '.word-flow{min-height:0;}',
+    // Laufende Kopfzeile — sitzt im oberen Seitenrand, verdrängt keinen Inhalt
+    `.word-header{position:absolute;top:${ptToPx(s.header.topPt)}px;left:${ptToPx(s.marginPt)}px;right:${ptToPx(s.marginPt)}px;}`,
+    `.word-header__title{font-family:${WORD_FONT_FAMILY};font-size:${ptToPx(s.header.sizePt)}px;`,
+    `color:${WORD_HEADER_TEXT_COLOR};line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}`,
+    `.word-header__rule{margin-top:3px;border-bottom:1px solid ${WORD_HEADER_LINE_COLOR};}`,
+    // Titelblatt — linksbündig; Titel/Untertitel oben, Autor + Datum unten (im Seitenrand), keine Linie
+    `.word-cover{height:100%;text-align:left;padding-top:${ptToPx(s.cover.topPt)}px;}`,
+    `.word-cover__title{font-family:${WORD_FONT_FAMILY};font-weight:700;color:${WORD_HEADING_COLOR};`,
+    `font-size:${ptToPx(s.cover.titleSizePt)}px;line-height:1.2;hyphens:none;-webkit-hyphens:none;`,
+    `overflow-wrap:break-word;word-break:normal;}`,
+    `.word-cover__subtitle{margin-top:${ptToPx(8)}px;font-family:${WORD_FONT_FAMILY};font-weight:400;`,
+    `color:${WORD_COVER_SUBTITLE_COLOR};font-size:${ptToPx(s.cover.subtitleSizePt)}px;line-height:1.3;hyphens:none;-webkit-hyphens:none;}`,
+    `.word-cover__meta{position:absolute;left:${ptToPx(s.marginPt)}px;right:${ptToPx(s.marginPt)}px;`,
+    `bottom:${ptToPx(s.cover.bottomPt)}px;font-family:${WORD_FONT_FAMILY};font-size:${ptToPx(s.cover.metaSizePt)}px;`,
+    `color:${WORD_COVER_META_COLOR};line-height:1.4;}`,
+    '.word-cover__author{font-weight:700;}',
     wordBlockRules(''),
   ].join('')
 }

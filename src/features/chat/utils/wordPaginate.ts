@@ -169,14 +169,40 @@ function trySplit(
  */
 export function paginateWordOutline(outline: WordOutlineV1): WordPage[] {
   const blocks = outline.blocks as WordBlock[]
-  if (blocks.length === 0) {
-    return [{ blocks: [] }]
-  }
-  if (typeof document === 'undefined') {
-    return [{ blocks }] // SSR/Test-Fallback: keine Messung möglich
+  const title = outline.title?.trim() || ''
+  /**
+   * Cover-Seite + Kopfzeile auf Inhaltsseiten anbringen. Die Kopfzeile sitzt im oberen Seitenrand
+   * (absolut positioniert) und verbraucht KEINE Inhaltshöhe → die Pagination misst unverändert
+   * gegen `WORD_CONTENT_HEIGHT_PX`.
+   */
+  const decorate = (pages: WordPage[]): WordPage[] => {
+    const content: WordPage[] = pages.map((p) => ({
+      ...p,
+      kind: 'content' as const,
+      title: title || undefined,
+    }))
+    if (!title) {
+      return content
+    }
+    const cover: WordPage = {
+      kind: 'cover',
+      title,
+      subtitle: outline.subtitle?.trim() || undefined,
+      author: outline.author?.trim() || undefined,
+      date: outline.date,
+      blocks: [],
+    }
+    return [cover, ...content]
   }
 
-  return withMeasureHost((measure) => {
+  if (blocks.length === 0) {
+    return decorate([{ blocks: [] }])
+  }
+  if (typeof document === 'undefined') {
+    return decorate([{ blocks }]) // SSR/Test-Fallback: keine Messung möglich
+  }
+
+  return decorate(withMeasureHost((measure) => {
     const pages: WordPage[] = []
     let current: WordBlock[] = []
     const pushPage = () => {
@@ -223,5 +249,5 @@ export function paginateWordOutline(outline: WordOutlineV1): WordPage[] {
     }
     pushPage()
     return pages.length > 0 ? pages : [{ blocks }]
-  })
+  }))
 }

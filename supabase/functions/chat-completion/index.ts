@@ -123,6 +123,7 @@ function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[
     'Der Nutzer hat den Word-Export angefragt (Marker im User-Text). Der sichtbare Text ist die **Vorschau des späteren .docx** — schreibe ihn wie **fertigen Dokumentinhalt für Leser**, nicht wie Tutorial zum Ausfüllen.',
     '**Streng verboten:** Einleitungen über «diese Vorlage» oder «empfohlene Kapitelstruktur»; Sätze wie «In diesem Kapitel beschreiben Sie…», «Hier wird erklärt…», «Dieser Abschnitt soll…», «Tragen Sie ein…»; reine Leitfragen ohne Antworttext (z. B. nur «Warum? Wer?»); Platzhalter-Unterkapitel («Schritt 1», «Schritt 2» ohne Beschreibung); zusätzliche Blöcke «Direkt nutzbare Vorlage» oder ähnliche Meta-Bereiche.',
     '**Stattdessen:** Unter jeder Überschrift steht **konkreter Fließtext** (vollständige Sätze), der zum Nutzerthema passt — Anleitungsschritte, Definitionen, Hinweise als **ausformulierte** Absätze.',
+    '**Dokumenttitel + Untertitel (verbindlich):** Beginne mit **genau einer** Titelzeile `# Dokumenttitel` (einfaches `#` + Leerzeichen) als allererste Zeile — das ist der **Titel des gesamten Dokuments** fürs Titelblatt und die Kopfzeile, KEIN Kapitel. Der Titel ist kurz und enthält **keine Bindestriche/Gedankenstriche** (kein «Thema – Zusatz»). Direkt darunter **eine Untertitelzeile** `## Untertitel` (genau zwei `#`) mit einer knappen Präzisierung des Themas. Beide kurz und aussagekräftig (das Thema, nicht «Kapitel 1»). Danach folgt der Körper.',
     '**Trennung vom normalen Chat:** Üblicher Chat nutzt `#` bis `###`. **Hier** strukturierst du den Körper nur mit:',
     '- `#### ` = Absatz/Fliesstext',
     '- `##### ` = Überschrift 1 (Hauptkapitel)',
@@ -135,7 +136,7 @@ function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[
     '- **Verboten:** ganze Kapitel als Bullet-Wand, jeden Satz als eigener Bullet, «Label:»-Zeilen als Pseudo-Überschrift (stattdessen `######`).',
     '- **Tabellen** für vergleichbare Daten (≥2 Zeilen, ≥2 Spalten: Werte, Vergleiche, Glossar) statt langer Stichpunktlisten: GFM-Pipe (`| Spalte |` + `| --- |`) unter einem Absatz.',
     'Optional zusätzlich gültiges WordOutline-JSON in ```json … ``` (`version`: 1, `blocks`: heading, paragraph, list, table).',
-    'Keine langen Meta-Vorreden — beginne direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments.',
+    'Keine langen Meta-Vorreden — nach der Titelzeile `# …` direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments beginnen.',
     'Die .docx erzeugt die App erst nach Bestätigung in der UI; du lieferst nur Text/JSON für die Vorschau.',
   ].join('\n')
   return prependBlockToLastUserMessage(messages, block)

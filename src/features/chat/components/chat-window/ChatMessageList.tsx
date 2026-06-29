@@ -136,7 +136,7 @@ export type ChatMessageListProps = {
   wordDownloadBusyId: string | null
   pdfDownloadBusyId: string | null
   pptxDownloadBusyId: string | null
-  onFinalizeWordDocument?: () => void | Promise<void>
+  onFinalizeWordDocument?: () => void | Promise<unknown>
   wordFinalizeBusy: boolean
   onFinalizePdfDocument?: () => void | Promise<void>
   pdfFinalizeBusy: boolean
@@ -148,6 +148,8 @@ export type ChatMessageListProps = {
   subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
   onPptxPreview?: (messageId: string, slides: PptxSlide[]) => void
   onWordPreview?: (messageId: string, pages: WordPage[], fileName?: string) => void
+  /** Anzeigename des Nutzers — Autor fürs Word-Titelblatt. */
+  documentAuthorName?: string
 }
 
 export function ChatMessageList(props: ChatMessageListProps) {
@@ -203,6 +205,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     subscriptionUsageDisplay,
     onPptxPreview,
     onWordPreview,
+    documentAuthorName,
   } = props
 
   const userMessageMenuAnchorRef = useRef<HTMLDivElement | null>(null)
@@ -458,10 +461,15 @@ export function ChatMessageList(props: ChatMessageListProps) {
            * Outline-Pipeline wie der Export → Karte/Modal zeigen exakt, was die .docx wird. Ersetzt
            * die Roh-Markdown-Wand im Chat (analog zur Präsentations-Karte).
            */
-          const wordCardOutline =
+          const parsedWordCardOutline =
             isWordAssistantTurn && !isStreamingAssistant && !message.metadata?.liveStream
               ? extractWordOutlineFromAssistantContent(rawContent, 'word')
               : null
+          // Autor fürs Titelblatt = Anzeigename (gleiche Quelle wie der Export).
+          const wordCardOutline =
+            parsedWordCardOutline && documentAuthorName?.trim() && parsedWordCardOutline.title
+              ? { ...parsedWordCardOutline, author: documentAuthorName.trim() }
+              : parsedWordCardOutline
           const showWordCard = wordCardOutline !== null
           /** Word steht im Export-Popover IMMER zur Verfügung (auch wenn die Karte/das Modal schon eine Word-Aktion bietet) — gleicher Inhalt, beide Formate (Word + PDF) wählbar. */
           const effectiveCanExportWord = showWordFinalizeHint

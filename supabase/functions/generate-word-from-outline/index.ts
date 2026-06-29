@@ -37,6 +37,9 @@ type WordOutlineV1 = {
   version: 1
   fileName?: string
   title?: string
+  subtitle?: string
+  author?: string
+  date?: string
   blocks: WordBlock[]
 }
 
@@ -140,6 +143,9 @@ function parseOutline(raw: unknown): WordOutlineV1 | null {
     version: 1,
     fileName: typeof o.fileName === 'string' ? o.fileName : undefined,
     title: typeof o.title === 'string' ? o.title : undefined,
+    subtitle: typeof o.subtitle === 'string' ? o.subtitle : undefined,
+    author: typeof o.author === 'string' ? o.author : undefined,
+    date: typeof o.date === 'string' ? o.date : undefined,
     blocks,
   }
 }
@@ -162,7 +168,15 @@ function sanitizeExportOutline(o: WordOutlineV1): WordOutlineV1 {
       blocks.push(b)
     }
   }
-  return { version: 1, fileName: o.fileName, title: undefined, blocks }
+  return {
+    version: 1,
+    fileName: o.fileName,
+    title: o.title,
+    subtitle: o.subtitle,
+    author: o.author,
+    date: o.date,
+    blocks,
+  }
 }
 
 function sanitizeDocxFileName(raw: unknown): string {

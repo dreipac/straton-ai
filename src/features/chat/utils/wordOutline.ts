@@ -91,6 +91,7 @@ export function parseWordOutlineV1(raw: unknown): WordOutlineV1 | null {
     version: 1,
     fileName: typeof o.fileName === 'string' ? o.fileName : undefined,
     title: typeof o.title === 'string' ? o.title : undefined,
+    date: typeof o.date === 'string' ? o.date : undefined,
     blocks: expandWordOutlineTables(blocks),
   }
 }
@@ -831,13 +832,13 @@ function promoteLabelParagraphsToSubheadings(
   })
 }
 
-function outlineForExport(stripTitle: WordOutlineV1): WordOutlineV1 {
-  const { title: _d, ...rest } = stripTitle
-  const refined = refineWordOutlineBlocksForExport(rest.blocks)
+function outlineForExport(outline: WordOutlineV1): WordOutlineV1 {
+  const refined = refineWordOutlineBlocksForExport(outline.blocks)
   const withTables = coalesceMarkdownTablesAcrossBlocks(refined)
   const withLists = coalesceListBlocks(withTables)
   const blocks = promoteLabelParagraphsToSubheadings(withLists)
-  return normalizeHeadingLevelsForWord({ ...rest, title: undefined, blocks })
+  // Titel wird in `extractWordOutlineFromAssistantContent` separat aufgelöst (eigene Titelzeile/Banner).
+  return normalizeHeadingLevelsForWord({ ...outline, title: undefined, blocks })
 }
 
 /**
@@ -910,20 +911,106 @@ function stripChatterBlocks(outline: WordOutlineV1): WordOutlineV1 {
  * {@link extractWordOutlineFromThread}, aber für eine bestimmte Nachricht (z. B. die Chat-Vorschau-Karte,
  * die nicht nur die letzte Nachricht betrachtet). So ist die Karten-/Modal-Vorschau identisch zum Export.
  */
+/**
+ * Führende **Dokument-Titelzeile** (einfaches `# Titel` oder `**Titel**`) — der vom Modell gelieferte
+ * Dokumenttitel fürs Titelblatt und die Kopfzeile. Nur ein einzelnes `#` zählt (nicht `#####` der
+ * Word-Konvention), damit ein erstes Kapitel nicht fälschlich als Titel verschluckt wird.
+ */
+/** Titel ohne Bindestrich-Trenner: «A – B» / «A - B» → Titel «A», Rest als Untertitel; Strich-Reste entfernen. */
+function sanitizeCoverTitle(raw: string): { title: string; subtitleFromDash: string | null } {
+  let t = raw.trim().replace(/^["«»“”']+|["«»“”']+$/g, '').trim()
+  let subtitleFromDash: string | null = null
+  const dashSplit = t.split(/\s+[–—-]\s+/)
+  if (dashSplit.length >= 2) {
+    t = (dashSplit[0] ?? '').trim()
+    subtitleFromDash = dashSplit.slice(1).join(' ').trim() || null
+  }
+  // verbliebene führende/abschliessende Bindestriche entfernen
+  t = t.replace(/^[–—-]+\s*/u, '').replace(/\s*[–—-]+$/u, '').trim()
+  return { title: t, subtitleFromDash }
+}
+
+export function extractLeadingDocumentTitleLine(content: string): {
+  title: string | null
+  subtitle: string | null
+  body: string
+} {
+  const lines = content.split('\n')
+  let i = 0
+  while (i < lines.length && !lines[i]?.trim()) {
+    i++
+  }
+  if (i >= lines.length) {
+    return { title: null, subtitle: null, body: content }
+  }
+  const first = lines[i]!.trim()
+  const hash = first.match(/^#(?!#)\s+(.+)$/)
+  const bold = first.match(/^\*\*([^*]+)\*\*\s*$/)
+  const rawTitle = (hash?.[1] ?? bold?.[1] ?? '').trim()
+  if (!rawTitle) {
+    return { title: null, subtitle: null, body: content }
+  }
+  // Optionale Untertitelzeile: nächste nicht-leere Zeile als «## Untertitel» (genau zwei `#`).
+  let consumedUpto = i + 1
+  let explicitSubtitle: string | null = null
+  let j = i + 1
+  while (j < lines.length && !lines[j]?.trim()) {
+    j++
+  }
+  const subMatch = j < lines.length ? lines[j]!.trim().match(/^##(?!#)\s+(.+)$/) : null
+  if (subMatch?.[1]) {
+    explicitSubtitle = subMatch[1].trim()
+    consumedUpto = j + 1
+  }
+  const { title, subtitleFromDash } = sanitizeCoverTitle(rawTitle)
+  const subtitle = explicitSubtitle || subtitleFromDash
+  const body = [...lines.slice(0, i), ...lines.slice(consumedUpto)].join('\n').replace(/^\n+/u, '')
+  return { title: title || null, subtitle: subtitle || null, body }
+}
+
+/** Heutiges Datum in Schweizer Langform («29. Juni 2026») — einmal gesetzt, damit Vorschau = .docx. */
+function germanDocumentDate(): string {
+  return new Intl.DateTimeFormat('de-CH', { day: 'numeric', month: 'long', year: 'numeric' }).format(
+    new Date(),
+  )
+}
+
 export function extractWordOutlineFromAssistantContent(
   content: string,
   kind: 'word' | 'pdf' = 'word',
 ): WordOutlineV1 | null {
-  const source = assistantContentForWordOutlineExtraction(content)
+  // Eigene Titelzeile (vom Modell) zuerst herauslösen, damit sie nicht im Dokumentkörper landet.
+  const {
+    title: explicitTitle,
+    subtitle: explicitSubtitle,
+    body: contentWithoutTitle,
+  } = extractLeadingDocumentTitleLine(content)
+  const source = assistantContentForWordOutlineExtraction(contentWithoutTitle)
   const parsed = parseWordOutlineFromAssistantContent(source, kind)
-  if (parsed) {
-    return stripChatterBlocks(outlineForExport(parsed))
+  const base = parsed
+    ? stripChatterBlocks(outlineForExport(parsed))
+    : (() => {
+        const heuristic = tryHeuristicWordOutlineFromPlainText(source)
+        return heuristic ? stripChatterBlocks(outlineForExport(heuristic)) : null
+      })()
+  if (!base) {
+    return null
   }
-  const heuristic = tryHeuristicWordOutlineFromPlainText(source)
-  if (heuristic) {
-    return stripChatterBlocks(outlineForExport(heuristic))
+  // Titel: explizite Titelzeile → Banner (nur ausserhalb der ####-Konvention) → keiner.
+  const bannerFallback = usesStratonWordMarkdownConvention(content)
+    ? null
+    : extractLeadingBannerTitleFromOutlineText(content).bannerTitle
+  const title = (explicitTitle || base.title || bannerFallback || '').trim()
+  if (!title) {
+    return base
   }
-  return null
+  // Titelblatt nur bei PDF/Word-Vorschau relevant; Datum/Untertitel nur setzen, wenn ein Titel existiert.
+  return {
+    ...base,
+    title,
+    subtitle: explicitSubtitle || base.subtitle || undefined,
+    date: kind === 'word' ? germanDocumentDate() : base.date,
+  }
 }
 
 export function extractWordOutlineFromThread(

@@ -95,6 +95,8 @@ type ChatWindowProps = {
   onDismissThinkingClarify?: () => void
   onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
   composerUserId?: string | null
+  /** Anzeigename des Nutzers — Autor fürs Word-Titelblatt (Vorschau-Karte/Modal). */
+  documentAuthorName?: string
   onSendMessage: (
     content: string,
     opts?: import('../types/chatSendOptions').ChatSendMessageOptions,
@@ -161,6 +163,7 @@ export function ChatWindow({
   onDismissThinkingClarify = () => {},
   onSubmitThinkingClarifyAnswer = async () => {},
   composerUserId = null,
+  documentAuthorName,
   onSendMessage,
   thinkingCreditsRemaining,
   thinkingCreditMax,
@@ -803,6 +806,7 @@ export function ChatWindow({
       <ChatMessageList
         messagesScrollRef={messagesScrollRef}
         messages={messageList}
+        documentAuthorName={documentAuthorName}
         animatedAssistantContent={animatedAssistantContent}
         sentPastedImagePreviews={composer.sentPastedImagePreviews}
         onImagePreview={imageLightbox.setImageLightboxSrc}

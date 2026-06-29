@@ -141,6 +141,12 @@ export type WordOutlineV1 = {
   version: 1
   fileName?: string
   title?: string
+  /** Untertitel fürs Titelblatt (optional, vom Modell geliefert). */
+  subtitle?: string
+  /** Autor fürs Titelblatt («Vorname Nachname») — aus dem Profil, beim Export/Vorschau gesetzt. */
+  author?: string
+  /** Datum fürs Titelblatt (vorformatiert, z. B. «29. Juni 2026») — einmal bei der Extraktion gesetzt, damit Vorschau und .docx identisch sind. */
+  date?: string
   blocks: Array<
     | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
     | { type: 'paragraph'; text: string }

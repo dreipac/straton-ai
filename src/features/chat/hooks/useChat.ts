@@ -1214,10 +1214,14 @@ export function useChat(
       )
       return
     }
-    const outline = extractWordOutlineFromThread(list)
-    if (!outline) {
+    const parsedOutline = extractWordOutlineFromThread(list)
+    if (!parsedOutline) {
       return
     }
+    // Autor fürs Titelblatt = Anzeigename des Nutzers (gleiche Quelle wie die Vorschau).
+    const authorName = options?.profileIdentity?.displayName?.trim()
+    const outline =
+      authorName && parsedOutline.title ? { ...parsedOutline, author: authorName } : parsedOutline
     const targetAssistant = [...list].reverse().find((m) => m.role === 'assistant' && !m.metadata?.wordExport)
     if (!targetAssistant) {
       return

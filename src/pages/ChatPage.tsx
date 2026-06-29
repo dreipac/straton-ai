@@ -1126,6 +1126,7 @@ export function ChatPage() {
         <ChatWindow
           threadKey={activeThreadId}
           composerUserId={user?.id ?? null}
+          documentAuthorName={displayName}
           messages={messages}
           isSending={isSending}
           sendPhase={sendPhase}

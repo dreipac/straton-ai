@@ -559,7 +559,41 @@
 
 .chat-pending-status-main {
   font-weight: 700;
-  color: var(--color-accent, var(--accent-ring-base, #6366f1));
+  color: rgba(148, 163, 184, 0.9);
+}
+
+/* Einzelne, tippende Statuszeile mit grauem Schimmer (heller Sweep zieht über den Text). */
+.chat-pending-status-typed {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.chat-pending-typed-text {
+  display: inline-block;
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  /* Grau-Töne — funktioniert in Dark/Black/Pink gleich, nie weiss. */
+  --chat-typed-base: #8b97a8;
+  --chat-typed-ray: #d3dbe6;
+  background-image: linear-gradient(
+    105deg,
+    var(--chat-typed-base) 0%,
+    var(--chat-typed-base) 40%,
+    var(--chat-typed-ray) 50%,
+    var(--chat-typed-base) 60%,
+    var(--chat-typed-base) 100%
+  );
+  animation: chat-pending-status-ray 2.35s ease-in-out infinite;
+}
+
+/* Hellmodus: dunklere Graustufen, damit Basis und Sweep auf hellem Grund lesbar bleiben. */
+:root[data-theme='light'] .chat-pending-typed-text {
+  --chat-typed-base: #475569;
+  --chat-typed-ray: #94a3b8;
 }
 
 .chat-pending-status-fallback {
@@ -586,12 +620,8 @@
 
 .chat-pending-status-shimmer--main {
   font-weight: 700;
-  --chat-pending-shimmer-base: var(--color-accent, var(--accent-ring-base, #6366f1));
-  --chat-pending-shimmer-ray: color-mix(
-    in srgb,
-    var(--chat-pending-shimmer-base) 86%,
-    #fff 14%
-  );
+  --chat-pending-shimmer-base: rgba(255, 255, 255, 0.9);
+  --chat-pending-shimmer-ray: rgba(255, 255, 255, 1);
   background-image: linear-gradient(
     105deg,
     var(--chat-pending-shimmer-base) 0%,
@@ -690,7 +720,12 @@
 }
 
 :root[data-theme='dark'] .chat-pending-status-main {
-  color: var(--color-accent, var(--accent-ring-base, #60a5fa));
+  color: rgba(148, 163, 184, 0.9);
+}
+
+/* Hellmodus: hellgraues Wäre kaum lesbar — etwas dunkleres Grau verwenden. */
+:root[data-theme='light'] .chat-pending-status-main {
+  color: rgba(100, 116, 139, 0.9);
 }
 
 .chat-instant-analyze-debug {
@@ -2356,6 +2391,21 @@
 
 .chat-md-divided-list-item-line + .chat-md-divided-list-item-line {
   margin-top: 0.35rem;
+}
+
+/* Visuelle Karten nutzen die Plattform-Sans (Manrope) statt der Serif aus .chat-md-root. */
+.chat-md-definition-card,
+.chat-md-cards,
+.chat-md-card {
+  font-family:
+    'Manrope Variable',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
 }
 
 .chat-md-definition-card {
