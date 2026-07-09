@@ -1,9 +1,15 @@
-import type { ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
-import type { EntryQuizResult, LearnWorksheetItem, SyllabusEntry, TutorChatEntry } from '../services/learn.persistence'
+import type {
+  EntryQuizResult,
+  LearnWorksheetItem,
+  SyllabusEntry,
+  TopicSession,
+  TutorChatEntry,
+} from '../services/learn.persistence'
 import { LearnChapterPreview, type LearnChapterPreviewProps } from './LearnChapterPreview'
 import { LearnEntryPrepPanel, type LearnEntryPrepPanelProps } from './LearnEntryPrepPanel'
-import { LearnSyllabusPanel } from './LearnSyllabusPanel'
+import { LearnMapCanvas } from './LearnMapCanvas'
 import { LearnTutorThread } from './LearnTutorThread'
 
 export type LearnConversationSectionProps = {
@@ -30,8 +36,10 @@ export type LearnConversationSectionProps = {
   syllabus: SyllabusEntry[]
   learningChapters: string[]
   effectiveTopic: string
-  currentChapterIndex: number
-  unlockedChapterCount: number
+  topicSessions: TopicSession[]
+  targetTopicIndexForOpen: number
+  onOpenTopic: (topicIndex: number) => void
+  onOpenMap: () => void
   footer?: ReactNode
 }
 
@@ -60,14 +68,20 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     syllabus,
     learningChapters,
     effectiveTopic,
-    currentChapterIndex,
-    unlockedChapterCount,
+    topicSessions,
+    targetTopicIndexForOpen,
+    onOpenTopic,
+    onOpenMap,
     footer,
   } = props
 
   const showSyllabusAside = syllabus.length > 0 || learningChapters.length > 0
 
   const showChapterPreviewBlock = showChapterPreview && learningChaptersCount > 0
+
+  /** Landkarte als bedienbarer Tab-Hintergrund: sobald ein Lernplan existiert und wir nicht in einem
+   *  Ladezustand (Prep/Kapitel-Preview) stecken. Der Tutor-Chat wird dann zum einklappbaren Panel. */
+  const useMapSurface = showSyllabusAside && !showChapterPreviewBlock && !isPostEntryPrepLoading
 
   let body: ReactNode
   if (showChapterPreviewBlock) {
@@ -110,30 +124,41 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
     )
   }
 
-  const conversationBody =
-    showSyllabusAside && tutorMessages.length > 0 && !showChapterPreviewBlock && !isPostEntryPrepLoading ? (
-      <div className="learn-path-workspace">
-        <div className="learn-path-workspace-main">
-          <div className="learn-conversation-thread">{body}</div>
+  if (useMapSurface) {
+    const entries: SyllabusEntry[] =
+      syllabus.length > 0 ? syllabus : learningChapters.map((topic) => ({ topic, learningGoal: '' }))
+
+    // Vollflächige Landkarte: keine Tutor-Box mehr — der Lernpfad-Tab besteht nur aus der Karte,
+    // bedient wird ausschließlich die Landkarte (Kapitelstart über die Vorschaukarte oben rechts).
+    return (
+      <section className="learn-conversation learn-conversation--map">
+        <div className="learn-path-map-surface">
+          <div className="learn-path-map-surface-canvas">
+            <LearnMapCanvas
+              syllabus={entries}
+              topicSessions={topicSessions}
+              effectiveTopic={effectiveTopic}
+              focusTopicIndex={targetTopicIndexForOpen}
+              onOpenTopic={onOpenTopic}
+              interactive
+            />
+          </div>
+          <button
+            type="button"
+            className="learn-path-map-expand"
+            onClick={onOpenMap}
+            aria-label="Landkarte im Vollbild öffnen"
+          >
+            <span className="learn-path-map-expand-icon" aria-hidden="true" />
+          </button>
         </div>
-        <aside className="learn-path-workspace-aside">
-          <LearnSyllabusPanel
-            syllabus={syllabus}
-            learningChapters={learningChapters}
-            effectiveTopic={effectiveTopic}
-            currentChapterIndex={currentChapterIndex}
-            unlockedChapterCount={unlockedChapterCount}
-            variant="aside"
-          />
-        </aside>
-      </div>
-    ) : (
-      body
+      </section>
     )
+  }
 
   return (
     <section className="learn-conversation">
-      {conversationBody}
+      {body}
       {footer}
     </section>
   )

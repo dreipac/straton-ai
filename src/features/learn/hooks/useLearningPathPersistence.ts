@@ -10,6 +10,7 @@ import {
   type LearningPathRecord,
   type LearningPathSummary,
   type SyllabusEntry,
+  type TopicSession,
   type TutorChatEntry,
   type UploadedMaterial,
 } from '../services/learn.persistence'
@@ -37,6 +38,7 @@ export type EditableLearningPathSnapshot = {
   learningChapters: string[]
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
+  topicSessions: TopicSession[]
   learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }

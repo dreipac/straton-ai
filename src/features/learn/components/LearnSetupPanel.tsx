@@ -32,6 +32,8 @@ export type LearnSetupPanelProps = {
   onBackToStep3: () => void
   onAiGuidanceChange: (value: string) => void
   onSelectProficiency: (level: 'low' | 'medium' | 'high') => void
+  /** Platzhalter-Modus (Admin-Test): Weiter ohne hochgeladene Dateien erlauben. */
+  allowContinueWithoutMaterials?: boolean
 }
 
 export function LearnSetupPanel(props: LearnSetupPanelProps) {
@@ -59,6 +61,7 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
     onBackToStep3,
     onAiGuidanceChange,
     onSelectProficiency,
+    allowContinueWithoutMaterials = false,
   } = props
 
   const [isFileDragOver, setIsFileDragOver] = useState(false)
@@ -222,7 +225,11 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
                 </div>
                 {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
                 <div className="learn-setup-actions">
-                  <PrimaryButton type="button" onClick={onContinueStepOne} disabled={isUploading || materials.length === 0}>
+                  <PrimaryButton
+                    type="button"
+                    onClick={onContinueStepOne}
+                    disabled={isUploading || (materials.length === 0 && !allowContinueWithoutMaterials)}
+                  >
                     Dateien analysieren
                   </PrimaryButton>
                 </div>

@@ -120,27 +120,6 @@ export function shouldApplyDirectAnswerTurnBriefing(
   return userMessageRequestsDirectAnswer(userMessage, priorTurns)
 }
 
-/** Für Instant-Analyze-Systemprompt: Layout/Aufbau erkennen (nicht nur Stichwörter). */
-export function buildInstantAnalyzeDirectAnswerSection(): string {
-  return [
-    'Direktantwort / Multiple-Choice — **Aufbau der Nachricht** lesen (verbindlich):',
-    '- Unterscheide **Erklärfrage** vs **Auswahlfrage** anhand des **Layouts**, nicht nur am ersten Satz.',
-    '- **Auswahlfrage** (→ chat.short_answer, reply_mode short_answer, intent z. B. «Richtige Option wählen»):',
-    '  • Zeile(n) mit Frage (oft `?` oder `:` am Ende), **darunter 2–6 Kandidaten** als nächste Zeilen.',
-    '  • Optionen als `- …`, `A) …`, `1. …` **oder nackte Zeilen** (IP-Adressen, Kurzwerte, Begriffe ohne Bullet).',
-    '  • Auch wenn die Frage «was ist …» lautet: **mit Optionsliste = Auswahl**, nicht Fachvortrag.',
-    '- Beispiel Auswahlfrage (short_answer, **kein** normal/Erklärblock):',
-    '  «was ist eine private IP Adresse:',
-    '  192.168.16.0/24',
-    '  169.165.10.1',
-    '  88.33.93.16»',
-    '  → Nutzer will wissen **welche Zeile** passt — nicht die Definition von RFC 1918.',
-    '- Weitere Signale: «which of the following», «richtige Antwort», Zertifizierungsstil, «welche Option».',
-    '- **Keine** Direktantwort: «mach/erstelle ein Quiz», «generiere Fragen» → Quiz erstellen (chat.answer).',
-    '- **Keine** Direktantwort: «was ist X?» **ohne** Kandidatenliste darunter → Erklärung (chat.answer / short_answer je nach Tiefe).',
-  ].join('\n')
-}
-
 /** Strukturhinweis an die Analyze-KI, wenn der Client den MC-Aufbau erkannt hat. */
 export function buildInstantAnalyzeStructuralHintForUserMessage(userMessage: string): string | null {
   const mc = parseMcqQuestionFromUserMessage(userMessage)
@@ -157,51 +136,10 @@ export function buildInstantAnalyzeStructuralHintForUserMessage(userMessage: str
   ].join('\n')
 }
 
-export function buildInstantAnalyzeDirectAnswerBriefing(): string {
-  return [
-    'Direktantwort (verbindlich):',
-    '- Nutzer will die **richtige Option** — nicht eine Unterrichtseinheit.',
-    '- **Zuerst** Antwort nennen (`**Antwort: D**` oder Tabelle mit ✓), höchstens 1–2 Sätze Begründung danach.',
-    '- **Verboten:** `### Verbesserungen`, Schlussfrage, alle Optionen durchgehen.',
-    '- Sprache wie die Nutzerfrage.',
-  ].join('\n')
-}
-
 export const DIRECT_ANSWER_TURN_BRIEFING = [
-  'Multiple-Choice / Direktantwort (verbindlich für diesen Turn):',
-  '- Der Nutzer will die **richtige Antwort** — keine ausführliche Erklärung, kein Essay.',
-  '- **Pflicht:** Erste Zeile exakt `**Antwort: X**` (X = A–D) — die App markiert die Option grün.',
-  '- **Format (eine Variante wählen):**',
-  '  1) Erste Zeile: `**Antwort: D**` — [Kurztext der Option]',
-  '  2) Oder Markdown-Tabelle:',
-  '     | Option | Inhalt | Richtig |',
-  '     | D | … | ✓ |',
-  '- Optional **danach** höchstens 1–2 Sätze Begründung — nicht davor.',
-  '- **Verboten:** `### Verbesserungen`, Anpassungsfrage am Ende, lange Facheinleitung.',
-  '- **Verboten:** alle Optionen A–D einzeln erklären, wenn nur eine richtig ist.',
-  '- Antwortsprache = Sprache der Nutzerfrage (Englisch → Englisch).',
+  'Direktantwort (dieser Turn): Erste Zeile exakt `**Antwort: X**` (die App markiert die Option grün) oder Markdown-Tabelle mit ✓; höchstens 1–2 Sätze Begründung danach.',
+  'Kein `### Verbesserungen`, keine Schlussfrage, nicht alle Optionen einzeln erklären. Antwortsprache = Sprache der Frage.',
 ].join('\n')
 
-export const DIRECT_ANSWER_FOLLOW_UP_BRIEFING = [
-  'Direktantwort — Folgenachricht (verbindlich):',
-  '- Nutzer will **nur** die richtige Option — keine Wiederholung der vorherigen Erklärung.',
-  '- Eine Zeile: `**Antwort: X**` — [Optionstext] — fertig.',
-  '- Keine Verbesserungen, keine Rückfrage.',
-].join('\n')
-
-export const DIRECT_ANSWER_HARD_GUARD = [
-  'Harter Guard (Direktantwort):',
-  '- Gib jetzt **keine** `### Verbesserungen` und **keine** Anpassungsfrage am Schluss.',
-  '- Die Antwort (Buchstabe/✓) steht in den **ersten** 1–2 Zeilen.',
-].join('\n')
-
-/** Statischer Hauptchat-Hinweis (Ausnahme zu MandatoryFollowUp). */
-export function getAssistantDirectAnswerInstruction(): string {
-  return [
-    'Direktantwort / Multiple-Choice beantworten (Hauptchat — Ausnahme):',
-    '- Wenn der Nutzer eine Auswahlfrage mit Optionen stellt oder nur die richtige Antwort will:',
-    '  **Antwort zuerst** (Buchstabe oder Tabelle mit ✓), höchstens 1–2 Sätze Begründung.',
-    '- Dann **kein** `### Verbesserungen`, **keine** Schlussfrage, **kein** langer Erklärblock.',
-    '- Gilt nicht bei «mach ein Quiz» / Fragen generieren — dort Quiz-Regeln.',
-  ].join('\n')
-}
+export const DIRECT_ANSWER_FOLLOW_UP_BRIEFING =
+  'Direktantwort — Folgenachricht: eine Zeile `**Antwort: X**` — [Optionstext], fertig. Keine Wiederholung der Erklärung, keine Rückfrage.'

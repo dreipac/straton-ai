@@ -75,25 +75,6 @@ const DOCUMENT_EXPORT_SUMMARY_OUTLINE_RULES = [
   OUTLINE_MIXED_LAYOUT_RULES,
 ].join('\n')
 
-/** Intent-Routing: eigene Sektion «Dokumente generieren» (category document). */
-export function buildInstantAnalyzeDocumentGenerateSection(): string {
-  return [
-    'Dokumente generieren (category "document" — nur bei explizitem Export-Wunsch):',
-    '- Trennung Lesen vs. Erzeugen:',
-    '  - `[Datei:…]`-Anhang + «siehst du den Inhalt?», «kannst du lesen?» → category **chat**, action **answer**, task_type **explanation**, explanation_depth **brief** (nur Sichtbarkeit — **kein** summary).',
-    '  - `[Datei:…]`-Anhang + «fasse zusammen», «was steht drin», «analysiere» **ohne** «erstelle/exportiere Word/PDF/Excel» → category **chat**, action **answer**.',
-    '  - «Word/Docx erstellen», «als Word», /Word → document.**word_generate**.',
-    '  - «PDF erstellen», «als PDF», /PDF → document.**pdf_generate**.',
-    '  - «Excel/XLSX», «Tabelle exportieren», /Excel → document.**excel_generate**.',
-    '  - «PowerPoint», «PPTX», «Präsentation», «Folien erstellen», /PowerPoint → document.**pptx_generate**.',
-    '- **Summary-PDF/Word:** «ausführliches/zusammenfassendes PDF», «PDF zusammenfassen», «Word mit Zusammenfassung» → document.* **und** task_type **summary**.',
-    '- Bei document.*: reply_mode **normal**, needs_live_web **false**, clarity **clear**.',
-    '- escalate_model **false** bei einzelnem Export oder Zusammenfassung — nur true bei Multi-Dokument-Vergleich oder komplexem Sheet-Merge.',
-    '',
-    'Nachgelagerte App: KI liefert Markdown-Dokument (Word/PDF), Spec-JSON (Excel) oder HTML-Folien (PowerPoint) im Chat; Nutzer klickt «generieren» → Server (.docx / .pdf / .xlsx / .pptx).',
-  ].join('\n')
-}
-
 export function buildInstantAnalyzeDocumentExportBriefing(
   action: InstantAnalyzeDocumentAction,
   options?: { summaryStyle?: boolean },

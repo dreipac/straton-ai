@@ -1,13 +1,15 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import { evaluateInteractiveAnswer } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, ChapterSession } from '../services/learn.persistence'
+import type { ChapterBlueprint, ChapterSession, LearnGenerationMode } from '../services/learn.persistence'
 import { chapterQuestionToInteractiveQuestion } from '../utils/learnPageHelpers'
+import { evaluatePlaceholderAnswer } from '../utils/learnPlaceholder'
 
 type UseChapterSessionFlowArgs = {
   effectiveChapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
   isEvaluatingChapterStep: boolean
+  generationMode: LearnGenerationMode
   setChapterSession: Dispatch<SetStateAction<ChapterSession>>
   setIsEvaluatingChapterStep: Dispatch<SetStateAction<boolean>>
   setError: Dispatch<SetStateAction<string | null>>
@@ -25,6 +27,7 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
     effectiveChapterBlueprints,
     chapterSession,
     isEvaluatingChapterStep,
+    generationMode,
     setChapterSession,
     setIsEvaluatingChapterStep,
     setError,
@@ -60,6 +63,9 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
         activeStep.questionType === 'categorize'
       ) {
         result = evaluateInteractiveAnswer(answer, chapterQuestionToInteractiveQuestion(activeStep))
+      } else if (generationMode === 'placeholder') {
+        // Platzhalter-Modus: Freitext lokal bewerten (exact/contains) statt per KI.
+        result = evaluatePlaceholderAnswer(chapterQuestionToInteractiveQuestion(activeStep), answer)
       } else {
         result = await evaluateQuizAnswerWithAi({
           question: chapterQuestionToInteractiveQuestion(activeStep),
@@ -102,6 +108,7 @@ export function useChapterSessionFlow(args: UseChapterSessionFlowArgs) {
     chapterSession.feedbackByStepId,
     chapterSession.stepIndex,
     effectiveChapterBlueprints,
+    generationMode,
     isEvaluatingChapterStep,
     setChapterSession,
     setError,

@@ -6,18 +6,21 @@ import type {
   ChapterBlueprint,
   ChapterSession,
   EntryQuizResult,
+  LearnGenerationMode,
   TutorChatEntry,
   UploadedMaterial,
 } from '../services/learn.persistence'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
+import { PLACEHOLDER_TOPIC, placeholderDelay } from '../utils/learnPlaceholder'
 
 type UseLearnSetupFlowArgs = {
   isUploading: boolean
   isAnalyzingSetupTopic: boolean
   materials: UploadedMaterial[]
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  generationMode: LearnGenerationMode
   setError: Dispatch<SetStateAction<string | null>>
   setIsAnalyzingSetupTopic: Dispatch<SetStateAction<boolean>>
   setSetupAnalysisPercent: Dispatch<SetStateAction<number>>
@@ -51,6 +54,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     isAnalyzingSetupTopic,
     materials,
     proficiencyLevel,
+    generationMode,
     setError,
     setIsAnalyzingSetupTopic,
     setSetupAnalysisPercent,
@@ -79,6 +83,28 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
 
   const handleContinueSetupStepOne = useCallback(() => {
     if (isUploading || isAnalyzingSetupTopic) {
+      return
+    }
+
+    // Platzhalter-Modus: keine Datei-Pflicht, kein KI-Aufruf — festes Testthema nach kurzer
+    // simulierter Analyse, damit der Ablauf (Ladebalken → Thema → Schritt 2) sichtbar bleibt.
+    if (generationMode === 'placeholder') {
+      setError(null)
+      setIsAnalyzingSetupTopic(true)
+      void placeholderDelay()
+        .then(() => {
+          setSetupAnalysisPercent(100)
+          return placeholderDelay(180)
+        })
+        .then(() => {
+          setTopic(PLACEHOLDER_TOPIC)
+          setSelectedTopic(PLACEHOLDER_TOPIC)
+          setTopicSuggestions([])
+          setSetupStep(2)
+        })
+        .finally(() => {
+          setIsAnalyzingSetupTopic(false)
+        })
       return
     }
 
@@ -149,6 +175,7 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
         setIsAnalyzingSetupTopic(false)
       })
   }, [
+    generationMode,
     getPrompt,
     isAnalyzingSetupTopic,
     isUploading,

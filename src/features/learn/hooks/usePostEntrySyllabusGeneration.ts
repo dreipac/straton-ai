@@ -4,11 +4,13 @@ import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import type {
   EntryQuizResult,
+  LearnGenerationMode,
   LearnTutorState,
   SyllabusEntry,
   TutorChatEntry,
   UploadedMaterial,
 } from '../services/learn.persistence'
+import { buildPlaceholderSyllabus, placeholderDelay } from '../utils/learnPlaceholder'
 import {
   buildEntryQuizInsightForChapter,
   buildFallbackSyllabus,
@@ -24,6 +26,7 @@ import { buildPostEntryQuizTutorMessage } from '../utils/learnTutorCoachMessages
 type UsePostEntrySyllabusGenerationArgs = {
   activePathId: string | null
   activePathTitle: string
+  generationMode: LearnGenerationMode
   tutorState: LearnTutorState
   targetChapterCount: number
   syllabus: SyllabusEntry[]
@@ -42,6 +45,9 @@ type UsePostEntrySyllabusGenerationArgs = {
   setPostEntryPrepStepIndex: Dispatch<SetStateAction<number>>
   setPostEntryPrepPercents: Dispatch<SetStateAction<number[]>>
   setError: Dispatch<SetStateAction<string | null>>
+  /** Wird nach Abschluss der Generierung aufgerufen (auch beim Fallback) — z. B. fürs Onboarding-Overlay.
+   *  MUSS referenzstabil sein (useCallback), sonst startet der Generierungs-Effekt neu. */
+  onGenerationComplete?: () => void
 }
 
 export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerationArgs) {
@@ -98,7 +104,18 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       let validationHint = ''
       let generated: SyllabusEntry[] = []
 
-      for (let attempt = 1; attempt <= SYLLABUS_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+      // Platzhalter-Modus: Mock-Lernplan ohne KI — Prep-Screens laufen kurz sichtbar durch,
+      // die Generierungs-Schleife unten wird übersprungen.
+      if (args.generationMode === 'placeholder') {
+        args.setPostEntryPrepPercents([70, 25])
+        await placeholderDelay()
+        if (cancelled) {
+          return
+        }
+        generated = buildPlaceholderSyllabus(mainTopic, targetChapterCount)
+      }
+
+      for (let attempt = 1; generated.length === 0 && attempt <= SYLLABUS_GENERATION_MAX_ATTEMPTS; attempt += 1) {
         if (cancelled) {
           return
         }
@@ -182,6 +199,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       }
 
       args.setIsPostEntryPrepLoading(false)
+      args.onGenerationComplete?.()
     }
 
     void run().catch((error) => {
@@ -211,6 +229,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       }
       args.setError(error instanceof Error ? error.message : 'Lernplan konnte nicht erstellt werden.')
       args.setIsPostEntryPrepLoading(false)
+      args.onGenerationComplete?.()
     })
 
     return () => {
@@ -223,6 +242,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
     args.activePathId,
     args.activePathTitle,
     args.aiGuidance,
+    args.generationMode,
     args.effectiveTopic,
     args.entryQuiz,
     args.entryQuizResult,
@@ -237,6 +257,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
     args.setPostEntryPrepStepIndex,
     args.setSyllabus,
     args.setTutorMessages,
+    args.onGenerationComplete,
     args.syllabus.length,
     args.targetChapterCount,
     args.tutorState,

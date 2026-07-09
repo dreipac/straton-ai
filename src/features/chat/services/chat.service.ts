@@ -1,12 +1,11 @@
 import { DEFAULT_SYSTEM_PROMPTS, LEARN_CHAPTER_JSON_SYSTEM_SUPPLEMENT } from '../../../config/systemPromptDefaults'
 import {
   getAssistantEmojiStyleInstruction,
-  getAssistantMainChatThreadContinuityInstruction,
+  getAssistantMainChatWorkStyleInstruction,
   getAssistantMarkdownFormattingInstruction,
 } from '../constants/chatAssistantStyle'
 import {
   DIRECT_ANSWER_FOLLOW_UP_BRIEFING,
-  DIRECT_ANSWER_HARD_GUARD,
   DIRECT_ANSWER_TURN_BRIEFING,
   buildInstantAnalyzeStructuralHintForUserMessage,
   shouldApplyDirectAnswerTurnBriefing,
@@ -243,7 +242,11 @@ import {
   buildWordChatDocumentBodyHint,
   isSummaryStyleDocumentExport,
 } from '../constants/documentExportIntent'
-import { detectObviousChatRoute, detectRouteHeuristic } from '../constants/instantAnalyzeRoute'
+import {
+  detectObviousChatRoute,
+  detectRouteHeuristic,
+  detectionMakesEdgeAnalyzeRedundant,
+} from '../constants/instantAnalyzeRoute'
 
 type SendMessageResult = {
   assistantMessage: ChatMessage
@@ -691,8 +694,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     !options?.userRequestedDiagram &&
     !options?.userRequestedPptx &&
     !thinking
-  const mainChatThreadContinuity = mainChatInstantPrompts
-    ? getAssistantMainChatThreadContinuityInstruction()
+  /** Konsolidierte Arbeitsweise (statisch, cachebar) — ersetzt Brevity/Solve/Follow-up/Continuity. */
+  const mainChatWorkStyle = mainChatInstantPrompts
+    ? getAssistantMainChatWorkStyleInstruction()
     : ''
   const replyTone = isMainChat ? (options?.chatReplyMode ?? 'comfort') : undefined
   const truthBlock = isMainChat ? getChatTruthfulnessInstruction() : ''
@@ -728,15 +732,9 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
   )
   const stepByStepIntakeHardGuard =
     forceStepByStepIntake || instantAskOnly
-      ? [
-          instantAskOnly
-            ? 'Harter Smart-Instant-Guard (diese Antwort):'
-            : 'Harter Intake-Guard (diese Antwort):',
-          '- Gib jetzt KEINE Anleitungsschritte und KEINE Befehle aus.',
-          instantAskOnly
-            ? '- Nur bei echtem Blocker: kurz fragen — sonst Annahme, **Lösung**, dann optional Verbesserungen + Anpassungsfrage.'
-            : '- Annahme → **fertige Lösung** → optional Verbesserungen + **eine** konkrete Anpassungsfrage am Ende.',
-        ].join('\n')
+      ? instantAskOnly
+        ? 'Guard (diese Antwort): Nur bei echtem Blocker kurz nachfragen — sonst Annahme benennen und direkt die Lösung liefern; keine Anleitungsschritte auf Verdacht.'
+        : 'Guard (diese Antwort): Keine Anleitungsschritte oder Befehle auf Verdacht — Annahme benennen, dann die fertige Lösung.'
       : ''
   const priorTurnsForFollowUp = lastUserMessage
     ? threadMessages.filter((m) => m.id !== lastUserMessage.id)
@@ -783,6 +781,11 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     options?.userRequestedDiagram ||
     options?.userRequestedPptx
 
+  /**
+   * Layout-Profil nur noch für Dokument-Zusammenfassungen (Coverage-Playbook) —
+   * bei normalen Chat-Antworten wählt das Modell die Darstellung selbst
+   * (Werkzeugkasten in den Format-Regeln).
+   */
   let presentationProfileForTurn: PresentationProfile | undefined
   if (
     isMainChat &&
@@ -790,6 +793,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     !thinking &&
     instantAnalyze &&
     instantAnalyze.category === 'chat' &&
+    instantAnalyze.task_type === 'summary' &&
     !instantAskOnly
   ) {
     presentationProfileForTurn = resolveInstantPresentationProfile({
@@ -891,17 +895,17 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     isMainChat &&
     !thinking &&
     lastUserMessage?.role === 'user' &&
-    shouldApplyDirectAnswerTurnBriefing(
-      stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
-      priorTurnsForFollowUp,
-    )
+    (instantAnalyze?.task_type === 'mc_solve' ||
+      shouldApplyDirectAnswerTurnBriefing(
+        stripComposerAttachmentBlocksForRouting(lastUserMessage.content),
+        priorTurnsForFollowUp,
+      ))
   ) {
     lastUserTurnContextBlocks.push(
       userMessageIsDirectAnswerFollowUp(lastUserMessage.content, priorTurnsForFollowUp)
         ? DIRECT_ANSWER_FOLLOW_UP_BRIEFING
         : DIRECT_ANSWER_TURN_BRIEFING,
     )
-    lastUserTurnContextBlocks.push(DIRECT_ANSWER_HARD_GUARD)
   }
   if (
     isMainChat &&
@@ -1069,7 +1073,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         diagramChatHint,
         pptxChatHint,
         pptxEditChatHint,
-        mainChatThreadContinuity,
+        mainChatWorkStyle,
         truthBlock,
         toneBlock,
       ]
@@ -1121,7 +1125,7 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     ...(thinkingOpenAiFinalCache ? [] : [diagramChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [pptxChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [pptxEditChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [mainChatThreadContinuity]),
+    ...(thinkingOpenAiFinalCache ? [] : [mainChatWorkStyle]),
     ...(thinkingOpenAiFinalCache ? [] : [truthBlock]),
     ...(thinkingOpenAiFinalCache ? [] : [toneBlock]),
     ...(thinkingOpenAiFinalCache ? [] : [thinkingBlock]),
@@ -1460,13 +1464,13 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v6'
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v7'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v7'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_DRAFT = 'straton-thinking-draft-v1'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_REVIEW = 'straton-thinking-review-v2'
-const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v8'
+const OPENAI_PROMPT_CACHE_KEY_INSTANT_ANALYZE = 'straton-instant-analyze-v9'
 /** Editier-Turns der Folien-Vorschau: eigener Key, da der Systemprompt (nur `pptxEditChatHint` aktiv) bei jedem Edit identisch ist — maximale Trefferquote unabhängig vom sonst genutzten Hauptchat-Modell. */
 const OPENAI_PROMPT_CACHE_KEY_PPTX_EDIT = 'straton-pptx-edit-v1'
 /** Feste, günstige Modellkette für PPTX-Edits — unabhängig vom gewählten Composer-Modell/Tageskontingent, da es sich um kleine, gezielte Patches handelt (siehe `submitPptxEditMessage`). */
@@ -2447,6 +2451,19 @@ export async function instantAnalyzeUserMessage(params: {
         analyze: applyInstantAnalyzeHeuristics(trimmed, { ...base, category: obviousChat.category, action: obviousChat.action }, heuristicOpts),
         source: 'fallback',
       }
+    }
+  }
+
+  // Stage 1D: Regex-Route ist entscheidend (document/chart/diagram/image.generate/-search) —
+  // applyRouteHeuristics würde die Edge-Einordnung ohnehin überstimmen; der Roundtrip entfällt.
+  if (detectionMakesEdgeAnalyzeRedundant(precomputedDetection, trimmed, params.priorTurns)) {
+    return {
+      analyze: applyInstantAnalyzeHeuristics(
+        trimmed,
+        fallbackInstantAnalyzeResult(trimmed, params.priorTurns),
+        heuristicOpts,
+      ),
+      source: 'fallback',
     }
   }
 

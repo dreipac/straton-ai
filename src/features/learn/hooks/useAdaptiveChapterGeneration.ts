@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
 import { parseInteractiveContentWithFallback } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, ChapterSession, UploadedMaterial } from '../services/learn.persistence'
+import type { ChapterBlueprint, ChapterSession, LearnGenerationMode, UploadedMaterial } from '../services/learn.persistence'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
@@ -22,6 +22,7 @@ import {
   validateGeneratedChapter,
 } from '../utils/learnPageHelpers'
 import { namespaceChapterStepIds } from '../utils/chapterStepIds'
+import { placeholderDelay } from '../utils/learnPlaceholder'
 
 export type UseAdaptiveChapterGenerationArgs = {
   activePathId: string
@@ -31,12 +32,21 @@ export type UseAdaptiveChapterGenerationArgs = {
   effectiveTopic: string
   selectedTopic: string
   materials: UploadedMaterial[]
+  generationMode: LearnGenerationMode
 }
 
 export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationArgs) {
   const { getPrompt } = useSystemPrompts()
-  const { activePathId, activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, selectedTopic, materials } =
-    args
+  const {
+    activePathId,
+    activePathTitle,
+    chapterBlueprints,
+    chapterSession,
+    effectiveTopic,
+    selectedTopic,
+    materials,
+    generationMode,
+  } = args
 
   const [adaptiveChapterBlueprint, setAdaptiveChapterBlueprint] = useState<ChapterBlueprint | null>(null)
   const [isGeneratingAdaptiveChapter, setIsGeneratingAdaptiveChapter] = useState(false)
@@ -100,7 +110,17 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
       let validationHint = ''
       let generatedAdaptive: ChapterBlueprint | null = null
 
-      for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+      // Platzhalter-Modus: bestehender Fallback (Schwachstellen-Wiederholung) statt KI —
+      // die Schleife unten wird übersprungen.
+      if (generationMode === 'placeholder') {
+        await placeholderDelay()
+        generatedAdaptive =
+          namespaceChapterStepIds([buildAdaptiveChallengeFallback(weakQuestions)], {
+            chapterIndexOffset: chapterBlueprints.length,
+          })[0] ?? null
+      }
+
+      for (let attempt = 1; !generatedAdaptive && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
         const request: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'user',
@@ -174,7 +194,7 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
       setIsGeneratingAdaptiveChapter(false)
       generationInFlightRef.current = false
     }
-  }, [activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, getPrompt, materials, selectedTopic])
+  }, [activePathTitle, chapterBlueprints, chapterSession, effectiveTopic, generationMode, getPrompt, materials, selectedTopic])
 
   useEffect(() => {
     if (!areBaseChaptersCompleted || adaptiveChapterBlueprint || isGeneratingAdaptiveChapter) {

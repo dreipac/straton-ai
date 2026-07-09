@@ -3,9 +3,6 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 // @ts-expect-error - Deno URL import is resolved at function runtime.
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8'
 import { handleDocumentExtract } from './documentExtractRoute.ts'
-import { buildInstantAnalyzeChartGenerateSection } from './chartExportPrompts.ts'
-import { buildInstantAnalyzeDiagramGenerateSection } from './diagramExportPrompts.ts'
-import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportPrompts.ts'
 import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
 import {
   buildThinkingAnalyzeGeminiCachedSystemEdge,
@@ -207,7 +204,7 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v8', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v9', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
     thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
     thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
@@ -2352,10 +2349,58 @@ const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
 /** Chat-Titel (Instant + Thinking): günstig, kein GPT-5.4-mini aus der Hauptchat-Staffel. */
 const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
 
-/** Smart Instant — Einordnung (JSON). Hoch genug fuer gpt-5-Modelle (verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens, sonst leerer content). */
-const INSTANT_ANALYZE_MAX_OUTPUT_TOKENS = 1400
+/** Smart Instant — Einordnung (JSON, schlankes Schema): Gemini Flash Lite liefert ~60–100 Token. */
+const INSTANT_ANALYZE_GEMINI_MAX_OUTPUT_TOKENS = 250
+/** OpenAI-Pfad: gpt-5-Modelle verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens (sonst leerer content) — daher höheres Limit als beim Gemini-Pfad. */
+const INSTANT_ANALYZE_OPENAI_MAX_OUTPUT_TOKENS = 1000
 /** Fallback-Kette, wenn kein OpenAI-Analyze-Modell konfiguriert ist (z. B. Gemini-Analyze nicht verfuegbar) — gpt-5-mini zuerst, nicht gpt-4o-mini. */
 const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini', 'gpt-4o'] as const
+
+/**
+ * Gemeinsamer Systemprompt für die Instant-Einordnung (Gemini- und OpenAI-Pfad — eine Quelle,
+ * kein Drift). Schlankes Schema: Felder, die client-seitig deterministisch ableitbar sind
+ * (reply_mode, clarity, missing, explanation_depth, escalate_*, document_coverage_topics,
+ * use_folder_sources), liefert das Modell nicht mehr — `sanitizeInstantAnalyzePayload` und die
+ * Client-Heuristiken füllen sie. Regex-Routing im Client überstimmt die Einordnung ohnehin bei
+ * eindeutigen Mustern; hier stehen nur Entscheidungen, die Kontextverständnis brauchen.
+ */
+const INSTANT_ANALYZE_SYSTEM_PROMPT = [
+  'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat ein. Antworte nur mit einem JSON-Objekt, ohne Text davor oder danach.',
+  '',
+  'Felder:',
+  '- category: "chat" | "image" | "document" | "chart" | "diagram"',
+  '- action: chat→answer|short_answer|clarify|one_step; image→generate|describe|search|reference; document→word_generate|pdf_generate|excel_generate|pptx_generate; chart→chart_generate; diagram→diagram_generate',
+  '- task_type: "mc_solve" | "quiz_generate" | "explanation" | "summary"',
+  '- intent: Nutzerabsicht, max. 80 Zeichen, Deutsch (ss statt ß)',
+  '- needs_live_web: boolean; web_query: optimierte Suchanfrage, max. 120 Zeichen (nur wenn needs_live_web true, sonst "")',
+  '',
+  'Routing:',
+  '- Standard: chat.answer — auch vage Anfragen mit sinnvoller Annahme lösen; clarify nur, wenn ohne Rückfrage gar nicht lösbar.',
+  '- chat.short_answer: Auswahlfrage mit Optionen (auch nackte Kandidatenzeilen wie IPs unter einer Frage), «nur die richtige Antwort», kurze Folgenachricht zum Verlauf. Hinweis [Struktur erkannt: Auswahlfrage] → immer short_answer, task_type mc_solve.',
+  '- document.*: nur bei explizitem Export-Wunsch (Word/PDF/Excel/PowerPoint/Präsentation erstellen). [Datei:…]-Anhang nur lesen/zusammenfassen → chat, nicht document.',
+  '- chart: Diagramm mit Zahlen/Prozenten/Statistik (Balken, Kreis, Linie). diagram: Struktur (Stammbaum, Ablauf, Prozess, Workflow, Mindmap, Organigramm) — auch generisches «erstelle ein Diagramm» ohne Zahlen.',
+  '- image.search: Foto/Bild von realer Person/Sache zeigen/suchen — bei Folgen («von ihm», «ich meine den Schauspieler») intent = konkreter Name aus dem Verlauf, nie Pronomen. image.generate: Bild erstellen/zeichnen/malen. image.describe: neuer Bild-Anhang + «was siehst du». image.reference: Frage zu einem früheren Bild im Verlauf ohne neuen Anhang.',
+  '- «Wer hat das Bild gemacht?» nach Straton-Generierung → chat.short_answer (Straton/KI in diesem Chat), nicht image.',
+  '- Früher generierte Dokumente/Charts/Diagramme im Verlauf sind KEIN Grund für document/chart/diagram — nur wenn die aktuelle Nachricht selbst einen neuen Export oder eine Änderung verlangt.',
+  '',
+  'task_type:',
+  '- mc_solve: gepostete Auswahlfrage lösen. quiz_generate: Quiz/Fragen erzeugen («mach ein Quiz»).',
+  '- summary: expliziter Zusammenfassungswunsch («fasse zusammen», «Zusammenfassung», «Überblick über das Dokument»). «Siehst du den Inhalt?» / «über was geht es?» → explanation, nicht summary.',
+  '- explanation: alles andere (Erklären, Vergleiche, How-to, Aufgaben lösen).',
+  '',
+  'needs_live_web:',
+  '- true bei veränderlichen Fakten: Preise, Kurse/Ticker, News, Gesetzeslage, Produkt-/Modell-Daten (auch ohne «aktuell» — z. B. «Wie viele Kameras hat das iPhone 17?»), Versionen, Verfügbarkeit, Termine. Im Zweifel bei konkretem Produkt/Modell: true.',
+  '- false bei Lehrbuchwissen, Mathe, Coding-Konzepten, Definitionen, subjektiven/persönlichen Fragen — und immer bei category document/chart/diagram/image sowie chat.clarify.',
+].join('\n')
+
+function buildInstantAnalyzeUserParts(userMessage: string, contextBlock: string): string {
+  return [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ]
+    .join('')
+    .trim()
+}
 
 type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart' | 'diagram'
 type InstantAnalyzeActionEdge =
@@ -3192,55 +3237,17 @@ async function instantAnalyzeWithGemini(
   contextBlock: string,
   model: GeminiModelId = GEMINI_MODEL_FLASH_LITE,
 ): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
-  const system = [
-    'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
-    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: category ("chat"|"image"|"document"|"chart"|"diagram"), action (passend zur category),',
-    'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
-    'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
-    'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web),',
-    'needs_live_web true bei JEDER Frage mit konkretem Produkt-/Modell-/Markennamen zu Fakten, die sich ändern oder die du nicht zuverlässig sicher weisst: Spezifikationen, Anzahl/Grösse/Gewicht/Kapazität von Bauteilen, Preis, Verfügbarkeit, Release-Datum, Vergleich, Nachfolgemodell, Rezension/Bewertung — unabhängig von Zeitwörtern wie «aktuell» (Beispiel: «Wie viele Kameras hat das iPhone 17?», «Lohnt sich die XYZ Kamera?», «Wie schwer ist das Modell Y?»).',
-    'Bist du bei einer Frage zu einem konkret genannten Produkt/Modell nicht zu 100% sicher, ob dein Wissen aktuell und korrekt ist: needs_live_web true setzen, statt aus Trainingswissen zu raten — lieber einmal zu viel suchen als eine falsche Tatsachenbehauptung über ein Produkt liefern.',
-    'needs_live_web false nur bei allgemeinem Fach-/Lehrbuchwissen OHNE konkretes Produkt/Modell/Marke (z. B. «was ist eine Spiegelreflexkamera», Mathe, Coding-Konzepte, Definitionen) oder bei rein subjektiven/persönlichen Fragen ohne Faktenbezug.',
-    'escalate_model (boolean, fast immer false), escalate_reason (max 80, nur wenn escalate_model).',
-    'task_type: mc_solve | quiz_generate | explanation | summary.',
-    'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
-    'mc_solve: MC/Auswahlfrage lösen → chat.short_answer. quiz_generate: Quiz/Fragen erzeugen.',
-    'summary: expliziter Zusammenfassungswunsch (fasse zusammen/Zusammenfassung/überblick/mach eine Zusammenfassung) — **nicht** «siehst du den Inhalt?».',
-    'summary: gleiche inhaltliche Tiefe mit oder ohne «ausführlich» — bei [Datei:…] integriertes Lernskript (Themen, Fragen, Übungen ausarbeiten), kein Meta-«deckt/thematisiert».',
-    'summary + document: «ausführliches/zusammenfassendes PDF/Word» oder «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
-    'explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → chat.answer, short_answer — nur Sichtbarkeit, **kein** summary.',
-    'Ordner-Quellen: Kontext «Ordner-Quellen verfügbar» + Nutzer will Dateien/Material → use_folder_sources true, task_type summary bei Zusammenfassung; sonst false.',
-    'explanation: «über was geht es im Dokument?», Thema-Frage ohne «zusammenfassen» → task_type explanation, explanation_depth brief — **nicht** summary.',
-    'escalate_model true nur bei Multi-Dokument-Vergleich oder komplexem Sheet-Vergleich — nie bei «ausführlich»/«Zusammenfassung»/einzelnem PDF.',
-    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate|pptx_generate; chart → chart_generate; diagram → diagram_generate.',
-    '',
-    buildInstantAnalyzeDocumentGenerateSection(),
-    '',
-    buildInstantAnalyzeChartGenerateSection(),
-    '',
-    buildInstantAnalyzeDiagramGenerateSection(),
-    '',
-    '[Datei:…]-Anhang + nur Lesen/Zusammenfassen → chat.answer, nicht document.*.',
-    'Multiple-Choice mit Optionen (Zertifizierung, «which of the following») → chat.short_answer.',
-    'Aufbau: Fragezeile (?: oder ?) + darunter 2–6 Kandidaten (auch nackte IPs/Zeilen ohne Bullet) → short_answer, nicht Erklärung — auch bei «was ist …» mit Liste.',
-    'Strukturhinweis [Struktur erkannt: Auswahlfrage] im Text → short_answer übernehmen.',
-    '«zeige/such/finde Foto/Bild von …» → image.search. «generiere/erstelle Bild» → image.generate.',
-    'Verlauf zeigt «Straton hat zuvor ein Word-Dokument/PDF/Excel/Chart/Diagramm generiert»: das ist KEIN Grund, die aktuelle Nachricht ebenfalls als document/chart/diagram einzuordnen — nur wenn die **aktuelle** Nutzer-Nachricht selbst explizit ein neues/weiteres Dokument, eine Änderung am bestehenden (z. B. «füge ein Kapitel hinzu», «ändere den Titel») oder einen neuen Chart/Diagramm-Wunsch enthält. Sonst category chat, passend zur eigentlichen Frage.',
-    'Rechtschreibung Schweizer Hochdeutsch (ss statt ß).',
-  ].join('\n')
-  const userParts = [
-    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
-    `Aktuelle Nutzeranfrage:\n${userMessage}`,
-  ].join('')
-  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
-    model,
-    systemInstruction: withSwissOrthography(system),
-    contextCacheKey: GEMINI_CONTEXT_CACHE_INTENT,
-    maxOutputTokens: INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
-    temperature: 0.15,
-  })
+  const { text, usage, model: usedModel } = await geminiGenerateText(
+    buildInstantAnalyzeUserParts(userMessage, contextBlock),
+    {
+      model,
+      systemInstruction: INSTANT_ANALYZE_SYSTEM_PROMPT,
+      contextCacheKey: GEMINI_CONTEXT_CACHE_INTENT,
+      maxOutputTokens: INSTANT_ANALYZE_GEMINI_MAX_OUTPUT_TOKENS,
+      temperature: 0.15,
+      responseMimeType: 'application/json',
+    },
+  )
   const analyze = parseInstantAnalyzeResult(text)
   return {
     analyze,
@@ -3273,46 +3280,9 @@ async function instantAnalyzeWithAi(
       console.warn('[chat-completion] instant_analyze gemini unavailable, fallback openai', geminiErr)
     }
   }
-  const system = [
-    'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
-    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    'Felder: category ("chat"|"image"|"document"|"chart"|"diagram"), action (passend zur category),',
-    'clarity ("clear"|"partial"|"vague"), intent (max 120 Zeichen), missing (Array max 3),',
-    'reply_mode ("ask_only"|"one_step"|"short_answer"|"normal"), needs_live_web (boolean),',
-    'web_query (max 120, nur wenn needs_live_web), web_reason (max 80, nur wenn needs_live_web).',
-    'needs_live_web true bei JEDER Frage mit konkretem Produkt-/Modell-/Markennamen zu Fakten, die sich ändern oder die du nicht zuverlässig sicher weisst: Spezifikationen, Anzahl/Grösse/Gewicht/Kapazität von Bauteilen, Preis, Verfügbarkeit, Release-Datum, Vergleich, Nachfolgemodell, Rezension/Bewertung — unabhängig von Zeitwörtern wie «aktuell» (Beispiel: «Wie viele Kameras hat das iPhone 17?», «Lohnt sich die XYZ Kamera?», «Wie schwer ist das Modell Y?»).',
-    'Bist du bei einer Frage zu einem konkret genannten Produkt/Modell nicht zu 100% sicher, ob dein Wissen aktuell und korrekt ist: needs_live_web true setzen, statt aus Trainingswissen zu raten — lieber einmal zu viel suchen als eine falsche Tatsachenbehauptung über ein Produkt liefern.',
-    'needs_live_web false nur bei allgemeinem Fach-/Lehrbuchwissen OHNE konkretes Produkt/Modell/Marke (z. B. «was ist eine Spiegelreflexkamera», Mathe, Coding-Konzepte, Definitionen) oder bei rein subjektiven/persönlichen Fragen ohne Faktenbezug.',
-    'task_type: mc_solve | quiz_generate | explanation | summary.',
-    'explanation_depth: brief | standard | detailed (nur bei task_type explanation).',
-    'mc_solve → chat.short_answer; quiz_generate → chat.answer; summary → chat.answer, reply_mode normal.',
-    'Actions: chat → answer|short_answer|clarify|one_step; image → generate|describe|search|reference;',
-    'document → word_generate|pdf_generate|excel_generate|pptx_generate; chart → chart_generate; diagram → diagram_generate.',
-    '«zeige/such/finde Foto/Bild von …» (reale Person/Sache) → image.search — nicht generate.',
-    '«generiere/erstelle/zeichne/male … Bild» → image.generate. Word/PDF/Excel → document.*.',
-    'Balken/Kreis/Prozent/Statistik → chart.chart_generate. Stammbaum/Ablauf/Prozess/Workflow/Mindmap → diagram.diagram_generate.',
-    'Generisches «mache/erstelle ein Diagramm» ohne genannten Typ, ohne Zahlen/Statistik → ebenfalls diagram.diagram_generate, nicht chat.answer.',
-    'Anhang + beschreiben ohne Neuerstellung → image.describe.',
-    'Verlauf: Assistent hat Bild generiert; Nutzer fragt danach («wer/was ist auf dem Bild», «was siehst du») ohne neuen Anhang → image.reference.',
-    'Verlauf: Straton hat Bild generiert; Nutzer «wer hat das Bild gemacht/erstellt/generiert» → chat.short_answer (Straton/KI in diesem Chat), nicht image.reference.',
-    'Verlauf zeigt «Straton hat zuvor ein Word-Dokument/PDF/Excel/Chart/Diagramm generiert»: das ist KEIN Grund, die aktuelle Nachricht ebenfalls als document/chart/diagram einzuordnen — nur wenn die **aktuelle** Nutzer-Nachricht selbst explizit ein neues/weiteres Dokument, eine Änderung am bestehenden (z. B. «füge ein Kapitel hinzu», «ändere den Titel») oder einen neuen Chart/Diagramm-Wunsch enthält. Sonst category chat, passend zur eigentlichen Frage.',
-    'Bei reply_mode "ask_only" / chat.clarify: needs_live_web false. Bei document/image.generate/image.search: needs_live_web false.',
-    'Kurze Folgenachricht mit Verlauf: chat.short_answer. Folgen «zeige Bilder», «von ihm», «ich meine den Schauspieler» nach Fotosuche: image.search — intent aus Verlauf (Name), nie «ihm» wörtlich.',
-    'Aufgabe/lösen/Übung: chat.answer.',
-    'Multiple-Choice mit Optionen (Zertifizierung, «which of the following», «richtige Antwort»): chat.short_answer — nicht chat.answer/normal.',
-    'Frage + Kandidatenzeilen darunter (IPs, A)/-, nackte Zeilen): Auswahlfrage → short_answer. «was ist X:» + Liste = welche Option, nicht Definition.',
-    '[Struktur erkannt: Auswahlfrage] im Nutzertext → short_answer.',
-    'Vage Anfrage: chat.answer mit Annahme — clarify nur wenn gar nicht lösbar.',
-    'needs_live_web true bei Aktienkurs, News, «aktuell», Gesetzeslage mit Zeitbezug.',
-    'needs_live_web false bei Coding, Mathe, document.*, chart.*, image.generate, image.search.',
-  ].join('\n')
-  const userParts = [
-    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
-    `Aktuelle Nutzeranfrage:\n${userMessage}`,
-  ].join('')
   const messages: InputMessage[] = [
-    { role: 'system', content: withSwissOrthography(system) },
-    { role: 'user', content: userParts.trim() },
+    { role: 'system', content: INSTANT_ANALYZE_SYSTEM_PROMPT },
+    { role: 'user', content: buildInstantAnalyzeUserParts(userMessage, contextBlock) },
   ]
   const openAiModelChain = isGeminiAnalyzeModelEdge(configuredModel)
     ? [...INSTANT_ANALYZE_OPENAI_MODELS]
@@ -3322,7 +3292,9 @@ async function instantAnalyzeWithAi(
     apiKey,
     openAiModelChain,
     openAiPromptCache,
-    INSTANT_ANALYZE_MAX_OUTPUT_TOKENS,
+    INSTANT_ANALYZE_OPENAI_MAX_OUTPUT_TOKENS,
+    null,
+    true,
   )
   const analyze = parseInstantAnalyzeResult(usage.text)
   return { analyze, usage }

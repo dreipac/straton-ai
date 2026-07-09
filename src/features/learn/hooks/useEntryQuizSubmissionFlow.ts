@@ -1,8 +1,9 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnTutorState, SyllabusEntry, TutorChatEntry } from '../services/learn.persistence'
+import type { ChapterBlueprint, ChapterSession, EntryQuizResult, LearnGenerationMode, LearnTutorState, SyllabusEntry, TutorChatEntry } from '../services/learn.persistence'
 import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
+import { evaluatePlaceholderAnswer } from '../utils/learnPlaceholder'
 
 function isRateLimitError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -23,6 +24,7 @@ type UseEntryQuizSubmissionFlowArgs = {
   isSubmittingEntryQuiz: boolean
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
+  generationMode: LearnGenerationMode
   closeEntryQuizModal: () => void
   setError: Dispatch<SetStateAction<string | null>>
   setIsSubmittingEntryQuiz: Dispatch<SetStateAction<boolean>>
@@ -48,6 +50,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     isSubmittingEntryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    generationMode,
     closeEntryQuizModal,
     setError,
     setIsSubmittingEntryQuiz,
@@ -103,6 +106,19 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
             answer,
             isCorrect: cachedCorrectness[question.id],
             feedback: cachedFeedback[question.id],
+            evaluated: true,
+          })
+          continue
+        }
+
+        // Platzhalter-Modus: lokale Bewertung ohne KI (MCQ/Match exakt, Freitext via exact/contains).
+        if (generationMode === 'placeholder') {
+          const local = evaluatePlaceholderAnswer(question, answer)
+          evaluations.push({
+            questionId: question.id,
+            answer,
+            isCorrect: local.isCorrect,
+            feedback: local.feedback,
             evaluated: true,
           })
           continue
@@ -200,6 +216,7 @@ export function useEntryQuizSubmissionFlow(args: UseEntryQuizSubmissionFlowArgs)
     entryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    generationMode,
     isSubmittingEntryQuiz,
     setChapterBlueprints,
     setChapterSession,

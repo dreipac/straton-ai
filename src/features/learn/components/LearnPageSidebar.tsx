@@ -1,9 +1,9 @@
-import { useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useDocumentThemeVariant } from '../../../hooks/useDocumentThemeVariant'
 import settingsIcon from '../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import statusIcon from '../../../assets/icons/status.svg'
-import type { LearningPathSummary } from '../services/learn.persistence'
+import type { LearnGenerationMode, LearningPathSummary } from '../services/learn.persistence'
 import { getDisplayPathTitle, isPendingLearningPathId } from '../utils/learnPageHelpers'
 import { hapticLightImpact } from '../../../utils/haptics'
 
@@ -17,7 +17,7 @@ type ProfileLite = {
 export type LearnPageSidebarProps = {
   isSidebarCollapsed: boolean
   onToggleSidebar: () => void
-  onCreateLearningPath: () => void
+  onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
   isCreateLearningPathDisabled?: boolean
   isCreateLearningPathBusy?: boolean
   onCreateLearningPathDisabledClick?: () => void
@@ -70,6 +70,27 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
     onToggleSidebar()
   }
 
+  // Superadmin: Auswahl KI vs. Platzhalter (Test ohne API-Kosten) beim Erstellen eines Lernpfads.
+  const canChooseGenerationMode = profile?.is_superadmin === true
+  const [isCreateModeMenuOpen, setIsCreateModeMenuOpen] = useState(false)
+
+  const handleCreateClick = () => {
+    if (isCreateLearningPathDisabled) {
+      onCreateLearningPathDisabledClick?.()
+      return
+    }
+    if (canChooseGenerationMode) {
+      setIsCreateModeMenuOpen((prev) => !prev)
+      return
+    }
+    onCreateLearningPath('ai')
+  }
+
+  const handleChooseCreateMode = (mode: LearnGenerationMode) => {
+    setIsCreateModeMenuOpen(false)
+    onCreateLearningPath(mode)
+  }
+
   return (
     <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       <div className="chat-sidebar-top">
@@ -90,25 +111,51 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
             </>
           )}
         </div>
-        <button
-          type="button"
-          className={`learn-primary-sidebar-button${isCreateLearningPathDisabled ? ' is-disabled' : ''}${
-            isCreateLearningPathBusy ? ' is-busy' : ''
-          }`}
-          aria-disabled={isCreateLearningPathDisabled}
-          aria-busy={isCreateLearningPathBusy || undefined}
-          onClick={() => {
-            if (isCreateLearningPathDisabled) {
-              onCreateLearningPathDisabledClick?.()
-              return
-            }
-            onCreateLearningPath()
-          }}
-          aria-label={isSidebarCollapsed ? 'Neuer Lernpfad' : undefined}
-        >
-          <span className="learn-new-path-icon chat-sidebar-top-button-icon" aria-hidden="true" />
-          {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Lernpfad</span> : null}
-        </button>
+        <div className="learn-new-path-wrap">
+          <button
+            type="button"
+            className={`learn-primary-sidebar-button${isCreateLearningPathDisabled ? ' is-disabled' : ''}${
+              isCreateLearningPathBusy ? ' is-busy' : ''
+            }`}
+            aria-disabled={isCreateLearningPathDisabled}
+            aria-busy={isCreateLearningPathBusy || undefined}
+            aria-expanded={canChooseGenerationMode ? isCreateModeMenuOpen : undefined}
+            onClick={handleCreateClick}
+            aria-label={isSidebarCollapsed ? 'Neuer Lernpfad' : undefined}
+          >
+            <span className="learn-new-path-icon chat-sidebar-top-button-icon" aria-hidden="true" />
+            {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Lernpfad</span> : null}
+          </button>
+          {isCreateModeMenuOpen ? (
+            <>
+              <div
+                className="learn-create-mode-backdrop"
+                onClick={() => setIsCreateModeMenuOpen(false)}
+                aria-hidden="true"
+              />
+              <div className="learn-create-mode-menu" role="menu" aria-label="Lernpfad-Erstellmodus">
+                <button
+                  type="button"
+                  className="learn-create-mode-option"
+                  role="menuitem"
+                  onClick={() => handleChooseCreateMode('ai')}
+                >
+                  <span className="learn-create-mode-option-title">KI</span>
+                  <span className="learn-create-mode-option-meta">Normaler Lernpfad mit KI-Generierung</span>
+                </button>
+                <button
+                  type="button"
+                  className="learn-create-mode-option"
+                  role="menuitem"
+                  onClick={() => handleChooseCreateMode('placeholder')}
+                >
+                  <span className="learn-create-mode-option-title">Platzhalter</span>
+                  <span className="learn-create-mode-option-meta">Testablauf ohne API-Kosten</span>
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
         <button type="button" onClick={onOpenSettings} aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}>
           <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
           {!isSidebarCollapsed ? 'Einstellungen' : null}
@@ -146,6 +193,11 @@ export function LearnPageSidebar(props: LearnPageSidebarProps) {
                 onContextMenu={(event) => onLearningPathContextMenu(event, path.id)}
               >
                 <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
+                {path.generationMode === 'placeholder' ? (
+                  <span className="learn-path-test-badge" aria-label="Platzhalter-Lernpfad (Test)">
+                    Test
+                  </span>
+                ) : null}
               </button>
             </div>
           ))}

@@ -218,8 +218,8 @@ export async function fetchActiveThinkingTaskTypeRoutingEdge(
   }
 }
 
-export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v5'
-export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v3'
+export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v6'
+export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v4'
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1'
 export {
   GEMINI_CONTEXT_CACHE_THINKING_DRAFT_RICH,

@@ -42,7 +42,7 @@ export function userAsksDocumentVisibilityQuestion(text: string): boolean {
 }
 
 const EXPLICIT_SUMMARY_REQUEST_RE =
-  /\b(fasse\s+zusammen|zusammenfassung|zusammenfassen|überblick|ueberblick|stichwortartig|in\s+kapiteln|hauptpunkte\s+im\s+überblick|ausführliche?\s+zusammenfassung|zusammenfass(?:e|en)\s+(?:mir|bitte|das|den|die|zu|von)|mach(?:e)?\s+(?:mir\s+)?(?:eine\s+)?zusammenfassung|erstell(?:e)?\s+(?:mir\s+)?(?:eine\s+)?zusammenfassung)\b/i
+  /\b(fass(?:e)?\s+(?:\S+\s+){0,8}?zusammen\b|zusammenfassung|zusammenfassen|überblick|ueberblick|stichwortartig|in\s+kapiteln|hauptpunkte\s+im\s+überblick|ausführliche?\s+zusammenfassung|zusammenfass(?:e|en)\s+(?:mir|bitte|das|den|die|zu|von)|mach(?:e)?\s+(?:mir\s+)?(?:eine\s+)?zusammenfassung|erstell(?:e)?\s+(?:mir\s+)?(?:eine\s+)?zusammenfassung)\b/i
 
 const SUMMARY_TOPIC_REQUEST_RE =
   /\b(mach(?:e)?|erstell(?:e)?|schreib(?:e)?).{0,48}(ausführlich(?:e)?|zusammenfassung|zusammenfass(?:en|e))\b/i

@@ -46,22 +46,32 @@ import {
   listLearningPathsByUserId,
   type EntryQuizResult,
   type LearnFlashcardSet,
+  type LearnGenerationMode,
   type LearnTutorState,
   type LearnWorksheetItem,
   type LearningPathRecord,
   type LearningPathSummary,
   type SyllabusEntry,
+  type TopicSession,
   type TutorChatEntry,
   type UploadedMaterial,
   updateLearningPathById,
 } from '../features/learn/services/learn.persistence'
 import { useAdaptiveChapterGeneration } from '../features/learn/hooks/useAdaptiveChapterGeneration'
+import { useTopicStepGeneration } from '../features/learn/hooks/useTopicStepGeneration'
 import { useLearnWorkspaceDerived } from '../features/learn/hooks/useLearnWorkspaceDerived'
 import { useLearningPathActions } from '../features/learn/hooks/useLearningPathActions'
 import { useLearnSetupFlow } from '../features/learn/hooks/useLearnSetupFlow'
 import { useEntryQuizUiFlow } from '../features/learn/hooks/useEntryQuizUiFlow'
 import { useEntryQuizSubmissionFlow } from '../features/learn/hooks/useEntryQuizSubmissionFlow'
 import { usePostEntrySyllabusGeneration } from '../features/learn/hooks/usePostEntrySyllabusGeneration'
+import {
+  buildPlaceholderChapterBlueprint,
+  buildPlaceholderDiagnosticBlueprint,
+  buildPlaceholderFlashcards,
+  buildPlaceholderWorksheetItems,
+  placeholderDelay,
+} from '../features/learn/utils/learnPlaceholder'
 import { useChapterSessionFlow } from '../features/learn/hooks/useChapterSessionFlow'
 import {
   useLearningPathPersistence,
@@ -75,11 +85,15 @@ import {
   ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS,
   ENTRY_TEST_PREP_STEPS,
   POST_ENTRY_PREP_STEPS,
+  TOPIC_DIAGNOSTIC_MIN_QUESTIONS,
+  TOPIC_MASTERY_THRESHOLD,
+  TOPIC_MAX_STEPS,
   buildChapterGenerationUserPrompt,
   buildChapterMaterialSearchQuery,
   buildEntryQuizFallbackPayload,
   buildEntryQuizInsightForChapter,
   buildLearnerStateInsight,
+  buildTopicDiagnosticUserPrompt,
   ensureMinimumChapterDepth,
   getChapterMaterialRagOptions,
   getDisplayPathTitle,
@@ -127,11 +141,14 @@ import {
   isFlashcardDue,
 } from '../features/learn/utils/spacedRepetition'
 import { LearnChapterModal } from '../features/learn/components/LearnChapterModal'
+import { LearnMapModal } from '../features/learn/components/LearnMapModal'
+import { LearnPathOnboarding } from '../features/learn/components/LearnPathOnboarding'
 import { LearnFlashcardsModal } from '../features/learn/components/LearnFlashcardsModal'
 import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheetModal'
 import { LearnConversationSection } from '../features/learn/components/LearnConversationSection'
 import { LearnEntryQuizModal } from '../features/learn/components/LearnEntryQuizModal'
 import { LearnOverviewPanel } from '../features/learn/components/LearnOverviewPanel'
+import { LearnSkillMasteryPanel } from '../features/learn/components/LearnSkillMasteryPanel'
 import { ChatPendingReplyLoader } from '../features/chat/components/ChatPendingReplyLoader'
 import { LearnPageSidebar } from '../features/learn/components/LearnPageSidebar'
 import { useLearningPathListEnterAnimation } from '../features/learn/hooks/useLearningPathListEnterAnimation'
@@ -227,6 +244,8 @@ export type LearnPageProps = {
   onControlledPathIdChange?: (pathId: string) => void
   onOpenHostSidebar?: () => void
   pendingCreateLearningPath?: boolean
+  /** Erstellmodus für den ausstehenden Create (Superadmin-Popover in der Chat-Sidebar). */
+  pendingCreateLearningPathMode?: LearnGenerationMode
   onPendingCreateLearningPathHandled?: () => void
   /** Chat-Sidebar: gemeinsame Pfadliste (wie `threads` bei Chats). */
   hostLearningPaths?: LearningPathSummary[]
@@ -239,6 +258,7 @@ export function LearnPage({
   onControlledPathIdChange,
   onOpenHostSidebar,
   pendingCreateLearningPath = false,
+  pendingCreateLearningPathMode = 'ai',
   onPendingCreateLearningPathHandled,
   hostLearningPaths,
   setHostLearningPaths,
@@ -302,8 +322,15 @@ export function LearnPage({
   const [learningChapters, setLearningChapters] = useState<string[]>([])
   const [chapterBlueprints, setChapterBlueprints] = useState<ChapterBlueprint[]>([])
   const [chapterSession, setChapterSession] = useState<ChapterSession>(DEFAULT_CHAPTER_SESSION)
+  /** Landkarte Phase 1: pro-Thema-Fortschritt (Diagnosetest + dynamische Zwischenschritte). Additiv zum Kapitel-Modell. */
+  const [topicSessions, setTopicSessions] = useState<TopicSession[]>([])
+  /** Landkarte Phase 1: != null während ein Thema (Diagnose oder Zwischenschritt) statt eines Legacy-Kapitels im Modal aktiv ist. */
+  const [activeTopicFlowIndex, setActiveTopicFlowIndex] = useState<number | null>(null)
   const [isChapterModalMounted, setIsChapterModalMounted] = useState(false)
   const [isChapterModalVisible, setIsChapterModalVisible] = useState(false)
+  /** Landkarte Phase 2: Vollbild-Kartenansicht, separates Overlay-Modal (kein Kapitel-Inhalt). */
+  const [isLearnMapModalMounted, setIsLearnMapModalMounted] = useState(false)
+  const [isLearnMapModalVisible, setIsLearnMapModalVisible] = useState(false)
   const [isFlashcardsModalMounted, setIsFlashcardsModalMounted] = useState(false)
   const [isFlashcardsModalVisible, setIsFlashcardsModalVisible] = useState(false)
   const [learnFlashcardSets, setLearnFlashcardSets] = useState<LearnFlashcardSet[]>([])
@@ -337,6 +364,7 @@ export function LearnPage({
   const [isPostEntryPrepLoading, setIsPostEntryPrepLoading] = useState(false)
   const [postEntryPrepStepIndex, setPostEntryPrepStepIndex] = useState(0)
   const [postEntryPrepPercents, setPostEntryPrepPercents] = useState<number[]>([0, 0])
+  const [showPathOnboarding, setShowPathOnboarding] = useState(false)
   const [openPathMenuId, setOpenPathMenuId] = useState<string | null>(null)
   const [pathMenuPosition, setPathMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const pathMenuRef = useRef<HTMLDivElement | null>(null)
@@ -352,6 +380,7 @@ export function LearnPage({
   const mobileSidebarButtonReleaseTimerRef = useRef<number | null>(null)
   const entryQuizCloseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
+  const learnMapModalCloseTimerRef = useRef<number | null>(null)
   const chapterGenerationInFlightRef = useRef(false)
   const flashcardsModalCloseTimerRef = useRef<number | null>(null)
   const worksheetModalCloseTimerRef = useRef<number | null>(null)
@@ -430,6 +459,13 @@ export function LearnPage({
   )
 
   const activePath = learningPaths.find((entry) => entry.id === activePathId) ?? null
+
+  /** Platzhalter-Modus (Admin-Test ohne API-Kosten): am Pfad fixiert; alle KI-Aufrufe im Lern-Flow
+   *  werden clientseitig durch Mock-Daten ersetzt. */
+  const generationMode: LearnGenerationMode =
+    activePath?.generationMode ??
+    (activePathId ? pathCacheRef.current[activePathId]?.generationMode : undefined) ??
+    'ai'
   const effectiveTopic = selectedTopic.trim() || topic.trim()
   const setupAnalysisPercentClamped = Math.max(0, Math.min(100, Math.round(setupAnalysisPercent)))
   const entryPrepStepSafeIndex = Math.max(0, Math.min(ENTRY_TEST_PREP_STEPS.length - 1, entryPrepStepIndex))
@@ -480,6 +516,7 @@ export function LearnPage({
     effectiveTopic,
     selectedTopic,
     materials,
+    generationMode,
   })
 
   const completedChaptersForShowcase = useMemo(() => {
@@ -524,6 +561,7 @@ export function LearnPage({
       learningChapters,
       chapterBlueprints,
       chapterSession,
+      topicSessions,
       learnFlashcardSets,
       learnWorksheets,
     }),
@@ -548,6 +586,7 @@ export function LearnPage({
       learningChapters,
       chapterBlueprints,
       chapterSession,
+      topicSessions,
       learnFlashcardSets,
       learnWorksheets,
     ],
@@ -577,6 +616,8 @@ export function LearnPage({
       setLearningChapters(record.learningChapters)
       setChapterBlueprints(record.chapterBlueprints)
       setChapterSession(record.chapterSession)
+      setTopicSessions(record.topicSessions ?? [])
+      setActiveTopicFlowIndex(null)
       setEntryQuizQuestionIndex(0)
       setIsAnalyzingSetupTopic(false)
       setHasTriedEntryQuizGeneration(Boolean(record.entryQuiz))
@@ -588,6 +629,12 @@ export function LearnPage({
       setPostEntryPrepPercents([0, 0])
       setIsChapterModalVisible(false)
       setIsChapterModalMounted(false)
+      setIsLearnMapModalVisible(false)
+      setIsLearnMapModalMounted(false)
+      if (learnMapModalCloseTimerRef.current) {
+        window.clearTimeout(learnMapModalCloseTimerRef.current)
+        learnMapModalCloseTimerRef.current = null
+      }
       setIsEvaluatingChapterStep(false)
       setIsFlashcardsModalVisible(false)
       setIsFlashcardsModalMounted(false)
@@ -657,6 +704,8 @@ export function LearnPage({
     setLearningChapters([])
     setChapterBlueprints([])
     setChapterSession(DEFAULT_CHAPTER_SESSION)
+    setTopicSessions([])
+    setActiveTopicFlowIndex(null)
     setLearnFlashcardSets([])
     setLearnWorksheets([])
     setIsChapterGenerationLoading(false)
@@ -692,6 +741,7 @@ export function LearnPage({
     learningChapters,
     chapterBlueprints,
     chapterSession,
+    topicSessions,
     learnFlashcardSets,
     learnWorksheets,
   }
@@ -740,6 +790,7 @@ export function LearnPage({
     isAnalyzingSetupTopic,
     materials,
     proficiencyLevel,
+    generationMode,
     setError,
     setIsAnalyzingSetupTopic,
     setSetupAnalysisPercent,
@@ -829,7 +880,7 @@ export function LearnPage({
     }
     embeddedCreateInFlightRef.current = true
     onPendingCreateLearningPathHandled?.()
-    void handleCreateLearningPath().finally(() => {
+    void handleCreateLearningPath(pendingCreateLearningPathMode).finally(() => {
       embeddedCreateInFlightRef.current = false
     })
   }, [
@@ -838,6 +889,7 @@ export function LearnPage({
     isLearningPathWorkspaceLoading,
     onPendingCreateLearningPathHandled,
     pendingCreateLearningPath,
+    pendingCreateLearningPathMode,
   ])
 
   useEffect(() => {
@@ -881,6 +933,31 @@ export function LearnPage({
     unlockedChapterCount,
     learnWorksheets,
   ])
+
+  /** Landkarte Phase 1: topicSessions 1:1 mit syllabus initialisieren, sobald der Lernplan feststeht. Alle Themen starten 'locked'. */
+  useEffect(() => {
+    if (syllabus.length === 0) {
+      return
+    }
+    setTopicSessions((prev) => {
+      if (prev.length === syllabus.length) {
+        return prev
+      }
+      return syllabus.map(
+        (_, index): TopicSession =>
+          prev[index] ?? {
+            topicIndex: index,
+            status: 'locked',
+            diagnosticBlueprint: null,
+            diagnosticSession: null,
+            stepBlueprints: [],
+            stepSession: null,
+            masteryScore: 0,
+            masteryAttempts: 0,
+          },
+      )
+    })
+  }, [syllabus])
 
   useEffect(() => {
     if (!learnFeatureInfoVisible) {
@@ -965,6 +1042,8 @@ export function LearnPage({
       setLearningChapters([])
       setChapterBlueprints([])
       setChapterSession(DEFAULT_CHAPTER_SESSION)
+      setTopicSessions([])
+      setActiveTopicFlowIndex(null)
       setLearnFlashcardSets([])
       setLearnWorksheets([])
       setIsChapterGenerationLoading(false)
@@ -1356,6 +1435,19 @@ export function LearnPage({
       setError(null)
 
       try {
+        let parsedQuiz: InteractiveQuizPayload | null = null
+        let parsedCleanText = ''
+        let validationReason = ''
+        let lastGatewayError: Error | null = null
+
+        // Platzhalter-Modus: fertiger Test ohne KI — Ablauf und Screens bleiben identisch,
+        // die Generierungs-Schleife unten wird durch das gesetzte parsedQuiz übersprungen.
+        if (generationMode === 'placeholder') {
+          await placeholderDelay()
+          parsedQuiz = buildEntryQuizFallbackPayload(effectiveTopic || getDisplayPathTitle(activePathTitle))
+          parsedCleanText = 'Platzhalter-Einstiegstest ohne KI erstellt.'
+        }
+
         const materialContext = formatRelevantMaterialContext(
           (
             (effectiveTopic || getDisplayPathTitle(activePathTitle)) +
@@ -1374,12 +1466,7 @@ export function LearnPage({
             : { maxChunks: 10, maxChars: 6500 },
         )
 
-        let parsedQuiz: InteractiveQuizPayload | null = null
-        let parsedCleanText = ''
-        let validationReason = ''
-        let lastGatewayError: Error | null = null
-
-        for (let attempt = 1; attempt <= ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS; attempt += 1) {
+        for (let attempt = 1; !parsedQuiz && attempt <= ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS; attempt += 1) {
           const quizRequestMessage: ChatMessage = {
             id: crypto.randomUUID(),
             role: 'user',
@@ -1487,6 +1574,8 @@ export function LearnPage({
         setLearningChapters([])
         setChapterBlueprints([])
         setChapterSession(DEFAULT_CHAPTER_SESSION)
+        setTopicSessions([])
+        setActiveTopicFlowIndex(null)
         setEntryQuizQuestionIndex(0)
         setEntryPrepStepIndex(ENTRY_TEST_PREP_STEPS.length - 1)
         setEntryPrepPercents([100, 100, 100])
@@ -1529,6 +1618,7 @@ export function LearnPage({
     aiGuidance,
     proficiencyLevel,
     entryQuiz,
+    generationMode,
     getPrompt,
     hasTriedEntryQuizGeneration,
     isEntryQuizLoading,
@@ -1554,6 +1644,7 @@ export function LearnPage({
     isSubmittingEntryQuiz,
     entryQuizAnswers,
     entryQuizResult,
+    generationMode,
     closeEntryQuizModal,
     setError,
     setIsSubmittingEntryQuiz,
@@ -1573,9 +1664,19 @@ export function LearnPage({
     setChapterSession,
   })
 
+  // Referenzstabil, sonst startet der Generierungs-Effekt bei jedem Render neu (siehe Hook-Doku).
+  const handlePathGenerationComplete = useCallback(() => {
+    setShowPathOnboarding(true)
+  }, [])
+
+  const handleClosePathOnboarding = useCallback(() => {
+    setShowPathOnboarding(false)
+  }, [])
+
   usePostEntrySyllabusGeneration({
     activePathId,
     activePathTitle: activePath?.title ?? '',
+    generationMode,
     tutorState,
     targetChapterCount,
     syllabus,
@@ -1594,6 +1695,7 @@ export function LearnPage({
     setPostEntryPrepStepIndex,
     setPostEntryPrepPercents,
     setError,
+    onGenerationComplete: handlePathGenerationComplete,
   })
 
   const applySkillMasterySignal = useCallback(
@@ -1665,10 +1767,126 @@ export function LearnPage({
     effectiveChapterBlueprints,
     chapterSession,
     isEvaluatingChapterStep,
+    generationMode,
     setChapterSession,
     setIsEvaluatingChapterStep,
     setError,
     onQuestionEvaluated: handleChapterQuestionEvaluatedForMastery,
+  })
+
+  /** Landkarte Phase 1: EWMA-Mastery pro Thema (Fortschritts-Gate), analog zu applySkillMasterySignal aber themen-lokal. */
+  const applyTopicMasterySignal = useCallback((topicIndex: number, correct: boolean) => {
+    setTopicSessions((prev) =>
+      prev.map((session, index) => {
+        if (index !== topicIndex) {
+          return session
+        }
+        const outcome = correct ? 1 : 0
+        const learningRate = Math.max(0.35, 1 / (session.masteryAttempts + 1))
+        const nextScore = clamp01(session.masteryScore + learningRate * (outcome - session.masteryScore))
+        return {
+          ...session,
+          masteryScore: nextScore,
+          masteryAttempts: session.masteryAttempts + 1,
+          masteryUpdatedAt: new Date().toISOString(),
+        }
+      }),
+    )
+  }, [])
+
+  const activeTopicSession = activeTopicFlowIndex !== null ? topicSessions[activeTopicFlowIndex] : undefined
+  const isTopicFlowActive = activeTopicFlowIndex !== null && Boolean(activeTopicSession)
+
+  /** Landkarte Phase 1: Dual-Write — themen-lokale Mastery (Fortschritts-Gate) UND skillTag-Mastery (bestehendes Panel). */
+  const handleTopicFlowQuestionEvaluated = useCallback(
+    (payload: { stepId: string; prompt: string; correct: boolean; answer: string; skillTag?: string }) => {
+      if (activeTopicFlowIndex !== null) {
+        applyTopicMasterySignal(activeTopicFlowIndex, payload.correct)
+      }
+      applySkillMasterySignal({
+        source: 'chapter',
+        skillId: resolveConceptSkillId(payload.skillTag, () => toSkillIdFromText('chapter', payload.prompt)),
+        label: payload.prompt,
+        correct: payload.correct,
+        weight: 0.35,
+      })
+    },
+    [activeTopicFlowIndex, applySkillMasterySignal, applyTopicMasterySignal],
+  )
+
+  const handleTopicStepGenerated = useCallback((topicIndex: number, blueprint: ChapterBlueprint) => {
+    setTopicSessions((prev) =>
+      prev.map((session, index) =>
+        index === topicIndex ? { ...session, stepBlueprints: [...session.stepBlueprints, blueprint] } : session,
+      ),
+    )
+  }, [])
+
+  const { stepPlaceholder: topicStepPlaceholder } = useTopicStepGeneration({
+    activePathId,
+    activePathTitle: activePath?.title,
+    generationMode,
+    topicIndex: activeTopicFlowIndex ?? -1,
+    topicTopic: (syllabus[activeTopicFlowIndex ?? -1]?.topic || learningChapters[activeTopicFlowIndex ?? -1] || '').trim(),
+    topicLearningGoal: syllabus[activeTopicFlowIndex ?? -1]?.learningGoal ?? '',
+    topicSession: activeTopicSession,
+    effectiveTopic,
+    selectedTopic,
+    materials,
+    onStepGenerated: handleTopicStepGenerated,
+  })
+
+  const topicFlowBlueprints: ChapterBlueprint[] = useMemo(() => {
+    if (!activeTopicSession) {
+      return []
+    }
+    if (activeTopicSession.status === 'diagnostic' && activeTopicSession.diagnosticBlueprint) {
+      return [activeTopicSession.diagnosticBlueprint]
+    }
+    if (activeTopicSession.status === 'learning') {
+      return activeTopicSession.stepBlueprints.length > 0 ? activeTopicSession.stepBlueprints : [topicStepPlaceholder]
+    }
+    return []
+  }, [activeTopicSession, topicStepPlaceholder])
+
+  const topicFlowChapterSession: ChapterSession =
+    activeTopicSession?.status === 'diagnostic'
+      ? activeTopicSession.diagnosticSession ?? DEFAULT_CHAPTER_SESSION
+      : activeTopicSession?.stepSession ?? DEFAULT_CHAPTER_SESSION
+
+  const setTopicFlowChapterSession: Dispatch<SetStateAction<ChapterSession>> = useCallback(
+    (updater) => {
+      if (activeTopicFlowIndex === null) {
+        return
+      }
+      setTopicSessions((prev) =>
+        prev.map((session, index) => {
+          if (index !== activeTopicFlowIndex) {
+            return session
+          }
+          const sessionKey = session.status === 'diagnostic' ? 'diagnosticSession' : 'stepSession'
+          const base = session[sessionKey] ?? DEFAULT_CHAPTER_SESSION
+          const next = typeof updater === 'function' ? (updater as (prev: ChapterSession) => ChapterSession)(base) : updater
+          return { ...session, [sessionKey]: next }
+        }),
+      )
+    },
+    [activeTopicFlowIndex],
+  )
+
+  const {
+    handleEvaluateCurrentChapterQuestion: handleEvaluateTopicFlowQuestion,
+    handleNextChapterStep: handleNextTopicFlowStep,
+    handlePreviousChapterStep: handlePreviousTopicFlowStep,
+  } = useChapterSessionFlow({
+    effectiveChapterBlueprints: topicFlowBlueprints,
+    chapterSession: topicFlowChapterSession,
+    isEvaluatingChapterStep,
+    generationMode,
+    setChapterSession: setTopicFlowChapterSession,
+    setIsEvaluatingChapterStep,
+    setError,
+    onQuestionEvaluated: handleTopicFlowQuestionEvaluated,
   })
 
   const {
@@ -1793,6 +2011,37 @@ export function LearnPage({
 
   const chapterBlueprintReady = Boolean(chapterBlueprints[targetChapterIndexForOpen]?.steps?.length)
 
+  /** Landkarte Phase 1: erstes noch nicht 'mastered' Thema — Frontier analog zu targetChapterIndexForOpen. */
+  const targetTopicIndexForOpen = useMemo(() => {
+    if (topicSessions.length === 0) {
+      return 0
+    }
+    const firstNotMastered = topicSessions.findIndex((session) => session.status !== 'mastered')
+    return firstNotMastered === -1 ? Math.max(0, topicSessions.length - 1) : firstNotMastered
+  }, [topicSessions])
+
+  const topicFlowSafeChapterIndex = Math.max(
+    0,
+    Math.min(topicFlowChapterSession.chapterIndex, Math.max(0, topicFlowBlueprints.length - 1)),
+  )
+  const topicFlowActiveBlueprint = topicFlowBlueprints[topicFlowSafeChapterIndex] ?? null
+  const topicFlowSafeStepIndex = Math.max(
+    0,
+    Math.min(topicFlowChapterSession.stepIndex, Math.max(0, (topicFlowActiveBlueprint?.steps.length ?? 1) - 1)),
+  )
+  const topicFlowActiveStep = topicFlowActiveBlueprint?.steps[topicFlowSafeStepIndex] ?? null
+  const topicFlowProgressPercent =
+    topicFlowActiveBlueprint && topicFlowActiveBlueprint.steps.length > 0
+      ? ((topicFlowSafeStepIndex + 1) / topicFlowActiveBlueprint.steps.length) * 100
+      : 0
+  const topicFlowAnswer =
+    topicFlowActiveStep?.type === 'question' ? (topicFlowChapterSession.answersByStepId[topicFlowActiveStep.id] ?? '') : ''
+  const topicFlowFeedback =
+    topicFlowActiveStep?.type === 'question' ? (topicFlowChapterSession.feedbackByStepId[topicFlowActiveStep.id] ?? '') : ''
+  const topicFlowIsCorrect =
+    topicFlowActiveStep?.type === 'question' ? topicFlowChapterSession.correctnessByStepId[topicFlowActiveStep.id] : undefined
+  const topicFlowHasEvaluation = typeof topicFlowIsCorrect === 'boolean'
+
   const requiredWorksheetProgress = useMemo(() => {
     if (worksheetRequiredChapterIndex === null) {
       return null
@@ -1853,6 +2102,15 @@ export function LearnPage({
   ])
 
   const flashcardSrStats = useMemo(() => getFlashcardSrStats(learnFlashcardSets), [learnFlashcardSets])
+
+  /** Beste aktuelle Richtig-Serie über alle Kompetenzen — für das 🔥-Badge. */
+  const bestCorrectStreak = useMemo(() => {
+    let best = 0
+    for (const entry of Object.values(chapterSession.skillMasteryBySkillId ?? {})) {
+      best = Math.max(best, entry.correctStreak ?? 0)
+    }
+    return best
+  }, [chapterSession.skillMasteryBySkillId])
 
   const errorLogbookEntries = useMemo(
     () =>
@@ -1973,7 +2231,11 @@ export function LearnPage({
 
     setIsGeneratingFlashcards(true)
     try {
-      const cards = await generateLearnFlashcards(outlineForApi)
+      // Platzhalter-Modus: Mock-Karten ohne KI/Bild-Guthaben.
+      const cards =
+        generationMode === 'placeholder'
+          ? await placeholderDelay().then(() => buildPlaceholderFlashcards())
+          : await generateLearnFlashcards(outlineForApi)
       const newSet: LearnFlashcardSet = { id: crypto.randomUUID(), cards: initializeNewFlashcardSet(cards) }
       setFlashcardsModalSetId(newSet.id)
       setLearnFlashcardSets((prev) => {
@@ -2081,7 +2343,11 @@ export function LearnPage({
 
     setIsGeneratingWorksheet(true)
     try {
-      const items = await generateLearnWorksheet(outlineForApi)
+      // Platzhalter-Modus: Mock-Aufgaben ohne KI/Bild-Guthaben.
+      const items =
+        generationMode === 'placeholder'
+          ? await placeholderDelay().then(() => buildPlaceholderWorksheetItems())
+          : await generateLearnWorksheet(outlineForApi)
       const fallbackChapterIndex = Math.max(0, chapterSession.chapterIndex)
       const chapterTag = useMixed
         ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX
@@ -2518,9 +2784,185 @@ export function LearnPage({
     }
   }
 
-  async function openChapterModal() {
+  /** Landkarte Phase 1: Diagnose-Test-zuerst-Einstieg für ein Thema; generiert bei Bedarf den Diagnosetest, danach übernimmt useTopicStepGeneration. */
+  async function openTopicModal(topicIndex: number) {
     const activePathIdAtStart = activePathId
+    const existing = topicSessions[topicIndex]
+    if (!existing) {
+      return
+    }
+    /** Landkarte Phase 2: die Karte erlaubt Klicks auf beliebige Themen-Knoten — noch gesperrte Themen ignorieren. */
+    const isTopicUnlocked = topicIndex === 0 || topicSessions[topicIndex - 1]?.status === 'mastered'
+    if (!isTopicUnlocked) {
+      return
+    }
+
+    if (existing.status === 'locked') {
+      if (chapterGenerationInFlightRef.current) {
+        return
+      }
+      if (isPostEntryPrepLoading) {
+        setError('Lernplan wird noch erstellt — bitte kurz warten.')
+        return
+      }
+      chapterGenerationInFlightRef.current = true
+      const syllabusEntry = syllabus[topicIndex]
+      const topicTopic = (
+        syllabusEntry?.topic?.trim() ||
+        learningChapters[topicIndex]?.trim() ||
+        selectedTopic ||
+        effectiveTopic ||
+        getDisplayPathTitle(activePath?.title ?? '')
+      ).trim()
+      const topicLearningGoal = syllabusEntry?.learningGoal?.trim() ?? ''
+      try {
+        setError('Diagnosetest wird vorbereitet...')
+        setIsChapterGenerationLoading(true)
+        setChapterGenerationPercent(8)
+        const topicMaterialContext = formatRelevantMaterialContext(
+          buildChapterMaterialSearchQuery(
+            effectiveTopic || getDisplayPathTitle(activePath?.title ?? ''),
+            selectedTopic,
+            topicTopic,
+          ),
+          materials,
+          getChapterMaterialRagOptions(materials.length),
+        )
+        const entryQuizInsight = buildEntryQuizInsightForChapter(entryQuiz, entryQuizResult)
+        let validationHint = ''
+        let generatedDiagnostic: ChapterBlueprint | null = null
+        // Platzhalter-Modus: Mock-Diagnosetest ohne KI — die Schleife unten wird übersprungen.
+        if (generationMode === 'placeholder') {
+          setChapterGenerationPercent(45)
+          await placeholderDelay()
+          generatedDiagnostic = namespaceChapterStepIds([buildPlaceholderDiagnosticBlueprint(topicTopic)], {
+            chapterIndexOffset: 0,
+          })[0] ?? null
+        }
+        for (let attempt = 1; !generatedDiagnostic && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
+          const request: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: 'user',
+            content: buildTopicDiagnosticUserPrompt({
+              pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
+              chapterTopic: topicTopic,
+              learningGoal: topicLearningGoal,
+              aiGuidance,
+              proficiencyLevel,
+              materialContext: topicMaterialContext,
+              entryQuizInsight,
+              validationHint,
+              attempt,
+            }),
+            createdAt: new Date().toISOString(),
+          }
+          let timeoutId: number | null = null
+          const result = await Promise.race([
+            sendMessage([request], {
+              systemPrompt: getPrompt('learn_tutor'),
+              useLearnPathModel: true,
+              learnTelemetryMode: 'learn_tutor',
+              learnPathSystemPromptMode: 'tutor_only',
+            }),
+            new Promise<never>((_, reject) => {
+              timeoutId = window.setTimeout(() => {
+                reject(new Error('Diagnosetest-Erstellung hat 120 Sekunden überschritten. Erneut versuchen.'))
+              }, CHAPTER_ON_DEMAND_TIMEOUT_MS)
+            }),
+          ]).finally(() => {
+            if (timeoutId !== null) {
+              window.clearTimeout(timeoutId)
+            }
+          })
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
+          setChapterGenerationPercent(55)
+          const rawResponse = result.assistantMessage.content
+          const parsed = parseInteractiveContentWithFallback(rawResponse)
+          const fromRaw = parseChapterBlueprintsFromText(rawResponse)
+          const fromClean = parsed.cleanText ? parseChapterBlueprintsFromText(parsed.cleanText) : []
+          const candidate = (fromRaw.length > 0 ? fromRaw : fromClean)[0]
+          if (!candidate) {
+            validationHint = 'Kein auslesbares Diagnose-JSON erhalten'
+            continue
+          }
+          const validation = validateGeneratedChapter(candidate, {
+            minQuestions: TOPIC_DIAGNOSTIC_MIN_QUESTIONS,
+            requireExplanation: false,
+            requireRecap: false,
+          })
+          if (!validation.valid) {
+            validationHint = validation.reason
+            continue
+          }
+          generatedDiagnostic = namespaceChapterStepIds([candidate], { chapterIndexOffset: 0 })[0] ?? null
+          break
+        }
+        if (!generatedDiagnostic) {
+          setError('Diagnosetest konnte nicht erzeugt werden. Erneut versuchen.')
+          return
+        }
+        if (activePathIdRef.current !== activePathIdAtStart) {
+          return
+        }
+        setChapterGenerationPercent(100)
+        setTopicSessions((prev) =>
+          prev.map((session, index) =>
+            index === topicIndex
+              ? {
+                  ...session,
+                  status: 'diagnostic',
+                  diagnosticBlueprint: generatedDiagnostic,
+                  diagnosticSession: DEFAULT_CHAPTER_SESSION,
+                }
+              : session,
+          ),
+        )
+      } catch (err) {
+        if (isTransientAiFailure(err)) {
+          setError('Diagnosetest-Erstellung temporär nicht verfügbar. Erneut versuchen.')
+        } else {
+          setError(
+            err instanceof Error
+              ? `${err.message} Erneut versuchen.`
+              : 'Diagnosetest konnte nicht erzeugt werden. Erneut versuchen.',
+          )
+        }
+        return
+      } finally {
+        chapterGenerationInFlightRef.current = false
+        setIsChapterGenerationLoading(false)
+        setChapterGenerationPercent(0)
+      }
+    } else if (existing.status === 'mastered') {
+      return
+    }
+
+    setActiveTopicFlowIndex(topicIndex)
+    if (chapterModalCloseTimerRef.current) {
+      window.clearTimeout(chapterModalCloseTimerRef.current)
+      chapterModalCloseTimerRef.current = null
+    }
+    /** Landkarte Phase 2: ein Themen-Klick auf der Vollbild-Karte löst die Karte ab und öffnet das Kapitel-Modal. */
+    closeLearnMapModal()
+    setError(null)
+    setIsChapterModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsChapterModalVisible(true)
+    })
+  }
+
+  async function openChapterModal() {
     const targetChapterIndex = targetChapterIndexForOpen
+    if (!chapterBlueprints[targetChapterIndex]?.steps?.length && topicSessions.length > 0) {
+      await openTopicModal(targetTopicIndexForOpen)
+      return
+    }
+    const activePathIdAtStart = activePathId
     let blueprintToOpen = chapterBlueprints[targetChapterIndex] ?? null
 
     if (!blueprintToOpen?.steps?.length) {
@@ -2556,7 +2998,17 @@ export function LearnPage({
         const learnerStateSummary = buildLearnerStateInsight(chapterBlueprints, chapterSession)
         let validationHint = ''
         let generated: ChapterBlueprint[] = []
-        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+        // Platzhalter-Modus: Mock-Kapitel ohne KI — die Schleife unten wird übersprungen.
+        if (generationMode === 'placeholder') {
+          setChapterGenerationPercent(45)
+          await placeholderDelay()
+          sawAnyRawChapterResponse = true
+          generated = namespaceChapterStepIds(
+            [buildPlaceholderChapterBlueprint(chapterTopic, targetChapterIndex + 1)],
+            { chapterIndexOffset: targetChapterIndex },
+          )
+        }
+        for (let attempt = 1; generated.length === 0 && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
           if (activePathIdRef.current !== activePathIdAtStart) {
             return
           }
@@ -2767,6 +3219,114 @@ export function LearnPage({
     })
     closeChapterModal()
     setActiveLearnTab('worksheets')
+  }
+
+  /** Landkarte Phase 1: Diagnosetest fertig — Mastery entscheidet, ob das Thema direkt gemeistert ist oder Zwischenschritte folgen. */
+  function handleCompleteTopicDiagnostic() {
+    if (activeTopicFlowIndex === null) {
+      return
+    }
+    const topicIndex = activeTopicFlowIndex
+    let becameMastered = false
+    setTopicSessions((prev) =>
+      prev.map((session, index) => {
+        if (index !== topicIndex) {
+          return session
+        }
+        becameMastered = session.masteryScore >= TOPIC_MASTERY_THRESHOLD
+        return { ...session, status: becameMastered ? 'mastered' : 'learning' }
+      }),
+    )
+    closeChapterModal()
+    if (becameMastered) {
+      setActiveTopicFlowIndex(null)
+    }
+    // Sonst: activeTopicFlowIndex bleibt gesetzt, damit useTopicStepGeneration im Hintergrund weiterläuft (auch bei geschlossenem Modal).
+  }
+
+  /** Landkarte Phase 1: Zwischenschritt fertig — bei Bedarf generiert useTopicStepGeneration automatisch den nächsten. */
+  function handleCompleteTopicStep() {
+    if (activeTopicFlowIndex === null) {
+      return
+    }
+    const topicIndex = activeTopicFlowIndex
+    let becameMastered = false
+    setTopicSessions((prev) =>
+      prev.map((session, index) => {
+        if (index !== topicIndex) {
+          return session
+        }
+        becameMastered =
+          session.masteryScore >= TOPIC_MASTERY_THRESHOLD || session.stepBlueprints.length >= TOPIC_MAX_STEPS
+        return { ...session, status: becameMastered ? 'mastered' : 'learning' }
+      }),
+    )
+    closeChapterModal()
+    if (becameMastered) {
+      setActiveTopicFlowIndex(null)
+    }
+  }
+
+  function handleTopicFlowMcqSelect(stepId: string, option: string) {
+    setTopicFlowChapterSession((prev) => {
+      const nextFeedbackByStepId = { ...prev.feedbackByStepId }
+      const nextCorrectnessByStepId = { ...prev.correctnessByStepId }
+      const nextEvaluatedAnswersByStepId = { ...prev.evaluatedAnswersByStepId }
+      delete nextFeedbackByStepId[stepId]
+      delete nextCorrectnessByStepId[stepId]
+      delete nextEvaluatedAnswersByStepId[stepId]
+      return {
+        ...prev,
+        answersByStepId: {
+          ...prev.answersByStepId,
+          [stepId]: option,
+        },
+        feedbackByStepId: nextFeedbackByStepId,
+        correctnessByStepId: nextCorrectnessByStepId,
+        evaluatedAnswersByStepId: nextEvaluatedAnswersByStepId,
+      }
+    })
+  }
+
+  function handleTopicFlowTextAnswerChange(stepId: string, value: string) {
+    setTopicFlowChapterSession((prev) => {
+      const nextFeedbackByStepId = { ...prev.feedbackByStepId }
+      const nextCorrectnessByStepId = { ...prev.correctnessByStepId }
+      const nextEvaluatedAnswersByStepId = { ...prev.evaluatedAnswersByStepId }
+      delete nextFeedbackByStepId[stepId]
+      delete nextCorrectnessByStepId[stepId]
+      delete nextEvaluatedAnswersByStepId[stepId]
+      return {
+        ...prev,
+        answersByStepId: {
+          ...prev.answersByStepId,
+          [stepId]: value,
+        },
+        feedbackByStepId: nextFeedbackByStepId,
+        correctnessByStepId: nextCorrectnessByStepId,
+        evaluatedAnswersByStepId: nextEvaluatedAnswersByStepId,
+      }
+    })
+  }
+
+  /** Landkarte Phase 2: Vollbild-Kartenansicht öffnen/schließen (eigenes Overlay, unabhängig vom Kapitel-Modal). */
+  function openLearnMapModal() {
+    if (learnMapModalCloseTimerRef.current) {
+      window.clearTimeout(learnMapModalCloseTimerRef.current)
+      learnMapModalCloseTimerRef.current = null
+    }
+    setIsLearnMapModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsLearnMapModalVisible(true)
+    })
+  }
+
+  function closeLearnMapModal() {
+    setIsLearnMapModalVisible(false)
+    learnMapModalCloseTimerRef.current = window.setTimeout(() => {
+      setIsLearnMapModalMounted(false)
+      learnMapModalCloseTimerRef.current = null
+    }, MODAL_ANIMATION_MS)
   }
 
   function closeFlashcardsModal() {
@@ -3037,6 +3597,7 @@ export function LearnPage({
                   setMaterials((prev) => prev.filter((entry) => entry.id !== materialId))
                 }}
                 onContinueStepOne={handleContinueSetupStepOne}
+                allowContinueWithoutMaterials={generationMode === 'placeholder'}
                 onContinueStepTwo={handleContinueSetupStepTwo}
                 onContinueStepThree={handleContinueSetupStepThree}
                 onFinishSetup={handleFinishSetup}
@@ -3253,8 +3814,10 @@ export function LearnPage({
                         syllabus={syllabus}
                         learningChapters={learningChapters}
                         effectiveTopic={effectiveTopic}
-                        currentChapterIndex={currentChapterIndex}
-                        unlockedChapterCount={unlockedChapterCount}
+                        topicSessions={topicSessions}
+                        targetTopicIndexForOpen={targetTopicIndexForOpen}
+                        onOpenTopic={openTopicModal}
+                        onOpenMap={openLearnMapModal}
                         footer={
                           <>
                             {completedChaptersForShowcase.length > 0 ? (
@@ -3427,12 +3990,13 @@ export function LearnPage({
                 ) : null}
                 {activeLearnTab === 'statistics' ? (
                   <section className="learn-tab-panel learn-stats-tab-panel" aria-label="Lernstatistik">
+                    <LearnSkillMasteryPanel skillMasteryBySkillId={chapterSession.skillMasteryBySkillId} />
                     <div className="learn-stats-grid">
                       <article
                         className={`learn-stats-card${errorLogbookStats.total > 0 ? ' learn-stats-card--highlight' : ''}`}
                       >
                         <p className="learn-stats-card-value">{errorLogbookStats.total}</p>
-                        <p className="learn-stats-card-label">Offene Lücken</p>
+                        <p className="learn-stats-card-label">Noch zu meistern</p>
                       </article>
                       <article className="learn-stats-card learn-stats-card--highlight">
                         <p className="learn-stats-card-value">{flashcardSrStats.dueNow}</p>
@@ -3624,6 +4188,7 @@ export function LearnPage({
             />
           </article>
         </div>
+        {showPathOnboarding ? <LearnPathOnboarding onClose={handleClosePathOnboarding} /> : null}
       </section>
   )
 
@@ -3654,23 +4219,40 @@ export function LearnPage({
         isMounted={isChapterModalMounted}
         isVisible={isChapterModalVisible}
         onClose={closeChapterModal}
-        activeChapterBlueprint={activeChapterBlueprint}
-        safeChapterIndex={safeChapterIndex}
-        effectiveChapterCount={effectiveChapterBlueprints.length}
-        safeChapterStepIndex={safeChapterStepIndex}
-        chapterProgressPercent={chapterProgressPercent}
-        activeChapterStep={activeChapterStep}
-        currentChapterAnswer={currentChapterAnswer}
-        currentChapterFeedback={currentChapterFeedback}
-        currentChapterIsCorrect={currentChapterIsCorrect}
-        hasCurrentChapterEvaluation={hasCurrentChapterEvaluation}
+        activeChapterBlueprint={isTopicFlowActive ? topicFlowActiveBlueprint : activeChapterBlueprint}
+        safeChapterIndex={isTopicFlowActive ? topicFlowSafeChapterIndex : safeChapterIndex}
+        bestCorrectStreak={bestCorrectStreak}
+        safeChapterStepIndex={isTopicFlowActive ? topicFlowSafeStepIndex : safeChapterStepIndex}
+        chapterProgressPercent={isTopicFlowActive ? topicFlowProgressPercent : chapterProgressPercent}
+        activeChapterStep={isTopicFlowActive ? topicFlowActiveStep : activeChapterStep}
+        currentChapterAnswer={isTopicFlowActive ? topicFlowAnswer : currentChapterAnswer}
+        currentChapterFeedback={isTopicFlowActive ? topicFlowFeedback : currentChapterFeedback}
+        currentChapterIsCorrect={isTopicFlowActive ? topicFlowIsCorrect : currentChapterIsCorrect}
+        hasCurrentChapterEvaluation={isTopicFlowActive ? topicFlowHasEvaluation : hasCurrentChapterEvaluation}
         isEvaluatingChapterStep={isEvaluatingChapterStep}
-        onChapterAnswerChange={handleChapterTextAnswerChange}
-        onSelectMcqOption={handleChapterMcqSelect}
-        onPreviousChapterStep={handlePreviousChapterStep}
-        onEvaluateChapterQuestion={handleEvaluateCurrentChapterQuestion}
-        onNextChapterStep={handleNextChapterStep}
-        onCompleteChapter={handleCompleteChapter}
+        onChapterAnswerChange={isTopicFlowActive ? handleTopicFlowTextAnswerChange : handleChapterTextAnswerChange}
+        onSelectMcqOption={isTopicFlowActive ? handleTopicFlowMcqSelect : handleChapterMcqSelect}
+        onPreviousChapterStep={isTopicFlowActive ? handlePreviousTopicFlowStep : handlePreviousChapterStep}
+        onEvaluateChapterQuestion={isTopicFlowActive ? handleEvaluateTopicFlowQuestion : handleEvaluateCurrentChapterQuestion}
+        onNextChapterStep={isTopicFlowActive ? handleNextTopicFlowStep : handleNextChapterStep}
+        onCompleteChapter={
+          isTopicFlowActive
+            ? activeTopicSession?.status === 'diagnostic'
+              ? handleCompleteTopicDiagnostic
+              : handleCompleteTopicStep
+            : handleCompleteChapter
+        }
+      />
+      <LearnMapModal
+        isMounted={isLearnMapModalMounted}
+        isVisible={isLearnMapModalVisible}
+        syllabus={syllabus}
+        learningChapters={learningChapters}
+        topicSessions={topicSessions}
+        effectiveTopic={effectiveTopic}
+        focusTopicIndex={targetTopicIndexForOpen}
+        onOpenTopic={openTopicModal}
+        onClose={closeLearnMapModal}
       />
       {learnMaterialChoiceTarget !== null ? (
         <ModalShell
@@ -3739,6 +4321,7 @@ export function LearnPage({
         onSavedAnswerChange={handleWorksheetSavedAnswerChange}
         onSubmitWorksheet={handleSubmitWorksheet}
         submittedCount={worksheetSubmittedCount}
+        useLocalEvaluation={generationMode === 'placeholder'}
       />
       {isSettingsMounted ? (
         <ModalShell isOpen={isSettingsVisible} onRequestClose={closeSettingsModal}>

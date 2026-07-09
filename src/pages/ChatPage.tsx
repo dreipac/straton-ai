@@ -229,6 +229,9 @@ export function ChatPage() {
     user && !isLearnPathsButtonDisabled && (searchParams.get('learn') === '1' || Boolean(learnPathIdFromUrl)),
   )
   const pendingCreateLearningPath = searchParams.get('learnCreate') === '1'
+  /** Platzhalter-Modus (Admin-Test): gewählter Erstellmodus reist über die URL zum eingebetteten LearnPage. */
+  const pendingCreateLearningPathMode =
+    searchParams.get('learnCreateMode') === 'placeholder' ? ('placeholder' as const) : ('ai' as const)
   const friendsTabFromUrl: ChatFriendsOverviewTab =
     searchParams.get('friendsTab') === 'pending' ? 'pending' : 'friends'
   const activeOverviewFolder = useMemo(() => {
@@ -449,6 +452,7 @@ export function ChatPage() {
     params.delete('learnPath')
     params.delete('learn')
     params.delete('learnCreate')
+    params.delete('learnCreateMode')
   }
 
   function dismissMainOverlays() {
@@ -481,13 +485,17 @@ export function ChatPage() {
         next.delete('learnPath')
         next.delete('learn')
         next.delete('learnCreate')
+        next.delete('learnCreateMode')
         return next
       },
       { replace: true },
     )
   }
 
-  function openLearnWorkspace(pathId?: string, options?: { create?: boolean }) {
+  function openLearnWorkspace(
+    pathId?: string,
+    options?: { create?: boolean; createMode?: 'ai' | 'placeholder' },
+  ) {
     if (!user || isLearnPathsButtonDisabled) {
       learnDraft.showLearnFeatureUnavailableInfo()
       return
@@ -512,6 +520,11 @@ export function ChatPage() {
         }
         if (options?.create) {
           next.set('learnCreate', '1')
+          if (options.createMode === 'placeholder') {
+            next.set('learnCreateMode', 'placeholder')
+          } else {
+            next.delete('learnCreateMode')
+          }
         }
         return next
       },
@@ -558,6 +571,7 @@ export function ChatPage() {
       (prev) => {
         const next = new URLSearchParams(prev)
         next.delete('learnCreate')
+        next.delete('learnCreateMode')
         return next
       },
       { replace: true },
@@ -983,7 +997,7 @@ export function ChatPage() {
         onCreateFolder={pageMenus.openCreateFolderSheet}
         onOpenFolder={openFolderOverview}
         onSelectLearningPath={(pathId) => openLearnWorkspace(pathId)}
-        onCreateLearningPath={() => openLearnWorkspace(undefined, { create: true })}
+        onCreateLearningPath={(mode) => openLearnWorkspace(undefined, { create: true, createMode: mode })}
         openLearningPathMenuId={learningPathMenus.openMenuPathId}
         onLearningPathContextMenu={learningPathMenus.openLearningPathContextMenu}
         selectedFolderId={activeOverviewFolder?.id ?? null}
@@ -1011,6 +1025,7 @@ export function ChatPage() {
             setHostLearningPaths={learningPathsSidebar.setLearningPaths}
             onOpenHostSidebar={() => setIsMobileSidebarOpen(true)}
             pendingCreateLearningPath={pendingCreateLearningPath}
+            pendingCreateLearningPathMode={pendingCreateLearningPathMode}
             onPendingCreateLearningPathHandled={handlePendingCreateLearningPathHandled}
           />
         ) : null}

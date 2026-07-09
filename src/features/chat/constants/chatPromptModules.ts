@@ -1,32 +1,16 @@
 import type { InstantAnalyzeResult } from './instantAnalyze'
 import type { ThinkingAnalyzeResult } from './thinkingAnalyze'
 import {
-  getAssistantMainChatBrevityFinalReminder,
-  getAssistantMainChatBrevityInstruction,
   getAssistantMainChatGuidedDiagnosisInstruction,
-  getAssistantMainChatMandatoryFollowUpInstruction,
-  getAssistantMainChatSolveDirectlyInstruction,
   getAssistantMainChatStepByStepIntakeInstruction,
 } from './chatAssistantStyle'
-import {
-  shouldSuppressInstantBrevityForAnalyze,
-  shouldSuppressInstantMandatoryFollowUpForAnalyze,
-  shouldSuppressInstantSolveDirectlyForAnalyze,
-} from './chatInstantTaskType'
-import {
-  getAssistantDirectAnswerInstruction,
-  shouldApplyDirectAnswerTurnBriefing,
-} from './chatDirectAnswerInstruction'
+import { shouldApplyDirectAnswerTurnBriefing } from './chatDirectAnswerInstruction'
 import { getStratonProductContextInstruction } from './chatProductContext'
 import type { ChatProfileIdentity } from './chatProfileIdentityContext'
 import { getChatProfileIdentityInstruction } from './chatProfileIdentityContext'
 import { getChatCurrentDateContextInstruction } from './chatCurrentDateContext'
 import type { ChatSubscriptionUsageContext } from './chatSubscriptionUsageContext'
 import { getChatSubscriptionUsageInstruction } from './chatSubscriptionUsageContext'
-import {
-  getAssistantExerciseSolutionToneInstruction,
-  getAssistantTableExerciseInstruction,
-} from './chatTableExerciseInstruction'
 import type { ChatUserIntroduction } from './chatUserIntroductionContext'
 import { getChatUserIntroductionInstruction } from './chatUserIntroductionContext'
 import { getAssistantVisionCapabilityInstruction } from './chatVisionCapability'
@@ -382,15 +366,6 @@ export function buildPromptCacheDynamicTurnBlocks(params: {
   if (params.mainChatInstantPrompts && params.modules.stepByStepIntake) {
     blocks.push(getAssistantMainChatStepByStepIntakeInstruction())
   }
-  if (params.mainChatInstantPrompts && params.modules.tableExercise) {
-    blocks.push(getAssistantTableExerciseInstruction())
-  }
-  if (params.mainChatInstantPrompts && params.modules.exerciseTone) {
-    blocks.push(getAssistantExerciseSolutionToneInstruction())
-  }
-  if (params.mainChatInstantPrompts && params.modules.directAnswer) {
-    blocks.push(getAssistantDirectAnswerInstruction())
-  }
   if (params.modules.fullIntroduction) {
     const intro = getChatUserIntroductionInstruction(params.userIntroduction)
     if (intro) {
@@ -408,7 +383,9 @@ export function buildPromptCacheDynamicTurnBlocks(params: {
 }
 
 /**
- * task_type-abhängige Instant-Regeln (Brevity, Solve, Follow-up) — Turn-Kontext, nicht System-Cache.
+ * Turn-Kontext-Blöcke ausserhalb des System-Caches. Die früheren Instant-Regelblöcke
+ * (Brevity/Solve/Follow-up) sind im statischen Arbeitsweise-Block konsolidiert —
+ * hier bleiben nur die Thinking-spezifischen Layout-Regeln.
  */
 export function buildPromptCacheSuppressTurnBlocks(params: {
   mainChatInstantPrompts: boolean
@@ -421,27 +398,6 @@ export function buildPromptCacheSuppressTurnBlocks(params: {
 }): string[] {
   const blocks: string[] = []
 
-  if (params.mainChatInstantPrompts) {
-    const analyze = params.instantAnalyze ?? undefined
-    const suppressBrevity = shouldSuppressInstantBrevityForAnalyze(analyze)
-    const suppressFollowUp = shouldSuppressInstantMandatoryFollowUpForAnalyze(analyze)
-    const suppressSolveDirectly = shouldSuppressInstantSolveDirectlyForAnalyze(analyze)
-
-    if (!suppressSolveDirectly) {
-      blocks.push(getAssistantMainChatSolveDirectlyInstruction())
-    } else if (analyze?.task_type === 'summary') {
-      blocks.push(
-        'Arbeitsmodus Zusammenfassung (verbindlich): Gilt bei **jeder** Zusammenfassung — auch ohne Wort «ausführlich». Alle Themen **inhaltlich ausarbeiten** (Fragen beantworten, Übungen lösen) — **kein** «Aufgabe:/Lösung:»-Format; in thematische Kapitel (`##`) gliedern und je Kapitel die laut Format-Regeln **passende** Darstellung wählen (`cards` nur bei ≥3 parallelen Themen mit eigenem Inhalt, sonst Fließtext, Listen oder Tabelle), Abschnitte mit `---` trennen.',
-      )
-    }
-    if (!suppressBrevity) {
-      blocks.push(getAssistantMainChatBrevityInstruction())
-    }
-    if (!suppressFollowUp) {
-      blocks.push(getAssistantMainChatMandatoryFollowUpInstruction())
-    }
-  }
-
   if (params.thinkingGemini && params.thinkingAnalyze) {
     const { task_type, output_tier, layout_hint } = params.thinkingAnalyze
     if (task_type === 'document_summary' || layout_hint === 'cards' || output_tier === 'rich') {
@@ -453,18 +409,6 @@ export function buildPromptCacheSuppressTurnBlocks(params: {
       blocks.push(
         'Arbeitsmodus Zusammenfassung (verbindlich): Alle Themen **inhaltlich ausarbeiten** in ```cards``` — **kein** «Aufgabe:/Lösung:»-Format; thematische Kapitel, wenig Fliesstext, viele Kacheln und `---`.',
       )
-    }
-  }
-
-  if (!params.mainChatInstantPrompts && !params.thinkingGemini) {
-    return []
-  }
-
-  if (params.mainChatInstantPrompts) {
-    const analyze = params.instantAnalyze ?? undefined
-    const suppressBrevity = shouldSuppressInstantBrevityForAnalyze(analyze)
-    if (!suppressBrevity) {
-      blocks.push(getAssistantMainChatBrevityFinalReminder())
     }
   }
 

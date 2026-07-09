@@ -24,6 +24,8 @@ export type GeminiGenerateOptions = {
   contextCacheKey?: string
   temperature?: number
   maxOutputTokens?: number
+  /** z. B. 'application/json' für strukturierte JSON-Antworten (kein Prosa-Drift). */
+  responseMimeType?: string
 }
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
@@ -349,6 +351,7 @@ export async function geminiGenerateText(
     generationConfig: {
       temperature: options?.temperature ?? 0.2,
       maxOutputTokens: options?.maxOutputTokens ?? 4096,
+      ...(options?.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
     },
   }
 

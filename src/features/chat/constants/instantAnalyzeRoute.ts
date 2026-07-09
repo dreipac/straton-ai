@@ -1,8 +1,4 @@
 import type { InstantAnalyzeReplyMode, InstantAnalyzeResult } from './instantAnalyze'
-import { buildInstantAnalyzeChartGenerateSection } from './chartExportIntent'
-import { buildInstantAnalyzeDiagramGenerateSection } from './diagramExportIntent'
-import { buildInstantAnalyzeDirectAnswerSection } from './chatDirectAnswerInstruction'
-import { buildInstantAnalyzeDocumentGenerateSection } from './documentExportIntent'
 import { matchExplicitImageGenerationRequest } from '../utils/imageGenerationIntent'
 import { stripImageGenTilePromptPrefix } from './imageGenTile'
 import {
@@ -540,38 +536,32 @@ export function resolveHeuristicImageGenFallback(userMessage: string): Pick<
   return none
 }
 
-export function buildInstantAnalyzeRoutePromptSection(): string {
-  return [
-    'Routing (verbindlich):',
-    '- category: "chat" | "image" | "document" | "chart" | "diagram"',
-    '- action (nur passend zur category):',
-    '  - chat: "answer" | "short_answer" | "clarify" | "one_step"',
-    '  - image: "generate" | "describe" | "search" | "reference"',
-    '  - document: "word_generate" | "pdf_generate" | "excel_generate" | "pptx_generate"',
-    '  - chart: "chart_generate"',
-    '  - diagram: "diagram_generate"',
-    '',
-    buildInstantAnalyzeDocumentGenerateSection(),
-    '',
-    buildInstantAnalyzeChartGenerateSection(),
-    '',
-    buildInstantAnalyzeDiagramGenerateSection(),
-    '',
-    buildInstantAnalyzeDirectAnswerSection(),
-    '',
-    'Zuordnung (chat / image):',
-    '- Normale Fragen, Erklärungen, Code, Mathe, Fehlersuche → chat (answer / one_step / short_answer / clarify).',
-    '- «zeige/such/finde Foto/Bild von …» (reale Person/Sache/Ort) → image.search — **nicht** generate.',
-    '- «generiere/erstelle/zeichne/male … Bild» → image.generate.',
-    '- Anhang + «was siehst du / beschreibe das Bild» ohne Neuerstellung → image.describe.',
-    '- **Verlauf:** Assistent hat zuvor ein Bild generiert/gezeigt; Nutzer fragt danach («wer ist das auf dem Bild», «was siehst du», «dein Bild») **ohne** neuen Anhang → image.reference (nicht generate, nicht search).',
-    '- **Herkunft:** «wer hat das Bild gemacht/erstellt/generiert» nach Straton-Generierung → chat.answer (short_answer): **Straton/KI** in diesem Chat — **kein** image.reference, keine Vision nach externem Fotografen.',
-    '- image.reference: App lädt das Verlaufsbild für Vision; du beschreibst den **sichtbaren** Inhalt — nie «ich kann keine Bilder sehen».',
-    '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild-Aufgabe → chat.answer (direkt lösen, nicht clarify).',
-    '- Multiple-Choice mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → chat.short_answer — nicht chat.answer/normal.',
-    '- Unklar: chat.answer mit Annahme — chat.clarify nur wenn wirklich nicht lösbar.',
-    '- Kurze Folgen («und jetzt?», «mehr») mit Verlauf → chat.short_answer.',
-    '- Folgenachricht mit «ihm/der/die», «zeige noch Bilder», «ich meine den Schauspieler» nach Fotosuche → image.search; Suchbegriff aus Verlauf (nicht «ihm» wörtlich).',
-    '- Bei document.*, image.generate oder image.search: needs_live_web false.',
-  ].join('\n')
+/**
+ * 0 Token — Route steht per Regex fest (document/chart/diagram/image.generate bzw. image.search
+ * mit auflösbarem Suchbegriff). `applyRouteHeuristics` erzwingt diese Routen ohnehin über die
+ * KI-Einordnung; der Edge-Analyze-Call wäre dort reine Latenz und wird übersprungen.
+ */
+export function detectionMakesEdgeAnalyzeRedundant(
+  detected: { category: InstantAnalyzeCategory; action: InstantAnalyzeAction } | null,
+  userMessage: string,
+  priorTurns?: ReadonlyArray<ImageSearchPriorTurn>,
+): boolean {
+  if (!detected) {
+    return false
+  }
+  if (
+    detected.category === 'document' ||
+    detected.category === 'chart' ||
+    detected.category === 'diagram'
+  ) {
+    return true
+  }
+  if (detected.category === 'image' && detected.action === 'generate') {
+    return true
+  }
+  if (detected.category === 'image' && detected.action === 'search') {
+    /** Nur ohne KI überspringen, wenn der Suchbegriff lokal auflösbar ist (kein vages «von ihm»). */
+    return Boolean(extractImageSearchQuery(userMessage.trim(), '', priorTurns).trim())
+  }
+  return false
 }

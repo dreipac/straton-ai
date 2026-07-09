@@ -564,6 +564,145 @@
   font-size: 0.82rem;
 }
 
+/* ===== Kompetenz-Übersicht (Skill-Mastery) ===== */
+.learn-mastery-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.learn-mastery-empty {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 0.86rem;
+}
+
+.learn-mastery-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+@media (min-width: 520px) {
+  .learn-mastery-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.learn-mastery-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.7rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+}
+
+.learn-mastery-chip-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--color-text-app);
+}
+
+.learn-mastery-chip-label {
+  font-size: 0.76rem;
+  color: var(--color-text-secondary);
+}
+
+.learn-mastery-chip--mastered {
+  border-color: color-mix(in srgb, #22c55e 45%, var(--color-border));
+  background: color-mix(in srgb, #22c55e 12%, var(--color-surface-elevated));
+}
+.learn-mastery-chip--mastered .learn-mastery-chip-value {
+  color: color-mix(in srgb, #22c55e 70%, var(--color-text-app));
+}
+
+.learn-mastery-chip--streak {
+  border-color: color-mix(in srgb, #f97316 45%, var(--color-border));
+  background: color-mix(in srgb, #f97316 12%, var(--color-surface-elevated));
+}
+.learn-mastery-chip--streak .learn-mastery-chip-value {
+  color: color-mix(in srgb, #f97316 72%, var(--color-text-app));
+}
+
+.learn-mastery-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.learn-mastery-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.learn-mastery-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.learn-mastery-row-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn-mastery-row-pct {
+  font-size: 0.86rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.learn-mastery-row-pct--strong {
+  color: color-mix(in srgb, #22c55e 72%, var(--color-text-app));
+}
+.learn-mastery-row-pct--mid {
+  color: color-mix(in srgb, #f59e0b 76%, var(--color-text-app));
+}
+.learn-mastery-row-pct--weak {
+  color: color-mix(in srgb, #ef4444 70%, var(--color-text-app));
+}
+
+.learn-mastery-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent);
+  overflow: hidden;
+}
+
+.learn-mastery-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  transition: width 0.45s ease;
+}
+.learn-mastery-fill--strong {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+}
+.learn-mastery-fill--mid {
+  background: linear-gradient(90deg, #d97706, #f59e0b);
+}
+.learn-mastery-fill--weak {
+  background: linear-gradient(90deg, #dc2626, #ef4444);
+}
+
+.learn-mastery-row-meta {
+  margin: 0;
+  font-size: 0.74rem;
+}
+
 .learn-tests-list-item {
   appearance: none;
   border: 1px solid var(--color-border);
@@ -655,13 +794,15 @@
 }
 
 .learn-card {
+  --learn-card-pad: clamp(0.88rem, 0.85vw + 0.62rem, 1.28rem);
+  --learn-card-gap: clamp(0.5rem, 0.35vw + 0.42rem, 0.78rem);
   border: 1px solid var(--color-border);
   border-radius: clamp(14px, 0.6vw + 12px, 20px);
-  padding: clamp(0.88rem, 0.85vw + 0.62rem, 1.28rem);
+  padding: var(--learn-card-pad);
   background: var(--color-surface);
   box-shadow: 0 4px 14px var(--color-shadow-soft);
   display: grid;
-  gap: clamp(0.5rem, 0.35vw + 0.42rem, 0.78rem);
+  gap: var(--learn-card-gap);
 }
 
 .learn-card h1,
@@ -2015,6 +2156,8 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 }
 
 .learn-main .learn-workspace-card {
+  --learn-card-pad: 0px;
+  --learn-card-gap: 0px;
   background: transparent;
   border: none;
   border-radius: 0;
@@ -2439,8 +2582,8 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 }
 
 .learn-path-syllabus-item.is-active {
-  border-color: color-mix(in srgb, var(--color-accent, #6366f1) 42%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent, #6366f1) 10%, var(--color-surface-elevated));
+  border-color: color-mix(in srgb, var(--color-accent, #2563eb) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent, #2563eb) 10%, var(--color-surface-elevated));
 }
 
 .learn-path-syllabus-item.is-completed {
@@ -2451,31 +2594,45 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   opacity: 0.55;
 }
 
+.learn-path-syllabus-item-connector {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  justify-items: center;
+  align-self: stretch;
+}
+
 .learn-path-syllabus-item-index {
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-elevated);
-  color: var(--color-text-secondary);
+  background: var(--color-text-secondary);
+  color: var(--color-surface-elevated);
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 800;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
+.learn-path-syllabus-item-line {
+  width: 2px;
+  min-height: 0.5rem;
+  flex: 1;
+  margin: 0.15rem 0;
+  background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+  border-radius: 999px;
+}
+
 .learn-path-syllabus-item.is-active .learn-path-syllabus-item-index {
-  border-color: color-mix(in srgb, var(--color-accent, #6366f1) 55%, var(--color-border));
-  color: var(--color-text-app);
-  background: color-mix(in srgb, var(--color-accent, #6366f1) 16%, var(--color-surface-elevated));
+  background: var(--color-accent, #2563eb);
+  color: #fff;
 }
 
 .learn-path-syllabus-item-body {
   min-width: 0;
-  display: grid;
-  gap: 0.18rem;
+  display: flex;
+  align-items: center;
 }
 
 .learn-path-syllabus-item-title {
@@ -2486,11 +2643,32 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   line-height: 1.35;
 }
 
-.learn-path-syllabus-item-goal {
+.learn-path-syllabus-more-button {
+  justify-self: start;
   margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  line-height: 1.35;
+  padding: 0.32rem 0.1rem 0;
+  border: none;
+  background: none;
+  color: var(--color-accent, #2563eb);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.learn-path-syllabus-more-button:hover {
+  text-decoration: underline;
+}
+
+.learn-path-syllabus-modal {
+  width: min(420px, 92vw);
+  max-height: 80vh;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.learn-path-syllabus-list--modal {
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .learn-path-workspace-main .learn-entry-test-link {
@@ -4100,9 +4278,9 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 }
 
 .learn-entry-test-option.is-selected {
-  background: color-mix(in srgb, var(--color-text-app) 5%, var(--color-surface));
+  background: color-mix(in srgb, #2563eb 12%, var(--color-surface));
   color: var(--color-text-app);
-  box-shadow: 0 4px 18px var(--color-shadow-soft);
+  box-shadow: 0 4px 18px color-mix(in srgb, #2563eb 20%, transparent);
 }
 
 .learn-entry-test-option-text {
@@ -4128,16 +4306,12 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 }
 
 /*
- * Auswahl: 2px äußerer Ring (Akzentverlauf), 2px Innenabstand (Surface), Füllung — background-clip + ::after
+ * Auswahl (noch nicht ausgewertet): solides Blau, gleiche Bildsprache wie is-correct/is-wrong nach Auswertung.
  */
 .learn-entry-test-option.is-selected .learn-entry-test-option-radio {
-  border: 2px solid transparent;
-  background-color: transparent;
-  background-image:
-    linear-gradient(var(--color-surface), var(--color-surface)),
-    var(--accent-gradient);
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
+  border: 2px solid #2563eb;
+  background-color: var(--color-surface);
+  background-image: none;
 }
 
 .learn-entry-test-option.is-selected .learn-entry-test-option-radio::after {
@@ -4145,7 +4319,8 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background-image: var(--accent-gradient);
+  background-image: none;
+  background-color: #2563eb;
 }
 
 .learn-entry-test-option.is-correct .learn-entry-test-option-radio {
@@ -4482,24 +4657,17 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   margin-top: 0.35rem;
 }
 
-.learn-chapter-source-badge {
+.learn-chapter-streak-badge {
   display: inline-flex;
   align-items: center;
+  gap: 0.2rem;
   padding: 0.12rem 0.5rem;
   border-radius: 8px;
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.01em;
-}
-
-.learn-chapter-source-badge.is-ai {
-  background: color-mix(in srgb, #10b981 22%, transparent);
-  color: color-mix(in srgb, #10b981 78%, #ffffff 22%);
-}
-
-.learn-chapter-source-badge.is-fallback {
-  background: color-mix(in srgb, #f59e0b 24%, transparent);
-  color: color-mix(in srgb, #f59e0b 78%, #ffffff 22%);
+  background: color-mix(in srgb, #f97316 24%, transparent);
+  color: color-mix(in srgb, #f97316 80%, #ffffff 20%);
 }
 
 .learn-entry-test-progress--footer {
@@ -4704,6 +4872,12 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   letter-spacing: 0.01em;
 }
 
+.learn-chapter-step-card .learn-chapter-question-kind-label {
+  color: var(--color-accent, #2563eb);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .learn-chapter-step-bullets {
   margin: 0;
   padding-left: 1.1rem;
@@ -4713,6 +4887,79 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 
 .learn-chapter-step-bullets li {
   color: var(--color-text-app);
+}
+
+.learn-chapter-step-content {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.learn-chapter-principle-box {
+  display: grid;
+  gap: 0.28rem;
+  border-left: 3px solid var(--color-accent, #6ee7b7);
+  background: color-mix(in srgb, var(--color-accent, #6ee7b7) 12%, transparent);
+  border-radius: 0 10px 10px 0;
+  padding: 0.6rem 0.8rem;
+}
+
+.learn-chapter-principle-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-accent, #6ee7b7) 65%, var(--color-text-app));
+}
+
+.learn-chapter-principle-box p {
+  margin: 0;
+  color: var(--color-text-app);
+  font-weight: 600;
+}
+
+.learn-md-table-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.1rem 0;
+}
+
+.learn-md-table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  line-height: 1.4;
+}
+
+.learn-md-th,
+.learn-md-td {
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.45rem 0.75rem 0.45rem 0;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: break-word;
+  color: var(--color-text-app);
+}
+
+.learn-md-th:last-child,
+.learn-md-td:last-child {
+  padding-right: 0;
+}
+
+.learn-md-th {
+  background: transparent;
+  border-bottom: 2px solid color-mix(in srgb, var(--color-text-app) 38%, transparent);
+  font-weight: 700;
+  font-size: 0.9em;
+  color: var(--color-text-secondary);
+}
+
+.learn-md-table tbody tr:last-child .learn-md-td {
+  border-bottom: 0;
 }
 
 .learn-chapter-modal-footer {
@@ -5250,5 +5497,243 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 
   .learn-mobile-floating-create-pill-icon {
     --ui-icon-size: 16px;
+  }
+}
+
+/* --- Lernpfad-Onboarding: dunkles Overlay über dem Lernbereich (nur rechte Fläche, Sidebar bleibt
+   frei) direkt nach der Material-Analyse. Titel tippt sich ein, danach zeichnet sich ein grüner
+   Haken-Kreis. Klick schließt sofort, sonst automatisches Ausblenden. --- */
+.learn-path-onboarding {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #000 66%, transparent);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  cursor: pointer;
+  animation: learn-onboarding-in 0.35s ease both;
+}
+
+@keyframes learn-onboarding-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.learn-path-onboarding-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.7rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.learn-path-onboarding-title {
+  margin: 0;
+  min-height: 1.25em;
+  font-size: clamp(1.55rem, 2.6vw + 0.9rem, 2.5rem);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+
+/* Tipp-Cursor: blinkender Strich, verschwindet nach der Tipp-Animation. */
+.learn-path-onboarding-caret {
+  display: inline-block;
+  width: 3px;
+  height: 0.95em;
+  margin-left: 0.18rem;
+  vertical-align: -0.12em;
+  background: #fff;
+  animation: learn-onboarding-caret 0.9s steps(2, start) infinite;
+}
+
+.learn-path-onboarding-caret.is-done {
+  opacity: 0;
+  transition: opacity 0.3s ease 0.5s;
+  animation: none;
+}
+
+@keyframes learn-onboarding-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Grüner Haken-Kreis: erscheint erst nach dem Tippen, Kreis zeichnet sich und füllt sich grün,
+   dann zeichnet sich der weiße Haken. */
+.learn-path-onboarding-check {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.learn-path-onboarding-check.is-visible {
+  animation: learn-onboarding-check-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+@keyframes learn-onboarding-check-pop {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.learn-path-onboarding-check-circle {
+  fill: rgba(34, 197, 94, 0);
+  stroke: #22c55e;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 158;
+  stroke-dashoffset: 158;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+.learn-path-onboarding-check.is-visible .learn-path-onboarding-check-circle {
+  animation: learn-onboarding-circle 0.85s ease 0.1s forwards;
+}
+
+@keyframes learn-onboarding-circle {
+  60% {
+    stroke-dashoffset: 0;
+    fill: rgba(34, 197, 94, 0);
+  }
+  100% {
+    stroke-dashoffset: 0;
+    fill: #22c55e;
+  }
+}
+
+.learn-path-onboarding-check-mark {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+}
+
+.learn-path-onboarding-check.is-visible .learn-path-onboarding-check-mark {
+  animation: learn-onboarding-mark 0.4s ease 0.85s forwards;
+}
+
+@keyframes learn-onboarding-mark {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Erstellmodus-Popover (nur Superadmin): KI vs. Platzhalter-Lernpfad --- */
+.learn-new-path-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.learn-new-path-wrap .learn-primary-sidebar-button {
+  width: 100%;
+}
+
+.learn-create-mode-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: block;
+}
+
+.learn-create-mode-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 56;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 14px 34px var(--color-shadow-strong);
+  min-width: 200px;
+}
+
+/* Variante für kleine „+"-Buttons (Chat-Sidebar): Menü rechtsbündig unter dem Button. */
+.learn-create-mode-menu--right {
+  left: auto;
+  right: 0;
+  width: max-content;
+}
+
+.learn-create-mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.learn-create-mode-option:hover {
+  background: var(--interactive-hover-bg);
+}
+
+.learn-create-mode-option-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.learn-create-mode-option-meta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+/* Badge für Platzhalter-Lernpfade in der Sidebar-Liste */
+.learn-path-test-badge {
+  flex-shrink: 0;
+  margin-left: 0.4rem;
+  padding: 0.08rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-accent, #6366f1) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 14%, transparent);
+  color: color-mix(in srgb, var(--color-accent, #6366f1) 85%, var(--color-text-app));
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learn-path-onboarding,
+  .learn-path-onboarding-caret {
+    animation: none;
+  }
+
+  .learn-path-onboarding-check.is-visible {
+    animation: none;
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .learn-path-onboarding-check.is-visible .learn-path-onboarding-check-circle {
+    animation: none;
+    stroke-dashoffset: 0;
+    fill: #22c55e;
+  }
+
+  .learn-path-onboarding-check.is-visible .learn-path-onboarding-check-mark {
+    animation: none;
+    stroke-dashoffset: 0;
   }
 }

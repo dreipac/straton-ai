@@ -9,21 +9,14 @@ import type {
 } from '../types'
 import {
   applyInstantChatTaskTypeHeuristic,
-  buildInstantAnalyzeTaskTypePromptSection,
-  buildInstantTaskTypeTurnBriefing,
   inferInstantExplanationDepth,
   parseInstantChatTaskType,
   parseInstantExplanationDepth,
   type InstantChatTaskType,
   type InstantExplanationDepth,
 } from './chatInstantTaskType'
+import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
 import {
-  buildInstantAnalyzeDirectAnswerBriefing,
-  buildInstantAnalyzeDirectAnswerSection,
-  userMessageRequestsDirectAnswer,
-} from './chatDirectAnswerInstruction'
-import {
-  buildDocumentVisibilityTurnBriefing,
   userAsksDocumentVisibilityQuestion,
   userMessageWantsDocumentSummary,
 } from './documentAttachmentIntent'
@@ -39,7 +32,6 @@ import {
 } from './documentExportIntent'
 import {
   applyRouteHeuristics,
-  buildInstantAnalyzeRoutePromptSection,
   detectRouteHeuristic,
   parseCategoryActionFields,
   routeFromReplyMode,
@@ -54,7 +46,6 @@ import {
   type ImageSearchPriorTurn,
 } from '../utils/imageSearchIntent'
 import { resolveDocumentCoverageTopics } from './documentSummaryPlaybook'
-import { getSecretSafetyInstruction } from './chatSecretSafety'
 import {
   assistantMessageHasGeneratedImage,
   matchImageAttributionQuestion,
@@ -123,63 +114,6 @@ function asStringArray(value: unknown, maxItems: number, maxLen: number): string
     .map((entry) => clipText(entry, maxLen))
     .filter(Boolean)
     .slice(0, maxItems)
-}
-
-export function buildInstantAnalyzeSystemPrompt(): string {
-  return [
-    getSecretSafetyInstruction(),
-    'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat (Instant) ein.',
-    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown, kein Text davor oder danach).',
-    '',
-    'Felder:',
-    '- clarity: "clear" | "partial" | "vague"',
-    '- intent: kurze Beschreibung der Nutzerabsicht (max. 120 Zeichen, Deutsch)',
-    '- missing: Array mit max. 3 fehlenden Infos (Strings, je max. 80 Zeichen); leer wenn klar genug',
-    '- reply_mode:',
-    '  - "ask_only": nur wenn ohne eine konkrete Nutzerangabe gar nicht antwortbar (selten) — sonst "normal" mit Annahme',
-    '  - "one_step": konkretes Problem — ein Prüfschritt / eine klare Kurzantwort',
-    '  - "short_answer": einfache Wissens- oder How-to-Frage mit klarer Zielsetzung',
-    '  - "normal": Standardantwort mit angemessener Tiefe',
-    '- needs_live_web: true wenn aktuelle Web-Fakten nötig sind (Preise, Kurse, News, Gesetzes-/Rechtslage, «aktuellste Information», Entwicklungen, Versionen, Termine)',
-    '- web_query: optimierte Suchanfrage auf Deutsch (max. 120 Zeichen), nur wenn needs_live_web true, sonst ""',
-    '- web_reason: kurzer Grund (max. 80 Zeichen), nur wenn needs_live_web true, sonst ""',
-    '',
-    'Regeln:',
-    '- Bei clarity "vague": bevorzugt reply_mode "normal" (action "answer") mit sinnvoller Annahme — nicht reflexartig ask_only.',
-    '- Aufgabe/Übung/lösen/berechnen/Zuordnung/Bild mit Aufgabe: reply_mode "normal", action "answer", clarity "clear".',
-    '- Bei reply_mode "ask_only": needs_live_web MUSS false sein.',
-    '- Kurze Folgenachricht mit Verlauf («und jetzt?», «mehr», «warum?», «nochmal»): clarity "clear", reply_mode "short_answer" — Bezug auf letzte Assistenten-Antwort, **nicht** ask_only — **ausser** Diagramm-Umstellung («als Balkendiagramm») → chart.chart_generate.',
-    '- «Erstelle (ein) Diagramm» mit Prozent-/Zahlenwerten → category "chart", action "chart_generate", clarity "clear", reply_mode "normal".',
-    '- Stammbaum, Familienbaum, Ablauf, Prozess, Workflow, Flussdiagramm, Mindmap, Organigramm → category "diagram", action "diagram_generate", clarity "clear", reply_mode "normal".',
-    '- Folgenachricht «zeige (noch) Bilder/Fotos», «von ihm/ihr», «ich meine den Schauspieler …» nach Fotosuche im Verlauf: category "image", action "search"; intent = konkretes Motiv aus Kontext (z. B. «Dwayne Johnson»), nie nur «ihm» oder «The Rock» ohne Zusatz bei Mehrdeutigkeit.',
-    '- Verlauf mit «[Straton hat zuvor ein Bild generiert]» oder Assistenten-Bild: Nutzer bezieht sich darauf («wer/was ist das auf dem Bild», «was siehst du», «dein Bild») → category "image", action "reference" (nicht generate).',
-    '- Nach Straton-Bildgenerierung: «wer hat das Bild gemacht/erstellt/generiert», «von wem ist das Foto» → category "chat", action "answer", reply_mode "short_answer" (Herkunft: Straton/KI in diesem Chat — **nicht** image.reference).',
-    '- «Wer bin ich», «wie heisse ich», «kennst du mich», «was weisst du über mich»: reply_mode "short_answer", clarity "partial" — Name aus Konto, Persönliches aus Einführung.',
-    '- Verbrauch, Limits, Guthaben, Abo, «was kann ich noch nutzen», «wie viel habe ich verbraucht», «sind die Verbrauchsdaten aktuell»: category "chat", action "answer", reply_mode "short_answer", clarity "clear" — Kurzantwort + Marker [[STRATON_SUBSCRIPTION_USAGE]] (App zeigt Karten); needs_live_web **false** (Daten aus Straton-Konto, keine Websuche).',
-    '- Bild-Anhang oder Zuordnung/Tabelle/Einnahme-Ausgabe/lösen: reply_mode "normal", clarity "clear" — Lösung als Tabelle, nicht ask_only.',
-    '- `[Datei:…]`-Anhang + «siehst du den Inhalt?», «kannst du lesen?» → category chat, action answer, task_type explanation, explanation_depth brief — **kein** summary, **kein** mc_solve.',
-    '- Nutzer postet Multiple-Choice / Auswahlfrage mit Optionen (Zertifizierung, «which of the following», «richtige Antwort») → reply_mode "short_answer", action "short_answer", clarity "clear" — **nicht** normal mit Erklärblock.',
-    '- Kurze Folge «bitte die richtige Antwort» / «correct answer only» nach MC-Frage im Verlauf → reply_mode "short_answer".',
-    '- needs_live_web false bei reinen Erklärungen, Coding-Hilfe ohne Zeitbezug, persönlichen Meinungsfragen, Mathe, allgemeinem Dauerwissen ohne «aktuell/neueste», sowie **Straton-Verbrauch/Limits/Guthaben** auch bei «aktuell/derzeit/momentan».',
-    '- needs_live_web true bei «aktuell», «aktuelle/aktuellen/aktueller/aktuelles», «derzeit/derzeitige», «heute/heutige», «jetzt/jetzige», «gegenwärtig», «momentan», «neueste/neueren», «jüngste», «2025/2026», Gesetzeslage/Rechtslage, Delikte/Strafen «aktuell», Börsenkurs, Ticker (z. B. S.TO), Produktversion, Verfügbarkeit — **nicht** bei Straton-Konto-Verbrauch.',
-    '- Formulierungen wie «aktuelle Information», «neueste Lage», «derzeitige Regelung», «was gilt jetzt» → needs_live_web true (auch ohne Börsenkurs).',
-    '- Beispiel: «aktueller Kurs von Sherritt (S.TO)» → needs_live_web true, web_query «Sherritt S.TO Aktienkurs heute».',
-    '- Beispiel: «Aktuellste Information zu Raserdelikt in der Schweiz» → needs_live_web true, web_query «Raserdelikt Schweiz Gesetzeslage aktuell».',
-    '- web_query präzise formulieren (Thema + Land/Sprache wenn erkennbar), nicht den Rohtext 1:1 kopieren.',
-    '',
-    '- use_folder_sources: boolean — nur wenn Kontext «Ordner-Quellen» und Nutzer bezieht sich auf Dateien/Material/Zusammenfassung aller Dateien; sonst false.',
-    '- Ordner-Quellen ohne Nutzerbezug: use_folder_sources false, task_type **nicht** summary allein wegen verfügbarer Dateien.',
-    '',
-    '- escalate_model: boolean — **fast immer false**. Nur true bei: ≥2 grosse Anhänge + expliziter Quervergleich, oder mehrere Excel-Sheets mit Vergleichsaufgabe.',
-    '- escalate_reason: string (max. 80 Zeichen) nur wenn escalate_model true, sonst "".',
-    '- «ausführlich», «detailliert», «Zusammenfassung», «Prüfung», einzelnes PDF/DOCX → escalate_model **false** (Antwortmodell bleibt Lite).',
-    '',
-    buildInstantAnalyzeTaskTypePromptSection(),
-    '',
-    buildInstantAnalyzeDirectAnswerSection(),
-    '',
-    buildInstantAnalyzeRoutePromptSection(),
-  ].join('\n')
 }
 
 export function sanitizeInstantAnalyzeResult(raw: unknown): InstantAnalyzeResult | null {
@@ -301,6 +235,32 @@ function isAllowedEscalateReason(reason: string): boolean {
     return false
   }
   return ESCALATE_REASON_WHITELIST_RE.test(reason)
+}
+
+const ESCALATE_COMPARE_REQUEST_RE =
+  /\b(vergleich\w*|quervergleich|gegenüberstell\w*|gegenueberstell\w*|abgleich\w*|merge|zusammenführ\w*|zusammenfuehr\w*)\b/i
+
+/**
+ * 0 Token — ersetzt das frühere KI-Feld escalate_model: Nur bei explizitem Quervergleich
+ * mehrerer Dokumente/Sheets wird das Antwortmodell auf Gemini Flash angehoben.
+ */
+export function applyEscalateModelHeuristic(
+  userMessage: string,
+  analyze: InstantAnalyzeResult,
+  options?: { availableFolderFileNames?: string[] },
+): InstantAnalyzeResult {
+  if (analyze.escalate_model) {
+    return analyze
+  }
+  if (!ESCALATE_COMPARE_REQUEST_RE.test(userMessage)) {
+    return analyze
+  }
+  const attachmentCount = (userMessage.match(/\[Datei:/gi) ?? []).length
+  const folderFileCount = options?.availableFolderFileNames?.length ?? 0
+  if (attachmentCount < 2 && folderFileCount < 2) {
+    return analyze
+  }
+  return { ...analyze, escalate_model: true, escalate_reason: 'Vergleich mehrerer Dokumente' }
 }
 
 /** Zeit-/Aktualitäts-Signale: aktuell, aktuelle, derzeitige, heutige, … */
@@ -738,6 +698,11 @@ export function applyInstantAnalyzeHeuristics(
   })
   result = enrichInstantAnalyzeDocumentCoverage(userMessage, result)
   result = applyFolderSourcesHeuristic(userMessage, result, options?.availableFolderFileNames)
+  result = applyEscalateModelHeuristic(userMessage, result, {
+    ...(options?.availableFolderFileNames
+      ? { availableFolderFileNames: options.availableFolderFileNames }
+      : {}),
+  })
   result = applySubscriptionUsageHeuristic(userMessage, result, options?.priorTurns)
   return result
 }
@@ -845,21 +810,23 @@ export function applyGeneratedImageReferenceHeuristic(
   })
 }
 
+/**
+ * Kompaktes Turn-Briefing: Einordnung + höchstens ein aufgabenspezifischer Block.
+ * MC-/Quiz-/Visibility-/Tabellen-Briefings kommen aus `buildGatewayMessages`
+ * (dort genau einmal) — hier nicht duplizieren.
+ */
 export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeResult): string {
+  const depthHint =
+    analyze.task_type === 'explanation' ? ` (Tiefe-Richtwert: ${analyze.explanation_depth})` : ''
   const lines = [
-    'Smart Instant — Einordnung (Kategorie/Aktion verbindlich für das Routing; Antwortmodus/Erklärungstiefe sind Einschätzungen — du entscheidest anhand der Frage selbst, ob mehr oder weniger Tiefe nötig ist):',
-    `Kategorie: ${analyze.category}`,
-    `Aktion: ${analyze.action}`,
-    `Aufgabentyp: ${analyze.task_type}`,
-    ...(analyze.task_type === 'explanation'
-      ? [`Erklärungstiefe (Richtwert): ${analyze.explanation_depth}`]
-      : []),
-    `Klarheit: ${analyze.clarity}`,
+    `Einordnung dieser Anfrage — Kategorie/Aktion verbindlich fürs Routing, Tiefe und Form wählst du selbst: Kategorie ${analyze.category}, Aktion ${analyze.action}, Aufgabentyp ${analyze.task_type}${depthHint}.`,
     `Nutzerabsicht: ${analyze.intent}`,
-    `Antwortmodus (Richtwert): ${analyze.reply_mode}`,
   ]
   if (analyze.missing.length > 0) {
-    lines.push(`Fehlende Infos: ${analyze.missing.join('; ')}`)
+    lines.push(`Fehlende Infos (mit benannter Annahme überbrücken): ${analyze.missing.join('; ')}`)
+  }
+  if (analyze.needs_live_web && analyze.web_reason) {
+    lines.push(`Web-Kontext-Grund: ${analyze.web_reason}`)
   }
 
   const isDocumentSummaryExport =
@@ -867,59 +834,6 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
     (analyze.action === 'pdf_generate' || analyze.action === 'word_generate') &&
     analyze.task_type === 'summary'
 
-  if (isDocumentSummaryExport) {
-    lines.push(buildDocumentExportSummaryTurnBriefing())
-  } else if (
-    analyze.task_type === 'explanation' &&
-    analyze.explanation_depth === 'brief' &&
-    /sichtbar|anhang|lesbar/i.test(analyze.intent)
-  ) {
-    lines.push(buildDocumentVisibilityTurnBriefing())
-  } else if (analyze.task_type === 'quiz_generate') {
-    lines.push(buildInstantTaskTypeTurnBriefing(analyze))
-    if (!/interaktiv/i.test(analyze.intent)) {
-      lines.push(
-        'Quiz-Ausgabe (UI): `1. Fragentext` direkt über `A)–D)` je eigene Zeile — nicht alle Fragen gesammelt am Ende.',
-      )
-    }
-  } else {
-    lines.push(buildInstantTaskTypeTurnBriefing(analyze))
-  }
-
-  if (analyze.action === 'clarify' || analyze.reply_mode === 'ask_only') {
-    lines.push(
-      'Einschätzung: nur wenn wirklich blockiert eine kurze Frage — entscheide selbst; meist reicht eine **Lösung mit Annahme** statt nachzufragen.',
-    )
-  } else if (analyze.reply_mode === 'one_step') {
-    lines.push('Einschätzung: ein fokussierter Prüfschritt könnte reichen — entscheide selbst, ob mehr in einem Schritt sinnvoller ist.')
-  } else if (
-    analyze.reply_mode === 'short_answer' &&
-    /multiple[- ]?choice|auswahlfrage|direktantwort|mcq|zertifizierung/i.test(analyze.intent)
-  ) {
-    lines.push(buildInstantAnalyzeDirectAnswerBriefing())
-  } else if (analyze.reply_mode === 'short_answer') {
-    lines.push('Einschätzung: vermutlich reicht eine kompakte Antwort — entscheide selbst, ob mehr Kontext nötig ist.')
-  } else if (analyze.category === 'image' && analyze.action === 'search') {
-    lines.push(
-      'Unsplash-Fotosuche — die App zeigt bis zu 4 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',
-    )
-  } else if (analyze.category === 'image' && analyze.action === 'reference') {
-    lines.push(
-      'Bezug auf ein Bild aus dem Chatverlauf — dir wird das Bild als Vision mitgeschickt: Inhalt beschreiben/auswerten; **nicht** behaupten, du könntest keine Bilder sehen.',
-    )
-  } else if (
-    analyze.category === 'chat' &&
-    (analyze.action === 'answer' || analyze.reply_mode === 'normal') &&
-    analyze.task_type !== 'summary' &&
-    analyze.task_type !== 'explanation'
-  ) {
-    lines.push(
-      '**Zuerst** vollständige Lösung mit Annahme (Plan, Text, Tabelle …). **Danach** optional «Verbesserungen» + **eine** konkrete Anpassungsfrage (z. B. «Soll ich … auf X/Y anpassen?») — **nicht** vorher fragen.',
-    )
-  }
-  if (analyze.web_reason && analyze.needs_live_web) {
-    lines.push(`Web-Kontext-Grund: ${analyze.web_reason}`)
-  }
   if (analyze.category === 'document') {
     const docAction =
       analyze.action === 'word_generate' ||
@@ -928,20 +842,27 @@ export function buildInstantAnalyzeBriefingInstruction(analyze: InstantAnalyzeRe
       analyze.action === 'pptx_generate'
         ? analyze.action
         : 'word_generate'
-    lines.push(buildInstantAnalyzeDocumentExportBriefing(docAction, { summaryStyle: isDocumentSummaryExport }))
-  }
-  if (analyze.category === 'chart') {
-    lines.push(buildInstantAnalyzeChartBriefing())
-  }
-  if (analyze.category === 'diagram') {
-    lines.push(buildInstantAnalyzeDiagramBriefing())
-  }
-  if (
-    analyze.category === 'chat' &&
-    /zuordnung|tabelle|einnahme|ausgabe|bild/i.test(analyze.intent)
-  ) {
+    if (isDocumentSummaryExport) {
+      lines.push(buildDocumentExportSummaryTurnBriefing())
+    }
     lines.push(
-      'Lösung als Markdown-Tabelle (Struktur wie Aufgabe), ✓ in den richtigen Spalten — keine Bullet-Liste. Ton: definitive Lösung, nicht «mögliche Zuordnung».',
+      buildInstantAnalyzeDocumentExportBriefing(docAction, { summaryStyle: isDocumentSummaryExport }),
+    )
+  } else if (analyze.category === 'chart') {
+    lines.push(buildInstantAnalyzeChartBriefing())
+  } else if (analyze.category === 'diagram') {
+    lines.push(buildInstantAnalyzeDiagramBriefing())
+  } else if (analyze.category === 'image' && analyze.action === 'search') {
+    lines.push(
+      'Unsplash-Fotosuche — die App zeigt bis zu 4 Fotos mit Beschreibung und Quelle; kein generiertes Bild.',
+    )
+  } else if (analyze.category === 'image' && analyze.action === 'reference') {
+    lines.push(
+      'Bezug auf ein Bild aus dem Chatverlauf — dir wird das Bild als Vision mitgeschickt: Inhalt beschreiben/auswerten; **nicht** behaupten, du könntest keine Bilder sehen.',
+    )
+  } else if (analyze.task_type === 'summary') {
+    lines.push(
+      'Zusammenfassung: alle Themen inhaltlich ausarbeiten (Fragen beantworten, Übungen lösen) in thematischen `##`-Kapiteln — kein «Aufgabe:/Lösung:»-Format, kein Meta («das Dokument behandelt …»); Details im Playbook dieses Turns.',
     )
   }
   return lines.join('\n')

@@ -1,7 +1,6 @@
 import { matchQuizPracticeIntent } from '../utils/quizFormatChoice'
 import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
 import {
-  buildDocumentVisibilityTurnBriefing,
   normalizeDocumentIntentUserText,
   userAsksDocumentVisibilityQuestion,
   userMessageWantsDocumentSummary,
@@ -233,51 +232,6 @@ export function applyInstantChatTaskTypeHeuristic(
   return next
 }
 
-export function shouldSuppressInstantBrevityForAnalyze(
-  analyze: Pick<InstantAnalyzeResult, 'task_type' | 'explanation_depth'> | undefined,
-): boolean {
-  if (!analyze) {
-    return false
-  }
-  /**
-   * Nur «summary» unterdrückt den Grundsatz «du wählst Tiefe selbst» — das Format ist dort strukturell
-   * vorgegeben (vollständige Materialabdeckung), nicht verhandelbar. Bei «explanation» (auch detailed)
-   * bleibt der Grundsatz sichtbar, damit das Antwortmodell selbst beurteilt, wie viel Tiefe nötig ist —
-   * der explanation_depth-Hinweis ist nur ein Richtwert, keine Vorgabe.
-   */
-  return analyze.task_type === 'summary'
-}
-
-export function shouldSuppressInstantMandatoryFollowUpForAnalyze(
-  analyze: Pick<InstantAnalyzeResult, 'task_type' | 'explanation_depth'> | undefined,
-): boolean {
-  if (!analyze) {
-    return false
-  }
-  if (analyze.task_type === 'summary' || analyze.task_type === 'mc_solve') {
-    return true
-  }
-  if (analyze.task_type === 'explanation' && analyze.explanation_depth === 'detailed') {
-    return true
-  }
-  return false
-}
-
-export function shouldSuppressInstantSolveDirectlyForAnalyze(
-  analyze: Pick<InstantAnalyzeResult, 'task_type' | 'explanation_depth'> | undefined,
-): boolean {
-  if (!analyze) {
-    return false
-  }
-  if (analyze.task_type === 'summary') {
-    return true
-  }
-  if (analyze.task_type === 'explanation') {
-    return true
-  }
-  return false
-}
-
 /** Summary-Instant: OpenAI gpt-5-mini statt Gemini (Experiment). */
 export function shouldRouteSummaryInstantToOpenAi(
   analyze?: Pick<InstantAnalyzeResult, 'task_type'> | null,
@@ -286,86 +240,3 @@ export function shouldRouteSummaryInstantToOpenAi(
   return !thinking && analyze?.task_type === 'summary'
 }
 
-/** Für Instant-Analyze-Systemprompt (Client + Edge-Text spiegeln). */
-export function buildInstantAnalyzeTaskTypePromptSection(): string {
-  return [
-    '- task_type: "mc_solve" | "quiz_generate" | "explanation" | "summary"',
-    '- explanation_depth: "brief" | "standard" | "detailed" (nur wenn task_type "explanation")',
-    '',
-    'task_type — Regeln:',
-    '- mc_solve: Nutzer postet MC/Auswahlfrage mit Optionen oder will nur die richtige Antwort → reply_mode short_answer.',
-    '- quiz_generate: Nutzer will Quiz/Fragen **erzeugen** («mach ein Quiz», «erstell Fragen zu …») — nicht mc_solve; Ausgabe: `1. Fragentext` + `A)–D)` **pro Frage**, nicht Fragen am Ende.',
-    '- summary: **expliziter** Zusammenfassungswunsch («fasse zusammen», «Zusammenfassung», «überblick», «lies/lese den Inhalt», «mach eine Zusammenfassung») — **nicht** «siehst du den Inhalt?» / «kannst du lesen?».',
-    '- summary: **gleiche inhaltliche Tiefe** mit oder ohne Wort «ausführlich» — kein Kurz-Überblick, kein Meta-Text.',
-    '- summary + [Datei:…] (auch nur «Zusammenfassung» ohne «ausführlich»): **integriertes Lernskript** — alle Themen ausarbeiten, Fragen beantworten, Übungen lösen — **kein** «Aufgabe:/Lösung:»-Format.',
-    '- document_coverage_topics: string[] — nur bei task_type summary und [Datei:…] mit Text: 4–20 thematische Pflichtpunkte aus dem Anhang; sonst []',
-    '- summary + document (PDF/Word): «ausführliches/zusammenfassendes PDF/Word», «PDF zusammenfassen» → category document, action pdf_generate/word_generate, **task_type summary**.',
-    '- explanation + brief: «siehst du den Inhalt?», «kannst du das PDF lesen?», «ist der Anhang da?» → **nur** Sichtbarkeit bestätigen, **kein** summary/mc_solve.',
-    '- explanation: offene Fragen, Erklären, Vergleiche, How-to — auch «über was geht es im Dokument?» / Thema-Fragen **ohne** Zusammenfassungswunsch (task_type explanation, depth brief).',
-    '',
-    'explanation_depth:',
-    '- brief: einfache Definition/Kurzfrage (z. B. «was ist BIOS» ohne «ausführlich»).',
-    '- detailed: «ausführlich», «detailliert», «Unterschiede zwischen …», komplexe Themen mit mehreren Aspekten.',
-    '- standard: alles andere bei explanation.',
-  ].join('\n')
-}
-
-export function buildInstantTaskTypeTurnBriefing(analyze: InstantAnalyzeResult): string {
-  switch (analyze.task_type) {
-    case 'mc_solve':
-      return [
-        'Aufgabentyp MC lösen (verbindlich):',
-        '- **Antwort zuerst:** `**Antwort: X**` oder kleine Tabelle mit ✓ — kein langer Essay.',
-        '- Höchstens 1–2 Sätze Begründung danach.',
-        '- Kein `### Verbesserungen`, keine Schluss-Anpassungsfrage.',
-      ].join('\n')
-    case 'quiz_generate':
-      return [
-        'Aufgabentyp Quiz erzeugen (verbindlich):',
-        '- Wenn «Gewähltes Quiz-Format» im System-Prompt steht: **nur dieses** Format.',
-        '- Ohne explizite Formatwahl: **Markdown-Multiple-Choice** (Checkbox-Karten in der App) — nicht beide Formate mischen.',
-        '- Pflicht pro Frage: `1. Fragentext`, direkt darunter `A)–D)` je eigene Zeile — **Fragentext über den Optionen derselben Frage**.',
-        '- **VERBOTEN:** zuerst alle A–D-Listen, danach alle Fragentexte am Ende.',
-        '- Optional max. 1–2 Sätze Einleitung oder `## Fragen` vor der ersten Frage.',
-        '- Nur bei explizitem Wunsch «interaktives Quiz»: STRATON_QUIZ_JSON-Block laut System-Prompt.',
-      ].join('\n')
-    case 'summary':
-      return [
-        'Aufgabentyp Zusammenfassung (verbindlich — Playbook im Layout-Profil):',
-        '- Gilt **immer** bei task_type summary — auch wenn der Nutzer **nicht** «ausführlich» sagt.',
-        '- Schulblatt/PDF: **integriertes Lernskript** — Fragen beantworten, Aufgaben inhaltlich ausarbeiten, Lücken füllen — **ohne** «Aufgabe:/Lösung:»-Labels.',
-        '- Nicht beschreiben, was das Dokument «deckt/thematisiert» — **Inhalt** aus dem [Datei]-Block liefern.',
-        '- Alle Pflicht-Themen aus der Analyze-Checkliste abdecken; ```cards``` mit tone/badges je Hauptthema.',
-        '- Keine Informationen erfinden, die nicht im Material stehen.',
-        '- Kein `### Verbesserungen`, keine Pflicht-Anpassungsfrage am Schluss.',
-      ].join('\n')
-    case 'explanation':
-    default:
-      if (analyze.explanation_depth === 'brief') {
-        if (/sichtbar|anhang|lesbar/i.test(analyze.intent)) {
-          return buildDocumentVisibilityTurnBriefing()
-        }
-        return [
-          'Aufgabentyp Erklärung — Einschätzung: vermutlich kurz (Richtwert, keine Vorgabe):',
-          '- Vorschlag: eine `##`-Überschrift, dann 1–3 klare Sätze oder eine kompakte Liste.',
-          '- Entscheide selbst anhand der Frage: Wenn mehr Tiefe nötig ist, antworte ausführlicher statt künstlich kurz zu bleiben.',
-          '- Falls kurz passend: keine Kapitel-Zusammenfassung, kein künstliches Aufblähen; Fachbegriffe kurz erklären.',
-        ].join('\n')
-      }
-      if (analyze.explanation_depth === 'detailed') {
-        return [
-          'Aufgabentyp Erklärung — Einschätzung: vermutlich ausführlich (Richtwert, keine Vorgabe):',
-          '- Vorschlag: `##`-Hauptüberschrift, dann Kapitel mit `###` oder nummerierten `## 1. …`-Abschnitten.',
-          '- Entscheide selbst anhand der Frage: Wenn eine kürzere Antwort tatsächlich reicht, halte dich kürzer statt künstlich aufzublähen.',
-          '- Falls ausführlich passend: **3+ parallele Typen/Arten/Kategorien** → ```cards```; zwischen grösseren Abschnitten `---`; mit Beispielen erklären statt nur Stichwortlisten.',
-          '- Bei **mehreren** Aufgaben/Fragen im Text oder Anhang: **alle** vollständig lösen, keine auslassen, nicht nach dem Rest fragen.',
-        ].join('\n')
-      }
-      return [
-        'Aufgabentyp Erklärung — Einschätzung: Standardtiefe (Richtwert, keine Vorgabe):',
-        '- Vorschlag: `##`-Überschrift, dann passende Tiefe: Absätze, optional kurze Liste oder Tabelle.',
-        '- Entscheide selbst anhand der Frage, wie viel Tiefe wirklich nötig ist — einfache Sprache, komplexe Themen in verständliche Schritte gliedern.',
-        '- Bei **mehreren** Aufgaben/Fragen im Text oder Anhang: **alle** in dieser Antwort lösen, keine auslassen, nicht nach dem Rest fragen.',
-      ].join('\n')
-  }
-}

@@ -13,6 +13,7 @@ import {
   getLearningPathById,
   listLearningPathsByUserId,
   updateLearningPathById,
+  type LearnGenerationMode,
   type LearningPathRecord,
   type LearningPathSummary,
 } from '../services/learn.persistence'
@@ -56,6 +57,7 @@ function toPathSummary(record: LearningPathRecord): LearningPathSummary {
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    generationMode: record.generationMode,
   }
 }
 
@@ -123,7 +125,7 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
     [autoRemoveEmptyLearningPaths, pathCacheRef, setError, setLearningPaths],
   )
 
-  const handleCreateLearningPath = useCallback(async () => {
+  const handleCreateLearningPath = useCallback(async (generationMode: LearnGenerationMode = 'ai') => {
     if (!userId || isLearningPathWorkspaceLoading || createInFlightRef.current) {
       return
     }
@@ -162,7 +164,11 @@ export function useLearningPathActions(args: UseLearningPathActionsArgs) {
         })
       }
 
-      const created = await createLearningPathByUserId(userId, 'Neuer Lernpfad')
+      const created = await createLearningPathByUserId(
+        userId,
+        generationMode === 'placeholder' ? 'Platzhalter-Lernpfad' : 'Neuer Lernpfad',
+        generationMode,
+      )
       pathCacheRef.current[created.id] = created
 
       skipEnterPathIdsRef?.current.add(created.id)

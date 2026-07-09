@@ -812,7 +812,7 @@ function normalizeTableRow(cells: string[], colCount: number): string[] {
   return out
 }
 
-function tryParseMarkdownTable(
+export function tryParseMarkdownTable(
   lines: string[],
   start: number,
 ): { rows: string[][]; end: number } | null {

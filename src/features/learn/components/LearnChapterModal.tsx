@@ -9,8 +9,10 @@ import newMessageIcon from '../../../assets/icons/newMessage.svg'
 import { sendLearnChapterHelpMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
 import { isCategorizeAnswerComplete, isMatchAnswerComplete } from '../../chat/utils/interactiveQuiz'
+import { renderInlineMarkdown } from '../../chat/utils/markdownInline'
 import type { ChapterBlueprint, ChapterStep } from '../services/learn.persistence'
 import { chapterQuestionToInteractiveQuestion } from '../utils/learnPageHelpers'
+import { renderLearnStepContent } from '../utils/renderLearnStepContent'
 import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
 import { LearnCategorizeQuestion } from './LearnCategorizeQuestion'
 
@@ -167,7 +169,8 @@ export type LearnChapterModalProps = {
   onClose: () => void
   activeChapterBlueprint: ChapterBlueprint | null
   safeChapterIndex: number
-  effectiveChapterCount: number
+  /** Beste aktuelle Richtig-Serie über alle Kompetenzen — für das 🔥-Badge. */
+  bestCorrectStreak?: number
   safeChapterStepIndex: number
   chapterProgressPercent: number
   activeChapterStep: ChapterStep | null
@@ -191,7 +194,7 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
     onClose,
     activeChapterBlueprint,
     safeChapterIndex,
-    effectiveChapterCount,
+    bestCorrectStreak = 0,
     safeChapterStepIndex,
     chapterProgressPercent,
     activeChapterStep,
@@ -342,20 +345,14 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
         <header className="learn-chapter-modal-header">
           <div className="learn-chapter-modal-header-copy">
             <h2>{activeChapterBlueprint?.title || 'Lernkapitel'}</h2>
-            <p className="learn-chapter-source-row">
-              <span
-                className={`learn-chapter-source-badge ${
-                  activeChapterBlueprint?.source === 'fallback' ? 'is-fallback' : 'is-ai'
-                }`}
-              >
-                {activeChapterBlueprint?.source === 'fallback' ? 'Quelle: Fallback' : 'Quelle: KI-generiert'}
-              </span>
-            </p>
-            <p>
-              {effectiveChapterCount <= 1
-                ? 'Kapitel 1'
-                : `Kapitel ${safeChapterIndex + 1} von ${Math.max(1, effectiveChapterCount)}`}
-            </p>
+            {bestCorrectStreak >= 2 ? (
+              <p className="learn-chapter-source-row">
+                <span className="learn-chapter-streak-badge" title="Deine beste Richtig-Serie">
+                  {'🔥'} {bestCorrectStreak} in Folge
+                </span>
+              </p>
+            ) : null}
+            <p>{`Kapitel ${safeChapterIndex + 1}`}</p>
           </div>
           <div className="learn-chapter-modal-header-actions">
             <button
@@ -439,7 +436,9 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
             <p className="learn-muted">Keine Schritte verfuegbar.</p>
           ) : activeChapterStep.type === 'question' ? (
             <article className="learn-chapter-step-card">
-              <p className="learn-chapter-step-label">{chapterQuestionKindLabel(activeChapterStep)}</p>
+              <p className="learn-chapter-step-label learn-chapter-question-kind-label">
+                {chapterQuestionKindLabel(activeChapterStep)}
+              </p>
               <h3>{activeChapterStep.prompt}</h3>
               {activeChapterStep.questionType === 'match' &&
               activeChapterStep.matchLeft &&
@@ -513,11 +512,17 @@ export function LearnChapterModal(props: LearnChapterModalProps) {
             <article className="learn-chapter-step-card">
               <p className="learn-chapter-step-label">{activeChapterStep.type === 'recap' ? 'Zusammenfassung' : 'Erklärung'}</p>
               <h3>{activeChapterStep.title}</h3>
-              <p>{activeChapterStep.content}</p>
+              {activeChapterStep.keyPrinciple?.trim() ? (
+                <div className="learn-chapter-principle-box">
+                  <span className="learn-chapter-principle-label">Kernprinzip</span>
+                  <p>{renderInlineMarkdown(activeChapterStep.keyPrinciple)}</p>
+                </div>
+              ) : null}
+              <div className="learn-chapter-step-content">{renderLearnStepContent(activeChapterStep.content)}</div>
               {activeChapterStep.bullets && activeChapterStep.bullets.length > 0 ? (
                 <ul className="learn-chapter-step-bullets">
                   {activeChapterStep.bullets.map((bullet) => (
-                    <li key={bullet}>{bullet}</li>
+                    <li key={bullet}>{renderInlineMarkdown(bullet)}</li>
                   ))}
                 </ul>
               ) : null}

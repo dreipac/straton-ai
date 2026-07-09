@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TextArea } from '../../../components/ui/inputs/TextArea'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
+import { evaluatePlaceholderAnswer } from '../utils/learnPlaceholder'
 import { isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
 import type { LearnWorksheetItem } from '../services/learn.persistence'
 import {
@@ -27,6 +28,8 @@ export type LearnWorksheetModalProps = {
   onSavedAnswerChange?: (itemId: string, answer: string) => void
   onSubmitWorksheet?: () => void
   submittedCount?: number
+  /** Platzhalter-Modus (Admin-Test): Antworten lokal statt per KI bewerten. */
+  useLocalEvaluation?: boolean
 }
 
 const ITEMS_PER_PAGE = 4
@@ -74,6 +77,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     onSavedAnswerChange,
     onSubmitWorksheet,
     submittedCount = 0,
+    useLocalEvaluation = false,
   } = props
 
   const [answersById, setAnswersById] = useState<Record<string, string>>({})
@@ -169,10 +173,12 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     }
     setCheckingId(item.id)
     try {
-      const result = await evaluateQuizAnswerWithAi({
-        question: worksheetItemToInteractiveQuestion(item),
-        userAnswer: answer.trim(),
-      })
+      const result = useLocalEvaluation
+        ? evaluatePlaceholderAnswer(worksheetItemToInteractiveQuestion(item), answer.trim())
+        : await evaluateQuizAnswerWithAi({
+            question: worksheetItemToInteractiveQuestion(item),
+            userAnswer: answer.trim(),
+          })
       setCorrectById((prev) => ({ ...prev, [item.id]: result.isCorrect }))
       setFeedbackById((prev) => ({ ...prev, [item.id]: result.feedback }))
       onItemEvaluated?.(item.id, { correct: result.isCorrect, answer: answer.trim() })

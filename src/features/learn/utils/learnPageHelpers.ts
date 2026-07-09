@@ -9,6 +9,7 @@ import type {
   LearnWorksheetItem,
   LearningPathSummary,
   SyllabusEntry,
+  TopicSession,
 } from '../services/learn.persistence'
 import {
   coerceQuizScalarToString,
@@ -594,16 +595,32 @@ export const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
 /** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
 export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
 export const CHAPTER_GENERATION_MAX_ATTEMPTS = 3
-export const CHAPTER_MIN_QUESTIONS = 4
-export const CHAPTER_MIN_QUESTIONS_ADAPTIVE = 6
+export const CHAPTER_MIN_QUESTIONS = 6
+export const CHAPTER_MIN_QUESTIONS_ADAPTIVE = 8
 export const CHAPTER_MIN_MCQ = 2
 export const CHAPTER_MIN_TEXT = 1
 export const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
 export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
 
+/** Landkarte Phase 1: Schwelle, ab der ein Thema als gemeistert gilt (siehe Plan §4 — Mittelwert zwischen "schwach" <0.6 und "sicher beherrscht" ≥0.85 aus buildLearnerStateInsight). */
+export const TOPIC_MASTERY_THRESHOLD = 0.75
+/** Landkarte Phase 1: Sicherheitslimit gegen Endlos-Generierung, falls Mastery nie steigt. */
+export const TOPIC_MAX_STEPS = 6
+export const TOPIC_DIAGNOSTIC_MIN_QUESTIONS = 5
+export const TOPIC_STEP_MIN_QUESTIONS = 3
+export const TOPIC_DIAGNOSTIC_PLACEHOLDER_ID = 'topic-diagnostic-placeholder'
+export const TOPIC_STEP_PLACEHOLDER_ID = 'topic-step-placeholder'
+
 /** JSON-Schema-Beispiel für Kapitelgenerierung (on-demand + adaptiv). */
 export const CHAPTER_JSON_SCHEMA_EXAMPLE =
-  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"...","bullets":["..."]},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"...","skillTag":"mwst-berechnung"},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"...","skillTag":"belege-buchen"},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"...","skillTag":"kontenrahmen"},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"...","skillTag":"konten-zuordnung"},{"id":"c1-q5","type":"question","questionType":"categorize","prompt":"Sortiere die Konten in Aktiv- und Passivkonto.","categories":["Aktivkonto","Passivkonto"],"items":["Kasse","Darlehen","Maschinen","Kreditoren"],"expectedAnswer":"0,1,0,1","hint":"Aktivkonten zeigen Vermögen.","explanation":"...","skillTag":"konten-art"},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."]}]}'
+  '{"id":"chapter-1","title":"...","description":"...","steps":[{"id":"c1-s1","type":"explanation","title":"...","content":"Kurzer Absatz Definition/Beispiel. Bei Rechenweg/Vergleich optional eine GFM-Tabelle:\\n\\n| Position | Betrag |\\n| --- | --- |\\n| Nettobetrag | CHF 1\'200.00 |\\n| + MWSt 8.1% | CHF 97.20 |\\n| = Bruttobetrag | CHF 1\'297.20 |","bullets":["..."],"keyPrinciple":"Ein prägnanter Satz: die zentrale Regel/Faustformel dieses Schritts."},{"id":"c1-q1","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"...","acceptableAnswers":[],"evaluation":"exact","hint":"...","explanation":"...","skillTag":"mwst-berechnung"},{"id":"c1-q2","type":"question","questionType":"text","prompt":"...","expectedAnswer":"...","acceptableAnswers":[],"evaluation":"contains","hint":"...","explanation":"...","skillTag":"belege-buchen"},{"id":"c1-q3","type":"question","questionType":"true_false","prompt":"...","expectedAnswer":"Falsch","hint":"...","explanation":"...","skillTag":"kontenrahmen"},{"id":"c1-q4","type":"question","questionType":"match","prompt":"...","matchLeft":["x","y"],"matchRight":["1","2"],"expectedAnswer":"0,1","hint":"...","explanation":"...","skillTag":"konten-zuordnung"},{"id":"c1-q5","type":"question","questionType":"categorize","prompt":"Sortiere die Konten in Aktiv- und Passivkonto.","categories":["Aktivkonto","Passivkonto"],"items":["Kasse","Darlehen","Maschinen","Kreditoren"],"expectedAnswer":"0,1,0,1","hint":"Aktivkonten zeigen Vermögen.","explanation":"...","skillTag":"konten-art"},{"id":"c1-recap","type":"recap","title":"...","content":"...","bullets":["..."],"keyPrinciple":"..."}]}'
+
+/** Regeln zu Kernprinzip-Box und Tabellen in Erklärungs-/Recap-Steps (visuelle Struktur, kein neuer Feldtyp). */
+export const CHAPTER_CONTENT_STRUCTURE_RULES = [
+  'KERNPRINZIP (Pflicht bei JEDEM explanation-Step, optional bei recap): Feld "keyPrinciple" mit genau 1 prägnanten Satz — die zentrale Regel/Faustformel/Definition dieses Schritts. NICHT die Kapitelüberschrift oder eine Floskel wiederholen, sondern den fachlichen Kern in einem Satz.',
+  'TABELLEN im Feld "content" NUR wenn inhaltlich passend (Rechenweg/Aufstellung mit mehreren Positionen, z. B. MWSt-Berechnung, Skonto, Zinsrechnung; oder Gegenüberstellung/Kategorien, z. B. Kontenarten, Steuerarten): als GFM-Pipe-Tabelle schreiben, z. B. "| Position | Betrag |\\n| --- | --- |\\n| Nettobetrag | CHF 1\'200.00 |". Erzwinge KEINE Tabelle, wenn ein normaler Fließtext-Satz reicht.',
+  'content bleibt ein normaler String — bei Bedarf mehrere kurze Absätze (Leerzeile trennt) und/oder genau eine Tabelle darin, kein separates JSON-Feld für die Tabelle.',
+].join('\n')
 
 /** Verbindliche Regel für das Konzept-Tag pro Frage (aggregierte Skill-Mastery über Kapitel hinweg). */
 export const CHAPTER_SKILL_TAG_RULE = [
@@ -677,14 +694,14 @@ export function buildSyllabusGenerationUserPrompt(args: BuildSyllabusGenerationP
     args.selectedTopic.trim() ? `Gewählter Schwerpunkt: ${args.selectedTopic.trim()}` : '',
     `Erstelle genau ${args.chapterCount} geordnete Lernkapitel als JSON-Array.`,
     'Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON.',
-    'Schema pro Eintrag: {"topic":"Kurztitel des Unterthemas (max. 8 Wörter)","learningGoal":"Ein Satz: Was kann der Lernende danach?"}',
-    'Beispiel: [{"topic":"Grundlagen MWSt","learningGoal":"MWSt-Sätze zuordnen und den Nettobetrag berechnen."}]',
+    'Schema pro Eintrag: {"topic":"Kurztitel des Unterthemas (max. 8 Wörter)","learningGoals":["Kurzes Lernziel in Stichworten"]}',
+    'Beispiel: [{"topic":"Grundlagen MWSt","learningGoals":["MWSt-Sätze sicher zuordnen","Nettobetrag berechnen"]}]',
     'Regeln:',
     '- Unterthemen bilden eine didaktische Progression (Grundlagen → Anwendung → Vertiefung).',
     '- Keine inhaltliche Überlappung zwischen Kapiteln.',
     '- Schwache Bereiche aus dem Einstiegstest zuerst oder früh im Plan adressieren.',
     '- topic = konkretes Unterthema, NICHT nur das Hauptthema wiederholen.',
-    '- learningGoal = messbares Lernziel in einem Satz.',
+    '- learningGoals = 1 bis maximal 3 messbare Lernziele in Stichworten (je max. 6 Wörter, KEINE ganzen Sätze).',
     args.aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}` : '',
     args.proficiencyLevel
       ? `Selbsteinschätzung Niveau: ${
@@ -720,12 +737,24 @@ export function parseSyllabusFromText(raw: string): SyllabusEntry[] {
       }
       const rec = entry as Record<string, unknown>
       const topic = typeof rec.topic === 'string' ? rec.topic.trim() : ''
+      // Neues Schema: learningGoals als Array von Stichworten (max. 3) — gespeichert wird
+      // zeilenweise im bestehenden learningGoal-Feld (kein Datenmodell-Bruch). Alte Felder
+      // (learningGoal/goal als Satz) bleiben als Fallback lesbar.
+      const goalsFromArray = Array.isArray(rec.learningGoals)
+        ? rec.learningGoals
+            .filter((goal): goal is string => typeof goal === 'string')
+            .map((goal) => goal.trim())
+            .filter(Boolean)
+            .slice(0, 3)
+        : []
       const learningGoal =
-        typeof rec.learningGoal === 'string'
-          ? rec.learningGoal.trim()
-          : typeof rec.goal === 'string'
-            ? rec.goal.trim()
-            : ''
+        goalsFromArray.length > 0
+          ? goalsFromArray.join('\n')
+          : typeof rec.learningGoal === 'string'
+            ? rec.learningGoal.trim()
+            : typeof rec.goal === 'string'
+              ? rec.goal.trim()
+              : ''
       if (topic && learningGoal) {
         entries.push({ topic, learningGoal })
       }
@@ -734,6 +763,16 @@ export function parseSyllabusFromText(raw: string): SyllabusEntry[] {
   } catch {
     return []
   }
+}
+
+/** Zerlegt das gespeicherte learningGoal-Feld in einzelne Stichwort-Lernziele (max. 3).
+ *  Neues Format: zeilenweise; Altbestand (ein Satz bzw. •/;-getrennt) wird mit aufgetrennt. */
+export function splitLearningGoals(learningGoal: string): string[] {
+  return learningGoal
+    .split(/\n|•|;/)
+    .map((goal) => goal.trim().replace(/^[-–*]\s*/, ''))
+    .filter(Boolean)
+    .slice(0, 3)
 }
 
 export function validateGeneratedSyllabus(
@@ -800,7 +839,7 @@ export type BuildChapterGenerationPromptArgs = {
 }
 
 export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPromptArgs): string {
-  const questionRange = args.adaptive ? '6-10' : '4-8'
+  const questionRange = args.adaptive ? '8-12' : '6-10'
   const lines = [
     `Lernpfad: ${args.pathTitle}`,
     `Thema: ${args.chapterTopic}`,
@@ -824,6 +863,7 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
     `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
     `Schema pro Kapitel (Beispiel): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
     CHAPTER_SKILL_TAG_RULE,
+    CHAPTER_CONTENT_STRUCTURE_RULES,
     WORKSHEET_EXERCISE_FIDELITY_RULES,
     CHAPTER_LEARNING_FIDELITY_RULES,
     args.aiGuidance.trim()
@@ -850,6 +890,57 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
       : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
     args.attempt > 1
       ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschließlich valides JSON-Array mit exakt einem Kapitelobjekt zurück.'
+      : '',
+    args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
+  ]
+  return lines.filter(Boolean).join('\n\n')
+}
+
+/** Landkarte Phase 1: Args für den pro-Thema-Diagnosetest (nur Fragen, kein explanation/recap). */
+export type BuildTopicDiagnosticPromptArgs = {
+  pathTitle: string
+  chapterTopic: string
+  learningGoal?: string
+  aiGuidance: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  materialContext: string
+  entryQuizInsight: string
+  validationHint: string
+  attempt: number
+}
+
+/**
+ * Landkarte Phase 1: Diagnosetest-Prompt für den Start eines Themas — schlanker als
+ * {@link buildChapterGenerationUserPrompt}, verlangt AUSSCHLIESSLICH Fragen (kein explanation/recap-Step),
+ * damit die anschliessende Mastery-Berechnung ein reines Vorwissens-Signal misst.
+ */
+export function buildTopicDiagnosticUserPrompt(args: BuildTopicDiagnosticPromptArgs): string {
+  const lines = [
+    `Lernpfad: ${args.pathTitle}`,
+    `Thema: ${args.chapterTopic}`,
+    args.learningGoal?.trim() ? `Lernziel dieses Themas (verbindlich): ${args.learningGoal.trim()}` : '',
+    'Erstelle einen Diagnosetest für dieses Thema als JSON-Objekt mit genau einem Kapitelobjekt.',
+    `Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON. Das Objekt braucht AUSSCHLIESSLICH question-Steps (${TOPIC_DIAGNOSTIC_MIN_QUESTIONS}-7 Stück) — KEINEN explanation-Step, KEINEN recap-Step.`,
+    'Ziel: das VORWISSEN zu diesem Thema testen, nicht unterrichten — noch keine Erklärungen liefern.',
+    'Fragetypen mischen: mcq, text, true_false (bevorzugt), optional match/categorize.',
+    `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
+    `Schema-Beispiel (nur die "steps"-Fragen daraus übernehmen, kein explanation/recap): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
+    CHAPTER_SKILL_TAG_RULE,
+    CHAPTER_LEARNING_FIDELITY_RULES,
+    args.aiGuidance.trim()
+      ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}`
+      : 'Zusatzhinweise des Lernenden: keine',
+    args.proficiencyLevel
+      ? `Selbsteinschätzung Niveau: ${
+          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
+        }`
+      : 'Selbsteinschätzung Niveau: unbekannt',
+    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
+    args.materialContext
+      ? `Materialauszüge (Diagnosefragen an diesen Inhalten ausrichten):\n${args.materialContext}`
+      : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
+    args.attempt > 1
+      ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschließlich valides JSON mit genau einem Kapitelobjekt zurück, NUR question-Steps.'
       : '',
     args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
   ]
@@ -1022,21 +1113,33 @@ export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { vali
 
 export function validateGeneratedChapter(
   chapter: ChapterBlueprint,
-  options?: { minQuestions?: number },
+  options?: { minQuestions?: number; requireExplanation?: boolean; requireRecap?: boolean },
 ): { valid: boolean; reason: string } {
   const minQuestions = options?.minQuestions ?? CHAPTER_MIN_QUESTIONS
+  const requireExplanation = options?.requireExplanation ?? true
+  const requireRecap = options?.requireRecap ?? true
   const questions = chapter.steps.filter((step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question')
-  const explanations = chapter.steps.filter((step) => step.type === 'explanation')
+  const explanations = chapter.steps.filter(
+    (step): step is Extract<ChapterStep, { type: 'explanation' }> => step.type === 'explanation',
+  )
   const recaps = chapter.steps.filter((step) => step.type === 'recap')
 
   if (!chapter.title.trim()) {
     return { valid: false, reason: 'Das Kapitel braucht einen title.' }
   }
-  if (explanations.length < 1) {
+  if (requireExplanation && explanations.length < 1) {
     return { valid: false, reason: 'Das Kapitel braucht mindestens einen Erklärungs-Step (type "explanation").' }
   }
-  if (recaps.length < 1) {
+  if (requireRecap && recaps.length < 1) {
     return { valid: false, reason: 'Das Kapitel braucht mindestens einen Recap-Step (type "recap").' }
+  }
+  for (let index = 0; index < explanations.length; index += 1) {
+    if (!explanations[index]!.keyPrinciple?.trim()) {
+      return {
+        valid: false,
+        reason: `Erklärungs-Step ${index + 1}: Feld "keyPrinciple" fehlt (1 prägnanter Satz Kernprinzip).`,
+      }
+    }
   }
   if (questions.length < minQuestions) {
     return {
@@ -1687,15 +1790,26 @@ export function parseChapterBlueprintsFromText(raw: string): ChapterBlueprint[] 
                   .filter(Boolean)
                   .slice(0, 6)
               : []
+            const keyPrinciple =
+              typeof stepCandidate.keyPrinciple === 'string' && stepCandidate.keyPrinciple.trim()
+                ? stepCandidate.keyPrinciple.trim()
+                : undefined
 
             if (!stepTitle || !content) {
               return null
             }
 
             if (type === 'recap') {
-              return { id, type: 'recap', title: stepTitle, content, bullets } satisfies ChapterStep
+              return { id, type: 'recap', title: stepTitle, content, bullets, keyPrinciple } satisfies ChapterStep
             }
-            return { id, type: 'explanation', title: stepTitle, content, bullets } satisfies ChapterStep
+            return {
+              id,
+              type: 'explanation',
+              title: stepTitle,
+              content,
+              bullets,
+              keyPrinciple,
+            } satisfies ChapterStep
           })
           .filter(Boolean) as ChapterStep[]
 
@@ -1974,5 +2088,122 @@ export function buildAdaptiveChallengeFallback(
     title: 'Schwachstellen-Fokus',
     description: 'Adaptives Abschlusskapitel mit KI-generierten Fragen',
     steps: challengeSteps,
+  }
+}
+
+/** Landkarte Phase 1: {@link collectWeakQuestionSteps}, aber auf ein einzelnes Thema beschränkt (Diagnose + bisherige Zwischenschritte). */
+/**
+ * Landkarte: True, solange der zuletzt generierte Zwischenschritt noch nicht (vollständig) bearbeitet
+ * ist — d. h. mindestens eine seiner Fragen hat noch kein Feedback. Solange das gilt, darf KEIN
+ * weiterer Schritt generiert werden: ein Zwischenschritt nach dem anderen, kein Burst.
+ */
+export function hasUnansweredTopicStep(topicSession: TopicSession): boolean {
+  const blueprints = topicSession.stepBlueprints
+  if (blueprints.length === 0) {
+    return false
+  }
+  const last = blueprints[blueprints.length - 1]
+  const questionSteps = last.steps.filter(
+    (step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question',
+  )
+  if (questionSteps.length === 0) {
+    return false
+  }
+  const feedbackByStepId = topicSession.stepSession?.feedbackByStepId ?? {}
+  return questionSteps.some((step) => {
+    const feedback = feedbackByStepId[step.id]
+    return !(typeof feedback === 'string' && feedback.trim().length > 0)
+  })
+}
+
+export function collectTopicWeakQuestionSteps(
+  topicSession: TopicSession,
+): Extract<ChapterStep, { type: 'question' }>[] {
+  const blueprints = [
+    ...(topicSession.diagnosticBlueprint ? [topicSession.diagnosticBlueprint] : []),
+    ...topicSession.stepBlueprints,
+  ]
+  const correctnessByStepId: Record<string, boolean> = {
+    ...(topicSession.diagnosticSession?.correctnessByStepId ?? {}),
+    ...(topicSession.stepSession?.correctnessByStepId ?? {}),
+  }
+  return collectWeakQuestionSteps(blueprints, {
+    chapterIndex: 0,
+    stepIndex: 0,
+    answersByStepId: {},
+    feedbackByStepId: {},
+    correctnessByStepId,
+    evaluatedAnswersByStepId: {},
+    completedChapterIndexes: [],
+    skillMasteryBySkillId: {},
+  })
+}
+
+/** Landkarte Phase 1: Platzhalter-Blueprint, während der Diagnosetest für ein Thema generiert wird. */
+export function buildTopicDiagnosticPlaceholder(): ChapterBlueprint {
+  return {
+    id: TOPIC_DIAGNOSTIC_PLACEHOLDER_ID,
+    title: 'Diagnosetest wird vorbereitet',
+    description: 'Straton erstellt gerade Fragen zum Einstieg in dieses Thema.',
+    steps: [
+      {
+        id: 'topic-diagnostic-placeholder-q',
+        type: 'question',
+        questionType: 'mcq',
+        prompt: 'Straton bereitet deinen Diagnosetest vor …',
+        options: ['Bitte warten'],
+        expectedAnswer: 'Bitte warten',
+        acceptableAnswers: [],
+        evaluation: 'exact',
+        hint: 'Dieser Platzhalter wird automatisch ersetzt.',
+      },
+    ],
+  }
+}
+
+/** Landkarte Phase 1: Platzhalter-Blueprint, während der nächste Zwischenschritt für ein Thema generiert wird. */
+export function buildTopicStepPlaceholder(stepNumber: number): ChapterBlueprint {
+  return {
+    id: `${TOPIC_STEP_PLACEHOLDER_ID}-${stepNumber}`,
+    title: 'Nächster Lernschritt wird vorbereitet',
+    description: 'Straton erstellt gerade einen neuen Lernschritt basierend auf deinem Wissensstand.',
+    steps: [
+      {
+        id: `topic-step-placeholder-intro-${stepNumber}`,
+        type: 'explanation',
+        title: 'Adaptive Auswertung läuft',
+        content: `Straton erstellt Lernschritt ${stepNumber} auf Basis deiner bisherigen Antworten zu diesem Thema.`,
+        bullets: ['Schwachstellen werden priorisiert', 'Fragen werden passend zum Wissensstand vorbereitet'],
+      },
+    ],
+  }
+}
+
+/** Landkarte Phase 1: Fallback-Zwischenschritt, falls die KI-Generierung endgültig fehlschlägt — wiederholt vorhandene Schwachstellen-Fragen. */
+export function buildTopicStepFallback(
+  weakQuestions: Extract<ChapterStep, { type: 'question' }>[],
+  stepNumber: number,
+): ChapterBlueprint {
+  const steps: ChapterStep[] = [
+    {
+      id: `topic-step-fallback-intro-${stepNumber}`,
+      type: 'explanation',
+      title: 'Gezielte Wiederholung',
+      content: 'Dieser Lernschritt trainiert gezielt Fragen, die du bisher in diesem Thema falsch beantwortet hast.',
+      bullets: ['Gezielte Wiederholung', 'Fokus auf schwierige Punkte'],
+      keyPrinciple: 'Wiederholung mit direktem Feedback festigt genau die Punkte, die noch unsicher sind.',
+    },
+    ...(weakQuestions.length > 0
+      ? weakQuestions.slice(0, 5).map((step, index) => ({
+          ...step,
+          id: `topic-step-fallback-q${stepNumber}-${index + 1}`,
+        }))
+      : []),
+  ]
+  return {
+    id: `topic-step-fallback-${stepNumber}`,
+    title: 'Wiederholung',
+    description: 'Fallback-Lernschritt mit bisherigen Schwachstellen-Fragen',
+    steps,
   }
 }

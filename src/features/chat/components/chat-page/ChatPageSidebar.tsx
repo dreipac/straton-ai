@@ -6,6 +6,7 @@ import settingsIcon from '../../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../../assets/icons/sidebar.svg'
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../../auth/services/auth.service'
+import type { LearnGenerationMode } from '../../../learn/services/learn.persistence'
 import { ChatFolderSidebarSection } from '../ChatFolderSidebarSection'
 import { ChatLearningPathsSidebarSection } from '../ChatLearningPathsSidebarSection'
 import { ChatSidebarSectionHeader } from '../ChatSidebarSectionHeader'
@@ -65,7 +66,7 @@ type ChatPageSidebarProps = {
   onCreateFolder: () => void
   onOpenFolder: (folderId: string) => void
   onSelectLearningPath: (pathId: string) => void
-  onCreateLearningPath: () => void
+  onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
   openLearningPathMenuId?: string | null
   onLearningPathContextMenu?: (event: MouseEvent, pathId: string) => void
   selectedFolderId?: string | null
@@ -306,6 +307,7 @@ export function ChatPageSidebar({
                 onCreateLearningPath={onCreateLearningPath}
                 onSelectLearningPath={onSelectLearningPath}
                 onCreateDisabledClick={onShowLearnUnavailable}
+                canChoosePlaceholder={profile?.is_superadmin === true}
               />
             ) : null}
             <div className="chat-sidebar-chats-section">

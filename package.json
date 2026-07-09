@@ -29,6 +29,7 @@
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource/roboto": "^5.2.10",
     "@supabase/supabase-js": "^2.98.0",
+    "@xyflow/react": "^12.11.1",
     "chart.js": "^4.5.1",
     "katex": "^0.17.0",
     "mammoth": "^1.12.0",

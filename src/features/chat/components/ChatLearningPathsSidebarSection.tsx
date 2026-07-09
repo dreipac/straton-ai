@@ -1,5 +1,5 @@
 import { useState, type RefObject, type MouseEvent as ReactMouseEvent } from 'react'
-import type { LearningPathSummary } from '../../learn/services/learn.persistence'
+import type { LearnGenerationMode, LearningPathSummary } from '../../learn/services/learn.persistence'
 import { getDisplayPathTitle, isPendingLearningPathId } from '../../learn/utils/learnPageHelpers'
 import { ChatSidebarSectionHeader } from './ChatSidebarSectionHeader'
 
@@ -9,11 +9,13 @@ type ChatLearningPathsSidebarSectionProps = {
   learningPaths: LearningPathSummary[]
   activePathId: string | null
   isCreateDisabled: boolean
-  onCreateLearningPath: () => void
+  onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
   onSelectLearningPath: (pathId: string) => void
   onCreateDisabledClick: () => void
   openMenuPathId?: string | null
   onContextMenu?: (event: React.MouseEvent, pathId: string) => void
+  /** Superadmin: Popover mit KI vs. Platzhalter (Test ohne API-Kosten) beim Erstellen. */
+  canChoosePlaceholder?: boolean
 }
 
 export function ChatLearningPathsSidebarSection({
@@ -27,25 +29,68 @@ export function ChatLearningPathsSidebarSection({
   onCreateDisabledClick,
   openMenuPathId = null,
   onContextMenu,
+  canChoosePlaceholder = false,
 }: ChatLearningPathsSidebarSectionProps) {
   const [isSectionExpanded, setIsSectionExpanded] = useState(true)
+  const [isCreateModeMenuOpen, setIsCreateModeMenuOpen] = useState(false)
+
+  const handleChooseCreateMode = (mode: LearnGenerationMode) => {
+    setIsCreateModeMenuOpen(false)
+    onCreateLearningPath(mode)
+  }
 
   const createButton = (
-    <button
-      type="button"
-      className="chat-folder-create-btn"
-      aria-disabled={isCreateDisabled}
-      onClick={() => {
-        if (isCreateDisabled) {
-          onCreateDisabledClick()
-          return
-        }
-        onCreateLearningPath()
-      }}
-      aria-label="Neuer Lernpfad"
-    >
-      +
-    </button>
+    <span className="learn-new-path-wrap">
+      <button
+        type="button"
+        className="chat-folder-create-btn"
+        aria-disabled={isCreateDisabled}
+        aria-expanded={canChoosePlaceholder ? isCreateModeMenuOpen : undefined}
+        onClick={() => {
+          if (isCreateDisabled) {
+            onCreateDisabledClick()
+            return
+          }
+          if (canChoosePlaceholder) {
+            setIsCreateModeMenuOpen((prev) => !prev)
+            return
+          }
+          onCreateLearningPath('ai')
+        }}
+        aria-label="Neuer Lernpfad"
+      >
+        +
+      </button>
+      {isCreateModeMenuOpen ? (
+        <>
+          <span
+            className="learn-create-mode-backdrop"
+            onClick={() => setIsCreateModeMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <span className="learn-create-mode-menu learn-create-mode-menu--right" role="menu" aria-label="Lernpfad-Erstellmodus">
+            <button
+              type="button"
+              className="learn-create-mode-option"
+              role="menuitem"
+              onClick={() => handleChooseCreateMode('ai')}
+            >
+              <span className="learn-create-mode-option-title">KI</span>
+              <span className="learn-create-mode-option-meta">Normaler Lernpfad mit KI-Generierung</span>
+            </button>
+            <button
+              type="button"
+              className="learn-create-mode-option"
+              role="menuitem"
+              onClick={() => handleChooseCreateMode('placeholder')}
+            >
+              <span className="learn-create-mode-option-title">Platzhalter</span>
+              <span className="learn-create-mode-option-meta">Testablauf ohne API-Kosten</span>
+            </button>
+          </span>
+        </>
+      ) : null}
+    </span>
   )
 
   return (
@@ -91,6 +136,11 @@ export function ChatLearningPathsSidebarSection({
                   onClick={() => onSelectLearningPath(path.id)}
                 >
                   <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
+                  {path.generationMode === 'placeholder' ? (
+                    <span className="learn-path-test-badge" aria-label="Platzhalter-Lernpfad (Test)">
+                      Test
+                    </span>
+                  ) : null}
                 </button>
               </div>
             ))}
