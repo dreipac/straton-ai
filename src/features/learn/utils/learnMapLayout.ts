@@ -235,7 +235,7 @@ export function buildTopicMapGraph(
   )
 
   // Pass 1: Halte + Segmenthöhen je Thema, daraus die Themen-Y-Positionen (Präfixsummen).
-  const perTopic: TopicComputed[] = syllabus.map((entry, topicIndex) => {
+  const perTopic: TopicComputed[] = syllabus.map((_, topicIndex) => {
     const session = topicSessions[topicIndex]
     const isUnlocked = topicIndex === 0 || topicSessions[topicIndex - 1]?.status === 'mastered'
     return {
