@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import type { ChapterSession } from '../services/learn.persistence'
+import type { SkillMasteryBySkillId } from '../services/learn.persistence'
 
 export type LearnSkillMasteryPanelProps = {
-  skillMasteryBySkillId: ChapterSession['skillMasteryBySkillId']
+  skillMasteryBySkillId: SkillMasteryBySkillId
 }
 
 type MasteryTier = 'strong' | 'mid' | 'weak'

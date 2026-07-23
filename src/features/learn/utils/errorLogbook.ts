@@ -1,11 +1,6 @@
 import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
-import type {
-  ChapterBlueprint,
-  ChapterSession,
-  ChapterStep,
-  EntryQuizResult,
-  LearnWorksheetItem,
-} from '../services/learn.persistence'
+import type { ChapterStep, EntryQuizResult, LearnWorksheetItem } from '../services/learn.persistence'
+import type { TopicCorpus } from './topicSessionCorpora'
 
 export type ErrorLogbookSource = 'entry_quiz' | 'chapter' | 'worksheet'
 
@@ -30,8 +25,7 @@ export type ErrorLogbookInput = {
   entryQuiz: InteractiveQuizPayload | null
   entryQuizAnswers: Record<string, string>
   entryQuizResult: EntryQuizResult | null
-  chapterBlueprints: ChapterBlueprint[]
-  chapterSession: ChapterSession
+  topicCorpora: TopicCorpus[]
   learningChapters: string[]
   learnWorksheets: LearnWorksheetItem[]
 }
@@ -54,11 +48,7 @@ function trimOrDash(value: string | undefined): string {
   return t ? t : '—'
 }
 
-function chapterTitleForIndex(blueprints: ChapterBlueprint[], learningChapters: string[], index: number): string {
-  const fromBlueprint = blueprints[index]?.title?.trim()
-  if (fromBlueprint) {
-    return fromBlueprint
-  }
+function chapterTitleForIndex(learningChapters: string[], index: number): string {
   const fromList = learningChapters[index]?.trim()
   if (fromList) {
     return fromList
@@ -102,35 +92,27 @@ export function buildErrorLogbookEntries(input: ErrorLogbookInput): ErrorLogbook
     }
   }
 
-  for (let chapterIndex = 0; chapterIndex < input.chapterBlueprints.length; chapterIndex += 1) {
-    const chapter = input.chapterBlueprints[chapterIndex]
-    if (!chapter) {
-      continue
-    }
-    const contextLabel = chapterTitleForIndex(input.chapterBlueprints, input.learningChapters, chapterIndex)
-    for (const step of chapter.steps) {
-      if (step.type !== 'question') {
-        continue
+  for (const corpus of input.topicCorpora) {
+    for (const chapter of corpus.blueprints) {
+      for (const step of chapter.steps) {
+        if (step.type !== 'question') {
+          continue
+        }
+        if (corpus.session.correctnessByStepId[step.id] !== false) {
+          continue
+        }
+        entries.push({
+          id: `topic-${corpus.topicIndex}-${corpus.kind}-${chapter.id}-${step.id}`,
+          source: 'chapter',
+          sourceLabel: SOURCE_LABEL.chapter,
+          contextLabel: corpus.contextLabel,
+          prompt: step.prompt.trim(),
+          userAnswer: formatChapterUserAnswer(step, corpus.session.answersByStepId[step.id] ?? ''),
+          feedback: trimOrDash(corpus.session.feedbackByStepId[step.id] ?? step.explanation),
+          chapterStepId: step.id,
+          chapterIndex: corpus.topicIndex,
+        })
       }
-      if (input.chapterSession.correctnessByStepId[step.id] !== false) {
-        continue
-      }
-      entries.push({
-        id: `chapter-${chapter.id}-${step.id}`,
-        source: 'chapter',
-        sourceLabel: SOURCE_LABEL.chapter,
-        contextLabel,
-        prompt: step.prompt.trim(),
-        userAnswer: formatChapterUserAnswer(
-          step,
-          input.chapterSession.answersByStepId[step.id] ?? '',
-        ),
-        feedback: trimOrDash(
-          input.chapterSession.feedbackByStepId[step.id] ?? step.explanation,
-        ),
-        chapterStepId: step.id,
-        chapterIndex,
-      })
     }
   }
 
@@ -141,9 +123,7 @@ export function buildErrorLogbookEntries(input: ErrorLogbookInput): ErrorLogbook
     const chapterIndex =
       typeof item.chapterIndex === 'number' && item.chapterIndex >= 0 ? item.chapterIndex : undefined
     const contextLabel =
-      chapterIndex !== undefined
-        ? chapterTitleForIndex(input.chapterBlueprints, input.learningChapters, chapterIndex)
-        : 'Lernblatt'
+      chapterIndex !== undefined ? chapterTitleForIndex(input.learningChapters, chapterIndex) : 'Lernblatt'
     entries.push({
       id: `worksheet-${item.id}`,
       source: 'worksheet',

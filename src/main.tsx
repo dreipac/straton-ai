@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/manrope'
+import '@fontsource-variable/plus-jakarta-sans'
 import App from './App.tsx'
 import {
   ACCENT_STORAGE_KEY,
@@ -28,7 +29,6 @@ import {
   type ThemeMode,
 } from './features/settings/uiSettings'
 import { syncThemeColorMeta } from './utils/themeColorMeta'
-import '@xyflow/react/dist/style.css'
 import './styles/theme.css'
 import './styles/base.css'
 import './styles/ui.css'

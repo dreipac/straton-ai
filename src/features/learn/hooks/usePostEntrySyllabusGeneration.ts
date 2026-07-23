@@ -1,9 +1,7 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
-import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import type {
-  EntryQuizResult,
   LearnGenerationMode,
   LearnTutorState,
   SyllabusEntry,
@@ -12,7 +10,6 @@ import type {
 } from '../services/learn.persistence'
 import { buildPlaceholderSyllabus, placeholderDelay } from '../utils/learnPlaceholder'
 import {
-  buildEntryQuizInsightForChapter,
   buildFallbackSyllabus,
   buildSyllabusGenerationUserPrompt,
   getDisplayPathTitle,
@@ -21,7 +18,7 @@ import {
   SYLLABUS_GENERATION_MAX_ATTEMPTS,
   validateGeneratedSyllabus,
 } from '../utils/learnPageHelpers'
-import { buildPostEntryQuizTutorMessage } from '../utils/learnTutorCoachMessages'
+import { buildSyllabusReadyTutorMessage } from '../utils/learnTutorCoachMessages'
 
 type UsePostEntrySyllabusGenerationArgs = {
   activePathId: string | null
@@ -30,8 +27,6 @@ type UsePostEntrySyllabusGenerationArgs = {
   tutorState: LearnTutorState
   targetChapterCount: number
   syllabus: SyllabusEntry[]
-  entryQuiz: InteractiveQuizPayload | null
-  entryQuizResult: EntryQuizResult | null
   effectiveTopic: string
   selectedTopic: string
   aiGuidance: string
@@ -59,16 +54,12 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       tutorState,
       targetChapterCount,
       syllabus,
-      entryQuizResult,
     } = args
 
     if (!activePathId || tutorState !== 'entry_quiz_done') {
       return
     }
     if (syllabus.length >= targetChapterCount && targetChapterCount > 0) {
-      return
-    }
-    if (!entryQuizResult) {
       return
     }
     if (generationRef.current === activePathId) {
@@ -99,7 +90,6 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
             }
           : { maxChunks: 8, maxChars: 6000 },
       )
-      const entryQuizInsight = buildEntryQuizInsightForChapter(args.entryQuiz, args.entryQuizResult)
 
       let validationHint = ''
       let generated: SyllabusEntry[] = []
@@ -135,7 +125,6 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
                   aiGuidance: args.aiGuidance,
                   proficiencyLevel: args.proficiencyLevel,
                   materialContext,
-                  entryQuizInsight,
                   chapterCount: targetChapterCount,
                   validationHint,
                   attempt,
@@ -184,10 +173,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: buildPostEntryQuizTutorMessage(
-            args.entryQuizResult!.score,
-            args.entryQuizResult!.total,
-          ),
+          content: buildSyllabusReadyTutorMessage(),
           action: 'start-next-chapter',
         },
       ])
@@ -214,19 +200,14 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       const fallback = buildFallbackSyllabus(mainTopic, targetChapterCount)
       args.setSyllabus(fallback)
       args.setLearningChapters(fallback.map((entry) => entry.topic))
-      if (args.entryQuizResult) {
-        args.setTutorMessages([
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: buildPostEntryQuizTutorMessage(
-              args.entryQuizResult.score,
-              args.entryQuizResult.total,
-            ),
-            action: 'start-next-chapter',
-          },
-        ])
-      }
+      args.setTutorMessages([
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: buildSyllabusReadyTutorMessage(),
+          action: 'start-next-chapter',
+        },
+      ])
       args.setError(error instanceof Error ? error.message : 'Lernplan konnte nicht erstellt werden.')
       args.setIsPostEntryPrepLoading(false)
       args.onGenerationComplete?.()
@@ -244,8 +225,6 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
     args.aiGuidance,
     args.generationMode,
     args.effectiveTopic,
-    args.entryQuiz,
-    args.entryQuizResult,
     args.getPrompt,
     args.materials,
     args.proficiencyLevel,

@@ -9,6 +9,7 @@ import {
   type LearnTutorState,
   type LearningPathRecord,
   type LearningPathSummary,
+  type SkillMasteryBySkillId,
   type SyllabusEntry,
   type TopicSession,
   type TutorChatEntry,
@@ -39,6 +40,7 @@ export type EditableLearningPathSnapshot = {
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
   topicSessions: TopicSession[]
+  skillMasteryBySkillId: SkillMasteryBySkillId
   learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }

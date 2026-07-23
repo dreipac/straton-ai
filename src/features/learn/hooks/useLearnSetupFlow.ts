@@ -5,12 +5,14 @@ import type { ChatMessage } from '../../chat/types'
 import type {
   ChapterBlueprint,
   ChapterSession,
-  EntryQuizResult,
   LearnGenerationMode,
+  LearnTutorState,
+  SkillMasteryBySkillId,
+  SyllabusEntry,
+  TopicSession,
   TutorChatEntry,
   UploadedMaterial,
 } from '../services/learn.persistence'
-import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import { DEFAULT_CHAPTER_SESSION } from '../utils/learnPageHelpers'
 import { PLACEHOLDER_TOPIC, placeholderDelay } from '../utils/learnPlaceholder'
@@ -28,23 +30,20 @@ type UseLearnSetupFlowArgs = {
   setSelectedTopic: Dispatch<SetStateAction<string>>
   setTopicSuggestions: Dispatch<SetStateAction<string[]>>
   setSetupStep: Dispatch<SetStateAction<1 | 2 | 3 | 4>>
-  setHasTriedEntryQuizGeneration: Dispatch<SetStateAction<boolean>>
-  setIsEntryQuizLoading: Dispatch<SetStateAction<boolean>>
-  setIsEntryPrepClosing: Dispatch<SetStateAction<boolean>>
-  setEntryPrepStepIndex: Dispatch<SetStateAction<number>>
-  setEntryPrepPercents: Dispatch<SetStateAction<number[]>>
   setIsPostEntryPrepLoading: Dispatch<SetStateAction<boolean>>
   setPostEntryPrepStepIndex: Dispatch<SetStateAction<number>>
   setPostEntryPrepPercents: Dispatch<SetStateAction<number[]>>
   setIsSetupComplete: Dispatch<SetStateAction<boolean>>
+  setTargetChapterCount: Dispatch<SetStateAction<number>>
+  setTutorState: Dispatch<SetStateAction<LearnTutorState>>
   setTutorMessages: Dispatch<SetStateAction<TutorChatEntry[]>>
-  setEntryQuiz: Dispatch<SetStateAction<InteractiveQuizPayload | null>>
-  setEntryQuizAnswers: Dispatch<SetStateAction<Record<string, string>>>
-  setEntryQuizResult: Dispatch<SetStateAction<EntryQuizResult | null>>
+  setSyllabus: Dispatch<SetStateAction<SyllabusEntry[]>>
   setLearningChapters: Dispatch<SetStateAction<string[]>>
   setChapterBlueprints: Dispatch<SetStateAction<ChapterBlueprint[]>>
   setChapterSession: Dispatch<SetStateAction<ChapterSession>>
-  setEntryQuizQuestionIndex: Dispatch<SetStateAction<number>>
+  setTopicSessions: Dispatch<SetStateAction<TopicSession[]>>
+  setActiveTopicFlowIndex: Dispatch<SetStateAction<number | null>>
+  setSkillMasteryBySkillId: Dispatch<SetStateAction<SkillMasteryBySkillId>>
 }
 
 export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
@@ -62,23 +61,20 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setSelectedTopic,
     setTopicSuggestions,
     setSetupStep,
-    setHasTriedEntryQuizGeneration,
-    setIsEntryQuizLoading,
-    setIsEntryPrepClosing,
-    setEntryPrepStepIndex,
-    setEntryPrepPercents,
     setIsPostEntryPrepLoading,
     setPostEntryPrepStepIndex,
     setPostEntryPrepPercents,
     setIsSetupComplete,
+    setTargetChapterCount,
+    setTutorState,
     setTutorMessages,
-    setEntryQuiz,
-    setEntryQuizAnswers,
-    setEntryQuizResult,
+    setSyllabus,
     setLearningChapters,
     setChapterBlueprints,
     setChapterSession,
-    setEntryQuizQuestionIndex,
+    setTopicSessions,
+    setActiveTopicFlowIndex,
+    setSkillMasteryBySkillId,
   } = args
 
   const handleContinueSetupStepOne = useCallback(() => {
@@ -203,48 +199,48 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setSetupStep(4)
   }, [proficiencyLevel, setError, setSetupStep])
 
+  /** Setup fertig → sofort weiter zur Syllabus-Generierung (kein Einstiegstest mehr dazwischen).
+   *  `tutorState = 'entry_quiz_done'` ist der bestehende Trigger für usePostEntrySyllabusGeneration —
+   *  Name bewusst beibehalten (keine Persistenz-Migration nötig), bedeutet inhaltlich jetzt „Setup fertig".
+   *  Die Themenanzahl kam früher aus dem Einstiegstest-Score; ohne Test dient die Selbsteinschätzung aus
+   *  Schritt 3 als Ersatzsignal (schwächer → mehr, kleinere Themen). */
   const handleFinishSetup = useCallback(() => {
     if (!proficiencyLevel) {
       setError('Bitte wähle deine Selbsteinschätzung aus.')
       return
     }
+    const recommendedChapterCount = proficiencyLevel === 'low' ? 4 : proficiencyLevel === 'medium' ? 3 : 2
     setError(null)
-    setHasTriedEntryQuizGeneration(false)
-    setIsEntryQuizLoading(false)
-    setIsEntryPrepClosing(false)
-    setEntryPrepStepIndex(0)
-    setEntryPrepPercents([0, 0, 0])
     setIsPostEntryPrepLoading(false)
     setPostEntryPrepStepIndex(0)
     setPostEntryPrepPercents([0, 0])
     setIsSetupComplete(true)
     setTutorMessages([])
-    setEntryQuiz(null)
-    setEntryQuizAnswers({})
-    setEntryQuizResult(null)
+    setSyllabus([])
     setLearningChapters([])
     setChapterBlueprints([])
     setChapterSession(DEFAULT_CHAPTER_SESSION)
-    setEntryQuizQuestionIndex(0)
+    setTopicSessions([])
+    setActiveTopicFlowIndex(null)
+    setSkillMasteryBySkillId({})
+    setTargetChapterCount(recommendedChapterCount)
+    setTutorState('entry_quiz_done')
   }, [
     proficiencyLevel,
     setChapterBlueprints,
     setChapterSession,
-    setEntryPrepPercents,
-    setEntryPrepStepIndex,
-    setEntryQuiz,
-    setEntryQuizAnswers,
-    setEntryQuizQuestionIndex,
-    setEntryQuizResult,
+    setSkillMasteryBySkillId,
     setError,
-    setHasTriedEntryQuizGeneration,
-    setIsEntryPrepClosing,
-    setIsEntryQuizLoading,
     setIsPostEntryPrepLoading,
     setIsSetupComplete,
+    setSyllabus,
     setLearningChapters,
+    setTopicSessions,
+    setActiveTopicFlowIndex,
+    setTargetChapterCount,
     setPostEntryPrepPercents,
     setPostEntryPrepStepIndex,
+    setTutorState,
     setTutorMessages,
   ])
 

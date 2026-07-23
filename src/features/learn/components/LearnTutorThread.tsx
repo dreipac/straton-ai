@@ -1,17 +1,12 @@
-import checkIcon from '../../../assets/icons/check.svg'
 import chevronLeftIcon from '../../../assets/icons/chevron-left.svg'
-import fileIcon from '../../../assets/icons/file.svg'
 import starsIcon from '../../../assets/icons/stars.svg'
 import kompassImage from '../../../assets/png/kompass.png'
-import type { EntryQuizResult, LearnWorksheetItem, TutorChatEntry } from '../services/learn.persistence'
+import type { LearnWorksheetItem, TutorChatEntry } from '../services/learn.persistence'
 import { stripEmbeddedSyllabusFromTutorMessage } from '../utils/learnTutorCoachMessages'
 import { getWorksheetChapterProgress } from '../utils/learnPageHelpers'
 
 export type LearnTutorThreadProps = {
   messages: TutorChatEntry[]
-  entryQuizResult: EntryQuizResult | null
-  entryTestDurationLabel: string
-  onOpenEntryQuizModal: () => void
   onStartNextChapter: () => void
   chapterBlueprintReady: boolean
   onCreateFlashcards: () => void
@@ -86,9 +81,6 @@ function renderStartChapterCoachCard(
 export function LearnTutorThread(props: LearnTutorThreadProps) {
   const {
     messages,
-    entryQuizResult,
-    entryTestDurationLabel,
-    onOpenEntryQuizModal,
     onStartNextChapter,
     chapterBlueprintReady,
     onCreateFlashcards,
@@ -101,9 +93,6 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
   const worksheetGateProgress = getWorksheetChapterProgress(learnWorksheets, tutorWorksheetChapterIndex)
 
   const renderMessageContent = (message: TutorChatEntry) => {
-    if (message.action === 'open-entry-test') {
-      return null
-    }
     const content =
       stripEmbeddedSyllabus && message.role === 'assistant'
         ? stripEmbeddedSyllabusFromTutorMessage(message.content)
@@ -127,44 +116,8 @@ export function LearnTutorThread(props: LearnTutorThreadProps) {
           key={message.id}
           className={`learn-conversation-message is-${message.role} ${message.role === 'assistant' ? 'is-reveal' : ''}`}
         >
-          {message.role === 'assistant' && message.action !== 'open-entry-test' ? (
-            <strong className="chat-message-author">Straton AI</strong>
-          ) : null}
-          {message.action === 'open-entry-test' ? (
-            <div className="learn-entry-test-ready">
-              <p className="learn-entry-test-ready-title">
-                <img className="ui-icon learn-entry-test-ready-check" src={checkIcon} alt="" aria-hidden="true" />
-                <span>{entryQuizResult ? 'Einstiegstest ausgewertet' : 'Einstiegstest bereit'}</span>
-              </p>
-              <p className="learn-entry-test-ready-description">
-                {entryQuizResult
-                  ? 'Dein Einstiegstest wurde ausgewertet. Als Nächstes bekommst du eine passende Empfehlung vom Tutor.'
-                  : 'Dieser Test hilft dir, dein Wissen zu analysieren und deinen Lernpfad anzupassen.'}
-              </p>
-              <p className="learn-entry-test-ready-duration">
-                {entryQuizResult
-                  ? `Ergebnis: ${entryQuizResult.score}/${entryQuizResult.total}`
-                  : `Dauer: ${entryTestDurationLabel}`}
-              </p>
-            </div>
-          ) : (
-            renderMessageContent(message)
-          )}
-          {message.action === 'open-entry-test' ? (
-            <button type="button" className="learn-entry-test-link" onClick={onOpenEntryQuizModal}>
-              <span className="learn-entry-test-link-icon-wrap" aria-hidden="true">
-                <img className="ui-icon learn-entry-test-link-icon" src={fileIcon} alt="" />
-              </span>
-              <span className="learn-entry-test-link-content">
-                <span className="learn-entry-test-link-title">
-                  {entryQuizResult ? 'Einstiegstest Ergebnisse' : 'Einstiegstest'}
-                </span>
-                <span className="learn-entry-test-link-meta">
-                  {entryQuizResult ? 'Ergebnisdatei öffnen' : 'Datei öffnen'}
-                </span>
-              </span>
-            </button>
-          ) : null}
+          {message.role === 'assistant' ? <strong className="chat-message-author">Straton AI</strong> : null}
+          {renderMessageContent(message)}
           {message.action === 'create-flashcards' ? (
             <button type="button" className="learn-entry-test-link" onClick={onCreateFlashcards}>
               <span className="learn-entry-test-link-content">

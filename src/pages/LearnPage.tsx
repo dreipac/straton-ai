@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type Dispatch,
   type MouseEvent as ReactMouseEvent,
@@ -16,8 +17,6 @@ import addIcon from '../assets/icons/add.svg'
 import sidebarIcon from '../assets/icons/sidebar.svg'
 import learnOutlinedIcon from '../assets/icons/learn-outlined.svg'
 import learnFilledIcon from '../assets/icons/learn-filled.svg'
-import examOutlinedIcon from '../assets/icons/exam-outlined.svg'
-import examFilledIcon from '../assets/icons/exam-filled.svg'
 import cardsOutlinedIcon from '../assets/icons/cards-outline.svg'
 import cardsFilledIcon from '../assets/icons/cards-filled.svg'
 import paperOutlinedIcon from '../assets/icons/paper-outlined.svg'
@@ -51,6 +50,7 @@ import {
   type LearnWorksheetItem,
   type LearningPathRecord,
   type LearningPathSummary,
+  type SkillMasteryBySkillId,
   type SyllabusEntry,
   type TopicSession,
   type TutorChatEntry,
@@ -58,12 +58,10 @@ import {
   updateLearningPathById,
 } from '../features/learn/services/learn.persistence'
 import { useAdaptiveChapterGeneration } from '../features/learn/hooks/useAdaptiveChapterGeneration'
-import { useTopicStepGeneration } from '../features/learn/hooks/useTopicStepGeneration'
+import { useTopicSubstepOutline } from '../features/learn/hooks/useTopicStepGeneration'
 import { useLearnWorkspaceDerived } from '../features/learn/hooks/useLearnWorkspaceDerived'
 import { useLearningPathActions } from '../features/learn/hooks/useLearningPathActions'
 import { useLearnSetupFlow } from '../features/learn/hooks/useLearnSetupFlow'
-import { useEntryQuizUiFlow } from '../features/learn/hooks/useEntryQuizUiFlow'
-import { useEntryQuizSubmissionFlow } from '../features/learn/hooks/useEntryQuizSubmissionFlow'
 import { usePostEntrySyllabusGeneration } from '../features/learn/hooks/usePostEntrySyllabusGeneration'
 import {
   buildPlaceholderChapterBlueprint,
@@ -82,18 +80,15 @@ import { extractLearningMaterialText, LEARN_MATERIAL_EXCERPT_MAX_CHARS } from '.
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   DEFAULT_CHAPTER_SESSION,
-  ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS,
-  ENTRY_TEST_PREP_STEPS,
   POST_ENTRY_PREP_STEPS,
-  TOPIC_DIAGNOSTIC_MIN_QUESTIONS,
-  TOPIC_MASTERY_THRESHOLD,
-  TOPIC_MAX_STEPS,
+  TOPIC_ENTRY_CHECK_MIN_QUESTIONS,
   buildChapterGenerationUserPrompt,
   buildChapterMaterialSearchQuery,
-  buildEntryQuizFallbackPayload,
-  buildEntryQuizInsightForChapter,
   buildLearnerStateInsight,
+  buildSubstepContentFallback,
+  buildSubstepContentPrompt,
   buildTopicDiagnosticUserPrompt,
+  collectTopicWeakQuestionSteps,
   ensureMinimumChapterDepth,
   getChapterMaterialRagOptions,
   getDisplayPathTitle,
@@ -103,10 +98,10 @@ import {
   parseChapterBlueprintsFromText,
   resolveWorksheetProgressChapterKey,
   shouldUseMixedLearnMaterial,
+  topicMasteryScore,
   validateGeneratedChapter,
-  validateGeneratedEntryQuiz,
+  validateGeneratedSubstep,
   trimOutlineForWorksheetGeneration,
-  WORKSHEET_EXERCISE_FIDELITY_RULES,
   worksheetChapterDisplayLabel,
 } from '../features/learn/utils/learnPageHelpers'
 import {
@@ -115,10 +110,20 @@ import {
 } from '../features/learn/utils/ragLite'
 import { namespaceChapterStepIds } from '../features/learn/utils/chapterStepIds'
 import {
+  buildFlashcardSourceFromBlueprints,
   buildLearnMaterialOutlineFromBlueprints,
   buildMixedLearnProgressOutline,
+  buildSubstepCompletionWorksheetOutline,
   type LearnMaterialPersonalizationMode,
 } from '../features/learn/utils/flashcardSourceFromBlueprints'
+import { useLearnGamification } from '../features/learn/hooks/useLearnGamification'
+import {
+  XP_PER_CHAPTER_COMPLETED,
+  XP_PER_CORRECT_ANSWER,
+  XP_PER_FLASHCARD_REVIEW,
+  XP_PER_MASTERED_TOPIC,
+  type GamificationBadgeContext,
+} from '../features/learn/utils/gamification'
 import { LearnAreaAdminBanner } from '../features/learn/components/LearnAreaAdminBanner'
 import { LearnErrorLogbookHintCard } from '../features/learn/components/LearnErrorLogbookHintCard'
 import { LearnErrorLogbookPanel } from '../features/learn/components/LearnErrorLogbookPanel'
@@ -129,10 +134,7 @@ import {
   setErrorHintDismissed,
   shouldShowErrorLogbookHint,
 } from '../features/learn/utils/errorLogbook'
-import {
-  buildEntryQuizReadyTutorMessage,
-  buildTutorCoachMessage,
-} from '../features/learn/utils/learnTutorCoachMessages'
+import { buildTutorCoachMessage } from '../features/learn/utils/learnTutorCoachMessages'
 import {
   applyFlashcardReview,
   getDueFlashcardsFromSets,
@@ -140,19 +142,19 @@ import {
   initializeNewFlashcardSet,
   isFlashcardDue,
 } from '../features/learn/utils/spacedRepetition'
-import { LearnChapterModal } from '../features/learn/components/LearnChapterModal'
-import { LearnMapModal } from '../features/learn/components/LearnMapModal'
+import { LearnChapterWorkspace } from '../features/learn/components/LearnChapterWorkspace'
 import { LearnPathOnboarding } from '../features/learn/components/LearnPathOnboarding'
 import { LearnFlashcardsModal } from '../features/learn/components/LearnFlashcardsModal'
 import { LearnWorksheetModal } from '../features/learn/components/LearnWorksheetModal'
 import { LearnConversationSection } from '../features/learn/components/LearnConversationSection'
-import { LearnEntryQuizModal } from '../features/learn/components/LearnEntryQuizModal'
 import { LearnOverviewPanel } from '../features/learn/components/LearnOverviewPanel'
 import { LearnSkillMasteryPanel } from '../features/learn/components/LearnSkillMasteryPanel'
 import { ChatPendingReplyLoader } from '../features/chat/components/ChatPendingReplyLoader'
 import { LearnPageSidebar } from '../features/learn/components/LearnPageSidebar'
 import { useLearningPathListEnterAnimation } from '../features/learn/hooks/useLearningPathListEnterAnimation'
 import { isPendingLearningPathId } from '../features/learn/utils/learnPageHelpers'
+import { migrateLegacyChapterProgressToTopicSessions } from '../features/learn/utils/legacyProgressMigration'
+import { buildTopicCorpora } from '../features/learn/utils/topicSessionCorpora'
 import { LearnEntryPrepPanel } from '../features/learn/components/LearnEntryPrepPanel'
 import { LearnSetupPanel } from '../features/learn/components/LearnSetupPanel'
 import { SettingsModal } from './SettingsPage'
@@ -267,6 +269,7 @@ export function LearnPage({
   const CHAPTER_ON_DEMAND_TIMEOUT_MS = 120_000
   const CHAPTER_ON_DEMAND_STEPS = ['Kapitel wird vorbereitet', 'Kapitelinhalt wird erstellt', 'Qualitätsprüfung läuft'] as const
   const { user, profile, isLoading, refreshProfile } = useAuth()
+  const gamification = useLearnGamification(user?.id)
   const { getPrompt } = useSystemPrompts()
   const navigate = useNavigate()
   const location = useLocation()
@@ -302,14 +305,9 @@ export function LearnPage({
   const [aiGuidance, setAiGuidance] = useState('')
   const [setupAnalysisPercent, setSetupAnalysisPercent] = useState(0)
   const [proficiencyLevel, setProficiencyLevel] = useState<'' | 'low' | 'medium' | 'high'>('')
+  /** Legacy: Alt-Pfade, die den früheren path-weiten Einstiegstest noch absolviert haben. Wird nicht mehr
+   *  generiert/angezeigt — nur noch für Rückwärtskompatibilität persistiert (siehe Konsolidierungs-Plan). */
   const [entryQuiz, setEntryQuiz] = useState<InteractiveQuizPayload | null>(null)
-  const [isEntryQuizLoading, setIsEntryQuizLoading] = useState(false)
-  const [hasTriedEntryQuizGeneration, setHasTriedEntryQuizGeneration] = useState(false)
-  const [entryPrepStepIndex, setEntryPrepStepIndex] = useState(0)
-  const [entryPrepPercents, setEntryPrepPercents] = useState<number[]>([0, 0, 0])
-  const [isEntryPrepClosing, setIsEntryPrepClosing] = useState(false)
-  const [isEntryQuizMounted, setIsEntryQuizMounted] = useState(false)
-  const [isEntryQuizVisible, setIsEntryQuizVisible] = useState(false)
   const [isSettingsMounted, setIsSettingsMounted] = useState(false)
   const [isSettingsVisible, setIsSettingsVisible] = useState(false)
   const [entryQuizAnswers, setEntryQuizAnswers] = useState<Record<string, string>>({})
@@ -322,15 +320,29 @@ export function LearnPage({
   const [learningChapters, setLearningChapters] = useState<string[]>([])
   const [chapterBlueprints, setChapterBlueprints] = useState<ChapterBlueprint[]>([])
   const [chapterSession, setChapterSession] = useState<ChapterSession>(DEFAULT_CHAPTER_SESSION)
+  /** Pfad-global: Kapitel-Modus, Landkarte-Modus und Arbeitsblätter schreiben gemeinsam hierher. */
+  const [skillMasteryBySkillId, setSkillMasteryBySkillId] = useState<SkillMasteryBySkillId>({})
   /** Landkarte Phase 1: pro-Thema-Fortschritt (Diagnosetest + dynamische Zwischenschritte). Additiv zum Kapitel-Modell. */
   const [topicSessions, setTopicSessions] = useState<TopicSession[]>([])
-  /** Landkarte Phase 1: != null während ein Thema (Diagnose oder Zwischenschritt) statt eines Legacy-Kapitels im Modal aktiv ist. */
+  /** != null während ein Thema (Einstiegscheck/Analyse/Zwischenschritt) im Arbeitsbereich aktiv ist. */
   const [activeTopicFlowIndex, setActiveTopicFlowIndex] = useState<number | null>(null)
+  /** Aktiver Zwischenschritt innerhalb des Themas; null = Einstiegscheck/Landing/Analyse (kein Substep gewählt). */
+  const [activeSubstepIndex, setActiveSubstepIndex] = useState<number | null>(null)
+  /** true nach Klick auf „Einstiegscheck starten" — schaltet vom Landing zur ersten Frage (transient, pro Thema). */
+  const [entryCheckStarted, setEntryCheckStarted] = useState(false)
+  /** Läuft, während der Vollinhalt eines Zwischenschritts lazy generiert wird. */
+  const [isGeneratingSubstepContent, setIsGeneratingSubstepContent] = useState(false)
+  /** true, sobald der feste Flow eines Zwischenschritts durchlaufen ist — schaltet auf die Übungskarten-Phase. */
+  const [isSubstepPracticePhase, setIsSubstepPracticePhase] = useState(false)
+  /** Läuft, während das Übungskarten-Set eines Zwischenschritts lazy generiert wird. */
+  const [isGeneratingSubstepPractice, setIsGeneratingSubstepPractice] = useState(false)
+  /** true, sobald alle Übungskarten bewertet sind — schaltet auf das Abschluss-Arbeitsblatt (Pflicht). */
+  const [isSubstepWorksheetPhase, setIsSubstepWorksheetPhase] = useState(false)
+  /** Läuft, während das Abschluss-Arbeitsblatt eines Zwischenschritts lazy generiert wird. */
+  const [isGeneratingSubstepWorksheet, setIsGeneratingSubstepWorksheet] = useState(false)
   const [isChapterModalMounted, setIsChapterModalMounted] = useState(false)
   const [isChapterModalVisible, setIsChapterModalVisible] = useState(false)
   /** Landkarte Phase 2: Vollbild-Kartenansicht, separates Overlay-Modal (kein Kapitel-Inhalt). */
-  const [isLearnMapModalMounted, setIsLearnMapModalMounted] = useState(false)
-  const [isLearnMapModalVisible, setIsLearnMapModalVisible] = useState(false)
   const [isFlashcardsModalMounted, setIsFlashcardsModalMounted] = useState(false)
   const [isFlashcardsModalVisible, setIsFlashcardsModalVisible] = useState(false)
   const [learnFlashcardSets, setLearnFlashcardSets] = useState<LearnFlashcardSet[]>([])
@@ -346,10 +358,15 @@ export function LearnPage({
   const [chapterGenerationDebugRaw, setChapterGenerationDebugRaw] = useState('')
   const [worksheetRequiredChapterIndex, setWorksheetRequiredChapterIndex] = useState<number | null>(null)
   const [worksheetModalChapterFilter, setWorksheetModalChapterFilter] = useState<number | null>(null)
+  /** Alternativer Filter für Abschluss-Arbeitsblätter eines Zwischenschritts (Landkarte-Modell) — schließt
+   *  sich mit `worksheetModalChapterFilter` gegenseitig aus. */
+  const [worksheetModalSubstepFilter, setWorksheetModalSubstepFilter] = useState<
+    { topicIndex: number; substepIndex: number } | null
+  >(null)
   const [learnMaterialChoiceTarget, setLearnMaterialChoiceTarget] = useState<null | 'flashcards' | 'worksheet'>(null)
   const [isEvaluatingChapterStep, setIsEvaluatingChapterStep] = useState(false)
   const [activeLearnTab, setActiveLearnTab] = useState<
-    'path' | 'tests' | 'flashcards' | 'worksheets' | 'statistics'
+    'path' | 'flashcards' | 'worksheets' | 'statistics'
   >('path')
   const [isMobileTabsTouchActive, setIsMobileTabsTouchActive] = useState(false)
   const [isCompletedChaptersOpen, setIsCompletedChaptersOpen] = useState(false)
@@ -359,8 +376,6 @@ export function LearnPage({
   const [flashcardsModalSetId, setFlashcardsModalSetId] = useState<string | null>(null)
   const [flashcardsModalReviewMode, setFlashcardsModalReviewMode] = useState<'all' | 'due'>('all')
   const [flashcardsDueSessionTotal, setFlashcardsDueSessionTotal] = useState(0)
-  const [entryQuizQuestionIndex, setEntryQuizQuestionIndex] = useState(0)
-  const [isSubmittingEntryQuiz, setIsSubmittingEntryQuiz] = useState(false)
   const [isPostEntryPrepLoading, setIsPostEntryPrepLoading] = useState(false)
   const [postEntryPrepStepIndex, setPostEntryPrepStepIndex] = useState(0)
   const [postEntryPrepPercents, setPostEntryPrepPercents] = useState<number[]>([0, 0])
@@ -378,10 +393,11 @@ export function LearnPage({
   const mobileTabsReleaseTimerRef = useRef<number | null>(null)
   const mobileSidebarButtonTouchStartRef = useRef<number>(0)
   const mobileSidebarButtonReleaseTimerRef = useRef<number | null>(null)
-  const entryQuizCloseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
-  const learnMapModalCloseTimerRef = useRef<number | null>(null)
   const chapterGenerationInFlightRef = useRef(false)
+  const substepContentInFlightRef = useRef(false)
+  const substepPracticeInFlightRef = useRef(false)
+  const substepWorksheetInFlightRef = useRef(false)
   const flashcardsModalCloseTimerRef = useRef<number | null>(null)
   const worksheetModalCloseTimerRef = useRef<number | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
@@ -468,12 +484,6 @@ export function LearnPage({
     'ai'
   const effectiveTopic = selectedTopic.trim() || topic.trim()
   const setupAnalysisPercentClamped = Math.max(0, Math.min(100, Math.round(setupAnalysisPercent)))
-  const entryPrepStepSafeIndex = Math.max(0, Math.min(ENTRY_TEST_PREP_STEPS.length - 1, entryPrepStepIndex))
-  const entryPrepCurrentStepPercent = Math.max(0, Math.min(100, entryPrepPercents[entryPrepStepSafeIndex] ?? 0))
-  const entryPrepOverallPercent =
-    ENTRY_TEST_PREP_STEPS.length > 0
-      ? Math.round(((entryPrepStepSafeIndex + entryPrepCurrentStepPercent / 100) / ENTRY_TEST_PREP_STEPS.length) * 100)
-      : 0
   const postEntryPrepStepSafeIndex = Math.max(0, Math.min(POST_ENTRY_PREP_STEPS.length - 1, postEntryPrepStepIndex))
   const postEntryCurrentStepPercent = Math.max(0, Math.min(100, postEntryPrepPercents[postEntryPrepStepSafeIndex] ?? 0))
   const postEntryPrepOverallPercent =
@@ -486,7 +496,6 @@ export function LearnPage({
   const setupAnalysisArcLength = setupAnalysisCircumference * setupAnalysisArcRatio
   const setupAnalysisArcOffset =
     setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, setupAnalysisPercent)) / 100)
-  const entryPrepArcOffset = setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, entryPrepOverallPercent)) / 100)
   const postEntryPrepArcOffset =
     setupAnalysisArcLength * (1 - Math.max(0, Math.min(100, postEntryPrepOverallPercent)) / 100)
   const chapterGenerationArcOffset =
@@ -496,15 +505,6 @@ export function LearnPage({
     Math.max(0, Math.min(100, Math.round((chapterGenerationPercent - 25) * 1.35))),
     Math.max(0, Math.min(100, Math.round((chapterGenerationPercent - 68) * 3.2))),
   ]
-  const entryTestDurationLabel = entryQuiz
-    ? `ca. ${Math.max(5, Math.ceil(entryQuiz.questions.length * 1.5))} Minuten`
-    : 'ca. 10 Minuten'
-  const hasEntryQuizProgress = Object.values(entryQuizAnswers).some((value) => value.trim().length > 0)
-  const entryTestStatus: 'open' | 'in_progress' | 'completed' = entryQuizResult
-    ? 'completed'
-    : hasEntryQuizProgress
-      ? 'in_progress'
-      : 'open'
   const sequentialChapterLimit = Math.max(1, Math.min(targetChapterCount, unlockedChapterCount))
   const chapterBlueprintsForFlow = chapterBlueprints.slice(0, Math.min(chapterBlueprints.length, sequentialChapterLimit))
 
@@ -562,6 +562,7 @@ export function LearnPage({
       chapterBlueprints,
       chapterSession,
       topicSessions,
+      skillMasteryBySkillId,
       learnFlashcardSets,
       learnWorksheets,
     }),
@@ -587,6 +588,7 @@ export function LearnPage({
       chapterBlueprints,
       chapterSession,
       topicSessions,
+      skillMasteryBySkillId,
       learnFlashcardSets,
       learnWorksheets,
     ],
@@ -616,25 +618,17 @@ export function LearnPage({
       setLearningChapters(record.learningChapters)
       setChapterBlueprints(record.chapterBlueprints)
       setChapterSession(record.chapterSession)
+      setSkillMasteryBySkillId(record.skillMasteryBySkillId ?? {})
       setTopicSessions(record.topicSessions ?? [])
       setActiveTopicFlowIndex(null)
-      setEntryQuizQuestionIndex(0)
+      setActiveSubstepIndex(null)
+      setEntryCheckStarted(false)
       setIsAnalyzingSetupTopic(false)
-      setHasTriedEntryQuizGeneration(Boolean(record.entryQuiz))
-      setEntryPrepStepIndex(0)
-      setEntryPrepPercents([0, 0, 0])
-      setIsEntryPrepClosing(false)
       setIsPostEntryPrepLoading(false)
       setPostEntryPrepStepIndex(0)
       setPostEntryPrepPercents([0, 0])
       setIsChapterModalVisible(false)
       setIsChapterModalMounted(false)
-      setIsLearnMapModalVisible(false)
-      setIsLearnMapModalMounted(false)
-      if (learnMapModalCloseTimerRef.current) {
-        window.clearTimeout(learnMapModalCloseTimerRef.current)
-        learnMapModalCloseTimerRef.current = null
-      }
       setIsEvaluatingChapterStep(false)
       setIsFlashcardsModalVisible(false)
       setIsFlashcardsModalMounted(false)
@@ -660,10 +654,6 @@ export function LearnPage({
       setWorksheetModalChapterFilter(null)
       setFlashcardsModalFocusCardId(null)
       setFlashcardsModalSetId(null)
-      if (entryQuizCloseTimerRef.current) {
-        window.clearTimeout(entryQuizCloseTimerRef.current)
-        entryQuizCloseTimerRef.current = null
-      }
       if (chapterModalCloseTimerRef.current) {
         window.clearTimeout(chapterModalCloseTimerRef.current)
         chapterModalCloseTimerRef.current = null
@@ -672,8 +662,6 @@ export function LearnPage({
         window.clearTimeout(settingsCloseTimerRef.current)
         settingsCloseTimerRef.current = null
       }
-      setIsEntryQuizVisible(false)
-      setIsEntryQuizMounted(false)
       setIsSettingsVisible(false)
       setIsSettingsMounted(false)
     },
@@ -704,8 +692,11 @@ export function LearnPage({
     setLearningChapters([])
     setChapterBlueprints([])
     setChapterSession(DEFAULT_CHAPTER_SESSION)
+    setSkillMasteryBySkillId({})
     setTopicSessions([])
     setActiveTopicFlowIndex(null)
+    setActiveSubstepIndex(null)
+    setEntryCheckStarted(false)
     setLearnFlashcardSets([])
     setLearnWorksheets([])
     setIsChapterGenerationLoading(false)
@@ -714,7 +705,6 @@ export function LearnPage({
     setWorksheetModalChapterFilter(null)
     setFlashcardsModalFocusCardId(null)
     setFlashcardsModalSetId(null)
-    setEntryQuizQuestionIndex(0)
     setIsPostEntryPrepLoading(false)
     setPostEntryPrepStepIndex(0)
     setPostEntryPrepPercents([0, 0])
@@ -742,6 +732,7 @@ export function LearnPage({
     chapterBlueprints,
     chapterSession,
     topicSessions,
+    skillMasteryBySkillId,
     learnFlashcardSets,
     learnWorksheets,
   }
@@ -798,23 +789,20 @@ export function LearnPage({
     setSelectedTopic,
     setTopicSuggestions,
     setSetupStep,
-    setHasTriedEntryQuizGeneration,
-    setIsEntryQuizLoading,
-    setIsEntryPrepClosing,
-    setEntryPrepStepIndex,
-    setEntryPrepPercents,
     setIsPostEntryPrepLoading,
     setPostEntryPrepStepIndex,
     setPostEntryPrepPercents,
     setIsSetupComplete,
+    setTargetChapterCount,
+    setTutorState,
     setTutorMessages,
-    setEntryQuiz,
-    setEntryQuizAnswers,
-    setEntryQuizResult,
+    setSyllabus,
     setLearningChapters,
     setChapterBlueprints,
     setChapterSession,
-    setEntryQuizQuestionIndex,
+    setTopicSessions,
+    setActiveTopicFlowIndex,
+    setSkillMasteryBySkillId,
     })
 
   useEffect(() => {
@@ -904,11 +892,7 @@ export function LearnPage({
     const maxPlannedCount = Math.max(1, Math.min(targetChapterCount, chapterBlueprints.length || targetChapterCount))
     const lastUnlockedIndex = Math.max(0, unlockedChapterCount - 1)
     const hasCompletedLastUnlocked = chapterSession.completedChapterIndexes.includes(lastUnlockedIndex)
-    const worksheetProgressKey = resolveWorksheetProgressChapterKey(
-      chapterBlueprints,
-      chapterSession,
-      lastUnlockedIndex,
-    )
+    const worksheetProgressKey = resolveWorksheetProgressChapterKey(topicSessions, lastUnlockedIndex)
     const worksheetProgress = getWorksheetChapterProgress(learnWorksheets, worksheetProgressKey)
     const worksheetDoneForChapter = worksheetProgress.isComplete
 
@@ -932,32 +916,49 @@ export function LearnPage({
     targetChapterCount,
     unlockedChapterCount,
     learnWorksheets,
+    topicSessions,
   ])
 
-  /** Landkarte Phase 1: topicSessions 1:1 mit syllabus initialisieren, sobald der Lernplan feststeht. Alle Themen starten 'locked'. */
+  /** Landkarte Phase 1: topicSessions 1:1 mit syllabus initialisieren, sobald der Lernplan feststeht. Alle Themen starten 'locked'.
+   *  Direkt im Anschluss: alte, linear generierte Kapitel (chapterBlueprints/chapterSession) einmalig migrieren,
+   *  sonst würde ein Pfad mit echtem klassischen Fortschritt auf der Karte fälschlich "alles gesperrt" zeigen
+   *  (siehe legacyProgressMigration.ts). Migration ist idempotent, läuft also gefahrlos bei jedem Resize mit. */
   useEffect(() => {
     if (syllabus.length === 0) {
       return
     }
     setTopicSessions((prev) => {
-      if (prev.length === syllabus.length) {
-        return prev
+      const resized =
+        prev.length === syllabus.length
+          ? prev
+          : syllabus.map(
+              (_, index): TopicSession =>
+                prev[index] ?? {
+                  topicIndex: index,
+                  status: 'locked',
+                  entryCheckBlueprint: null,
+                  entryCheckSession: null,
+                  substeps: [],
+                },
+            )
+      const migrated = migrateLegacyChapterProgressToTopicSessions(chapterBlueprints, chapterSession, resized)
+      if (migrated !== resized) {
+        // Nur bei echter Legacy-Migration explizit persistieren — ein reiner Resize läuft über den
+        // normalen Autosave-Pfad (topicSessions ist Teil von editableSnapshot).
+        const pathId = activePathIdRef.current
+        if (pathId && !isPendingLearningPathId(pathId)) {
+          void updateLearningPathById(pathId, { topicSessions: migrated })
+            .then((updated) => {
+              pathCacheRef.current[pathId] = updated
+            })
+            .catch(() => {
+              // Migration greift beim nächsten Laden erneut — kein Nutzerfluss-Blocker.
+            })
+        }
       }
-      return syllabus.map(
-        (_, index): TopicSession =>
-          prev[index] ?? {
-            topicIndex: index,
-            status: 'locked',
-            diagnosticBlueprint: null,
-            diagnosticSession: null,
-            stepBlueprints: [],
-            stepSession: null,
-            masteryScore: 0,
-            masteryAttempts: 0,
-          },
-      )
+      return migrated
     })
-  }, [syllabus])
+  }, [syllabus, chapterBlueprints, chapterSession])
 
   useEffect(() => {
     if (!learnFeatureInfoVisible) {
@@ -1051,12 +1052,7 @@ export function LearnPage({
       setWorksheetRequiredChapterIndex(null)
       setWorksheetModalChapterFilter(null)
       setFlashcardsModalFocusCardId(null)
-      setEntryQuizQuestionIndex(0)
       setIsAnalyzingSetupTopic(false)
-      setHasTriedEntryQuizGeneration(false)
-      setEntryPrepStepIndex(0)
-      setEntryPrepPercents([0, 0, 0])
-      setIsEntryPrepClosing(false)
       setIsPostEntryPrepLoading(false)
       setPostEntryPrepStepIndex(0)
       setPostEntryPrepPercents([0, 0])
@@ -1304,9 +1300,6 @@ export function LearnPage({
 
   useEffect(() => {
     return () => {
-      if (entryQuizCloseTimerRef.current) {
-        window.clearTimeout(entryQuizCloseTimerRef.current)
-      }
       if (chapterModalCloseTimerRef.current) {
         window.clearTimeout(chapterModalCloseTimerRef.current)
       }
@@ -1357,313 +1350,6 @@ export function LearnPage({
     }
   }, [isAnalyzingSetupTopic])
 
-  useEffect(() => {
-    if (!(isEntryQuizLoading && tutorMessages.length === 0)) {
-      return
-    }
-
-    let isCancelled = false
-    const timers: number[] = []
-
-    setEntryPrepStepIndex(0)
-    setEntryPrepPercents([0, 0, 0])
-
-    function runStep(stepIndex: number) {
-      if (isCancelled) {
-        return
-      }
-
-      setEntryPrepStepIndex(stepIndex)
-      let percent = 0
-
-      const tick = () => {
-        if (isCancelled) {
-          return
-        }
-
-        const jump = Math.floor(Math.random() * 8) + 4
-        percent = Math.min(100, percent + jump)
-
-        setEntryPrepPercents((prev) => {
-          const next = [...prev]
-          next[stepIndex] = percent
-          return next
-        })
-
-        if (percent >= 100) {
-          if (stepIndex < ENTRY_TEST_PREP_STEPS.length - 1) {
-            const nextTimer = window.setTimeout(() => {
-              runStep(stepIndex + 1)
-            }, 220)
-            timers.push(nextTimer)
-          }
-          return
-        }
-
-        const timerId = window.setTimeout(tick, 95)
-        timers.push(timerId)
-      }
-
-      tick()
-    }
-
-    runStep(0)
-
-    return () => {
-      isCancelled = true
-      timers.forEach((timerId) => window.clearTimeout(timerId))
-    }
-  }, [isEntryQuizLoading, tutorMessages.length])
-
-  useEffect(() => {
-    if (
-      !isSetupComplete ||
-      !activePath ||
-      isEntryQuizLoading ||
-      entryQuiz ||
-      hasTriedEntryQuizGeneration
-    ) {
-      return
-    }
-    const activePathIdAtStart = activePath.id
-    const activePathTitle = activePath.title
-
-    async function generateEntryQuiz() {
-      setHasTriedEntryQuizGeneration(true)
-      setIsEntryQuizLoading(true)
-      setIsEntryPrepClosing(false)
-      setError(null)
-
-      try {
-        let parsedQuiz: InteractiveQuizPayload | null = null
-        let parsedCleanText = ''
-        let validationReason = ''
-        let lastGatewayError: Error | null = null
-
-        // Platzhalter-Modus: fertiger Test ohne KI — Ablauf und Screens bleiben identisch,
-        // die Generierungs-Schleife unten wird durch das gesetzte parsedQuiz übersprungen.
-        if (generationMode === 'placeholder') {
-          await placeholderDelay()
-          parsedQuiz = buildEntryQuizFallbackPayload(effectiveTopic || getDisplayPathTitle(activePathTitle))
-          parsedCleanText = 'Platzhalter-Einstiegstest ohne KI erstellt.'
-        }
-
-        const materialContext = formatRelevantMaterialContext(
-          (
-            (effectiveTopic || getDisplayPathTitle(activePathTitle)) +
-            ' ' +
-            selectedTopic +
-            ' Übung Aufgabe Berechnung Teilaufgabe Beispiel'
-          ).trim(),
-          materials,
-          materials.length > 0
-            ? {
-                maxChunks: materials.length > 2 ? 14 : 11,
-                maxChars: materials.length > 2 ? 10_000 : 8200,
-                denseChunks: true,
-                emphasizePersonalSources: true,
-              }
-            : { maxChunks: 10, maxChars: 6500 },
-        )
-
-        for (let attempt = 1; !parsedQuiz && attempt <= ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS; attempt += 1) {
-          const quizRequestMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'user',
-            content: [
-              'Lernpfad Name: ' + getDisplayPathTitle(activePathTitle),
-              'Thema: ' + (effectiveTopic || getDisplayPathTitle(activePathTitle)),
-              selectedTopic.trim() ? 'Gewählter Schwerpunkt: ' + selectedTopic.trim() : 'Gewählter Schwerpunkt: keiner',
-              aiGuidance.trim() ? 'Zusatzhinweise des Lernenden: ' + aiGuidance.trim() : 'Zusatzhinweise des Lernenden: keine',
-              proficiencyLevel
-                ? 'Selbsteinschätzung Niveau: ' +
-                  (proficiencyLevel === 'low' ? 'schwach' : proficiencyLevel === 'medium' ? 'mittel' : 'gut')
-                : 'Selbsteinschätzung Niveau: unbekannt',
-              materialContext
-                ? 'Dateiauszüge (mind. die Hälfte der Fragen muss sich hierauf beziehen — Begriffe, Fakten, Beispiele aus den Dateien):\n' +
-                  materialContext
-                : 'Dateien: keine hochgeladen — nutze realistische KV-Praxisbeispiele in den Fragestellungen.',
-              WORKSHEET_EXERCISE_FIDELITY_RULES,
-              'Aufgabe: Erstelle jetzt einen Einstiegstest zum Start in das Thema.',
-              'Formuliere die Fragen so, dass bei vorhandenen Dateien klar erkennbar ist, ob der Lernende den FACHINHALT verstanden hat (Zuordnen, Begriffe, Kurztext, konkrete Rechen- oder Zuordnungsaufgaben). Prüfe den Sachinhalt selbst — nicht den Aufbau, die Auftragsnummern oder den Wortlaut der Aufgabenstellungen im Material.',
-              'Der Test muss als interaktiver Quiz-JSON-Block mit mindestens 5 Fragen geliefert werden.',
-              'Die ERSTE Frage muss Multiple-Choice (mcq) ODER Wahr/Falsch (true_false) sein — leichter Einstieg.',
-              'Insgesamt mindestens 2 Multiple-Choice-Fragen (mcq), jede mit 3-5 Optionen.',
-              'Mindestens 1 Freitext-Frage (questionType "text", evaluation "exact" oder "contains").',
-              'Mindestens 1 Zuordnung (match), 1 Kategorisierung (categorize) ODER 1 Wahr/Falsch (true_false) zusätzlich zu den MCQs.',
-              'Für Kategorisierungen setze questionType auf "categorize" und gib "categories" (2–4 Kategorien) sowie "items" (3–8 Begriffe) an; expectedAnswer = pro Begriff der Kategorie-Index in items-Reihenfolge, komma-getrennt (z. B. "0,1,0,1"). KEINE options bei categorize.',
-              'Nutze categorize statt einer mcq mit kombinierten Paar-Optionen («A – B»), wenn Begriffe Klassen/Kategorien zugeordnet werden sollen (z. B. direkte vs. indirekte Steuer) — das ist klarer als eine MC-Frage mit «in dieser Reihenfolge».',
-              'Wahr/Falsch: questionType "true_false", expectedAnswer exakt "Wahr" oder "Falsch" (oder synonym true/false im JSON, wird normalisiert), optional options ["Wahr","Falsch"].',
-              'Jede Multiple-Choice-Frage MUSS 3-5 Optionen enthalten.',
-              'Mischformat: mcq, text, match und true_false sinnvoll verteilen (nicht nur ein Typ).',
-              'Für Multiple-Choice-Fragen setze questionType auf "mcq" und gib 3-5 Optionen im Feld "options" an.',
-              'Für Freitext-Fragen setze questionType auf "text".',
-              'Für Zuordnungsfragen setze questionType auf "match", gib zwei gleich lange Arrays "matchLeft" (z. B. Begriffe) und "matchRight" (Definitionen); die richtige Zuordnung ist Index i zu Index i (expectedAnswer z. B. "0,1,2" für drei Paare oder weglassen).',
-              validationReason
-                ? 'Der vorige Versuch war ungültig: ' + validationReason + ' Halte dich strikt an alle Regeln.'
-                : 'Halte dich strikt an alle Regeln.',
-              'Antworte zuerst mit 1-2 kurzen Einleitungssätzen und dann direkt mit dem Quiz-Block.',
-            ].join('\n\n'),
-            createdAt: new Date().toISOString(),
-          }
-
-          let result: Awaited<ReturnType<typeof sendMessage>>
-          try {
-            result = await sendMessage([quizRequestMessage], {
-              interactiveQuizPrompt: getPrompt('interactive_quiz'),
-              systemPrompt: getPrompt('learn_tutor'),
-              useLearnPathModel: true,
-              learnTelemetryMode: 'learn_entry_quiz',
-            })
-          } catch (error) {
-            if (error instanceof Error) {
-              lastGatewayError = error
-            }
-            if (isTransientAiFailure(error)) {
-              validationReason = 'KI war temporär nicht erreichbar (Rate-Limit/Serverfehler).'
-              await new Promise<void>((resolve) => {
-                window.setTimeout(resolve, 220 * attempt)
-              })
-              continue
-            }
-            throw error
-          }
-          if (activePathIdRef.current !== activePathIdAtStart) {
-            return
-          }
-
-          const parsed = parseInteractiveContentWithFallback(result.assistantMessage.content)
-          if (!parsed.quiz) {
-            validationReason = 'Kein gültiger Quiz-JSON-Block erhalten.'
-            continue
-          }
-
-          const validation = validateGeneratedEntryQuiz(parsed.quiz)
-          if (!validation.valid) {
-            validationReason = validation.reason
-            continue
-          }
-
-          parsedQuiz = parsed.quiz
-          parsedCleanText = parsed.cleanText
-          break
-        }
-
-        if (!parsedQuiz && lastGatewayError && isTransientAiFailure(lastGatewayError)) {
-          parsedQuiz = buildEntryQuizFallbackPayload(effectiveTopic || getDisplayPathTitle(activePathTitle))
-          parsedCleanText = 'Die KI war kurz ausgelastet. Ein stabiler Einstiegstest wurde als Fallback bereitgestellt.'
-        }
-
-        if (!parsedQuiz) {
-          throw new Error(
-            validationReason
-              ? `Einstiegstest ungültig: ${validationReason}`
-              : 'Kein gültiger Einstiegstest von der KI erhalten.',
-          )
-        }
-
-        const initialAnswers = parsedQuiz.questions.reduce<Record<string, string>>((acc, question) => {
-          acc[question.id] = ''
-          return acc
-        }, {})
-
-        setEntryQuiz(parsedQuiz)
-        setEntryQuizAnswers(initialAnswers)
-        setEntryQuizResult(null)
-        setSyllabus([])
-        setLearningChapters([])
-        setChapterBlueprints([])
-        setChapterSession(DEFAULT_CHAPTER_SESSION)
-        setTopicSessions([])
-        setActiveTopicFlowIndex(null)
-        setEntryQuizQuestionIndex(0)
-        setEntryPrepStepIndex(ENTRY_TEST_PREP_STEPS.length - 1)
-        setEntryPrepPercents([100, 100, 100])
-        setIsEntryQuizLoading(false)
-        setIsEntryPrepClosing(true)
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 320)
-        })
-        if (activePathIdRef.current !== activePathIdAtStart) {
-          return
-        }
-        setTutorMessages([
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: buildEntryQuizReadyTutorMessage(parsedCleanText || ''),
-            action: 'open-entry-test',
-          },
-        ])
-        setIsEntryPrepClosing(false)
-      } catch (err) {
-        if (activePathIdRef.current === activePathIdAtStart) {
-          setIsEntryPrepClosing(false)
-          setError(err instanceof Error ? err.message : 'Einstiegstest konnte nicht erstellt werden.')
-        }
-      } finally {
-        if (activePathIdRef.current === activePathIdAtStart) {
-          setIsEntryQuizLoading(false)
-        }
-      }
-    }
-
-    void generateEntryQuiz()
-  }, [
-    isSetupComplete,
-    activePath,
-    materials,
-    effectiveTopic,
-    selectedTopic,
-    aiGuidance,
-    proficiencyLevel,
-    entryQuiz,
-    generationMode,
-    getPrompt,
-    hasTriedEntryQuizGeneration,
-    isEntryQuizLoading,
-  ])
-
-  const {
-    openEntryQuizModal,
-    closeEntryQuizModal,
-    handleEntryQuizAnswerChange,
-    handlePreviousEntryQuestion,
-    handleNextEntryQuestion,
-  } = useEntryQuizUiFlow({
-    entryQuizCloseTimerRef,
-    modalAnimationMs: MODAL_ANIMATION_MS,
-    entryQuizTotalQuestions: entryQuiz?.questions.length ?? 0,
-    setIsEntryQuizMounted,
-    setIsEntryQuizVisible,
-    setEntryQuizQuestionIndex,
-    setEntryQuizAnswers,
-  })
-  const { handleSubmitEntryQuiz } = useEntryQuizSubmissionFlow({
-    entryQuiz,
-    isSubmittingEntryQuiz,
-    entryQuizAnswers,
-    entryQuizResult,
-    generationMode,
-    closeEntryQuizModal,
-    setError,
-    setIsSubmittingEntryQuiz,
-    setEntryQuizResult,
-    setTutorState,
-    setCurrentChapterIndex,
-    setTargetChapterCount,
-    setUnlockedChapterCount,
-    setTutorMessages,
-    setIsChapterPreviewVisible,
-    setIsPostEntryPrepLoading,
-    setPostEntryPrepStepIndex,
-    setPostEntryPrepPercents,
-    setLearningChapters,
-    setSyllabus,
-    setChapterBlueprints,
-    setChapterSession,
-  })
-
   // Referenzstabil, sonst startet der Generierungs-Effekt bei jedem Render neu (siehe Hook-Doku).
   const handlePathGenerationComplete = useCallback(() => {
     setShowPathOnboarding(true)
@@ -1680,8 +1366,6 @@ export function LearnPage({
     tutorState,
     targetChapterCount,
     syllabus,
-    entryQuiz,
-    entryQuizResult,
     effectiveTopic,
     selectedTopic,
     aiGuidance,
@@ -1707,8 +1391,8 @@ export function LearnPage({
       /** Untere Schranke der Lernrate (Recency-Floor 0..1); reale Lernrate = max(weight, 1/(versuche+1)). */
       weight: number
     }) => {
-      setChapterSession((prev) => {
-        const map = { ...prev.skillMasteryBySkillId }
+      setSkillMasteryBySkillId((prev) => {
+        const map = { ...prev }
         const current = map[payload.skillId]
         const baseScore = current?.score ?? 0.5
         const priorAttempts = Math.max(0, current?.attempts ?? 0)
@@ -1741,10 +1425,7 @@ export function LearnPage({
           lastCorrectAt: payload.correct ? new Date().toISOString() : current?.lastCorrectAt,
           lastUpdatedAt: new Date().toISOString(),
         }
-        return {
-          ...prev,
-          skillMasteryBySkillId: map,
-        }
+        return map
       })
     },
     [],
@@ -1759,8 +1440,16 @@ export function LearnPage({
         correct: payload.correct,
         weight: 0.35,
       })
+      if (payload.correct && activePathId) {
+        gamification.recordEvent({
+          dedupeKey: `${activePathId}:chapter-step:${payload.stepId}`,
+          eventType: 'chapter_question_correct',
+          xpAmount: XP_PER_CORRECT_ANSWER,
+          sourcePathId: activePathId,
+        })
+      }
     },
-    [applySkillMasterySignal],
+    [applySkillMasterySignal, activePathId, gamification.recordEvent],
   )
 
   const { handleEvaluateCurrentChapterQuestion, handleNextChapterStep, handlePreviousChapterStep } = useChapterSessionFlow({
@@ -1774,35 +1463,37 @@ export function LearnPage({
     onQuestionEvaluated: handleChapterQuestionEvaluatedForMastery,
   })
 
-  /** Landkarte Phase 1: EWMA-Mastery pro Thema (Fortschritts-Gate), analog zu applySkillMasterySignal aber themen-lokal. */
-  const applyTopicMasterySignal = useCallback((topicIndex: number, correct: boolean) => {
+  const activeTopicSession = activeTopicFlowIndex !== null ? topicSessions[activeTopicFlowIndex] : undefined
+  const isTopicFlowActive = activeTopicFlowIndex !== null && Boolean(activeTopicSession)
+  const activeSubstep =
+    activeTopicSession && activeSubstepIndex !== null ? activeTopicSession.substeps[activeSubstepIndex] : undefined
+
+  /** Übungskarten-Rating aktualisiert den Mastery-Score EINES Zwischenschritts (Anteil „Gewusst", live).
+   *  Erreichen alle Zwischenschritte die Schwelle, gilt das Thema als gemeistert. */
+  const applySubstepMastery = useCallback((topicIndex: number, substepIndex: number, known: boolean) => {
     setTopicSessions((prev) =>
       prev.map((session, index) => {
         if (index !== topicIndex) {
           return session
         }
-        const outcome = correct ? 1 : 0
-        const learningRate = Math.max(0.35, 1 / (session.masteryAttempts + 1))
-        const nextScore = clamp01(session.masteryScore + learningRate * (outcome - session.masteryScore))
-        return {
-          ...session,
-          masteryScore: nextScore,
-          masteryAttempts: session.masteryAttempts + 1,
-          masteryUpdatedAt: new Date().toISOString(),
-        }
+        const substeps = session.substeps.map((substep, i) => {
+          if (i !== substepIndex) {
+            return substep
+          }
+          const attempts = substep.masteryAttempts + 1
+          const nextScore = (substep.masteryScore * substep.masteryAttempts + (known ? 1 : 0)) / attempts
+          return { ...substep, masteryScore: nextScore, masteryAttempts: attempts }
+        })
+        // Mastery ist ein reiner Leistungs-Score; die Themen-/Plan-Progression läuft über `completed`.
+        return { ...session, substeps, masteryUpdatedAt: new Date().toISOString() }
       }),
     )
   }, [])
 
-  const activeTopicSession = activeTopicFlowIndex !== null ? topicSessions[activeTopicFlowIndex] : undefined
-  const isTopicFlowActive = activeTopicFlowIndex !== null && Boolean(activeTopicSession)
-
-  /** Landkarte Phase 1: Dual-Write — themen-lokale Mastery (Fortschritts-Gate) UND skillTag-Mastery (bestehendes Panel). */
+  /** Flow-Fragen (Einstiegscheck + Verständnis-/Erklärfragen) speisen NUR den Lern-Ledger + XP —
+   *  NICHT den Mastery-Score (der kommt ausschließlich aus den Übungskarten). */
   const handleTopicFlowQuestionEvaluated = useCallback(
     (payload: { stepId: string; prompt: string; correct: boolean; answer: string; skillTag?: string }) => {
-      if (activeTopicFlowIndex !== null) {
-        applyTopicMasterySignal(activeTopicFlowIndex, payload.correct)
-      }
       applySkillMasterySignal({
         source: 'chapter',
         skillId: resolveConceptSkillId(payload.skillTag, () => toSkillIdFromText('chapter', payload.prompt)),
@@ -1810,19 +1501,41 @@ export function LearnPage({
         correct: payload.correct,
         weight: 0.35,
       })
+      if (payload.correct && activePathId) {
+        gamification.recordEvent({
+          dedupeKey: `${activePathId}:topic-step:${payload.stepId}`,
+          eventType: 'topic_question_correct',
+          xpAmount: XP_PER_CORRECT_ANSWER,
+          sourcePathId: activePathId,
+        })
+      }
     },
-    [activeTopicFlowIndex, applySkillMasterySignal, applyTopicMasterySignal],
+    [applySkillMasterySignal, activePathId, gamification.recordEvent],
   )
 
-  const handleTopicStepGenerated = useCallback((topicIndex: number, blueprint: ChapterBlueprint) => {
+
+  /** Outline fertig: die Teilthemen als Zwischenschritte anlegen (contentReady:false), Thema → learning. */
+  const handleSubstepOutlineReady = useCallback((topicIndex: number, substepTitles: string[]) => {
     setTopicSessions((prev) =>
-      prev.map((session, index) =>
-        index === topicIndex ? { ...session, stepBlueprints: [...session.stepBlueprints, blueprint] } : session,
-      ),
+      prev.map((session, index) => {
+        if (index !== topicIndex || session.substeps.length > 0) {
+          return session
+        }
+        const substeps = substepTitles.map((title, i) => ({
+          blueprint: { id: `topic-${topicIndex}-substep-${i}`, title, steps: [] },
+          session: { ...DEFAULT_CHAPTER_SESSION },
+          masteryScore: 0,
+          masteryAttempts: 0,
+          contentReady: false,
+          completed: false,
+          practiceFlashcardSetId: null,
+        }))
+        return { ...session, status: 'learning' as const, substeps }
+      }),
     )
   }, [])
 
-  const { stepPlaceholder: topicStepPlaceholder } = useTopicStepGeneration({
+  const { isGeneratingOutline } = useTopicSubstepOutline({
     activePathId,
     activePathTitle: activePath?.title,
     generationMode,
@@ -1833,26 +1546,26 @@ export function LearnPage({
     effectiveTopic,
     selectedTopic,
     materials,
-    onStepGenerated: handleTopicStepGenerated,
+    onOutlineReady: handleSubstepOutlineReady,
   })
+
+  // --- Leaf-Abstraktion: welcher Blueprint/Session ist gerade im Arbeitsbereich aktiv (Einstiegscheck vs. Zwischenschritt)? ---
+  const topicFlowLeafKind: 'entry_check' | 'substep' = activeSubstepIndex !== null ? 'substep' : 'entry_check'
 
   const topicFlowBlueprints: ChapterBlueprint[] = useMemo(() => {
     if (!activeTopicSession) {
       return []
     }
-    if (activeTopicSession.status === 'diagnostic' && activeTopicSession.diagnosticBlueprint) {
-      return [activeTopicSession.diagnosticBlueprint]
+    if (topicFlowLeafKind === 'substep') {
+      return activeSubstep?.blueprint ? [activeSubstep.blueprint] : []
     }
-    if (activeTopicSession.status === 'learning') {
-      return activeTopicSession.stepBlueprints.length > 0 ? activeTopicSession.stepBlueprints : [topicStepPlaceholder]
-    }
-    return []
-  }, [activeTopicSession, topicStepPlaceholder])
+    return activeTopicSession.entryCheckBlueprint ? [activeTopicSession.entryCheckBlueprint] : []
+  }, [activeTopicSession, topicFlowLeafKind, activeSubstep])
 
   const topicFlowChapterSession: ChapterSession =
-    activeTopicSession?.status === 'diagnostic'
-      ? activeTopicSession.diagnosticSession ?? DEFAULT_CHAPTER_SESSION
-      : activeTopicSession?.stepSession ?? DEFAULT_CHAPTER_SESSION
+    topicFlowLeafKind === 'substep'
+      ? activeSubstep?.session ?? DEFAULT_CHAPTER_SESSION
+      : activeTopicSession?.entryCheckSession ?? DEFAULT_CHAPTER_SESSION
 
   const setTopicFlowChapterSession: Dispatch<SetStateAction<ChapterSession>> = useCallback(
     (updater) => {
@@ -1864,14 +1577,26 @@ export function LearnPage({
           if (index !== activeTopicFlowIndex) {
             return session
           }
-          const sessionKey = session.status === 'diagnostic' ? 'diagnosticSession' : 'stepSession'
-          const base = session[sessionKey] ?? DEFAULT_CHAPTER_SESSION
-          const next = typeof updater === 'function' ? (updater as (prev: ChapterSession) => ChapterSession)(base) : updater
-          return { ...session, [sessionKey]: next }
+          if (activeSubstepIndex !== null) {
+            const substeps = session.substeps.map((substep, i) => {
+              if (i !== activeSubstepIndex) {
+                return substep
+              }
+              const base = substep.session ?? DEFAULT_CHAPTER_SESSION
+              const next =
+                typeof updater === 'function' ? (updater as (prev: ChapterSession) => ChapterSession)(base) : updater
+              return { ...substep, session: next }
+            })
+            return { ...session, substeps }
+          }
+          const base = session.entryCheckSession ?? DEFAULT_CHAPTER_SESSION
+          const next =
+            typeof updater === 'function' ? (updater as (prev: ChapterSession) => ChapterSession)(base) : updater
+          return { ...session, entryCheckSession: next }
         }),
       )
     },
-    [activeTopicFlowIndex],
+    [activeTopicFlowIndex, activeSubstepIndex],
   )
 
   const {
@@ -1890,17 +1615,10 @@ export function LearnPage({
   })
 
   const {
-    entryQuizTotalQuestions,
-    activeEntryQuestion,
-    hasMultipleChoiceOptions,
-    activeEntryAnswer,
-    isLastEntryQuestion,
-    entryQuizProgressPercent,
     safeChapterIndex,
     activeChapterBlueprint,
     safeChapterStepIndex,
     activeChapterStep,
-    chapterProgressPercent,
     currentChapterAnswer,
     currentChapterFeedback,
     currentChapterIsCorrect,
@@ -1932,19 +1650,31 @@ export function LearnPage({
     effectiveTopic,
     isChapterPreviewVisible,
     proficiencyLevel,
-    entryQuiz,
-    entryQuizQuestionIndex,
-    entryQuizAnswers,
   })
 
   const worksheetModalItems = useMemo(() => {
+    if (worksheetModalSubstepFilter) {
+      return learnWorksheets.filter(
+        (w) =>
+          w.topicIndex === worksheetModalSubstepFilter.topicIndex &&
+          w.substepIndex === worksheetModalSubstepFilter.substepIndex,
+      )
+    }
     if (worksheetModalChapterFilter === null) {
       return learnWorksheets
     }
     return learnWorksheets.filter((w) => w.chapterIndex === worksheetModalChapterFilter)
-  }, [learnWorksheets, worksheetModalChapterFilter])
+  }, [learnWorksheets, worksheetModalChapterFilter, worksheetModalSubstepFilter])
 
   const worksheetModalChapterTitle = useMemo(() => {
+    if (worksheetModalSubstepFilter) {
+      const topicTitle = (
+        syllabus[worksheetModalSubstepFilter.topicIndex]?.topic ||
+        learningChapters[worksheetModalSubstepFilter.topicIndex] ||
+        'Thema'
+      ).trim()
+      return `${topicTitle} · Teil ${worksheetModalSubstepFilter.substepIndex + 1}`
+    }
     if (worksheetModalChapterFilter === null) {
       return 'Lernblatt'
     }
@@ -1954,14 +1684,17 @@ export function LearnPage({
     }
     const label = learningChapters[worksheetModalChapterFilter]?.trim()
     return label || `Kapitel ${worksheetModalChapterFilter + 1}`
-  }, [worksheetModalChapterFilter, effectiveChapterBlueprints, learningChapters])
+  }, [worksheetModalChapterFilter, worksheetModalSubstepFilter, effectiveChapterBlueprints, learningChapters, syllabus])
 
   const worksheetModalChapterLabel = useMemo(() => {
+    if (worksheetModalSubstepFilter) {
+      return `Teilthema ${worksheetModalSubstepFilter.substepIndex + 1}`
+    }
     if (worksheetModalChapterFilter === null) {
       return 'Kapitel 1'
     }
     return worksheetChapterDisplayLabel(worksheetModalChapterFilter, learningChapters)
-  }, [learningChapters, worksheetModalChapterFilter])
+  }, [learningChapters, worksheetModalChapterFilter, worksheetModalSubstepFilter])
 
   const worksheetChaptersForList = useMemo(() => {
     const map = new Map<number, LearnWorksheetItem[]>()
@@ -1976,13 +1709,51 @@ export function LearnPage({
       list.push(item)
       map.set(item.chapterIndex, list)
     }
-    return Array.from(map.entries())
+    const chapterEntries = Array.from(map.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([chapterIndex]) => ({
+        kind: 'chapter' as const,
+        key: `ws-chapter-${chapterIndex}`,
         chapterIndex,
+        substepFilter: null as { topicIndex: number; substepIndex: number } | null,
+        title: worksheetChapterDisplayLabel(chapterIndex, learningChapters),
         progress: getWorksheetChapterProgress(learnWorksheets, chapterIndex),
       }))
-  }, [learnWorksheets])
+
+    const substepMap = new Map<string, { topicIndex: number; substepIndex: number; items: LearnWorksheetItem[] }>()
+    for (const item of learnWorksheets) {
+      if (typeof item.topicIndex !== 'number' || typeof item.substepIndex !== 'number') {
+        continue
+      }
+      const key = `${item.topicIndex}-${item.substepIndex}`
+      const existing = substepMap.get(key)
+      if (existing) {
+        existing.items.push(item)
+      } else {
+        substepMap.set(key, { topicIndex: item.topicIndex, substepIndex: item.substepIndex, items: [item] })
+      }
+    }
+    const substepEntries = Array.from(substepMap.values())
+      .sort((a, b) => a.topicIndex - b.topicIndex || a.substepIndex - b.substepIndex)
+      .map(({ topicIndex, substepIndex, items }) => {
+        const evaluatedCount = items.filter((item) => item.evaluated === true).length
+        const topicTitle = (syllabus[topicIndex]?.topic || learningChapters[topicIndex] || 'Thema').trim()
+        return {
+          kind: 'substep' as const,
+          key: `ws-topic${topicIndex}-substep${substepIndex}`,
+          chapterIndex: null as number | null,
+          substepFilter: { topicIndex, substepIndex },
+          title: `${topicTitle} · Teil ${substepIndex + 1}`,
+          progress: {
+            total: items.length,
+            evaluatedCount,
+            isComplete: items.length > 0 && evaluatedCount === items.length,
+          },
+        }
+      })
+
+    return [...chapterEntries, ...substepEntries]
+  }, [learnWorksheets, learningChapters, syllabus])
 
   const worksheetCompletedChapters = useMemo(
     () => worksheetChaptersForList.filter(({ progress }) => progress.total > 0 && progress.isComplete),
@@ -1995,13 +1766,8 @@ export function LearnPage({
   )
 
   const tutorWorksheetChapterIndex = useMemo(
-    () =>
-      resolveWorksheetProgressChapterKey(
-        chapterBlueprints,
-        chapterSession,
-        Math.max(0, unlockedChapterCount - 1),
-      ),
-    [chapterBlueprints, chapterSession, unlockedChapterCount],
+    () => resolveWorksheetProgressChapterKey(topicSessions, Math.max(0, unlockedChapterCount - 1)),
+    [topicSessions, unlockedChapterCount],
   )
 
   const targetChapterIndexForOpen = Math.max(
@@ -2030,10 +1796,6 @@ export function LearnPage({
     Math.min(topicFlowChapterSession.stepIndex, Math.max(0, (topicFlowActiveBlueprint?.steps.length ?? 1) - 1)),
   )
   const topicFlowActiveStep = topicFlowActiveBlueprint?.steps[topicFlowSafeStepIndex] ?? null
-  const topicFlowProgressPercent =
-    topicFlowActiveBlueprint && topicFlowActiveBlueprint.steps.length > 0
-      ? ((topicFlowSafeStepIndex + 1) / topicFlowActiveBlueprint.steps.length) * 100
-      : 0
   const topicFlowAnswer =
     topicFlowActiveStep?.type === 'question' ? (topicFlowChapterSession.answersByStepId[topicFlowActiveStep.id] ?? '') : ''
   const topicFlowFeedback =
@@ -2046,17 +1808,13 @@ export function LearnPage({
     if (worksheetRequiredChapterIndex === null) {
       return null
     }
-    const progressKey = resolveWorksheetProgressChapterKey(
-      chapterBlueprints,
-      chapterSession,
-      worksheetRequiredChapterIndex,
-    )
+    const progressKey = resolveWorksheetProgressChapterKey(topicSessions, worksheetRequiredChapterIndex)
     return getWorksheetChapterProgress(learnWorksheets, progressKey)
-  }, [chapterBlueprints, chapterSession, worksheetRequiredChapterIndex, learnWorksheets])
+  }, [topicSessions, worksheetRequiredChapterIndex, learnWorksheets])
 
   const useMixedLearnMaterials = useMemo(
-    () => shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession),
-    [chapterBlueprints, chapterSession],
+    () => shouldUseMixedLearnMaterial(topicSessions),
+    [topicSessions],
   )
 
   const showRequiredWorksheetHint = Boolean(
@@ -2106,11 +1864,15 @@ export function LearnPage({
   /** Beste aktuelle Richtig-Serie über alle Kompetenzen — für das 🔥-Badge. */
   const bestCorrectStreak = useMemo(() => {
     let best = 0
-    for (const entry of Object.values(chapterSession.skillMasteryBySkillId ?? {})) {
+    for (const entry of Object.values(skillMasteryBySkillId ?? {})) {
       best = Math.max(best, entry.correctStreak ?? 0)
     }
     return best
-  }, [chapterSession.skillMasteryBySkillId])
+  }, [skillMasteryBySkillId])
+
+  /** Landkarte-Inhalte "kapitel-förmig" gebündelt (Diagnosetest + Zwischenschritt-Serie pro Thema), damit
+   *  bestehende, blueprint-/session-basierte Auswertungen wiederverwendet werden können — siehe topicSessionCorpora.ts. */
+  const topicCorpora = useMemo(() => buildTopicCorpora(topicSessions, syllabus), [topicSessions, syllabus])
 
   const errorLogbookEntries = useMemo(
     () =>
@@ -2118,22 +1880,58 @@ export function LearnPage({
         entryQuiz,
         entryQuizAnswers,
         entryQuizResult,
-        chapterBlueprints,
-        chapterSession,
+        topicCorpora,
         learningChapters,
         learnWorksheets,
       }),
-    [
-      entryQuiz,
-      entryQuizAnswers,
-      entryQuizResult,
-      chapterBlueprints,
-      chapterSession,
-      learningChapters,
-      learnWorksheets,
-    ],
+    [entryQuiz, entryQuizAnswers, entryQuizResult, topicCorpora, learningChapters, learnWorksheets],
   )
   const errorLogbookStats = useMemo(() => getErrorLogbookStats(errorLogbookEntries), [errorLogbookEntries])
+
+  const isPathFullyCompleted = useMemo(() => {
+    if (topicSessions.length > 0) {
+      return topicSessions.every((session) => session.status === 'mastered')
+    }
+    return chapterBlueprints.length > 0 && chapterSession.completedChapterIndexes.length >= chapterBlueprints.length
+  }, [topicSessions, chapterBlueprints, chapterSession.completedChapterIndexes])
+
+  const previousErrorLogbookTotalRef = useRef<number | null>(null)
+  const previousErrorLogbookPathIdRef = useRef<string>('')
+
+  /** Wertet nach jeder relevanten Fortschritts-Änderung den Achievement-Katalog aus (siehe gamification.ts).
+   *  previousErrorLogbookTotal wird bei Pfadwechsel auf null zurückgesetzt, damit ein Wechsel auf einen
+   *  Lernpfad mit weniger Fehlern nicht fälschlich als "Lücken geschlossen" gewertet wird. */
+  useEffect(() => {
+    const pathChanged = previousErrorLogbookPathIdRef.current !== activePathId
+    const previousErrorLogbookTotal = pathChanged ? null : previousErrorLogbookTotalRef.current
+    const context: GamificationBadgeContext = {
+      completedChapterCount: chapterSession.completedChapterIndexes.length,
+      masteredTopicsCount: topicSessions.filter((session) => session.status === 'mastered').length,
+      hasHighMasteryTopic: topicSessions.some(
+        (session) => session.status === 'mastered' && topicMasteryScore(session) >= 0.95,
+      ),
+      errorLogbookTotal: errorLogbookStats.total,
+      previousErrorLogbookTotal,
+      currentStreakDays: gamification.currentStreakDays,
+      flashcardDueNow: flashcardSrStats.dueNow,
+      flashcardTotal: flashcardSrStats.total,
+      isPathFullyCompleted,
+    }
+    previousErrorLogbookTotalRef.current = errorLogbookStats.total
+    previousErrorLogbookPathIdRef.current = activePathId
+    gamification.evaluateBadges(context)
+  }, [
+    activePathId,
+    chapterSession.completedChapterIndexes.length,
+    topicSessions,
+    errorLogbookStats.total,
+    gamification.currentStreakDays,
+    flashcardSrStats.dueNow,
+    flashcardSrStats.total,
+    isPathFullyCompleted,
+    gamification.evaluateBadges,
+  ])
+
   const [errorHintDismissedAtCount, setErrorHintDismissedAtCount] = useState<number | null>(null)
 
   useEffect(() => {
@@ -2187,20 +1985,13 @@ export function LearnPage({
     }
     setFlashcardsModalFocusCardId(null)
     setFlashcardsModalSetId(null)
-    const useMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
+    const useMixed = shouldUseMixedLearnMaterial(topicSessions)
     const outline = useMixed
-      ? buildMixedLearnProgressOutline(
-          chapterBlueprints,
-          effectiveChapterBlueprints,
-          chapterSession,
-          learnFlashcardSets,
-          learnWorksheets,
-        )
+      ? buildMixedLearnProgressOutline(topicCorpora, skillMasteryBySkillId, learnFlashcardSets, learnWorksheets)
       : buildLearnMaterialOutlineFromBlueprints(
           personalization,
-          chapterBlueprints,
-          effectiveChapterBlueprints,
-          chapterSession,
+          topicCorpora,
+          skillMasteryBySkillId,
           learnFlashcardSets,
           learnWorksheets,
         )
@@ -2261,8 +2052,6 @@ export function LearnPage({
     }
   },
   [
-    chapterBlueprints,
-    chapterSession,
     effectiveChapterBlueprints,
     effectiveTopic,
     learningPaths,
@@ -2271,6 +2060,12 @@ export function LearnPage({
     profile?.subscription_usages?.image_credit_balance,
     selectedTopic,
     user,
+    generationMode,
+    skillMasteryBySkillId,
+    topicCorpora,
+    topicSessions,
+    learnFlashcardSets,
+    learnWorksheets,
   ],
   )
 
@@ -2292,26 +2087,19 @@ export function LearnPage({
       window.clearTimeout(worksheetModalCloseTimerRef.current)
       worksheetModalCloseTimerRef.current = null
     }
-    const useMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
-    const requestedSingleChapter =
-      !useMixed && typeof targetChapterIndex === 'number' && targetChapterIndex >= 0
-        ? effectiveChapterBlueprints[targetChapterIndex] ?? null
-        : null
-    const sourceChapterBlueprints = requestedSingleChapter ? [requestedSingleChapter] : chapterBlueprints
-    const sourceEffectiveBlueprints = requestedSingleChapter ? [requestedSingleChapter] : effectiveChapterBlueprints
+    const useMixed = shouldUseMixedLearnMaterial(topicSessions)
+    const requestedSingleTopicIndex =
+      !useMixed && typeof targetChapterIndex === 'number' && targetChapterIndex >= 0 ? targetChapterIndex : null
+    const sourceTopicCorpora =
+      requestedSingleTopicIndex !== null
+        ? topicCorpora.filter((corpus) => corpus.topicIndex === requestedSingleTopicIndex)
+        : topicCorpora
     const outline = useMixed
-      ? buildMixedLearnProgressOutline(
-          chapterBlueprints,
-          effectiveChapterBlueprints,
-          chapterSession,
-          learnFlashcardSets,
-          learnWorksheets,
-        )
+      ? buildMixedLearnProgressOutline(topicCorpora, skillMasteryBySkillId, learnFlashcardSets, learnWorksheets)
       : buildLearnMaterialOutlineFromBlueprints(
           personalization,
-          sourceChapterBlueprints,
-          sourceEffectiveBlueprints,
-          chapterSession,
+          sourceTopicCorpora,
+          skillMasteryBySkillId,
           learnFlashcardSets,
           learnWorksheets,
         )
@@ -2381,7 +2169,6 @@ export function LearnPage({
   },
   [
     captureEditableState,
-    chapterBlueprints,
     chapterSession,
     effectiveChapterBlueprints,
     effectiveTopic,
@@ -2392,6 +2179,11 @@ export function LearnPage({
     profile?.subscription_usages?.image_credit_balance,
     selectedTopic,
     user,
+    generationMode,
+    skillMasteryBySkillId,
+    topicCorpora,
+    topicSessions,
+    learnFlashcardSets,
   ],
   )
 
@@ -2537,8 +2329,10 @@ export function LearnPage({
     [worksheetModalItems],
   )
 
+  /** `substepTarget` gesetzt: Karte gehört zu einem Teilthema-Übungsset — Bewertung speist zusätzlich
+   *  live den Substep-Mastery-Score (siehe `applySubstepMastery`). */
   const handleFlashcardSelfRating = useCallback(
-    (cardId: string, rating: 'known' | 'unknown') => {
+    (cardId: string, rating: 'known' | 'unknown', substepTarget?: { topicIndex: number; substepIndex: number }) => {
       const pathId = activePathIdRef.current
       const currentSummary = pathId ? learningPaths.find((e) => e.id === pathId) : undefined
       const title = getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad')
@@ -2567,11 +2361,34 @@ export function LearnPage({
             correct: rating === 'known',
             weight: 0.25,
           })
+          const todayKey = new Date().toISOString().slice(0, 10)
+          gamification.recordEvent({
+            dedupeKey: `${cardId}:review:${todayKey}`,
+            eventType: 'flashcard_reviewed',
+            xpAmount: XP_PER_FLASHCARD_REVIEW,
+            sourcePathId: pathId || undefined,
+          })
         }
         return merged
       })
+      if (substepTarget) {
+        applySubstepMastery(substepTarget.topicIndex, substepTarget.substepIndex, rating === 'known')
+      }
     },
-    [applySkillMasterySignal, learningPaths],
+    [applySkillMasterySignal, applySubstepMastery, learningPaths, gamification.recordEvent],
+  )
+
+  const handleRateSubstepPracticeCard = useCallback(
+    (cardId: string, known: boolean) => {
+      if (activeTopicFlowIndex === null || activeSubstepIndex === null) {
+        return
+      }
+      handleFlashcardSelfRating(cardId, known ? 'known' : 'unknown', {
+        topicIndex: activeTopicFlowIndex,
+        substepIndex: activeSubstepIndex,
+      })
+    },
+    [activeTopicFlowIndex, activeSubstepIndex, handleFlashcardSelfRating],
   )
 
   useEffect(() => {
@@ -2581,15 +2398,11 @@ export function LearnPage({
     const maxPlannedCount = Math.max(1, Math.min(targetChapterCount, chapterBlueprints.length || targetChapterCount))
     const lastUnlockedIndex = Math.max(0, unlockedChapterCount - 1)
     const hasCompletedUnlockedChapter = chapterSession.completedChapterIndexes.includes(lastUnlockedIndex)
-    const wsProgressKey = resolveWorksheetProgressChapterKey(
-      chapterBlueprints,
-      chapterSession,
-      lastUnlockedIndex,
-    )
+    const wsProgressKey = resolveWorksheetProgressChapterKey(topicSessions, lastUnlockedIndex)
     const wsStats = getWorksheetChapterProgress(learnWorksheets, wsProgressKey)
     const hasWorksheetItems = wsStats.total > 0
     const worksheetChapterComplete = wsStats.isComplete
-    const worksheetMixed = shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
+    const worksheetMixed = shouldUseMixedLearnMaterial(topicSessions)
     const nextChapterNumber = Math.min(maxPlannedCount, unlockedChapterCount + 1)
     let action: TutorChatEntry['action']
     let content = ''
@@ -2599,8 +2412,6 @@ export function LearnPage({
       content = buildTutorCoachMessage({
         kind: 'start-chapter',
         chapterNumber: lastUnlockedIndex + 1,
-        entryScore: entryQuizResult.score,
-        entryTotal: entryQuizResult.total,
       })
     } else if (!hasWorksheetItems) {
       action = 'create-worksheet'
@@ -2660,6 +2471,7 @@ export function LearnPage({
     unlockedChapterCount,
     chapterSession.completedChapterIndexes,
     learnWorksheets,
+    topicSessions,
   ])
 
   if (isLoading) {
@@ -2784,7 +2596,287 @@ export function LearnPage({
     }
   }
 
-  /** Landkarte Phase 1: Diagnose-Test-zuerst-Einstieg für ein Thema; generiert bei Bedarf den Diagnosetest, danach übernimmt useTopicStepGeneration. */
+  /** Lazy-Generierung des Vollinhalts eines Zwischenschritts (fester Flow + Übungskarten) beim ersten Öffnen. */
+  async function ensureSubstepContent(topicIndex: number, substepIndex: number) {
+    const session = topicSessions[topicIndex]
+    const substep = session?.substeps[substepIndex]
+    if (!session || !substep || substep.contentReady || substepContentInFlightRef.current) {
+      return
+    }
+    substepContentInFlightRef.current = true
+    setIsGeneratingSubstepContent(true)
+    const activePathIdAtStart = activePathId
+    const substepTitle = substep.blueprint.title
+    const blueprintId = substep.blueprint.id
+    const applyBlueprint = (raw: ChapterBlueprint) => {
+      const namespaced =
+        namespaceChapterStepIds([{ ...raw, id: blueprintId, title: substepTitle }], {
+          chapterIndexOffset: topicIndex * 100 + substepIndex,
+        })[0] ?? raw
+      setTopicSessions((prev) =>
+        prev.map((entry, index) =>
+          index !== topicIndex
+            ? entry
+            : {
+                ...entry,
+                substeps: entry.substeps.map((ss, j) =>
+                  j === substepIndex ? { ...ss, blueprint: namespaced, contentReady: true } : ss,
+                ),
+              },
+        ),
+      )
+    }
+    try {
+      const syllabusEntry = syllabus[topicIndex]
+      const topicTitle = (
+        syllabusEntry?.topic?.trim() || learningChapters[topicIndex]?.trim() || effectiveTopic
+      ).trim()
+      const weakQuestions = collectTopicWeakQuestionSteps(session)
+      const weaknessSummary = weakQuestions
+        .slice(0, 12)
+        .map((step, index) => `${index + 1}. ${step.prompt}`)
+        .join('\n')
+      const materialContext = formatRelevantMaterialContext(
+        buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTitle),
+        materials,
+        getChapterMaterialRagOptions(materials.length),
+      )
+
+      if (generationMode === 'placeholder') {
+        await placeholderDelay()
+        applyBlueprint(buildSubstepContentFallback(substepTitle, weakQuestions))
+        return
+      }
+
+      let validationHint = ''
+      let generated: ChapterBlueprint | null = null
+      for (let attempt = 1; !generated && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+        const request: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: buildSubstepContentPrompt({
+            pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
+            topicTitle,
+            substepTitle,
+            learningGoal: syllabusEntry?.learningGoal,
+            materialContext,
+            weaknessSummary,
+            attempt,
+            validationHint,
+          }),
+          createdAt: new Date().toISOString(),
+        }
+        let timeoutId: number | null = null
+        const response = await Promise.race([
+          sendMessage([request], {
+            systemPrompt: getPrompt('learn_tutor'),
+            useLearnPathModel: true,
+            learnTelemetryMode: 'learn_tutor',
+            learnPathSystemPromptMode: 'tutor_only',
+          }),
+          new Promise<never>((_, reject) => {
+            timeoutId = window.setTimeout(
+              () => reject(new Error('Generierung des Zwischenschritts dauert zu lange.')),
+              CHAPTER_ON_DEMAND_TIMEOUT_MS,
+            )
+          }),
+        ]).finally(() => {
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId)
+          }
+        })
+        if (activePathIdRef.current !== activePathIdAtStart) {
+          return
+        }
+        const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
+        const candidate = parseChapterBlueprintsFromText(parsed.cleanText || response.assistantMessage.content)[0]
+        if (!candidate) {
+          validationHint = 'Kein auslesbares JSON erhalten'
+          continue
+        }
+        const validation = validateGeneratedSubstep(candidate)
+        if (!validation.valid) {
+          validationHint = validation.reason
+          continue
+        }
+        generated = candidate
+        break
+      }
+      if (activePathIdRef.current !== activePathIdAtStart) {
+        return
+      }
+      applyBlueprint(generated ?? buildSubstepContentFallback(substepTitle, weakQuestions))
+    } catch (err) {
+      console.error('Lernbereich: Zwischenschritt-Inhalt konnte nicht generiert werden', err)
+      if (activePathIdRef.current === activePathIdAtStart) {
+        applyBlueprint(buildSubstepContentFallback(substepTitle, []))
+      }
+    } finally {
+      substepContentInFlightRef.current = false
+      setIsGeneratingSubstepContent(false)
+    }
+  }
+
+  /** Lazy-Generierung des Übungskarten-Sets eines Zwischenschritts (echtes `LearnFlashcardSet`, sobald der
+   *  feste Flow durchlaufen ist). Idempotent: läuft nur, solange noch kein gültiges Set verknüpft ist. */
+  async function ensureSubstepPracticeSet(topicIndex: number, substepIndex: number) {
+    const session = topicSessions[topicIndex]
+    const substep = session?.substeps[substepIndex]
+    if (!session || !substep) {
+      return
+    }
+    if (substep.practiceFlashcardSetId && learnFlashcardSets.some((set) => set.id === substep.practiceFlashcardSetId)) {
+      return
+    }
+    if (substepPracticeInFlightRef.current) {
+      return
+    }
+    substepPracticeInFlightRef.current = true
+    setIsGeneratingSubstepPractice(true)
+    const activePathIdAtStart = activePathId
+    try {
+      const outline = buildFlashcardSourceFromBlueprints([substep.blueprint])
+      const cards =
+        generationMode === 'placeholder'
+          ? await placeholderDelay().then(() => buildPlaceholderFlashcards())
+          : await generateLearnFlashcards(outline)
+      if (activePathIdRef.current !== activePathIdAtStart) {
+        return
+      }
+      const newSet: LearnFlashcardSet = {
+        id: crypto.randomUUID(),
+        title: substep.blueprint.title,
+        cards: initializeNewFlashcardSet(cards),
+        topicIndex,
+        substepIndex,
+      }
+      setLearnFlashcardSets((prev) => {
+        const merged = [...prev, newSet]
+        const pathId = activePathIdRef.current
+        if (pathId) {
+          const currentSummary = learningPaths.find((entry) => entry.id === pathId)
+          void updateLearningPathById(pathId, {
+            title: getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad'),
+            learnFlashcardSets: merged,
+          }).then((updated) => {
+            pathCacheRef.current[pathId] = updated
+          })
+        }
+        return merged
+      })
+      setTopicSessions((prev) =>
+        prev.map((entry, index) =>
+          index !== topicIndex
+            ? entry
+            : {
+                ...entry,
+                substeps: entry.substeps.map((ss, j) =>
+                  j === substepIndex ? { ...ss, practiceFlashcardSetId: newSet.id } : ss,
+                ),
+              },
+        ),
+      )
+    } catch (err) {
+      console.error('Lernbereich: Übungskarten konnten nicht generiert werden', err)
+      if (activePathIdRef.current === activePathIdAtStart) {
+        setError(err instanceof Error ? err.message : 'Übungskarten konnten nicht erstellt werden.')
+      }
+    } finally {
+      substepPracticeInFlightRef.current = false
+      setIsGeneratingSubstepPractice(false)
+    }
+  }
+
+  /** Lazy-Generierung des Abschluss-Arbeitsblatts eines Zwischenschritts (Pflicht, letzter Schritt vor
+   *  `completed`). Adaptiv: priorisiert Schwachstellen aus Flow + Übungskarten (siehe
+   *  `buildSubstepCompletionWorksheetOutline`). Idempotent, solange bereits Items für diesen Zwischenschritt
+   *  existieren. */
+  async function ensureSubstepCompletionWorksheet(topicIndex: number, substepIndex: number) {
+    const session = topicSessions[topicIndex]
+    const substep = session?.substeps[substepIndex]
+    if (!session || !substep) {
+      return
+    }
+    const hasExistingItems = learnWorksheets.some(
+      (item) => item.topicIndex === topicIndex && item.substepIndex === substepIndex,
+    )
+    if (hasExistingItems || substepWorksheetInFlightRef.current) {
+      return
+    }
+    substepWorksheetInFlightRef.current = true
+    setIsGeneratingSubstepWorksheet(true)
+    const activePathIdAtStart = activePathId
+    try {
+      const practiceSet = substep.practiceFlashcardSetId
+        ? learnFlashcardSets.find((set) => set.id === substep.practiceFlashcardSetId)
+        : undefined
+      const outline = buildSubstepCompletionWorksheetOutline(substep, practiceSet?.cards ?? [])
+      const items =
+        generationMode === 'placeholder'
+          ? await placeholderDelay().then(() => buildPlaceholderWorksheetItems())
+          : await generateLearnWorksheet(outline)
+      if (activePathIdRef.current !== activePathIdAtStart) {
+        return
+      }
+      const taggedItems = items.map((item, index) => ({
+        ...item,
+        id: `ws-topic${topicIndex}-substep${substepIndex}-${index}-${item.id}`,
+        topicIndex,
+        substepIndex,
+        chapterIndex: undefined,
+      }))
+      setLearnWorksheets((prev) => {
+        const merged = [
+          ...prev.filter((item) => !(item.topicIndex === topicIndex && item.substepIndex === substepIndex)),
+          ...taggedItems,
+        ]
+        const pathId = activePathIdRef.current
+        if (pathId) {
+          const currentSummary = learningPaths.find((entry) => entry.id === pathId)
+          void updateLearningPathById(pathId, {
+            title: getDisplayPathTitle(currentSummary?.title ?? 'Neuer Lernpfad'),
+            learnWorksheets: merged,
+          }).then((updated) => {
+            pathCacheRef.current[pathId] = updated
+          })
+        }
+        return merged
+      })
+    } catch (err) {
+      console.error('Lernbereich: Abschluss-Arbeitsblatt konnte nicht generiert werden', err)
+      if (activePathIdRef.current === activePathIdAtStart) {
+        setError(err instanceof Error ? err.message : 'Abschluss-Arbeitsblatt konnte nicht erstellt werden.')
+      }
+    } finally {
+      substepWorksheetInFlightRef.current = false
+      setIsGeneratingSubstepWorksheet(false)
+    }
+  }
+
+  /** Öffnet einen bestimmten Zwischenschritt im Arbeitsbereich (Schiene) und generiert bei Bedarf den Inhalt. */
+  function openSubstep(topicIndex: number, substepIndex: number) {
+    const session = topicSessions[topicIndex]
+    if (!session || !session.substeps[substepIndex]) {
+      return
+    }
+    setActiveTopicFlowIndex(topicIndex)
+    setActiveSubstepIndex(substepIndex)
+    setEntryCheckStarted(false)
+    setIsSubstepPracticePhase(false)
+    setIsSubstepWorksheetPhase(false)
+    void ensureSubstepContent(topicIndex, substepIndex)
+    if (chapterModalCloseTimerRef.current) {
+      window.clearTimeout(chapterModalCloseTimerRef.current)
+      chapterModalCloseTimerRef.current = null
+    }
+    setError(null)
+    setIsChapterModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsChapterModalVisible(true)
+    })
+  }
+
+  /** Themen-Einstieg: bei Bedarf Einstiegscheck generieren; danach Landing (Einstiegscheck) oder erster Zwischenschritt. */
   async function openTopicModal(topicIndex: number) {
     const activePathIdAtStart = activePathId
     const existing = topicSessions[topicIndex]
@@ -2816,7 +2908,7 @@ export function LearnPage({
       ).trim()
       const topicLearningGoal = syllabusEntry?.learningGoal?.trim() ?? ''
       try {
-        setError('Diagnosetest wird vorbereitet...')
+        setError('Einstiegscheck wird vorbereitet...')
         setIsChapterGenerationLoading(true)
         setChapterGenerationPercent(8)
         const topicMaterialContext = formatRelevantMaterialContext(
@@ -2828,7 +2920,6 @@ export function LearnPage({
           materials,
           getChapterMaterialRagOptions(materials.length),
         )
-        const entryQuizInsight = buildEntryQuizInsightForChapter(entryQuiz, entryQuizResult)
         let validationHint = ''
         let generatedDiagnostic: ChapterBlueprint | null = null
         // Platzhalter-Modus: Mock-Diagnosetest ohne KI — die Schleife unten wird übersprungen.
@@ -2853,7 +2944,6 @@ export function LearnPage({
               aiGuidance,
               proficiencyLevel,
               materialContext: topicMaterialContext,
-              entryQuizInsight,
               validationHint,
               attempt,
             }),
@@ -2891,7 +2981,7 @@ export function LearnPage({
             continue
           }
           const validation = validateGeneratedChapter(candidate, {
-            minQuestions: TOPIC_DIAGNOSTIC_MIN_QUESTIONS,
+            minQuestions: TOPIC_ENTRY_CHECK_MIN_QUESTIONS,
             requireExplanation: false,
             requireRecap: false,
           })
@@ -2903,7 +2993,7 @@ export function LearnPage({
           break
         }
         if (!generatedDiagnostic) {
-          setError('Diagnosetest konnte nicht erzeugt werden. Erneut versuchen.')
+          setError('Einstiegscheck konnte nicht erzeugt werden. Erneut versuchen.')
           return
         }
         if (activePathIdRef.current !== activePathIdAtStart) {
@@ -2915,21 +3005,21 @@ export function LearnPage({
             index === topicIndex
               ? {
                   ...session,
-                  status: 'diagnostic',
-                  diagnosticBlueprint: generatedDiagnostic,
-                  diagnosticSession: DEFAULT_CHAPTER_SESSION,
+                  status: 'entry_check' as const,
+                  entryCheckBlueprint: generatedDiagnostic,
+                  entryCheckSession: { ...DEFAULT_CHAPTER_SESSION },
                 }
               : session,
           ),
         )
       } catch (err) {
         if (isTransientAiFailure(err)) {
-          setError('Diagnosetest-Erstellung temporär nicht verfügbar. Erneut versuchen.')
+          setError('Einstiegscheck-Erstellung temporär nicht verfügbar. Erneut versuchen.')
         } else {
           setError(
             err instanceof Error
               ? `${err.message} Erneut versuchen.`
-              : 'Diagnosetest konnte nicht erzeugt werden. Erneut versuchen.',
+              : 'Einstiegscheck konnte nicht erzeugt werden. Erneut versuchen.',
           )
         }
         return
@@ -2938,17 +3028,17 @@ export function LearnPage({
         setIsChapterGenerationLoading(false)
         setChapterGenerationPercent(0)
       }
-    } else if (existing.status === 'mastered') {
-      return
     }
 
+    // Themen-Klick öffnet immer die Kapitel-Ebene (kein Teilthema vorwählen): Landing/Einstiegscheck, solange
+    // noch keine Zwischenschritte da sind — sonst die Kapitel-Übersicht (Liste der Teilthemen).
     setActiveTopicFlowIndex(topicIndex)
+    setActiveSubstepIndex(null)
+    setEntryCheckStarted(false)
     if (chapterModalCloseTimerRef.current) {
       window.clearTimeout(chapterModalCloseTimerRef.current)
       chapterModalCloseTimerRef.current = null
     }
-    /** Landkarte Phase 2: ein Themen-Klick auf der Vollbild-Karte löst die Karte ab und öffnet das Kapitel-Modal. */
-    closeLearnMapModal()
     setError(null)
     setIsChapterModalMounted(true)
     window.requestAnimationFrame(() => {
@@ -2994,8 +3084,7 @@ export function LearnPage({
           materials,
           getChapterMaterialRagOptions(materials.length),
         )
-        const entryQuizInsight = buildEntryQuizInsightForChapter(entryQuiz, entryQuizResult)
-        const learnerStateSummary = buildLearnerStateInsight(chapterBlueprints, chapterSession)
+        const learnerStateSummary = buildLearnerStateInsight(chapterBlueprints, chapterSession, skillMasteryBySkillId)
         let validationHint = ''
         let generated: ChapterBlueprint[] = []
         // Platzhalter-Modus: Mock-Kapitel ohne KI — die Schleife unten wird übersprungen.
@@ -3022,7 +3111,6 @@ export function LearnPage({
               aiGuidance,
               proficiencyLevel,
               materialContext: chapterMaterialContext,
-              entryQuizInsight,
               learnerStateSummary,
               validationHint,
               attempt,
@@ -3172,7 +3260,7 @@ export function LearnPage({
     setActiveLearnTab('worksheets')
     if (worksheetRequiredChapterIndex !== null) {
       const ch = worksheetRequiredChapterIndex
-      const progressKey = resolveWorksheetProgressChapterKey(chapterBlueprints, chapterSession, ch)
+      const progressKey = resolveWorksheetProgressChapterKey(topicSessions, ch)
       const prog = getWorksheetChapterProgress(learnWorksheets, progressKey)
       if (prog.total > 0) {
         openSavedWorksheetsModal(ch)
@@ -3189,7 +3277,7 @@ export function LearnPage({
       return
     }
     const ch = worksheetRequiredChapterIndex
-    const progressKey = resolveWorksheetProgressChapterKey(chapterBlueprints, chapterSession, ch)
+    const progressKey = resolveWorksheetProgressChapterKey(topicSessions, ch)
     const prog = getWorksheetChapterProgress(learnWorksheets, progressKey)
     if (prog.total > 0) {
       openSavedWorksheetsModal(ch)
@@ -3206,11 +3294,33 @@ export function LearnPage({
     }, MODAL_ANIMATION_MS)
   }
 
+  /** Kapitel-Arbeitsansicht verlassen → zurück zur Landkarte (Lernpfad-Tab zeigt sie automatisch). */
+  function exitChapterWorkspace() {
+    closeChapterModal()
+  }
+
+  /** Schiene (Variante A): Sprung zu einem bereits erledigten Schritt im aktuellen Zwischenschritt. */
+  function handleSelectTopicFlowStepIndex(index: number) {
+    setTopicFlowChapterSession((prev) => ({ ...prev, stepIndex: index }))
+  }
+
+  function handleSelectChapterStepIndex(index: number) {
+    setChapterSession((prev) => ({ ...prev, stepIndex: index }))
+  }
+
   function handleCompleteChapter() {
     setChapterSession((prev) => {
       const idx = prev.chapterIndex
       if (prev.completedChapterIndexes.includes(idx)) {
         return prev
+      }
+      if (activePathId) {
+        gamification.recordEvent({
+          dedupeKey: `${activePathId}:chapter-completed:${idx}`,
+          eventType: 'chapter_completed',
+          xpAmount: XP_PER_CHAPTER_COMPLETED,
+          sourcePathId: activePathId,
+        })
       }
       return {
         ...prev,
@@ -3221,50 +3331,87 @@ export function LearnPage({
     setActiveLearnTab('worksheets')
   }
 
-  /** Landkarte Phase 1: Diagnosetest fertig — Mastery entscheidet, ob das Thema direkt gemeistert ist oder Zwischenschritte folgen. */
-  function handleCompleteTopicDiagnostic() {
+  /** Einstiegscheck fertig → Status „analyzing" (KI-Analyse-Animation), danach leitet useTopicSubstepOutline
+   *  die Zwischenschritte ab. Der Einstiegscheck selbst zählt NICHT in den Mastery-Score. */
+  function handleCompleteEntryCheck() {
     if (activeTopicFlowIndex === null) {
       return
     }
     const topicIndex = activeTopicFlowIndex
-    let becameMastered = false
     setTopicSessions((prev) =>
-      prev.map((session, index) => {
-        if (index !== topicIndex) {
-          return session
-        }
-        becameMastered = session.masteryScore >= TOPIC_MASTERY_THRESHOLD
-        return { ...session, status: becameMastered ? 'mastered' : 'learning' }
-      }),
+      prev.map((session, index) =>
+        index === topicIndex && session.status === 'entry_check'
+          ? { ...session, status: 'analyzing' as const }
+          : session,
+      ),
     )
-    closeChapterModal()
-    if (becameMastered) {
-      setActiveTopicFlowIndex(null)
-    }
-    // Sonst: activeTopicFlowIndex bleibt gesetzt, damit useTopicStepGeneration im Hintergrund weiterläuft (auch bei geschlossenem Modal).
+    setEntryCheckStarted(false)
+    // Arbeitsbereich offen lassen — die Analyse-Animation läuft dort weiter, bis die Substeps da sind.
   }
 
-  /** Landkarte Phase 1: Zwischenschritt fertig — bei Bedarf generiert useTopicStepGeneration automatisch den nächsten. */
-  function handleCompleteTopicStep() {
-    if (activeTopicFlowIndex === null) {
+  /** Fester Flow (Erklärungen + Fragen) durchlaufen: schaltet auf die Übungskarten-Phase um und stößt bei
+   *  Bedarf die lazy Generierung des zugehörigen Lernkarten-Sets an. */
+  function handleFinishSubstepFlow() {
+    if (activeTopicFlowIndex === null || activeSubstepIndex === null) {
+      return
+    }
+    setIsSubstepPracticePhase(true)
+    void ensureSubstepPracticeSet(activeTopicFlowIndex, activeSubstepIndex)
+  }
+
+  /** Alle Übungskarten bewertet: schaltet auf das Abschluss-Arbeitsblatt um (Pflicht, letzter Schritt) und
+   *  stößt bei Bedarf dessen lazy Generierung an. */
+  function handleFinishSubstepPractice() {
+    if (activeTopicFlowIndex === null || activeSubstepIndex === null) {
+      return
+    }
+    setIsSubstepPracticePhase(false)
+    setIsSubstepWorksheetPhase(true)
+    void ensureSubstepCompletionWorksheet(activeTopicFlowIndex, activeSubstepIndex)
+  }
+
+  /** Zwischenschritt abgeschlossen: als `completed` markieren (lineare Plan-Progression). Ist damit das
+   *  ganze Kapitel abgeschlossen → Thema gemeistert + Landkarte; sonst zurück zur Kapitel-Übersicht. */
+  function handleCompleteSubstep() {
+    if (activeTopicFlowIndex === null || activeSubstepIndex === null) {
       return
     }
     const topicIndex = activeTopicFlowIndex
-    let becameMastered = false
+    const substepIndex = activeSubstepIndex
+    const session = topicSessions[topicIndex]
+    if (!session) {
+      return
+    }
+    setIsSubstepPracticePhase(false)
+    setIsSubstepWorksheetPhase(false)
+    const allCompleted =
+      session.substeps.length > 0 &&
+      session.substeps.every((s, i) => (i === substepIndex ? true : s.completed))
     setTopicSessions((prev) =>
-      prev.map((session, index) => {
+      prev.map((entry, index) => {
         if (index !== topicIndex) {
-          return session
+          return entry
         }
-        becameMastered =
-          session.masteryScore >= TOPIC_MASTERY_THRESHOLD || session.stepBlueprints.length >= TOPIC_MAX_STEPS
-        return { ...session, status: becameMastered ? 'mastered' : 'learning' }
+        const substeps = entry.substeps.map((s, i) => (i === substepIndex ? { ...s, completed: true } : s))
+        return { ...entry, substeps, status: allCompleted ? ('mastered' as const) : entry.status }
       }),
     )
-    closeChapterModal()
-    if (becameMastered) {
+    if (allCompleted) {
+      if (activePathId) {
+        gamification.recordEvent({
+          dedupeKey: `${activePathId}:topic-mastered:${topicIndex}`,
+          eventType: 'topic_mastered',
+          xpAmount: XP_PER_MASTERED_TOPIC,
+          sourcePathId: activePathId,
+        })
+      }
+      closeChapterModal()
       setActiveTopicFlowIndex(null)
+      setActiveSubstepIndex(null)
+      return
     }
+    // Zurück zur Kapitel-Übersicht: das nächste (erste noch nicht abgeschlossene) Teilthema wird „current".
+    setActiveSubstepIndex(null)
   }
 
   function handleTopicFlowMcqSelect(stepId: string, option: string) {
@@ -3307,26 +3454,6 @@ export function LearnPage({
         evaluatedAnswersByStepId: nextEvaluatedAnswersByStepId,
       }
     })
-  }
-
-  /** Landkarte Phase 2: Vollbild-Kartenansicht öffnen/schließen (eigenes Overlay, unabhängig vom Kapitel-Modal). */
-  function openLearnMapModal() {
-    if (learnMapModalCloseTimerRef.current) {
-      window.clearTimeout(learnMapModalCloseTimerRef.current)
-      learnMapModalCloseTimerRef.current = null
-    }
-    setIsLearnMapModalMounted(true)
-    window.requestAnimationFrame(() => {
-      setIsLearnMapModalVisible(true)
-    })
-  }
-
-  function closeLearnMapModal() {
-    setIsLearnMapModalVisible(false)
-    learnMapModalCloseTimerRef.current = window.setTimeout(() => {
-      setIsLearnMapModalMounted(false)
-      learnMapModalCloseTimerRef.current = null
-    }, MODAL_ANIMATION_MS)
   }
 
   function closeFlashcardsModal() {
@@ -3406,6 +3533,7 @@ export function LearnPage({
     worksheetModalCloseTimerRef.current = window.setTimeout(() => {
       setIsWorksheetModalMounted(false)
       setWorksheetModalChapterFilter(null)
+      setWorksheetModalSubstepFilter(null)
       worksheetModalCloseTimerRef.current = null
     }, MODAL_ANIMATION_MS)
   }
@@ -3425,7 +3553,32 @@ export function LearnPage({
       worksheetModalCloseTimerRef.current = null
     }
     setWorksheetError(null)
+    setWorksheetModalSubstepFilter(null)
     setWorksheetModalChapterFilter(chapterFilter === undefined ? null : chapterFilter)
+    setIsWorksheetModalMounted(true)
+    window.requestAnimationFrame(() => {
+      setIsWorksheetModalVisible(true)
+    })
+  }
+
+  /** Öffnet das Abschluss-Arbeitsblatt eines Zwischenschritts im Lernblätter-Tab (Landkarte-Modell). */
+  function openSavedWorksheetsModalForSubstep(topicIndex: number, substepIndex: number) {
+    if (learnWorksheets.length === 0) {
+      return
+    }
+    if (flashcardsModalCloseTimerRef.current) {
+      window.clearTimeout(flashcardsModalCloseTimerRef.current)
+      flashcardsModalCloseTimerRef.current = null
+    }
+    setIsFlashcardsModalVisible(false)
+    setIsFlashcardsModalMounted(false)
+    if (worksheetModalCloseTimerRef.current) {
+      window.clearTimeout(worksheetModalCloseTimerRef.current)
+      worksheetModalCloseTimerRef.current = null
+    }
+    setWorksheetError(null)
+    setWorksheetModalChapterFilter(null)
+    setWorksheetModalSubstepFilter({ topicIndex, substepIndex })
     setIsWorksheetModalMounted(true)
     window.requestAnimationFrame(() => {
       setIsWorksheetModalVisible(true)
@@ -3499,13 +3652,11 @@ export function LearnPage({
   const activeLearnTabIndex =
     activeLearnTab === 'path'
       ? 0
-      : activeLearnTab === 'tests'
+      : activeLearnTab === 'flashcards'
         ? 1
-        : activeLearnTab === 'flashcards'
+        : activeLearnTab === 'worksheets'
           ? 2
-          : activeLearnTab === 'worksheets'
-            ? 3
-            : 4
+          : 3
   const hasExistingLearnContent =
     chapterBlueprints.length > 0 ||
     learningChapters.length > 0 ||
@@ -3521,6 +3672,92 @@ export function LearnPage({
   const isPathWorkspaceBusy =
     isSwitchingLearningPath ||
     (isLearningPathWorkspaceLoading && !learningPaths.some((path) => path.isPending))
+
+  /** Kapitel-Arbeitsansicht: füllt den rechten Bereich (kein Modal mehr) mit Schiene + Fragen. */
+  const isChapterWorkspaceOpen = isChapterModalMounted
+  const chapterWorkspaceOrdinalLabel = isTopicFlowActive
+    ? activeSubstepIndex !== null
+      ? `Teilthema ${activeSubstepIndex + 1}`
+      : (activeTopicSession?.status === 'learning' || activeTopicSession?.status === 'mastered') &&
+          (activeTopicSession?.substeps.length ?? 0) > 0
+        ? 'Kapitelübersicht'
+        : 'Einstiegscheck'
+    : `Kapitel ${safeChapterIndex + 1}`
+  const chapterWorkspaceCorrectness = isTopicFlowActive
+    ? topicFlowChapterSession.correctnessByStepId
+    : chapterSession.correctnessByStepId
+
+  // --- Themen-Arbeitsbereich: Modus (Landing/Einstiegscheck/Analyse/Flow) + Landing-/Übungs-Props ---
+  const entryCheckHasProgress = Boolean(
+    activeTopicSession?.entryCheckSession &&
+      (activeTopicSession.entryCheckSession.stepIndex > 0 ||
+        Object.keys(activeTopicSession.entryCheckSession.feedbackByStepId).length > 0 ||
+        Object.keys(activeTopicSession.entryCheckSession.answersByStepId).length > 0),
+  )
+  const topicWorkspaceMode:
+    | 'landing'
+    | 'entry_check'
+    | 'analyzing'
+    | 'overview'
+    | 'flow'
+    | 'practice'
+    | 'worksheet'
+    | undefined =
+    !isTopicFlowActive
+      ? undefined
+      : activeSubstepIndex !== null
+        ? isSubstepWorksheetPhase
+          ? 'worksheet'
+          : isSubstepPracticePhase
+            ? 'practice'
+            : 'flow'
+        : activeTopicSession?.status === 'analyzing'
+          ? 'analyzing'
+          : (activeTopicSession?.status === 'learning' || activeTopicSession?.status === 'mastered') &&
+              (activeTopicSession?.substeps.length ?? 0) > 0
+            ? 'overview'
+            : entryCheckStarted || entryCheckHasProgress
+              ? 'entry_check'
+              : 'landing'
+  const topicWorkspaceName = isTopicFlowActive
+    ? (syllabus[activeTopicFlowIndex ?? -1]?.topic || learningChapters[activeTopicFlowIndex ?? -1] || 'Thema').trim()
+    : undefined
+  const topicWorkspaceMasteryPercent = activeTopicSession ? topicMasteryScore(activeTopicSession) * 100 : 0
+  const activeSubstepPracticeSet = activeSubstep?.practiceFlashcardSetId
+    ? (learnFlashcardSets.find((set) => set.id === activeSubstep.practiceFlashcardSetId) ?? null)
+    : null
+  const activeSubstepPracticeCards = activeSubstepPracticeSet?.cards ?? []
+  const activeSubstepWorksheetItems =
+    activeTopicFlowIndex !== null && activeSubstepIndex !== null
+      ? learnWorksheets.filter(
+          (item) => item.topicIndex === activeTopicFlowIndex && item.substepIndex === activeSubstepIndex,
+        )
+      : []
+  const topicCompleteLabel =
+    activeSubstepIndex !== null ? 'Weiter zu den Übungskarten' : 'Einstiegscheck abschließen'
+  /** Teilthemen-Liste für die Kapitel-Übersicht (Plan-Timeline): Status + Schritt-Fortschritt je Teilthema.
+   *  „current" = erstes noch nicht abgeschlossenes Teilthema, davor „done", danach „upcoming". */
+  const firstOpenSubstepIndex = (activeTopicSession?.substeps ?? []).findIndex((s) => !s.completed)
+  const topicSubstepList = (activeTopicSession?.substeps ?? []).map((substep, index) => {
+    const status: 'done' | 'current' | 'upcoming' = substep.completed
+      ? 'done'
+      : index === firstOpenSubstepIndex
+        ? 'current'
+        : 'upcoming'
+    const totalSteps = substep.blueprint.steps.length
+    return {
+      index,
+      title: substep.blueprint.title.trim() || `Teilthema ${index + 1}`,
+      status,
+      currentStep: Math.min(substep.session.stepIndex + 1, Math.max(1, totalSteps)),
+      totalSteps,
+    }
+  })
+  const handleSelectSubstepFromOverview = (index: number) => {
+    if (activeTopicFlowIndex !== null) {
+      openSubstep(activeTopicFlowIndex, index)
+    }
+  }
 
   const learnWorkspaceMain = (
       <section className="chat-main learn-main">
@@ -3557,7 +3794,61 @@ export function LearnPage({
           </div>
         </header>
         {learnFeatureInfoVisible ? <p className="chat-learn-feature-info">Noch nicht verfügbar</p> : null}
-        <div className="learn-page-grid">
+        <div className={`learn-page-grid${isChapterWorkspaceOpen ? ' learn-page-grid--chapter' : ''}`}>
+          {isChapterWorkspaceOpen ? (
+            <LearnChapterWorkspace
+              isMounted={isChapterModalMounted}
+              isVisible={isChapterModalVisible}
+              onClose={exitChapterWorkspace}
+              activeChapterBlueprint={isTopicFlowActive ? topicFlowActiveBlueprint : activeChapterBlueprint}
+              safeChapterIndex={isTopicFlowActive ? topicFlowSafeChapterIndex : safeChapterIndex}
+              bestCorrectStreak={bestCorrectStreak}
+              safeChapterStepIndex={isTopicFlowActive ? topicFlowSafeStepIndex : safeChapterStepIndex}
+              activeChapterStep={isTopicFlowActive ? topicFlowActiveStep : activeChapterStep}
+              currentChapterAnswer={isTopicFlowActive ? topicFlowAnswer : currentChapterAnswer}
+              currentChapterFeedback={isTopicFlowActive ? topicFlowFeedback : currentChapterFeedback}
+              currentChapterIsCorrect={isTopicFlowActive ? topicFlowIsCorrect : currentChapterIsCorrect}
+              hasCurrentChapterEvaluation={isTopicFlowActive ? topicFlowHasEvaluation : hasCurrentChapterEvaluation}
+              isEvaluatingChapterStep={isEvaluatingChapterStep}
+              stepCorrectnessById={chapterWorkspaceCorrectness}
+              stepOrdinalLabel={chapterWorkspaceOrdinalLabel}
+              onSelectStepIndex={isTopicFlowActive ? handleSelectTopicFlowStepIndex : handleSelectChapterStepIndex}
+              onChapterAnswerChange={isTopicFlowActive ? handleTopicFlowTextAnswerChange : handleChapterTextAnswerChange}
+              onSelectMcqOption={isTopicFlowActive ? handleTopicFlowMcqSelect : handleChapterMcqSelect}
+              onPreviousChapterStep={isTopicFlowActive ? handlePreviousTopicFlowStep : handlePreviousChapterStep}
+              onEvaluateChapterQuestion={
+                isTopicFlowActive ? handleEvaluateTopicFlowQuestion : handleEvaluateCurrentChapterQuestion
+              }
+              onNextChapterStep={isTopicFlowActive ? handleNextTopicFlowStep : handleNextChapterStep}
+              onCompleteChapter={
+                isTopicFlowActive
+                  ? activeSubstepIndex !== null
+                    ? handleFinishSubstepFlow
+                    : handleCompleteEntryCheck
+                  : handleCompleteChapter
+              }
+              topicMode={topicWorkspaceMode}
+              topicName={topicWorkspaceName}
+              topicMasteryPercent={topicWorkspaceMasteryPercent}
+              onStartEntryCheck={() => setEntryCheckStarted(true)}
+              isGeneratingContent={isGeneratingSubstepContent || (isTopicFlowActive && activeSubstepIndex === null && isGeneratingOutline)}
+              practiceCards={activeSubstepPracticeCards}
+              isGeneratingPractice={isGeneratingSubstepPractice}
+              onRatePracticeCard={handleRateSubstepPracticeCard}
+              onFinishPractice={handleFinishSubstepPractice}
+              worksheetItems={activeSubstepWorksheetItems}
+              isGeneratingWorksheet={isGeneratingSubstepWorksheet}
+              onWorksheetItemEvaluated={handleWorksheetItemEvaluated}
+              onWorksheetSavedAnswerChange={handleWorksheetSavedAnswerChange}
+              onFinishWorksheet={handleCompleteSubstep}
+              useLocalWorksheetEvaluation={generationMode === 'placeholder'}
+              completeLabel={isTopicFlowActive ? topicCompleteLabel : undefined}
+              hideRail={isTopicFlowActive}
+              substepList={topicSubstepList}
+              onSelectSubstep={handleSelectSubstepFromOverview}
+            />
+          ) : (
+            <>
           <article
             className={`learn-card learn-workspace-card${
               activeLearnTab === 'path' && showErrorLogbookHint ? ' has-error-logbook-hint' : ''
@@ -3618,7 +3909,7 @@ export function LearnPage({
                 <nav
                   className={`learn-top-tabs${isMobileTabsTouchActive ? ' is-touch-active' : ''}`}
                   aria-label="Lernbereich Tabs"
-                  style={{ ['--learn-active-tab-index' as any]: activeLearnTabIndex }}
+                  style={{ '--learn-active-tab-index': activeLearnTabIndex } as CSSProperties}
                   onTouchStart={handleMobileTabsTouchStart}
                   onTouchEnd={handleMobileTabsTouchEnd}
                   onTouchCancel={handleMobileTabsTouchEnd}
@@ -3636,20 +3927,6 @@ export function LearnPage({
                       aria-hidden="true"
                     />
                     <span className="learn-top-tab-label">Lernpfad</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`learn-top-tab learn-top-tab--tests${activeLearnTab === 'tests' ? ' is-active' : ''}`}
-                    onClick={() => setActiveLearnTab('tests')}
-                    aria-label="Tests"
-                  >
-                    <img
-                      className="ui-icon learn-top-tab-tests-icon"
-                      src={activeLearnTab === 'tests' ? examFilledIcon : examOutlinedIcon}
-                      alt=""
-                      aria-hidden="true"
-                    />
-                    <span className="learn-top-tab-label">Tests</span>
                   </button>
                   <button
                     type="button"
@@ -3783,28 +4060,6 @@ export function LearnPage({
                           stepPercents: postEntryPrepPercents,
                         }}
                         tutorMessages={tutorMessages}
-                        isEntryQuizLoading={isEntryQuizLoading}
-                        isEntryPrepClosing={isEntryPrepClosing}
-                        entryPrepPanel={{
-                          ariaLabel: 'Ladevorgang Einstiegstest',
-                          setupAnalysisArcRadius,
-                          setupAnalysisArcLength,
-                          setupAnalysisCircumference,
-                          arcOffset: entryPrepArcOffset,
-                          overallPercent: entryPrepOverallPercent,
-                          stepLabels: ENTRY_TEST_PREP_STEPS,
-                          activeStepIndex: entryPrepStepIndex,
-                          stepPercents: entryPrepPercents,
-                          isExiting: isEntryPrepClosing,
-                        }}
-                        entryQuizFallbackError={error}
-                        onRetryEntryQuizGeneration={() => {
-                          setError(null)
-                          setHasTriedEntryQuizGeneration(false)
-                        }}
-                        entryQuizResult={entryQuizResult}
-                        entryTestDurationLabel={entryTestDurationLabel}
-                        onOpenEntryQuizModal={openEntryQuizModal}
                         onStartNextChapter={openChapterModal}
                         chapterBlueprintReady={chapterBlueprintReady}
                         onCreateFlashcards={openTutorFlashcardsAction}
@@ -3817,7 +4072,6 @@ export function LearnPage({
                         topicSessions={topicSessions}
                         targetTopicIndexForOpen={targetTopicIndexForOpen}
                         onOpenTopic={openTopicModal}
-                        onOpenMap={openLearnMapModal}
                         footer={
                           <>
                             {completedChaptersForShowcase.length > 0 ? (
@@ -3870,31 +4124,6 @@ export function LearnPage({
                       />
                     </>
                   )
-                ) : null}
-                {activeLearnTab === 'tests' ? (
-                  <section className="learn-tab-panel">
-                    <section className="learn-tests-list" aria-label="Testliste">
-                      <button type="button" className="learn-tests-list-item" onClick={openEntryQuizModal}>
-                        <div className="learn-tests-list-item-main">
-                          <div className="learn-tests-list-item-heading">
-                            <p className="learn-tests-list-item-title">Einstiegstest</p>
-                            <span className={`learn-tests-status-badge is-${entryTestStatus}`}>
-                              {entryTestStatus === 'completed'
-                                ? 'Abgeschlossen'
-                                : entryTestStatus === 'in_progress'
-                                  ? 'In Bearbeitung'
-                                  : 'Offen'}
-                            </span>
-                          </div>
-                          <p className="learn-tests-list-item-meta">
-                            {entryQuizResult
-                              ? `Ergebnis: ${entryQuizResult.score}/${entryQuizResult.total}`
-                              : `Dauer: ${entryTestDurationLabel}`}
-                          </p>
-                        </div>
-                      </button>
-                    </section>
-                  </section>
                 ) : null}
                 {activeLearnTab === 'flashcards' ? (
                   <section className="learn-tab-panel">
@@ -3951,9 +4180,14 @@ export function LearnPage({
                                 : known > 0 || unknown > 0
                                   ? 'Teilweise'
                                   : 'Offen'
+                          const setTopicTitle =
+                            typeof set.topicIndex === 'number'
+                              ? (syllabus[set.topicIndex]?.topic || learningChapters[set.topicIndex] || '').trim()
+                              : ''
                           const title =
-                            set.title?.trim() ||
-                            `Lernkarten-Set ${setIndex + 1}`
+                            setTopicTitle && typeof set.substepIndex === 'number'
+                              ? `${setTopicTitle} · Teil ${set.substepIndex + 1}`
+                              : set.title?.trim() || `Lernkarten-Set ${setIndex + 1}`
                           return (
                             <button
                               key={set.id}
@@ -3990,7 +4224,7 @@ export function LearnPage({
                 ) : null}
                 {activeLearnTab === 'statistics' ? (
                   <section className="learn-tab-panel learn-stats-tab-panel" aria-label="Lernstatistik">
-                    <LearnSkillMasteryPanel skillMasteryBySkillId={chapterSession.skillMasteryBySkillId} />
+                    <LearnSkillMasteryPanel skillMasteryBySkillId={skillMasteryBySkillId} />
                     <div className="learn-stats-grid">
                       <article
                         className={`learn-stats-card${errorLogbookStats.total > 0 ? ' learn-stats-card--highlight' : ''}`}
@@ -4048,8 +4282,7 @@ export function LearnPage({
                       {worksheetChaptersForList.length === 0 ? (
                         <p className="learn-muted">Noch kein Lernblatt vorhanden.</p>
                       ) : (
-                        worksheetOpenChapters.map(({ chapterIndex, progress }) => {
-                          const chapterTitle = worksheetChapterDisplayLabel(chapterIndex, learningChapters)
+                        worksheetOpenChapters.map(({ key, chapterIndex, substepFilter, title, progress }) => {
                           const status: 'open' | 'in_progress' | 'completed' =
                             progress.total === 0
                               ? 'open'
@@ -4058,14 +4291,18 @@ export function LearnPage({
                                 : 'in_progress'
                           return (
                             <button
-                              key={`ws-${chapterIndex}`}
+                              key={key}
                               type="button"
                               className="learn-tests-list-item"
-                              onClick={() => openSavedWorksheetsModal(chapterIndex)}
+                              onClick={() =>
+                                substepFilter
+                                  ? openSavedWorksheetsModalForSubstep(substepFilter.topicIndex, substepFilter.substepIndex)
+                                  : openSavedWorksheetsModal(chapterIndex ?? undefined)
+                              }
                             >
                               <div className="learn-tests-list-item-main">
                                 <div className="learn-tests-list-item-heading">
-                                  <p className="learn-tests-list-item-title">{chapterTitle}</p>
+                                  <p className="learn-tests-list-item-title">{title}</p>
                                   <span className={`learn-tests-status-badge is-${status}`}>
                                     {status === 'completed'
                                       ? 'Abgeschlossen'
@@ -4110,27 +4347,28 @@ export function LearnPage({
                         >
                           <div className="learn-path-completed-panel-inner">
                             <section className="learn-tests-list learn-worksheets-list-spaced" aria-label="Erledigte Lernblätter Liste">
-                              {worksheetCompletedChapters.map(({ chapterIndex, progress }) => {
-                                const chapterTitle = worksheetChapterDisplayLabel(chapterIndex, learningChapters)
-                                return (
-                                  <button
-                                    key={`ws-done-${chapterIndex}`}
-                                    type="button"
-                                    className="learn-tests-list-item"
-                                    onClick={() => openSavedWorksheetsModal(chapterIndex)}
-                                  >
-                                    <div className="learn-tests-list-item-main">
-                                      <div className="learn-tests-list-item-heading">
-                                        <p className="learn-tests-list-item-title">{chapterTitle}</p>
-                                        <span className="learn-tests-status-badge is-completed">Abgeschlossen</span>
-                                      </div>
-                                      <p className="learn-tests-list-item-meta">
-                                        {progress.evaluatedCount}/{progress.total} Aufgaben geprüft
-                                      </p>
+                              {worksheetCompletedChapters.map(({ key, chapterIndex, substepFilter, title, progress }) => (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  className="learn-tests-list-item"
+                                  onClick={() =>
+                                    substepFilter
+                                      ? openSavedWorksheetsModalForSubstep(substepFilter.topicIndex, substepFilter.substepIndex)
+                                      : openSavedWorksheetsModal(chapterIndex ?? undefined)
+                                  }
+                                >
+                                  <div className="learn-tests-list-item-main">
+                                    <div className="learn-tests-list-item-heading">
+                                      <p className="learn-tests-list-item-title">{title}</p>
+                                      <span className="learn-tests-status-badge is-completed">Abgeschlossen</span>
                                     </div>
-                                  </button>
-                                )
-                              })}
+                                    <p className="learn-tests-list-item-meta">
+                                      {progress.evaluatedCount}/{progress.total} Aufgaben geprüft
+                                    </p>
+                                  </div>
+                                </button>
+                              ))}
                             </section>
                           </div>
                         </div>
@@ -4187,6 +4425,8 @@ export function LearnPage({
               syllabus={syllabus}
             />
           </article>
+            </>
+          )}
         </div>
         {showPathOnboarding ? <LearnPathOnboarding onClose={handleClosePathOnboarding} /> : null}
       </section>
@@ -4194,66 +4434,6 @@ export function LearnPage({
 
   const learnWorkspaceModals = (
     <>
-      <LearnEntryQuizModal
-        isMounted={isEntryQuizMounted}
-        isVisible={isEntryQuizVisible}
-        effectiveTopic={effectiveTopic}
-        entryQuiz={entryQuiz}
-        activeEntryQuestion={activeEntryQuestion}
-        hasMultipleChoiceOptions={hasMultipleChoiceOptions}
-        entryQuizAnswers={entryQuizAnswers}
-        entryQuizResult={entryQuizResult}
-        entryQuizQuestionIndex={entryQuizQuestionIndex}
-        entryQuizTotalQuestions={entryQuizTotalQuestions}
-        entryQuizProgressPercent={entryQuizProgressPercent}
-        activeEntryAnswer={activeEntryAnswer}
-        isLastEntryQuestion={isLastEntryQuestion}
-        isSubmittingEntryQuiz={isSubmittingEntryQuiz}
-        onClose={closeEntryQuizModal}
-        onEntryQuizAnswerChange={handleEntryQuizAnswerChange}
-        onPreviousQuestion={handlePreviousEntryQuestion}
-        onNextQuestion={handleNextEntryQuestion}
-        onSubmit={handleSubmitEntryQuiz}
-      />
-      <LearnChapterModal
-        isMounted={isChapterModalMounted}
-        isVisible={isChapterModalVisible}
-        onClose={closeChapterModal}
-        activeChapterBlueprint={isTopicFlowActive ? topicFlowActiveBlueprint : activeChapterBlueprint}
-        safeChapterIndex={isTopicFlowActive ? topicFlowSafeChapterIndex : safeChapterIndex}
-        bestCorrectStreak={bestCorrectStreak}
-        safeChapterStepIndex={isTopicFlowActive ? topicFlowSafeStepIndex : safeChapterStepIndex}
-        chapterProgressPercent={isTopicFlowActive ? topicFlowProgressPercent : chapterProgressPercent}
-        activeChapterStep={isTopicFlowActive ? topicFlowActiveStep : activeChapterStep}
-        currentChapterAnswer={isTopicFlowActive ? topicFlowAnswer : currentChapterAnswer}
-        currentChapterFeedback={isTopicFlowActive ? topicFlowFeedback : currentChapterFeedback}
-        currentChapterIsCorrect={isTopicFlowActive ? topicFlowIsCorrect : currentChapterIsCorrect}
-        hasCurrentChapterEvaluation={isTopicFlowActive ? topicFlowHasEvaluation : hasCurrentChapterEvaluation}
-        isEvaluatingChapterStep={isEvaluatingChapterStep}
-        onChapterAnswerChange={isTopicFlowActive ? handleTopicFlowTextAnswerChange : handleChapterTextAnswerChange}
-        onSelectMcqOption={isTopicFlowActive ? handleTopicFlowMcqSelect : handleChapterMcqSelect}
-        onPreviousChapterStep={isTopicFlowActive ? handlePreviousTopicFlowStep : handlePreviousChapterStep}
-        onEvaluateChapterQuestion={isTopicFlowActive ? handleEvaluateTopicFlowQuestion : handleEvaluateCurrentChapterQuestion}
-        onNextChapterStep={isTopicFlowActive ? handleNextTopicFlowStep : handleNextChapterStep}
-        onCompleteChapter={
-          isTopicFlowActive
-            ? activeTopicSession?.status === 'diagnostic'
-              ? handleCompleteTopicDiagnostic
-              : handleCompleteTopicStep
-            : handleCompleteChapter
-        }
-      />
-      <LearnMapModal
-        isMounted={isLearnMapModalMounted}
-        isVisible={isLearnMapModalVisible}
-        syllabus={syllabus}
-        learningChapters={learningChapters}
-        topicSessions={topicSessions}
-        effectiveTopic={effectiveTopic}
-        focusTopicIndex={targetTopicIndexForOpen}
-        onOpenTopic={openTopicModal}
-        onClose={closeLearnMapModal}
-      />
       {learnMaterialChoiceTarget !== null ? (
         <ModalShell
           isOpen

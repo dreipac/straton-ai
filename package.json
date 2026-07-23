@@ -23,13 +23,15 @@
     "pptx-renderer:deploy:server": "node scripts/pptx-renderer-deploy.mjs",
     "db:pull": "npx supabase db pull",
     "db:pull:storage": "npx supabase db pull --schema storage",
-    "db:status": "npx supabase migration list"
+    "db:status": "npx supabase migration list",
+    "project:push": "node scripts/project-sync.mjs push",
+    "project:pull": "node scripts/project-sync.mjs pull"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.8",
+    "@fontsource-variable/plus-jakarta-sans": "^5.2.8",
     "@fontsource/roboto": "^5.2.10",
     "@supabase/supabase-js": "^2.98.0",
-    "@xyflow/react": "^12.11.1",
     "chart.js": "^4.5.1",
     "katex": "^0.17.0",
     "mammoth": "^1.12.0",

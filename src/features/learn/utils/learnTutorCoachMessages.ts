@@ -1,47 +1,17 @@
 /** Freundliche, persönliche Tutor-Texte für die Lernpfad-UI (kein KI-Streaming). */
 
-function scoreEmoji(ratio: number): string {
-  if (ratio >= 0.8) {
-    return '🌟'
-  }
-  if (ratio >= 0.6) {
-    return '🙂'
-  }
-  if (ratio >= 0.4) {
-    return '💪'
-  }
-  return '🌱'
-}
-
-export function buildEntryQuizReadyTutorMessage(introFromAi: string): string {
-  const intro = introFromAi.trim() || 'Dein Einstiegstest ist bereit.'
-  return `${intro}\n\nWenn du soweit bist: einmal kurz reinschnuppern — danach passe ich deinen Lernpfad an. 📋✨`
-}
-
 /** Entfernt eingebettete Lernplan-Listen aus älteren Tutor-Nachrichten (UI zeigt den Plan separat). */
 export function stripEmbeddedSyllabusFromTutorMessage(content: string): string {
   return content.replace(/\n\nDein Lernplan:\n(?:(?:\d+\.\s[^\n]+\n?)+)/, '')
 }
 
-export function buildPostEntryQuizTutorMessage(score: number, total: number): string {
-  const safeTotal = Math.max(1, total)
-  const ratio = score / safeTotal
-  const emoji = scoreEmoji(ratio)
-
-  if (ratio >= 0.8) {
-    return `Stark — ${score} von ${total} im Einstiegstest ${emoji}\n\nDu hast eine richtig gute Basis. Als Nächstes starten wir mit Kapitel 1 — ich bin bei dir.`
-  }
-  if (ratio >= 0.6) {
-    return `Gut gemacht! ${score}/${total} im Einstiegstest ${emoji}\n\nEin paar Punkte können wir vertiefen — kein Stress. Lass uns mit Kapitel 1 starten.`
-  }
-  if (ratio >= 0.4) {
-    return `Dein Einstiegstest: ${score}/${total} ${emoji}\n\nDa ist schon was da — wir bauen es Schritt für Schritt aus. Kapitel 1 ist der beste nächste Schritt.`
-  }
-  return `Danke fürs Durchziehen — ${score}/${total} ${emoji}\n\nGenau dafür ist der Lernpfad da. Wir starten mit Kapitel 1 und holen die Lücken gemeinsam rein.`
+/** Nachricht direkt nach der Syllabus-Generierung (kein Einstiegstest mehr davor). */
+export function buildSyllabusReadyTutorMessage(): string {
+  return `Dein Lernplan ist bereit ✨\n\nLass uns mit Kapitel 1 starten — ich bin bei dir.`
 }
 
 export type TutorCoachStep =
-  | { kind: 'start-chapter'; chapterNumber: number; entryScore: number; entryTotal: number }
+  | { kind: 'start-chapter'; chapterNumber: number }
   | { kind: 'need-worksheet'; chapterNumber: number; mixed?: boolean }
   | { kind: 'worksheet-progress'; chapterNumber: number; evaluatedCount: number; total: number; mixed?: boolean }
   | { kind: 'next-chapter'; completedChapterNumber: number; nextChapterNumber: number }
@@ -50,9 +20,7 @@ export type TutorCoachStep =
 export function buildTutorCoachMessage(step: TutorCoachStep): string {
   switch (step.kind) {
     case 'start-chapter': {
-      const { chapterNumber, entryScore, entryTotal } = step
-      const emoji = scoreEmoji(entryTotal > 0 ? entryScore / entryTotal : 0)
-      return `Hey! 👋 Dein Einstiegstest: ${entryScore}/${entryTotal} ${emoji}\n\nLass uns Kapitel ${chapterNumber} angehen — nimm dir Zeit,\nich begleite dich.`
+      return `Hey! 👋\n\nLass uns Kapitel ${step.chapterNumber} angehen — nimm dir Zeit,\nich begleite dich.`
     }
     case 'need-worksheet':
       return step.mixed

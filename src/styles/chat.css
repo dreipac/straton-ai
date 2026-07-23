@@ -1420,9 +1420,9 @@
 .chat-message.is-user {
   justify-self: end;
   background: var(--chat-user-bubble-bg);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--chat-user-bubble-bg) 94%, #0f172a 6%);
   box-shadow: none;
-  border-radius: 18px;
+  border-radius: 25px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2192,9 +2192,15 @@
   flex-direction: column;
   gap: 0.6rem;
   min-width: 0;
-  /* Claude-Look: Assistant-Fließtext und Überschriften in Serif; Code/Inline-Code
-     behalten ihre eigene Monospace-Regel. */
-  font-family: Georgia, Cambria, 'Times New Roman', 'Liberation Serif', serif;
+  font-family:
+    'Plus Jakarta Sans Variable',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
 }
 
 .chat-md-h {
@@ -8393,7 +8399,7 @@
 
 :root[data-theme='dark'] .chat-message.is-user {
   background: var(--chat-user-bubble-bg-dark);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--chat-user-bubble-bg-dark) 94%, #ffffff 6%);
   box-shadow: none;
 }
 

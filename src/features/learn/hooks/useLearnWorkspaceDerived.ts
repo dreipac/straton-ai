@@ -1,7 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../auth/services/auth.service'
 import { getAvatarFallbackLetter, getUserDisplayName } from '../../auth/utils/userDisplay'
-import type { InteractiveQuizPayload, InteractiveQuizQuestion } from '../../chat/utils/interactiveQuiz'
 import type { ChapterBlueprint, ChapterSession, ChapterStep } from '../services/learn.persistence'
 import { sanitizeChapterTitleForUi } from '../utils/learnPageHelpers'
 
@@ -14,23 +13,13 @@ export type LearnWorkspaceDerivedArgs = {
   effectiveTopic: string
   isChapterPreviewVisible: boolean
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
-  entryQuiz: InteractiveQuizPayload | null
-  entryQuizQuestionIndex: number
-  entryQuizAnswers: Record<string, string>
 }
 
 export type LearnWorkspaceDerived = {
-  entryQuizTotalQuestions: number
-  activeEntryQuestion: InteractiveQuizQuestion | null
-  hasMultipleChoiceOptions: boolean
-  activeEntryAnswer: string
-  isLastEntryQuestion: boolean
-  entryQuizProgressPercent: number
   safeChapterIndex: number
   activeChapterBlueprint: ChapterBlueprint | null
   safeChapterStepIndex: number
   activeChapterStep: ChapterBlueprint['steps'][number] | null
-  chapterProgressPercent: number
   currentChapterAnswer: string
   currentChapterFeedback: string
   currentChapterIsCorrect: boolean | undefined
@@ -70,27 +59,7 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     effectiveTopic,
     isChapterPreviewVisible,
     proficiencyLevel,
-    entryQuiz,
-    entryQuizQuestionIndex,
-    entryQuizAnswers,
   } = args
-
-  const entryQuizTotalQuestions = entryQuiz?.questions.length ?? 0
-  const activeEntryQuestion =
-    entryQuiz && entryQuizTotalQuestions > 0
-      ? entryQuiz.questions[Math.min(entryQuizQuestionIndex, entryQuizTotalQuestions - 1)]
-      : null
-  const hasMultipleChoiceOptions = Boolean(
-    activeEntryQuestion &&
-      (activeEntryQuestion.questionType === 'true_false' ||
-        (activeEntryQuestion.questionType === 'mcq' && (activeEntryQuestion.options?.length ?? 0) >= 2)),
-  )
-  const activeEntryAnswer = activeEntryQuestion ? (entryQuizAnswers[activeEntryQuestion.id] ?? '') : ''
-  const isLastEntryQuestion = entryQuizTotalQuestions > 0 && entryQuizQuestionIndex >= entryQuizTotalQuestions - 1
-  const entryQuizProgressPercent =
-    entryQuizTotalQuestions > 0
-      ? (Math.min(entryQuizQuestionIndex + 1, entryQuizTotalQuestions) / entryQuizTotalQuestions) * 100
-      : 0
 
   const safeChapterIndex = Math.max(
     0,
@@ -102,10 +71,6 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     Math.min(chapterSession.stepIndex, Math.max(0, (activeChapterBlueprint?.steps.length ?? 1) - 1)),
   )
   const activeChapterStep = activeChapterBlueprint?.steps[safeChapterStepIndex] ?? null
-  const chapterProgressPercent =
-    activeChapterBlueprint && activeChapterBlueprint.steps.length > 0
-      ? ((safeChapterStepIndex + 1) / activeChapterBlueprint.steps.length) * 100
-      : 0
   const currentChapterAnswer =
     activeChapterStep?.type === 'question' ? (chapterSession.answersByStepId[activeChapterStep.id] ?? '') : ''
   const currentChapterFeedback =
@@ -189,17 +154,10 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
           : '-'
 
   return {
-    entryQuizTotalQuestions,
-    activeEntryQuestion,
-    hasMultipleChoiceOptions,
-    activeEntryAnswer,
-    isLastEntryQuestion,
-    entryQuizProgressPercent,
     safeChapterIndex,
     activeChapterBlueprint,
     safeChapterStepIndex,
     activeChapterStep,
-    chapterProgressPercent,
     currentChapterAnswer,
     currentChapterFeedback,
     currentChapterIsCorrect,

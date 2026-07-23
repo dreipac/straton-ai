@@ -1,5 +1,14 @@
-import type { ChapterBlueprint, ChapterSession, ChapterStep, LearnFlashcardSet, LearnWorksheetItem } from '../services/learn.persistence'
-import { ADAPTIVE_CHAPTER_GENERATED_ID, collectWeakQuestionSteps } from './learnPageHelpers'
+import type {
+  ChapterBlueprint,
+  ChapterStep,
+  LearnFlashcard,
+  LearnFlashcardSet,
+  LearnWorksheetItem,
+  SkillMasteryBySkillId,
+  TopicSubstep,
+} from '../services/learn.persistence'
+import { collectWeakQuestionSteps } from './learnPageHelpers'
+import type { TopicCorpus } from './topicSessionCorpora'
 
 const MAX_OUTLINE_CHARS = 14_000
 
@@ -47,46 +56,34 @@ export function buildFlashcardSourceFromBlueprints(blueprints: ChapterBlueprint[
 }
 
 /**
- * Umriss für Lernkarten/Arbeitsblatt: allgemein nur Basis-Kapitel;
- * personalisiert inkl. adaptivem Schwächen-Kapitel (falls vorhanden) und falsch beantworteter Fragen.
+ * Umriss für Lernkarten/Arbeitsblatt: allgemein nur Basis-Inhalt aller Themen;
+ * personalisiert zusätzlich mit falsch beantworteten Fragen und Fehlermustern.
  */
 export function buildLearnMaterialOutlineFromBlueprints(
   mode: LearnMaterialPersonalizationMode,
-  chapterBlueprints: ChapterBlueprint[],
-  effectiveChapterBlueprints: ChapterBlueprint[],
-  chapterSession: ChapterSession,
+  topicCorpora: TopicCorpus[],
+  skillMasteryBySkillId: SkillMasteryBySkillId,
   learnFlashcardSets?: LearnFlashcardSet[],
   learnWorksheets?: LearnWorksheetItem[],
 ): string {
-  if (mode === 'general' || chapterBlueprints.length === 0) {
-    return buildFlashcardSourceFromBlueprints(chapterBlueprints)
+  const allBlueprints = topicCorpora.flatMap((corpus) => corpus.blueprints)
+  if (mode === 'general' || allBlueprints.length === 0) {
+    return buildFlashcardSourceFromBlueprints(allBlueprints)
   }
 
   const sections: string[] = []
-  const base = buildFlashcardSourceFromBlueprints(chapterBlueprints)
+  const base = buildFlashcardSourceFromBlueprints(allBlueprints)
   if (base.trim()) {
     sections.push(base)
   }
 
-  const tail =
-    effectiveChapterBlueprints.length > chapterBlueprints.length
-      ? effectiveChapterBlueprints[effectiveChapterBlueprints.length - 1]
-      : null
-
-  if (tail && tail.id === ADAPTIVE_CHAPTER_GENERATED_ID) {
-    const tailOutline = buildFlashcardSourceFromBlueprints([tail])
-    if (tailOutline.trim()) {
-      sections.push(`### Adaptives Schwächen-Kapitel\n${tailOutline}`)
-    }
-  }
-
-  const weak = collectWeakQuestionSteps(chapterBlueprints, chapterSession)
+  const weak = topicCorpora.flatMap((corpus) => collectWeakQuestionSteps(corpus.blueprints, corpus.session))
   if (weak.length > 0) {
     const lines = weak.slice(0, 12).map((s, i) => `- ${i + 1}. ${s.prompt}`)
     sections.push(`### Dein Lernverlauf — diese Themen bitte stärker einbeziehen\n${lines.join('\n')}`)
   }
 
-  const weakSkillLogs = Object.values(chapterSession.skillMasteryBySkillId ?? {})
+  const weakSkillLogs = Object.values(skillMasteryBySkillId ?? {})
     .filter((entry) => (entry.score ?? 0) < 0.6)
     .flatMap((entry) => entry.lastWrongPrompts ?? [])
     .filter((text) => text.trim().length > 0)
@@ -133,9 +130,8 @@ export function buildLearnMaterialOutlineFromBlueprints(
  * (ab mehreren abgeschlossenen Kapiteln), ohne vollständigen Kapiteltext.
  */
 export function buildMixedLearnProgressOutline(
-  chapterBlueprints: ChapterBlueprint[],
-  effectiveChapterBlueprints: ChapterBlueprint[],
-  chapterSession: ChapterSession,
+  topicCorpora: TopicCorpus[],
+  skillMasteryBySkillId: SkillMasteryBySkillId,
   learnFlashcardSets?: LearnFlashcardSet[],
   learnWorksheets?: LearnWorksheetItem[],
 ): string {
@@ -143,30 +139,19 @@ export function buildMixedLearnProgressOutline(
     'ANWEISUNG: Erstelle Inhalte ausschließlich zu den unten genannten Schwachstellen und Lernlücken. Wiederhole nicht breit den gesamten Stoff aller Kapitel.',
   ]
 
-  if (chapterBlueprints.length > 0) {
-    const titles = chapterBlueprints.map((chapter, index) => `${index + 1}. ${chapter.title}`).join('\n')
-    sections.push(`### Bereits bearbeitete Kapitel (nur Orientierung)\n${titles}`)
+  const allBlueprints = topicCorpora.flatMap((corpus) => corpus.blueprints)
+  if (allBlueprints.length > 0) {
+    const titles = allBlueprints.map((chapter, index) => `${index + 1}. ${chapter.title}`).join('\n')
+    sections.push(`### Bereits bearbeitete Themen (nur Orientierung)\n${titles}`)
   }
 
-  const tail =
-    effectiveChapterBlueprints.length > chapterBlueprints.length
-      ? effectiveChapterBlueprints[effectiveChapterBlueprints.length - 1]
-      : null
-
-  if (tail && tail.id === ADAPTIVE_CHAPTER_GENERATED_ID) {
-    const tailOutline = buildFlashcardSourceFromBlueprints([tail])
-    if (tailOutline.trim()) {
-      sections.push(`### Adaptives Schwächen-Kapitel\n${tailOutline}`)
-    }
-  }
-
-  const weak = collectWeakQuestionSteps(chapterBlueprints, chapterSession)
+  const weak = topicCorpora.flatMap((corpus) => collectWeakQuestionSteps(corpus.blueprints, corpus.session))
   if (weak.length > 0) {
     const lines = weak.slice(0, 12).map((s, i) => `- ${i + 1}. ${s.prompt}`)
     sections.push(`### Falsch beantwortet — bitte gezielt üben\n${lines.join('\n')}`)
   }
 
-  const weakSkills = Object.values(chapterSession.skillMasteryBySkillId ?? {})
+  const weakSkills = Object.values(skillMasteryBySkillId ?? {})
     .filter((entry) => (entry.score ?? 0) < 0.6)
     .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
   if (weakSkills.length > 0) {
@@ -211,9 +196,8 @@ export function buildMixedLearnProgressOutline(
   if (sections.length <= 1) {
     return buildLearnMaterialOutlineFromBlueprints(
       'personalized',
-      chapterBlueprints,
-      effectiveChapterBlueprints,
-      chapterSession,
+      topicCorpora,
+      skillMasteryBySkillId,
       learnFlashcardSets,
       learnWorksheets,
     )
@@ -224,4 +208,41 @@ export function buildMixedLearnProgressOutline(
     return combined
   }
   return `${combined.slice(0, MAX_OUTLINE_CHARS)}\n\n[…gekürzt]`
+}
+
+/**
+ * Umriss für das Abschluss-Arbeitsblatt EINES Zwischenschritts (letzter Schritt im Teilthema-Flow, nach den
+ * Übungskarten). Priorisiert erkannte Schwachstellen (falsch beantwortete Verständnisfragen im Flow,
+ * „Nicht gewusst"-Übungskarten) und fordert bewusst zusammenhängende, schwerere Abschluss-Aufgaben statt
+ * einzelner Verständnis-Checks.
+ */
+export function buildSubstepCompletionWorksheetOutline(
+  substep: TopicSubstep,
+  practiceCards: LearnFlashcard[],
+): string {
+  const sections: string[] = [
+    'ANWEISUNG: Dies ist das ABSCHLUSS-Arbeitsblatt eines einzelnen Teilthemas (Zwischenschritt) — die letzte Prüfung, bevor der Zwischenschritt als abgeschlossen gilt.',
+    'Priorisiere Aufgaben zu den unten genannten Unsicherheiten/Fehlern. Wiederhole die Übungskarten nicht 1:1.',
+    'Die Aufgaben sollen ZUSAMMENHÄNGEND sein: verknüpfe mehrere Konzepte dieses Teilthemas in einer Aufgabe (Synthese), statt isolierte Einzelfakten abzufragen.',
+    'Das Niveau ist HÖHER als die Verständnisfragen im Lernablauf — eine echte Abschlussprüfung, kein einfaches Wiederholungs-Quiz.',
+  ]
+
+  const base = buildFlashcardSourceFromBlueprints([substep.blueprint])
+  if (base.trim()) {
+    sections.push(`### Inhalt dieses Teilthemas\n${base}`)
+  }
+
+  const weakFlowQuestions = collectWeakQuestionSteps([substep.blueprint], substep.session)
+  if (weakFlowQuestions.length > 0) {
+    const lines = weakFlowQuestions.slice(0, 8).map((step, index) => `- ${index + 1}. ${step.prompt}`)
+    sections.push(`### Im Ablauf falsch beantwortet — bevorzugt aufgreifen\n${lines.join('\n')}`)
+  }
+
+  const unknownPracticeCards = practiceCards.filter((card) => card.selfRating === 'unknown')
+  if (unknownPracticeCards.length > 0) {
+    const lines = unknownPracticeCards.map((card, index) => `- ${index + 1}. ${card.question}`)
+    sections.push(`### Übungskarten „Nicht gewusst" — bevorzugt aufgreifen\n${lines.join('\n')}`)
+  }
+
+  return sections.join('\n\n').trim()
 }

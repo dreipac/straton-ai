@@ -4,10 +4,10 @@ import type {
   ChapterSession,
   ChapterStep,
   ChapterStepWithoutId,
-  EntryQuizResult,
   LearnFlashcardSet,
   LearnWorksheetItem,
   LearningPathSummary,
+  SkillMasteryBySkillId,
   SyllabusEntry,
   TopicSession,
 } from '../services/learn.persistence'
@@ -16,7 +16,6 @@ import {
   isCategorizeAnswerComplete,
   isMatchAnswerComplete,
   resolveMcqExpectedAnswer,
-  type InteractiveQuizPayload,
   type InteractiveQuizQuestion,
 } from '../../chat/utils/interactiveQuiz'
 
@@ -419,32 +418,16 @@ export const MIXED_LEARN_MATERIAL_CHAPTER_INDEX = -1
 /** Ab dieser Anzahl abgeschlossener Basis-Kapitel: Lernblätter/Lernkarten nur noch nach Lernstand. */
 export const MIXED_LEARN_MATERIAL_MIN_COMPLETED_CHAPTERS = 2
 
-export function countCompletedBaseChapters(
-  chapterBlueprints: ChapterBlueprint[],
-  chapterSession: ChapterSession,
-): number {
-  return new Set(
-    chapterSession.completedChapterIndexes.filter((index) => index >= 0 && index < chapterBlueprints.length),
-  ).size
+export function countMasteredTopics(topicSessions: TopicSession[]): number {
+  return topicSessions.filter((session) => session.status === 'mastered').length
 }
 
-export function shouldUseMixedLearnMaterial(
-  chapterBlueprints: ChapterBlueprint[],
-  chapterSession: ChapterSession,
-): boolean {
-  return (
-    countCompletedBaseChapters(chapterBlueprints, chapterSession) >= MIXED_LEARN_MATERIAL_MIN_COMPLETED_CHAPTERS
-  )
+export function shouldUseMixedLearnMaterial(topicSessions: TopicSession[]): boolean {
+  return countMasteredTopics(topicSessions) >= MIXED_LEARN_MATERIAL_MIN_COMPLETED_CHAPTERS
 }
 
-export function resolveWorksheetProgressChapterKey(
-  chapterBlueprints: ChapterBlueprint[],
-  chapterSession: ChapterSession,
-  chapterIndex: number,
-): number {
-  return shouldUseMixedLearnMaterial(chapterBlueprints, chapterSession)
-    ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX
-    : chapterIndex
+export function resolveWorksheetProgressChapterKey(topicSessions: TopicSession[], chapterIndex: number): number {
+  return shouldUseMixedLearnMaterial(topicSessions) ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX : chapterIndex
 }
 
 export function worksheetChapterDisplayLabel(chapterIndex: number, learningChapters: string[]): string {
@@ -581,17 +564,8 @@ export const CHAPTER_LEARNING_FIDELITY_RULES = [
 /** Fallback; Laufzeit nutzt DB/Kontext bevorzugt. */
 export const LEARN_TUTOR_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPTS.learn_tutor
 
-export const ENTRY_TEST_PREP_STEPS = [
-  'Straton analysiert dein Thema',
-  'Straton verarbeitet deine Inhalte',
-  'Straton erstellt deinen Einstiegstest',
-] as const
-
 export const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Lernplan wird erstellt'] as const
-export const ENTRY_QUIZ_MIN_QUESTIONS = 5
 export const SYLLABUS_GENERATION_MAX_ATTEMPTS = 2
-export const ENTRY_QUIZ_MIN_MCQ = 2
-export const ENTRY_QUIZ_MAX_GENERATION_ATTEMPTS = 3
 /** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
 export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
 export const CHAPTER_GENERATION_MAX_ATTEMPTS = 3
@@ -602,14 +576,38 @@ export const CHAPTER_MIN_TEXT = 1
 export const ADAPTIVE_CHAPTER_PLACEHOLDER_ID = 'adaptive-weakness-placeholder'
 export const ADAPTIVE_CHAPTER_GENERATED_ID = 'adaptive-weakness-generated'
 
-/** Landkarte Phase 1: Schwelle, ab der ein Thema als gemeistert gilt (siehe Plan §4 — Mittelwert zwischen "schwach" <0.6 und "sicher beherrscht" ≥0.85 aus buildLearnerStateInsight). */
+/** Schwelle, ab der ein Zwischenschritt als gemeistert gilt (Anteil „Gewusst" der Übungskarten). */
 export const TOPIC_MASTERY_THRESHOLD = 0.75
-/** Landkarte Phase 1: Sicherheitslimit gegen Endlos-Generierung, falls Mastery nie steigt. */
+/** Sicherheitslimit für die Anzahl generierter Zwischenschritte pro Thema. */
 export const TOPIC_MAX_STEPS = 6
-export const TOPIC_DIAGNOSTIC_MIN_QUESTIONS = 5
+/** Mindest-/Maximalzahl Fragen im Einstiegscheck eines Themas (6–10). */
+export const TOPIC_ENTRY_CHECK_MIN_QUESTIONS = 6
+export const TOPIC_ENTRY_CHECK_MAX_QUESTIONS = 10
 export const TOPIC_STEP_MIN_QUESTIONS = 3
 export const TOPIC_DIAGNOSTIC_PLACEHOLDER_ID = 'topic-diagnostic-placeholder'
 export const TOPIC_STEP_PLACEHOLDER_ID = 'topic-step-placeholder'
+
+/** Topic-Mastery ist abgeleitet: Durchschnitt der Zwischenschritt-Scores (nur aus Übungskarten gespeist). */
+export function topicMasteryScore(session: TopicSession): number {
+  if (session.substeps.length === 0) {
+    return 0
+  }
+  const sum = session.substeps.reduce(
+    (acc, substep) => acc + (Number.isFinite(substep.masteryScore) ? substep.masteryScore : 0),
+    0,
+  )
+  return sum / session.substeps.length
+}
+
+/** Gesamte gewertete Übungskarten-Versuche über alle Zwischenschritte (0 = noch keine Datengrundlage). */
+export function topicMasteryAttempts(session: TopicSession): number {
+  return session.substeps.reduce((acc, substep) => acc + (substep.masteryAttempts ?? 0), 0)
+}
+
+/** Ein Thema ist abgeschlossen, wenn es Zwischenschritte hat und alle durchlaufen (`completed`) sind. */
+export function isTopicMastered(session: TopicSession): boolean {
+  return session.substeps.length > 0 && session.substeps.every((substep) => substep.completed)
+}
 
 /** JSON-Schema-Beispiel für Kapitelgenerierung (on-demand + adaptiv). */
 export const CHAPTER_JSON_SCHEMA_EXAMPLE =
@@ -652,28 +650,6 @@ export function getChapterMaterialRagOptions(materialCount: number) {
     : { maxChunks: 10, maxChars: 6500 }
 }
 
-export function buildEntryQuizInsightForChapter(
-  entryQuiz: InteractiveQuizPayload | null,
-  entryQuizResult: EntryQuizResult | null,
-): string {
-  if (!entryQuiz || !entryQuizResult) {
-    return 'Einstiegstest: noch nicht ausgewertet — nutze Material und Thema als Grundlage.'
-  }
-  const lines = [`Einstiegstest-Ergebnis: ${entryQuizResult.score}/${entryQuizResult.total} richtig.`]
-  const wrong = entryQuiz.questions.filter((q) => entryQuizResult.correctnessByQuestionId?.[q.id] === false)
-  if (wrong.length > 0) {
-    lines.push('Schwachstellen aus Einstiegstest (falsch beantwortet — im Kapitel gezielt üben):')
-    wrong.slice(0, 8).forEach((q, index) => {
-      lines.push(`${index + 1}. ${q.prompt}`)
-    })
-  } else {
-    lines.push(
-      'Alle Einstiegstest-Fragen richtig — vertiefe mit anspruchsvolleren Aufgaben aus den Materialauszügen.',
-    )
-  }
-  return lines.join('\n')
-}
-
 export type BuildSyllabusGenerationPromptArgs = {
   pathTitle: string
   mainTopic: string
@@ -681,7 +657,6 @@ export type BuildSyllabusGenerationPromptArgs = {
   aiGuidance: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
-  entryQuizInsight: string
   chapterCount: number
   validationHint: string
   attempt: number
@@ -699,7 +674,6 @@ export function buildSyllabusGenerationUserPrompt(args: BuildSyllabusGenerationP
     'Regeln:',
     '- Unterthemen bilden eine didaktische Progression (Grundlagen → Anwendung → Vertiefung).',
     '- Keine inhaltliche Überlappung zwischen Kapiteln.',
-    '- Schwache Bereiche aus dem Einstiegstest zuerst oder früh im Plan adressieren.',
     '- topic = konkretes Unterthema, NICHT nur das Hauptthema wiederholen.',
     '- learningGoals = 1 bis maximal 3 messbare Lernziele in Stichworten (je max. 6 Wörter, KEINE ganzen Sätze).',
     args.aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}` : '',
@@ -708,7 +682,6 @@ export function buildSyllabusGenerationUserPrompt(args: BuildSyllabusGenerationP
           args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
         }`
       : '',
-    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
     args.materialContext
       ? `Materialauszüge (Unterthemen an diesen Inhalten ausrichten):\n${args.materialContext}`
       : 'Keine Materialauszüge — nutze realistische KV-Unterthemen zum Hauptthema.',
@@ -825,7 +798,6 @@ export type BuildChapterGenerationPromptArgs = {
   aiGuidance: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
-  entryQuizInsight: string
   validationHint: string
   attempt: number
   /** 1-basierte Kapitelnummer im Lernpfad (On-Demand-Generierung). */
@@ -874,7 +846,6 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
           args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
         }`
       : 'Selbsteinschätzung Niveau: unbekannt',
-    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
     args.learnerStateSummary?.trim()
       ? [
           'Aktueller Lernstand (aus bereits bearbeiteten Kapiteln) — passe dieses Kapitel gezielt darauf an:',
@@ -904,7 +875,6 @@ export type BuildTopicDiagnosticPromptArgs = {
   aiGuidance: string
   proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
-  entryQuizInsight: string
   validationHint: string
   attempt: number
 }
@@ -919,8 +889,8 @@ export function buildTopicDiagnosticUserPrompt(args: BuildTopicDiagnosticPromptA
     `Lernpfad: ${args.pathTitle}`,
     `Thema: ${args.chapterTopic}`,
     args.learningGoal?.trim() ? `Lernziel dieses Themas (verbindlich): ${args.learningGoal.trim()}` : '',
-    'Erstelle einen Diagnosetest für dieses Thema als JSON-Objekt mit genau einem Kapitelobjekt.',
-    `Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON. Das Objekt braucht AUSSCHLIESSLICH question-Steps (${TOPIC_DIAGNOSTIC_MIN_QUESTIONS}-7 Stück) — KEINEN explanation-Step, KEINEN recap-Step.`,
+    'Erstelle einen Einstiegscheck für dieses Thema als JSON-Objekt mit genau einem Kapitelobjekt.',
+    `Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON. Das Objekt braucht AUSSCHLIESSLICH question-Steps (${TOPIC_ENTRY_CHECK_MIN_QUESTIONS}-${TOPIC_ENTRY_CHECK_MAX_QUESTIONS} Stück) — KEINEN explanation-Step, KEINEN recap-Step.`,
     'Ziel: das VORWISSEN zu diesem Thema testen, nicht unterrichten — noch keine Erklärungen liefern.',
     'Fragetypen mischen: mcq, text, true_false (bevorzugt), optional match/categorize.',
     `Pflicht bei JEDEM question-Step: Feld "hint" mit 1-2 Sätzen Mini-Hilfe (ohne die Musterlösung zu verraten).`,
@@ -935,7 +905,6 @@ export function buildTopicDiagnosticUserPrompt(args: BuildTopicDiagnosticPromptA
           args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
         }`
       : 'Selbsteinschätzung Niveau: unbekannt',
-    `Auswertungsgrundlage (Einstiegstest):\n${args.entryQuizInsight}`,
     args.materialContext
       ? `Materialauszüge (Diagnosefragen an diesen Inhalten ausrichten):\n${args.materialContext}`
       : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
@@ -947,169 +916,6 @@ export function buildTopicDiagnosticUserPrompt(args: BuildTopicDiagnosticPromptA
   return lines.filter(Boolean).join('\n\n')
 }
 
-export function buildEntryQuizFallbackPayload(topic: string): InteractiveQuizPayload {
-  const safeTopic = (topic || 'dem Thema').trim()
-  return {
-    title: `Einstiegstest: ${safeTopic}`,
-    questions: [
-      {
-        id: 'fallback-q1',
-        prompt: `Welche Aussage trifft für ein solides Grundverständnis bei ${safeTopic} am ehesten zu?`,
-        questionType: 'mcq',
-        options: [
-          'Wichtige Begriffe korrekt zuordnen und anwenden',
-          'Nur Definitionen auswendig kennen',
-          'Rechen- und Praxisaufgaben vermeiden',
-          'Nur bei einfachen Beispielen antworten',
-        ],
-        expectedAnswer: 'Wichtige Begriffe korrekt zuordnen und anwenden',
-        acceptableAnswers: [],
-        evaluation: 'exact',
-        hint: 'Achte auf die Kombination aus Verständnis und Anwendung.',
-        explanation: 'Grundlagen bedeuten in der Regel Begriffe korrekt verstehen und praktisch einsetzen.',
-      },
-      {
-        id: 'fallback-q2',
-        prompt: `Welche Vorgehensweise ist bei Aufgaben zu ${safeTopic} meist sinnvoll?`,
-        questionType: 'mcq',
-        options: ['Struktur prüfen, dann rechnen/zuordnen', 'Direkt raten', 'Nur Ergebnis notieren', 'Auf Kontext verzichten'],
-        expectedAnswer: 'Struktur prüfen, dann rechnen/zuordnen',
-        acceptableAnswers: [],
-        evaluation: 'exact',
-        hint: 'Erst Kontext, dann Lösungsschritte.',
-        explanation: 'Ein sauberer Ablauf reduziert Fehler und zeigt echtes Verständnis.',
-      },
-      {
-        id: 'fallback-q3',
-        prompt: `Beschreibe in 1-2 Sätzen, wo du bei ${safeTopic} aktuell noch unsicher bist.`,
-        questionType: 'text',
-        expectedAnswer: 'eigene Unsicherheiten benennen',
-        acceptableAnswers: ['unsicher', 'schwierigkeit', 'verstehen', 'anwenden', 'rechnung'],
-        evaluation: 'contains',
-        hint: 'Nenne konkret einen Bereich, nicht nur "alles".',
-        explanation: 'Die Antwort hilft, den Lernpfad passend zu priorisieren.',
-      },
-      {
-        id: 'fallback-q4',
-        prompt: `Ordne die Lernschritte sinnvoll zu (${safeTopic}).`,
-        questionType: 'match',
-        matchLeft: ['Grundlagen klären', 'Anwendungsaufgabe lösen', 'Ergebnis prüfen'],
-        matchRight: ['Begriffe/Regeln verstehen', 'Schritte durchführen', 'Plausibilität kontrollieren'],
-        expectedAnswer: '0,1,2',
-        acceptableAnswers: [],
-        evaluation: 'exact',
-        hint: 'Denk in der Reihenfolge: Verstehen -> Anwenden -> Kontrollieren.',
-        explanation: 'Diese Reihenfolge ist ein typisches Lernmuster für stabile Ergebnisse.',
-      },
-      {
-        id: 'fallback-q5',
-        prompt: `Wahr oder Falsch: Bei ${safeTopic} ist es sinnvoll, die eigene Lösung abschließend kurz zu überprüfen.`,
-        questionType: 'true_false',
-        options: ['Wahr', 'Falsch'],
-        expectedAnswer: 'Wahr',
-        acceptableAnswers: ['true', 'wahr'],
-        evaluation: 'exact',
-        hint: 'Denke an typische Flüchtigkeitsfehler.',
-        explanation: 'Eine kurze Kontrolle verbessert die Genauigkeit deutlich.',
-      },
-    ],
-  }
-}
-
-export function validateGeneratedEntryQuiz(quiz: InteractiveQuizPayload): { valid: boolean; reason: string } {
-  if (!Array.isArray(quiz.questions) || quiz.questions.length < ENTRY_QUIZ_MIN_QUESTIONS) {
-    return {
-      valid: false,
-      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_QUESTIONS} Fragen.`,
-    }
-  }
-
-  const mcqQuestions = quiz.questions.filter((question) => question.questionType === 'mcq')
-  if (mcqQuestions.length < ENTRY_QUIZ_MIN_MCQ) {
-    return {
-      valid: false,
-      reason: `Der Einstiegstest braucht mindestens ${ENTRY_QUIZ_MIN_MCQ} Multiple-Choice-Fragen.`,
-    }
-  }
-
-  const textCount = quiz.questions.filter((q) => q.questionType === 'text').length
-  const matchOrTfCount = quiz.questions.filter(
-    (q) =>
-      q.questionType === 'match' || q.questionType === 'true_false' || q.questionType === 'categorize',
-  ).length
-  if (textCount < 1) {
-    return {
-      valid: false,
-      reason: 'Der Einstiegstest braucht mindestens eine Freitext-Frage (questionType "text").',
-    }
-  }
-  if (matchOrTfCount < 1) {
-    return {
-      valid: false,
-      reason:
-        'Der Einstiegstest braucht mindestens eine Zuordnungs- (match), Kategorien- (categorize) oder Wahr/Falsch-Frage (true_false).',
-    }
-  }
-
-  const firstQuestion = quiz.questions[0]
-  if (!firstQuestion || (firstQuestion.questionType !== 'mcq' && firstQuestion.questionType !== 'true_false')) {
-    return {
-      valid: false,
-      reason: 'Die erste Frage muss Multiple-Choice (mcq) oder Wahr/Falsch (true_false) sein.',
-    }
-  }
-  if (firstQuestion.questionType === 'mcq') {
-    const n = firstQuestion.options?.length ?? 0
-    if (n < 3 || n > 5) {
-      return {
-        valid: false,
-        reason: 'Die erste Frage (MCQ) muss 3-5 Antwortoptionen haben.',
-      }
-    }
-  }
-
-  for (let index = 0; index < quiz.questions.length; index += 1) {
-    const question = quiz.questions[index]
-    if (question.questionType === 'match') {
-      const left = question.matchLeft ?? []
-      const right = question.matchRight ?? []
-      if (left.length < 2 || left.length !== right.length) {
-        return {
-          valid: false,
-          reason: `Zuordnungsfrage ${index + 1} braucht gleich lange matchLeft/matchRight (mindestens 2 Paare).`,
-        }
-      }
-      continue
-    }
-    if (question.questionType === 'categorize') {
-      const categorizeError = validateCategorizeFields(
-        question.categories,
-        question.items,
-        question.expectedAnswer,
-        index + 1,
-      )
-      if (categorizeError) {
-        return { valid: false, reason: categorizeError }
-      }
-      continue
-    }
-    if (question.questionType === 'true_false') {
-      continue
-    }
-    if (question.questionType !== 'mcq') {
-      continue
-    }
-    const optionCount = question.options?.length ?? 0
-    if (optionCount < 3 || optionCount > 5) {
-      return {
-        valid: false,
-        reason: `MCQ Frage ${index + 1} muss 3-5 Antwortoptionen haben.`,
-      }
-    }
-  }
-
-  return { valid: true, reason: '' }
-}
 
 export function validateGeneratedChapter(
   chapter: ChapterBlueprint,
@@ -1394,7 +1200,6 @@ export const DEFAULT_CHAPTER_SESSION: ChapterSession = {
   correctnessByStepId: {},
   evaluatedAnswersByStepId: {},
   completedChapterIndexes: [],
-  skillMasteryBySkillId: {},
 }
 
 /**
@@ -1969,10 +1774,11 @@ export function ensureMinimumChapterDepth(blueprints: ChapterBlueprint[]): Chapt
 export function buildLearnerStateInsight(
   blueprints: ChapterBlueprint[],
   session: ChapterSession,
+  skillMasteryBySkillId: SkillMasteryBySkillId,
 ): string {
   const sections: string[] = []
 
-  const weakSkills = Object.values(session.skillMasteryBySkillId ?? {})
+  const weakSkills = Object.values(skillMasteryBySkillId ?? {})
     .filter((entry) => entry.attempts > 0 && (entry.score ?? 0) < 0.6)
     .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
     .slice(0, 8)
@@ -2001,7 +1807,7 @@ export function buildLearnerStateInsight(
     sections.push(`Falsch beantwortete Kapitelfragen:\n${wrongQuestions.join('\n')}`)
   }
 
-  const strongSkills = Object.values(session.skillMasteryBySkillId ?? {})
+  const strongSkills = Object.values(skillMasteryBySkillId ?? {})
     .filter((entry) => entry.attempts >= 2 && (entry.score ?? 0) >= 0.85)
     .map((entry) => entry.label?.trim() || entry.source || 'Konzept')
     .slice(0, 6)
@@ -2098,18 +1904,17 @@ export function buildAdaptiveChallengeFallback(
  * weiterer Schritt generiert werden: ein Zwischenschritt nach dem anderen, kein Burst.
  */
 export function hasUnansweredTopicStep(topicSession: TopicSession): boolean {
-  const blueprints = topicSession.stepBlueprints
-  if (blueprints.length === 0) {
+  const last = topicSession.substeps[topicSession.substeps.length - 1]
+  if (!last) {
     return false
   }
-  const last = blueprints[blueprints.length - 1]
-  const questionSteps = last.steps.filter(
+  const questionSteps = last.blueprint.steps.filter(
     (step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question',
   )
   if (questionSteps.length === 0) {
     return false
   }
-  const feedbackByStepId = topicSession.stepSession?.feedbackByStepId ?? {}
+  const feedbackByStepId = last.session.feedbackByStepId
   return questionSteps.some((step) => {
     const feedback = feedbackByStepId[step.id]
     return !(typeof feedback === 'string' && feedback.trim().length > 0)
@@ -2119,24 +1924,18 @@ export function hasUnansweredTopicStep(topicSession: TopicSession): boolean {
 export function collectTopicWeakQuestionSteps(
   topicSession: TopicSession,
 ): Extract<ChapterStep, { type: 'question' }>[] {
-  const blueprints = [
-    ...(topicSession.diagnosticBlueprint ? [topicSession.diagnosticBlueprint] : []),
-    ...topicSession.stepBlueprints,
-  ]
-  const correctnessByStepId: Record<string, boolean> = {
-    ...(topicSession.diagnosticSession?.correctnessByStepId ?? {}),
-    ...(topicSession.stepSession?.correctnessByStepId ?? {}),
+  const results: Extract<ChapterStep, { type: 'question' }>[] = []
+  const collect = (blueprint: ChapterBlueprint | null, session: ChapterSession | null) => {
+    if (!blueprint || !session) {
+      return
+    }
+    results.push(...collectWeakQuestionSteps([blueprint], session))
   }
-  return collectWeakQuestionSteps(blueprints, {
-    chapterIndex: 0,
-    stepIndex: 0,
-    answersByStepId: {},
-    feedbackByStepId: {},
-    correctnessByStepId,
-    evaluatedAnswersByStepId: {},
-    completedChapterIndexes: [],
-    skillMasteryBySkillId: {},
-  })
+  collect(topicSession.entryCheckBlueprint, topicSession.entryCheckSession)
+  for (const substep of topicSession.substeps) {
+    collect(substep.blueprint, substep.session)
+  }
+  return results
 }
 
 /** Landkarte Phase 1: Platzhalter-Blueprint, während der Diagnosetest für ein Thema generiert wird. */
@@ -2205,5 +2004,190 @@ export function buildTopicStepFallback(
     title: 'Wiederholung',
     description: 'Fallback-Lernschritt mit bisherigen Schwachstellen-Fragen',
     steps,
+  }
+}
+
+// --- Neues Modell: Zwischenschritt-Outline (Teilthemen-Titel) nach dem Einstiegscheck ---
+
+/** Zielanzahl Zwischenschritte pro Thema (aus dem Einstiegscheck abgeleitet). */
+export const TOPIC_SUBSTEP_MIN = 3
+export const TOPIC_SUBSTEP_MAX = 4
+
+/** Fester Ablauf eines Zwischenschritts (für den Content-Prompt): 3 Blöcke à 2 Erklärungen + 1 Zwischenfrage.
+ *  Übungskarten (Lernkarten-Set) und Abschluss-Arbeitsblatt kommen danach als eigene, aus dem Flow generierte
+ *  Elemente — nicht Teil dieses Blueprints (siehe `learnFlashcardSets`/`learnWorksheets`). */
+export const SUBSTEP_FLOW_RULES = [
+  'FESTER AUFBAU (Reihenfolge exakt einhalten): Der Zwischenschritt besteht aus 3 identisch aufgebauten Blöcken.',
+  'Jeder Block (3×): 2 explanation-Steps → 1 question-Step (questionType mcq ODER true_false).',
+  'Ergebnis pro Zwischenschritt: genau 6 explanation-Steps und genau 3 question-Steps (jeweils mcq ODER true_false — KEINE Freitext-/text-Fragen) — in genau dieser Reihenfolge.',
+  'explanation-Steps lehren das Teilthema Schritt für Schritt (Definition, Beispiel, Rechenweg); jede braucht ein Feld "keyPrinciple".',
+  'question-Steps prüfen kurz das gerade Erklärte (schnelle Verständnisfrage); jede braucht ein Feld "hint".',
+].join('\n')
+
+const SUBSTEP_JSON_SCHEMA_EXAMPLE =
+  '{"id":"substep-1","title":"...","steps":[{"id":"s1","type":"explanation","title":"...","content":"...","bullets":["..."],"keyPrinciple":"..."},{"id":"s2","type":"explanation","title":"...","content":"...","keyPrinciple":"..."},{"id":"s3","type":"question","questionType":"mcq","prompt":"...","options":["a","b","c"],"expectedAnswer":"a","hint":"...","explanation":"...","skillTag":"..."},"… Block 2: 2 explanation + 1 question(true_false); Block 3: 2 explanation + 1 question(mcq) …"]}'
+
+export type BuildSubstepOutlinePromptArgs = {
+  pathTitle: string
+  topicTitle: string
+  learningGoal?: string
+  entryCheckSummary: string
+  weaknessSummary: string
+  materialContext: string
+  attempt: number
+  validationHint: string
+}
+
+/** Prompt: aus dem Einstiegscheck eine Liste von 3–6 Teilthemen-Titeln für die Zwischenschritte ableiten. */
+export function buildSubstepOutlinePrompt(args: BuildSubstepOutlinePromptArgs): string {
+  const lines = [
+    `Lernpfad: ${args.pathTitle}`,
+    `Thema: ${args.topicTitle}`,
+    args.learningGoal?.trim() ? `Lernziel dieses Themas (verbindlich): ${args.learningGoal.trim()}` : '',
+    `Der Lernende hat gerade den Einstiegscheck zu diesem Thema absolviert. Leite daraus ${TOPIC_SUBSTEP_MIN}-${TOPIC_SUBSTEP_MAX} Teilthemen ab, die er als Zwischenschritte durcharbeiten soll — priorisiere die Schwachstellen.`,
+    'Antwortformat: NUR valides JSON-Array aus Strings (die Teilthemen-Titel), z. B. ["Grundlagen X","X berechnen","Typische Fehler bei X"]. Kein Markdown, kein Fliesstext.',
+    'Jeder Titel ist kurz (2-6 Wörter), fachlich konkret und ohne Nummerierung.',
+    `Auswertung des Einstiegschecks:\n${args.entryCheckSummary}`,
+    args.weaknessSummary.trim() ? `Falsch beantwortete Fragen (priorisieren):\n${args.weaknessSummary}` : '',
+    args.materialContext ? `Materialauszüge:\n${args.materialContext}` : '',
+    args.attempt > 1 ? 'WICHTIG: Der vorige Versuch war ungültig. Gib ausschließlich ein JSON-String-Array zurück.' : '',
+    args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
+  ]
+  return lines.filter(Boolean).join('\n\n')
+}
+
+/** Parst ein JSON-String-Array aus einer KI-Antwort zu Teilthemen-Titeln (defensiv, tolerant). */
+export function parseSubstepTitlesFromText(text: string): string[] {
+  const tryParse = (raw: string): string[] | null => {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const titles = parsed
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+        return titles.length > 0 ? titles : null
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+  const direct = tryParse(text.trim())
+  if (direct) {
+    return direct.slice(0, TOPIC_SUBSTEP_MAX)
+  }
+  const match = text.match(/\[[\s\S]*\]/)
+  if (match) {
+    const fromMatch = tryParse(match[0])
+    if (fromMatch) {
+      return fromMatch.slice(0, TOPIC_SUBSTEP_MAX)
+    }
+  }
+  return []
+}
+
+/** Fallback-Titel, falls die Outline-Generierung fehlschlägt. */
+export function buildSubstepOutlineFallback(topicTitle: string): string[] {
+  const base = topicTitle.trim() || 'dieses Thema'
+  return [`Grundlagen: ${base}`, `${base} in der Praxis`, `${base}: typische Fehler`]
+}
+
+export type BuildSubstepContentPromptArgs = {
+  pathTitle: string
+  topicTitle: string
+  substepTitle: string
+  learningGoal?: string
+  materialContext: string
+  weaknessSummary: string
+  attempt: number
+  validationHint: string
+}
+
+/** Prompt für den Vollinhalt EINES Zwischenschritts im festen 3-Block-Aufbau + Übungskarten. */
+export function buildSubstepContentPrompt(args: BuildSubstepContentPromptArgs): string {
+  const lines = [
+    `Lernpfad: ${args.pathTitle}`,
+    `Thema: ${args.topicTitle}`,
+    `Zwischenschritt (Teilthema): ${args.substepTitle}`,
+    args.learningGoal?.trim() ? `Lernziel des Themas: ${args.learningGoal.trim()}` : '',
+    'Erstelle den Inhalt für GENAU DIESES Teilthema als JSON-Objekt mit genau einem Kapitelobjekt (Feld "steps").',
+    'Antwortformat: NUR valides JSON — kein Markdown, kein Fliesstext ausserhalb des JSON.',
+    SUBSTEP_FLOW_RULES,
+    `Schema-Beispiel: ${SUBSTEP_JSON_SCHEMA_EXAMPLE}`,
+    CHAPTER_SKILL_TAG_RULE,
+    CHAPTER_LEARNING_FIDELITY_RULES,
+    args.weaknessSummary.trim() ? `Bekannte Schwachstellen (gezielt aufgreifen):\n${args.weaknessSummary}` : '',
+    args.materialContext
+      ? `Materialauszüge (mind. die Hälfte der Fragen muss sich hierauf beziehen):\n${args.materialContext}`
+      : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
+    args.attempt > 1 ? 'WICHTIG: Der vorige Versuch hielt den festen Aufbau nicht ein. Halte dich exakt an 6 explanation + 3 question (mcq/true_false).' : '',
+    args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
+  ]
+  return lines.filter(Boolean).join('\n\n')
+}
+
+/** Validiert den festen Zwischenschritt-Aufbau (tolerant zu Reihenfolge, streng zu Mindestmengen). */
+export function validateGeneratedSubstep(chapter: ChapterBlueprint): { valid: boolean; reason: string } {
+  if (!chapter.title.trim()) {
+    return { valid: false, reason: 'Der Zwischenschritt braucht einen title.' }
+  }
+  const explanations = chapter.steps.filter((step) => step.type === 'explanation')
+  const questions = chapter.steps.filter(
+    (step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question',
+  )
+  if (explanations.length < 6) {
+    return { valid: false, reason: `Es braucht mindestens 6 Erklärungen (explanation), gefunden: ${explanations.length}.` }
+  }
+  const checkQuestions = questions.filter((q) => q.questionType === 'mcq' || q.questionType === 'true_false').length
+  if (checkQuestions < 3) {
+    return { valid: false, reason: `Es braucht mindestens 3 Zwischenfragen (mcq/true_false), gefunden: ${checkQuestions}.` }
+  }
+  return { valid: true, reason: '' }
+}
+
+/** Fallback-Vollinhalt eines Zwischenschritts (fester Aufbau) aus Schwachstellen, falls die KI endgültig scheitert. */
+export function buildSubstepContentFallback(
+  substepTitle: string,
+  weakQuestions: Extract<ChapterStep, { type: 'question' }>[],
+): ChapterBlueprint {
+  const title = substepTitle.trim() || 'Teilthema'
+  const steps: ChapterStepWithoutId[] = []
+  for (let block = 0; block < 3; block += 1) {
+    steps.push(
+      {
+        type: 'explanation',
+        title: `${title} — Grundlage ${block + 1}`,
+        content: `Kernidee zu „${title}" (Teil ${block + 1}). Diese Zusammenfassung ersetzt vorübergehend den KI-Inhalt.`,
+        bullets: ['Wichtigster Punkt', 'Typische Anwendung'],
+        keyPrinciple: `Behalte die zentrale Regel zu „${title}" im Kopf.`,
+      },
+      {
+        type: 'explanation',
+        title: `${title} — Vertiefung ${block + 1}`,
+        content: `Ein kurzes Beispiel zu „${title}".`,
+        keyPrinciple: `Wende die Regel zu „${title}" auf ein konkretes Beispiel an.`,
+      },
+    )
+    const weak = weakQuestions[block]
+    steps.push(
+      weak && (weak.questionType === 'mcq' || weak.questionType === 'true_false')
+        ? weak
+        : {
+            type: 'question',
+            questionType: 'true_false',
+            prompt: `Aussage zu „${title}": Diese Regel gilt immer ohne Ausnahme.`,
+            options: ['Wahr', 'Falsch'],
+            expectedAnswer: 'Falsch',
+            hint: 'Achte auf absolute Formulierungen wie „immer".',
+          },
+    )
+  }
+  return {
+    id: 'substep-content-fallback',
+    title,
+    description: 'Fallback-Inhalt im festen Aufbau (KI vorübergehend nicht verfügbar).',
+    source: 'fallback',
+    steps: steps.map((step, index) => ({ ...step, id: `fallback-s${index + 1}` }) as ChapterStep),
   }
 }

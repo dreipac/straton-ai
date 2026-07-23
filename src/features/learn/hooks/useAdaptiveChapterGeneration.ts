@@ -130,7 +130,6 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
             aiGuidance: '',
             proficiencyLevel: '',
             materialContext: adaptiveMaterialContext,
-            entryQuizInsight: 'Adaptives Abschlusskapitel — fokussiere auf Schwachstellen aus dem Lernverlauf.',
             validationHint,
             attempt,
             adaptive: true,

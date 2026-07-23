@@ -71,6 +71,9 @@ export type LearnFlashcardSet = {
   id: string
   title?: string
   cards: LearnFlashcard[]
+  /** Gesetzt, wenn dieses Set die Übungskarten eines Teilthema-Flows sind (Landkarte-Modell). */
+  topicIndex?: number
+  substepIndex?: number
 }
 
 /** Arbeitsblatt-Aufgabe (strukturiert wie Kapitel-/Quiz-Fragen; alte Einträge nur mit prompt = Freitext). */
@@ -92,6 +95,9 @@ export type LearnWorksheetItem = {
   /** Konzept-/Kompetenz-Tag (z. B. "mwst-berechnung") für quellenübergreifende Skill-Mastery. */
   skillTag?: string
   chapterIndex?: number
+  /** Gesetzt, wenn diese Aufgabe zum Abschluss-Arbeitsblatt eines Teilthema-Flows gehört (Landkarte-Modell). */
+  topicIndex?: number
+  substepIndex?: number
   /** Mindestens einmal per Kreis geprüft */
   evaluated?: boolean
   /** Ergebnis der letzten Kreis-Prüfung */
@@ -160,6 +166,29 @@ export type ChapterBlueprint = {
   steps: ChapterStep[]
 }
 
+/** Skill-Mastery V2: 0..1 je Skill/Fragetyp im Lernpfad. Pfad-globales Feld (siehe LearningPathRecord) —
+ *  wird von Kapitel-Modus, Landkarte-Modus und Arbeitsblättern gemeinsam beschrieben, ist daher keinem
+ *  einzelnen ChapterSession-Leaf zugeordnet. */
+export type SkillMasteryBySkillId = Record<
+  string,
+  {
+    score: number
+    attempts: number
+    correct: number
+    label?: string
+    source?: 'chapter' | 'flashcard' | 'worksheet'
+    /** Letzte Prompts mit falscher Bewertung (max. 6). */
+    lastWrongPrompts?: string[]
+    /** Letzte Prompts mit korrekter Bewertung (max. 6). */
+    lastCorrectPrompts?: string[]
+    wrongStreak?: number
+    correctStreak?: number
+    lastWrongAt?: string
+    lastCorrectAt?: string
+    lastUpdatedAt: string
+  }
+>
+
 export type ChapterSession = {
   chapterIndex: number
   stepIndex: number
@@ -168,45 +197,38 @@ export type ChapterSession = {
   correctnessByStepId: Record<string, boolean>
   evaluatedAnswersByStepId: Record<string, string>
   completedChapterIndexes: number[]
-  /** Skill-Mastery V2: 0..1 je Skill/Fragetyp im Lernpfad. */
-  skillMasteryBySkillId: Record<
-    string,
-    {
-      score: number
-      attempts: number
-      correct: number
-      label?: string
-      source?: 'chapter' | 'flashcard' | 'worksheet'
-      /** Letzte Prompts mit falscher Bewertung (max. 6). */
-      lastWrongPrompts?: string[]
-      /** Letzte Prompts mit korrekter Bewertung (max. 6). */
-      lastCorrectPrompts?: string[]
-      wrongStreak?: number
-      correctStreak?: number
-      lastWrongAt?: string
-      lastCorrectAt?: string
-      lastUpdatedAt: string
-    }
-  >
 }
 
-/** Landkarte Phase 1: Status eines Themas im dynamischen Diagnose-/Mastery-Ablauf. */
-export type TopicStatus = 'locked' | 'diagnostic' | 'learning' | 'mastered'
+/** Status eines Themas im Ablauf: gesperrt → Einstiegscheck → KI-Analyse → Lernen (Zwischenschritte) → gemeistert. */
+export type TopicStatus = 'locked' | 'entry_check' | 'analyzing' | 'learning' | 'mastered'
 
-/** Landkarte Phase 1: pro-Thema-Fortschritt (Index == syllabus-Index). Additiv zum bestehenden Kapitel-Modell. */
+/** Ein Zwischenschritt (Teilthema) eines Themas: fester Lern-Flow + Übungskarten, mit eigenem Mastery-Score. */
+export type TopicSubstep = {
+  /** Fester Flow (Erklärkarten + Fragen) und am Ende die `practice`-Übungskarten. */
+  blueprint: ChapterBlueprint
+  /** Fortschritt durch diesen Zwischenschritt (Antworten/Feedback/correctness je Step-ID). */
+  session: ChapterSession
+  /** 0..1, ausschließlich aus den Übungskarten (`practice`) dieses Zwischenschritts. Reiner Leistungs-Score. */
+  masteryScore: number
+  masteryAttempts: number
+  /** false = nur Titel/Outline vorhanden, Vollinhalt wird beim ersten Öffnen lazy generiert. */
+  contentReady: boolean
+  /** true, sobald der Flow einmal bis zum Ende durchlaufen wurde — steuert die lineare Plan-Progression. */
+  completed: boolean
+  /** ID des zu diesem Zwischenschritt gehörenden `LearnFlashcardSet` (Übungskarten) — lazy generiert,
+   *  sobald der feste Flow durchlaufen ist. Das Set lebt ganz normal in `learnFlashcardSets`. */
+  practiceFlashcardSetId: string | null
+}
+
+/** Pro-Thema-Fortschritt (Index == syllabus-Index). Alleiniges Fortschrittsmodell der Landkarte. */
 export type TopicSession = {
   topicIndex: number
   status: TopicStatus
-  diagnosticBlueprint: ChapterBlueprint | null
-  /** Leaf-Container wiederverwendet: stepIndex/Antworten/correctness ausschliesslich ueber diagnosticBlueprint.steps. */
-  diagnosticSession: ChapterSession | null
-  /** Dynamisch wachsend, ein Eintrag pro generiertem Zwischenschritt. */
-  stepBlueprints: ChapterBlueprint[]
-  /** Leaf-Container wiederverwendet: laeuft stepBlueprints genauso ab wie chapterBlueprints heute. */
-  stepSession: ChapterSession | null
-  /** 0..1, EWMA wie skillMasteryBySkillId, aber pro Thema statt pro Skill-Tag. */
-  masteryScore: number
-  masteryAttempts: number
+  /** Einstiegscheck (6–10 Fragen, non-scoring) — Grundlage für die KI-Analyse der Zwischenschritte. */
+  entryCheckBlueprint: ChapterBlueprint | null
+  entryCheckSession: ChapterSession | null
+  /** Zwischenschritte (Teilthemen), nach dem Einstiegscheck aus dessen Antworten abgeleitet. */
+  substeps: TopicSubstep[]
   masteryUpdatedAt?: string
 }
 
@@ -233,6 +255,8 @@ export type LearningPathRecord = LearningPathSummary & {
   chapterSession: ChapterSession
   /** Landkarte Phase 1: additiv, leer bei Lernpfaden, die noch im alten linearen Modus laufen. */
   topicSessions: TopicSession[]
+  /** Pfad-global, unabhängig davon ob eine Frage über Kapitel-Modus, Landkarte oder Arbeitsblatt kam. */
+  skillMasteryBySkillId: SkillMasteryBySkillId
   learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }
@@ -262,6 +286,7 @@ type LearningPathRow = {
   chapter_blueprints: unknown
   chapter_session: unknown
   topic_sessions: unknown
+  skill_mastery_by_skill_id: unknown
   learn_flashcards: unknown
   learn_worksheets: unknown
   generation_mode: unknown
@@ -292,6 +317,7 @@ type LearningPathPatch = Partial<{
   chapterBlueprints: ChapterBlueprint[]
   chapterSession: ChapterSession
   topicSessions: TopicSession[]
+  skillMasteryBySkillId: SkillMasteryBySkillId
   learnFlashcardSets: LearnFlashcardSet[]
   learnWorksheets: LearnWorksheetItem[]
 }>
@@ -692,7 +718,6 @@ function mapChapterSession(value: unknown): ChapterSession {
       correctnessByStepId: {},
       evaluatedAnswersByStepId: {},
       completedChapterIndexes: [],
-      skillMasteryBySkillId: {},
     }
   }
   const item = value as Record<string, unknown>
@@ -701,7 +726,6 @@ function mapChapterSession(value: unknown): ChapterSession {
   const completedChapterIndexes = Array.isArray(item.completedChapterIndexes)
     ? item.completedChapterIndexes.filter((entry): entry is number => typeof entry === 'number' && Number.isFinite(entry))
     : []
-  const skillMasteryBySkillId = mapSkillMasteryRecord(item.skillMasteryBySkillId)
   return {
     chapterIndex,
     stepIndex,
@@ -710,17 +734,14 @@ function mapChapterSession(value: unknown): ChapterSession {
     correctnessByStepId: mapBooleanRecord(item.correctnessByStepId),
     evaluatedAnswersByStepId: mapEntryQuizAnswers(item.evaluatedAnswersByStepId),
     completedChapterIndexes,
-    skillMasteryBySkillId,
   }
 }
 
-function mapSkillMasteryRecord(
-  value: unknown,
-): ChapterSession['skillMasteryBySkillId'] {
+function mapSkillMasteryRecord(value: unknown): SkillMasteryBySkillId {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
   }
-  const out: ChapterSession['skillMasteryBySkillId'] = {}
+  const out: SkillMasteryBySkillId = {}
   for (const [skillId, raw] of Object.entries(value as Record<string, unknown>)) {
     if (!skillId.trim() || !raw || typeof raw !== 'object' || Array.isArray(raw)) {
       continue
@@ -800,6 +821,121 @@ function mapTopicSessionBlueprint(value: unknown): ChapterBlueprint | null {
   return blueprints[0] ?? null
 }
 
+/** Behält nur die Step-IDs eines bestimmten Blueprints — trennt die alte, geteilte stepSession je Substep. */
+function filterChapterSessionToStepIds(session: ChapterSession, stepIds: Set<string>): ChapterSession {
+  const pick = <T>(source: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(source).filter(([key]) => stepIds.has(key)))
+  return {
+    chapterIndex: 0,
+    stepIndex: 0,
+    answersByStepId: pick(session.answersByStepId),
+    feedbackByStepId: pick(session.feedbackByStepId),
+    correctnessByStepId: pick(session.correctnessByStepId),
+    evaluatedAnswersByStepId: pick(session.evaluatedAnswersByStepId),
+    completedChapterIndexes: [],
+  }
+}
+
+/** Substep-Blueprint: toleriert leere steps (Outline vor der Vollinhalt-Generierung). Step-IDs werden
+ *  global eindeutig über (topicIndex, substepIndex) namespaced — idempotent bei erneutem Laden. */
+function mapSubstepBlueprint(value: unknown, topicIndex: number, substepIndex: number): ChapterBlueprint | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  const item = value as Record<string, unknown>
+  const title = typeof item.title === 'string' ? item.title.trim() : ''
+  if (!title) {
+    return null
+  }
+  const rawSteps = Array.isArray(item.steps) ? item.steps : []
+  const steps = rawSteps.map((step, stepIndex) => mapChapterStep(step, stepIndex)).filter(Boolean) as ChapterStep[]
+  const blueprint: ChapterBlueprint = {
+    id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `substep-${substepIndex + 1}`,
+    title,
+    ...(typeof item.description === 'string' && item.description.trim()
+      ? { description: item.description.trim() }
+      : {}),
+    source: item.source === 'fallback' ? 'fallback' : 'ai',
+    steps,
+  }
+  return namespaceChapterStepIds([blueprint], { chapterIndexOffset: topicIndex * 100 + substepIndex })[0] ?? blueprint
+}
+
+function mapTopicSubstep(value: unknown, topicIndex: number, substepIndex: number): TopicSubstep | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  const item = value as Record<string, unknown>
+  const blueprint = mapSubstepBlueprint(item.blueprint, topicIndex, substepIndex)
+  if (!blueprint) {
+    return null
+  }
+  const masteryScoreRaw =
+    typeof item.masteryScore === 'number' && Number.isFinite(item.masteryScore) ? item.masteryScore : 0
+  const masteryAttemptsRaw =
+    typeof item.masteryAttempts === 'number' && Number.isFinite(item.masteryAttempts) ? item.masteryAttempts : 0
+  const practiceFlashcardSetId =
+    typeof item.practiceFlashcardSetId === 'string' && item.practiceFlashcardSetId.trim()
+      ? item.practiceFlashcardSetId.trim()
+      : null
+  return {
+    blueprint,
+    session: mapChapterSession(item.session),
+    masteryScore: Math.max(0, Math.min(1, masteryScoreRaw)),
+    masteryAttempts: Math.max(0, Math.floor(masteryAttemptsRaw)),
+    contentReady: typeof item.contentReady === 'boolean' ? item.contentReady : blueprint.steps.length > 0,
+    completed: item.completed === true,
+    practiceFlashcardSetId,
+  }
+}
+
+/** Hebt eine alte TopicSession ({diagnostic*, stepBlueprints, stepSession, masteryScore}) verlustfrei auf die
+ *  neue Form ({entryCheck*, substeps}). Alte Step-IDs (ch0-, ch1-, …) sind bereits über die Schritte hinweg
+ *  eindeutig, daher lässt sich die geteilte stepSession je Substep sauber aufteilen — ohne Re-Namespacing. */
+function upgradeLegacyTopicSession(item: Record<string, unknown>, topicIndex: number): TopicSession {
+  const legacyStatus = item.status === 'diagnostic' ? 'entry_check' : item.status
+  const status: TopicStatus =
+    legacyStatus === 'entry_check' ||
+    legacyStatus === 'analyzing' ||
+    legacyStatus === 'learning' ||
+    legacyStatus === 'mastered'
+      ? legacyStatus
+      : 'locked'
+  const oldStepBlueprints = mapChapterBlueprints(Array.isArray(item.stepBlueprints) ? item.stepBlueprints : [])
+  const oldStepSession = mapChapterSession(item.stepSession)
+  const masteryScore = Math.max(
+    0,
+    Math.min(1, typeof item.masteryScore === 'number' && Number.isFinite(item.masteryScore) ? item.masteryScore : 0),
+  )
+  const masteryAttempts = Math.max(
+    0,
+    Math.floor(
+      typeof item.masteryAttempts === 'number' && Number.isFinite(item.masteryAttempts) ? item.masteryAttempts : 0,
+    ),
+  )
+  // Alt-Substeps gelten als abgeschlossen, wenn das Thema gemeistert war bzw. der Score die Schwelle traf.
+  const legacyCompleted = status === 'mastered' || masteryScore >= 0.75
+  const substeps: TopicSubstep[] = oldStepBlueprints.map((blueprint) => {
+    const stepIds = new Set(blueprint.steps.map((step) => step.id))
+    return {
+      blueprint,
+      session: filterChapterSessionToStepIds(oldStepSession, stepIds),
+      masteryScore,
+      masteryAttempts,
+      contentReady: true,
+      completed: legacyCompleted,
+      practiceFlashcardSetId: null,
+    }
+  })
+  return {
+    topicIndex,
+    status,
+    entryCheckBlueprint: mapTopicSessionBlueprint(item.diagnosticBlueprint),
+    entryCheckSession: mapTopicSessionChapterSession(item.diagnosticSession),
+    substeps,
+  }
+}
+
 function mapTopicSession(value: unknown, index: number): TopicSession | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null
@@ -807,16 +943,25 @@ function mapTopicSession(value: unknown, index: number): TopicSession | null {
   const item = value as Record<string, unknown>
   const topicIndex =
     typeof item.topicIndex === 'number' && Number.isFinite(item.topicIndex) ? item.topicIndex : index
+
+  // Alte Form (ohne substeps, aber mit stepBlueprints/diagnosticBlueprint): einmalig aufheben.
+  const isLegacyShape =
+    !Array.isArray(item.substeps) && (Array.isArray(item.stepBlueprints) || item.diagnosticBlueprint != null)
+  if (isLegacyShape) {
+    return upgradeLegacyTopicSession(item, topicIndex)
+  }
+
   const status: TopicStatus =
-    item.status === 'diagnostic' || item.status === 'learning' || item.status === 'mastered'
+    item.status === 'entry_check' ||
+    item.status === 'analyzing' ||
+    item.status === 'learning' ||
+    item.status === 'mastered'
       ? item.status
       : 'locked'
-  const rawStepBlueprints = Array.isArray(item.stepBlueprints) ? item.stepBlueprints : []
-  const stepBlueprints = mapChapterBlueprints(rawStepBlueprints)
-  const masteryScoreRaw =
-    typeof item.masteryScore === 'number' && Number.isFinite(item.masteryScore) ? item.masteryScore : 0
-  const masteryAttemptsRaw =
-    typeof item.masteryAttempts === 'number' && Number.isFinite(item.masteryAttempts) ? item.masteryAttempts : 0
+  const rawSubsteps = Array.isArray(item.substeps) ? item.substeps : []
+  const substeps = rawSubsteps
+    .map((entry, substepIndex) => mapTopicSubstep(entry, topicIndex, substepIndex))
+    .filter((entry): entry is TopicSubstep => entry !== null)
   const masteryUpdatedAt =
     typeof item.masteryUpdatedAt === 'string' && item.masteryUpdatedAt.trim().length > 0
       ? item.masteryUpdatedAt.trim()
@@ -824,12 +969,9 @@ function mapTopicSession(value: unknown, index: number): TopicSession | null {
   return {
     topicIndex,
     status,
-    diagnosticBlueprint: mapTopicSessionBlueprint(item.diagnosticBlueprint),
-    diagnosticSession: mapTopicSessionChapterSession(item.diagnosticSession),
-    stepBlueprints,
-    stepSession: mapTopicSessionChapterSession(item.stepSession),
-    masteryScore: Math.max(0, Math.min(1, masteryScoreRaw)),
-    masteryAttempts: Math.max(0, Math.floor(masteryAttemptsRaw)),
+    entryCheckBlueprint: mapTopicSessionBlueprint(item.entryCheckBlueprint),
+    entryCheckSession: mapTopicSessionChapterSession(item.entryCheckSession),
+    substeps,
     ...(masteryUpdatedAt ? { masteryUpdatedAt } : {}),
   }
 }
@@ -1142,11 +1284,21 @@ function mapLearnFlashcardSets(value: unknown): LearnFlashcardSet[] {
             ? crypto.randomUUID()
             : `fs-${out.length + 1}`
       const title = typeof o.title === 'string' ? o.title.trim() : undefined
+      const topicIndex =
+        typeof o.topicIndex === 'number' && Number.isFinite(o.topicIndex) && o.topicIndex >= 0
+          ? Math.floor(o.topicIndex)
+          : undefined
+      const substepIndex =
+        typeof o.substepIndex === 'number' && Number.isFinite(o.substepIndex) && o.substepIndex >= 0
+          ? Math.floor(o.substepIndex)
+          : undefined
       const cards = mapLearnFlashcardsFlat(o.cards)
       if (cards.length > 0) {
         out.push({
           id,
           ...(title ? { title } : {}),
+          ...(topicIndex !== undefined ? { topicIndex } : {}),
+          ...(substepIndex !== undefined ? { substepIndex } : {}),
           cards,
         })
       }
@@ -1188,6 +1340,14 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
       Number.isFinite(o.chapterIndex) &&
       (o.chapterIndex === -1 || o.chapterIndex >= 0)
         ? Math.floor(o.chapterIndex)
+        : undefined
+    const topicIndex =
+      typeof o.topicIndex === 'number' && Number.isFinite(o.topicIndex) && o.topicIndex >= 0
+        ? Math.floor(o.topicIndex)
+        : undefined
+    const substepIndex =
+      typeof o.substepIndex === 'number' && Number.isFinite(o.substepIndex) && o.substepIndex >= 0
+        ? Math.floor(o.substepIndex)
         : undefined
     if (rawPrompt) {
       const evaluated = o.evaluated === true
@@ -1234,6 +1394,8 @@ function mapLearnWorksheets(value: unknown): LearnWorksheetItem[] {
         id,
         prompt: rawPrompt,
         chapterIndex,
+        ...(topicIndex !== undefined ? { topicIndex } : {}),
+        ...(substepIndex !== undefined ? { substepIndex } : {}),
         ...(questionType ? { questionType } : {}),
         ...(skillTag ? { skillTag } : {}),
         ...(parseStringArray(o.options) ? { options: parseStringArray(o.options) } : {}),
@@ -1310,6 +1472,7 @@ function mapRecord(row: LearningPathRow): LearningPathRecord {
     chapterBlueprints: mapChapterBlueprints(row.chapter_blueprints),
     chapterSession: mapChapterSession(row.chapter_session),
     topicSessions: mapTopicSessions(row.topic_sessions),
+    skillMasteryBySkillId: mapSkillMasteryRecord(row.skill_mastery_by_skill_id),
     learnFlashcardSets: mapLearnFlashcardSets(row.learn_flashcards),
     learnWorksheets: mapLearnWorksheets(row.learn_worksheets ?? []),
     generationMode: row.generation_mode === 'placeholder' ? 'placeholder' : 'ai',
@@ -1342,6 +1505,7 @@ function toUpdateRow(patch: LearningPathPatch): Record<string, unknown> {
   if (patch.chapterBlueprints !== undefined) row.chapter_blueprints = patch.chapterBlueprints
   if (patch.chapterSession !== undefined) row.chapter_session = patch.chapterSession
   if (patch.topicSessions !== undefined) row.topic_sessions = patch.topicSessions
+  if (patch.skillMasteryBySkillId !== undefined) row.skill_mastery_by_skill_id = patch.skillMasteryBySkillId
   if (patch.learnFlashcardSets !== undefined) row.learn_flashcards = patch.learnFlashcardSets
   if (patch.learnWorksheets !== undefined) row.learn_worksheets = patch.learnWorksheets
   return row
@@ -1369,7 +1533,7 @@ export async function listLearningPathsByUserId(userId: string): Promise<Learnin
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, skill_mastery_by_skill_id, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
@@ -1386,7 +1550,7 @@ export async function getLearningPathById(pathId: string): Promise<LearningPathR
   const { data, error } = await supabase
     .from('learning_paths')
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, skill_mastery_by_skill_id, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
     )
     .eq('id', pathId)
     .maybeSingle()
@@ -1416,7 +1580,7 @@ export async function createLearningPathByUserId(
       generation_mode: generationMode,
     })
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, skill_mastery_by_skill_id, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
     )
     .single()
 
@@ -1438,7 +1602,7 @@ export async function updateLearningPathById(
     .update(rowPatch)
     .eq('id', pathId)
     .select(
-      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
+      'id, user_id, title, topic, topic_suggestions, selected_topic, ai_guidance, proficiency_level, setup_step, is_setup_complete, materials, tutor_messages, entry_quiz, entry_quiz_answers, entry_quiz_result, tutor_state, current_chapter_index, target_chapter_count, unlocked_chapter_count, syllabus, learning_chapters, chapter_blueprints, chapter_session, topic_sessions, skill_mastery_by_skill_id, learn_flashcards, learn_worksheets, generation_mode, created_at, updated_at',
     )
     .single()
 

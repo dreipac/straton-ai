@@ -1,428 +1,12 @@
-/* Lernlandkarte: Bento-Hauptbox im Lernpfad-Tab + Vollbild-Layout.
+/* Lernlandkarte: schlichte, vertikal scrollende Themen-Zeitleiste im Lernpfad-Tab.
+   Kein Pan/Zoom, kein Vollbild-Overlay mehr — das Muster spiegelt bewusst die Kapitelübersicht
+   (.learn-chapter-plan in learn.css) auf Themen-Ebene: durchgehende Linie links, Status-Punkt,
+   Name + Ø-Score, das aktuelle Thema als dezente Karte. Teilthemen erscheinen darunter als
+   schlichte graue Punkt+Name-Zeilen. */
 
-   Designprinzip: Die Karte folgt dem Theme (hell im Light-, dunkel im Dark-/Black-Theme) und der
-   gewählten Akzentfarbe. Der Hintergrund ist eine ruhige Aurora-Fläche: große, stark
-   weichgezeichnete Farb-Lecks in mehreren Tonstufen DERSELBEN Akzentfarbe (bei Blau also mehrere
-   Blautöne), die langsam atmen. Hauptthemen sind Hexagons mit abgerundeten Ecken und weichen
-   Schatten — passend zum Bento-Stil der übrigen App. */
-
-/* --- Farb-Tokens: aus Theme- + Akzentvariablen abgeleitet. Auf Canvas UND Surface definiert,
-   damit auch Elemente außerhalb des Canvas (Tutor-Dock, Vollbild-Button) sie erreichen. --- */
 .learn-map-canvas,
 .learn-path-map-surface {
   --lm-accent: var(--color-accent, #6366f1);
-  /* Tonstufen derselben Akzentfarbe (hell / basis / tief): Mischung mit Weiß bzw. Schwarz behält
-     den Farbton — bei jeder Akzentfarbe entsteht so die passende Familie. */
-  --lm-accent-light: color-mix(in srgb, var(--lm-accent) 58%, #ffffff);
-  --lm-accent-deep: color-mix(in srgb, var(--lm-accent) 66%, #000000);
-  --lm-glass: color-mix(in srgb, var(--color-surface) 78%, transparent);
-  --lm-glass-border: color-mix(in srgb, var(--color-border) 75%, transparent);
-  --lm-hex-fill: var(--color-surface-elevated);
-  --lm-line: color-mix(in srgb, var(--color-border-strong) 80%, var(--color-text-muted));
-  /* Blob-Töne: in dunklen Themes leuchten hell/basis/tief direkt, im Light-Theme pastellig
-     (Override unten). */
-  --lm-blob-a: var(--lm-accent-light);
-  --lm-blob-b: var(--lm-accent);
-  --lm-blob-c: var(--lm-accent-deep);
-  --lm-blob-opacity: 0.4;
-}
-
-:root[data-theme='light'] .learn-map-canvas,
-:root[data-theme='light'] .learn-path-map-surface {
-  --lm-hex-fill: #ffffff;
-  --lm-blob-a: color-mix(in srgb, var(--lm-accent) 30%, #ffffff);
-  --lm-blob-b: color-mix(in srgb, var(--lm-accent) 52%, #ffffff);
-  --lm-blob-c: color-mix(in srgb, var(--lm-accent) 74%, #ffffff);
-  --lm-blob-opacity: 0.5;
-}
-
-/* --- react-flow Basis-Theming --- */
-.learn-map-flow {
-  position: relative;
-  z-index: 1;
-  background: transparent;
-}
-
-.learn-map-canvas .react-flow__attribution {
-  display: none;
-}
-
-/* Kanten: Status kommt als Klasse aus buildTopicMapGraph — durchgehend volle, solide Linien.
-   done = gemeisterte Strecke (Akzentfarbe), flow = Strecke zum aktiven Knoten, locked = gedimmt. */
-.learn-map-canvas .react-flow__edge-path {
-  stroke: var(--lm-line);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-
-/* Linie zeichnet sich beim Eintritt: pathLength=1 → eine Strich-Länge = ganzer Pfad, der per
-   dashoffset von „ganz versteckt" (1) auf „voll gezeichnet" (0) läuft. Vorlauf über --lm-edge-delay
-   (aus dem Layout), damit jede Linie kurz NACH ihrem Zielknoten gezogen wird. */
-.learn-map-canvas .learn-map-edge-line {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: lm-edge-draw 0.7s ease var(--lm-edge-delay, 0.6s) both;
-}
-
-@keyframes lm-edge-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* Halt-Choreografie: Mündet eine Kante in einen neu erscheinenden Zwischenschritt, zeichnet sie sich
-   SOFORT (ohne die lange Eintritts-Staffelung) — die Linie „füllt" sich zum neuen Halt. */
-.learn-map-canvas .learn-map-edge-group.is-filling .learn-map-edge-line {
-  animation: lm-edge-draw 0.62s ease 0s both;
-}
-
-.learn-map-canvas .learn-map-edge-group.is-filling .learn-map-edge-glow,
-.learn-map-canvas .learn-map-edge-group.is-filling .learn-map-edge-pulse {
-  animation-delay: 0s;
-}
-
-/* Glow/Puls einer Kante blenden erst NACH dem Zeichnen der Linie ein (gleiche Verzögerung).
-   Nur `from` definiert → die impliziten Zielwerte sind die jeweiligen Basis-Opazitäten, sodass
-   done-Glow (0.22) und flow-Glow (0.1) korrekt erhalten bleiben. */
-@keyframes lm-edge-aux-in {
-  from {
-    opacity: 0;
-  }
-}
-
-.learn-map-canvas .learn-map-edge--locked .react-flow__edge-path {
-  opacity: 0.55;
-}
-
-.learn-map-canvas .learn-map-edge--done .react-flow__edge-path,
-.learn-map-canvas .learn-map-edge--flow .react-flow__edge-path {
-  stroke: var(--lm-accent);
-  stroke-width: 3.4;
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--lm-accent) 38%, transparent));
-}
-
-/* Gemeisterte Strecke = Lichtspur: die Linie hinter dem Nutzer glüht stärker als der Weg vor ihm
-   („schau, wie weit du gekommen bist" auf einen Blick). */
-.learn-map-canvas .learn-map-edge--done .react-flow__edge-path {
-  stroke-width: 4;
-}
-
-.learn-map-canvas .learn-map-edge-glow {
-  fill: none;
-  stroke: var(--lm-accent);
-  stroke-width: 10;
-  stroke-linecap: round;
-  opacity: 0.22;
-  animation: lm-edge-aux-in 0.5s ease var(--lm-edge-delay, 0.6s) both;
-}
-
-.learn-map-canvas .learn-map-edge--flow .learn-map-edge-glow {
-  opacity: 0.1;
-}
-
-/* Energie-Puls Richtung aktives Ziel: ein kurzer Licht-Strich wandert die Kante entlang
-   (pathLength=100 normalisiert die Strecke — gleiche Geschwindigkeit auf jeder Kantenlänge).
-   Dash-Muster 14 + 200 > 100: nur ein Puls sichtbar, er läuft sauber hinein und hinaus. */
-.learn-map-canvas .learn-map-edge-pulse {
-  fill: none;
-  stroke: var(--lm-accent-light);
-  stroke-width: 3.6;
-  stroke-linecap: round;
-  stroke-dasharray: 14 200;
-  stroke-dashoffset: 14;
-  opacity: 1;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--lm-accent) 55%, transparent));
-  /* Wandern (dashoffset) läuft dauerhaft; das Einblenden (opacity) wartet auf die Zeichen-Verzögerung. */
-  animation: lm-edge-travel 2.8s linear infinite,
-    lm-edge-aux-in 0.45s ease var(--lm-edge-delay, 0.6s) both;
-}
-
-@keyframes lm-edge-travel {
-  from {
-    stroke-dashoffset: 14;
-  }
-  to {
-    stroke-dashoffset: -100;
-  }
-}
-
-@keyframes lm-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
-/* --- Aurora-Hintergrund: verschwommene Farb-Lecks, die langsam und zeitversetzt „atmen".
-   Bewusst nie synchron (verschiedene Dauern + negative Delays), damit die Fläche ruhig lebt
-   statt zu pulsieren wie ein Alarm. --- */
-.learn-map-aurora {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.learn-map-aurora-blob {
-  position: absolute;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  filter: blur(clamp(42px, 6vw, 84px));
-  opacity: var(--lm-blob-opacity);
-  animation: lm-blob-breathe var(--lm-blob-dur, 14s) ease-in-out var(--lm-blob-delay, 0s) infinite
-    alternate;
-}
-
-.learn-map-aurora-blob--a {
-  width: 44%;
-  min-width: 260px;
-  top: -14%;
-  left: -8%;
-  background: radial-gradient(circle, var(--lm-blob-a) 0%, transparent 70%);
-  --lm-blob-dur: 16s;
-}
-
-.learn-map-aurora-blob--b {
-  width: 40%;
-  min-width: 240px;
-  top: 24%;
-  right: -10%;
-  background: radial-gradient(circle, var(--lm-blob-b) 0%, transparent 70%);
-  --lm-blob-dur: 13s;
-  --lm-blob-delay: -5s;
-}
-
-.learn-map-aurora-blob--c {
-  width: 52%;
-  min-width: 300px;
-  bottom: -20%;
-  left: 18%;
-  background: radial-gradient(circle, var(--lm-blob-c) 0%, transparent 70%);
-  --lm-blob-dur: 18s;
-  --lm-blob-delay: -9s;
-}
-
-.learn-map-aurora-blob--d {
-  width: 26%;
-  min-width: 180px;
-  top: 10%;
-  left: 52%;
-  background: radial-gradient(circle, var(--lm-blob-a) 0%, transparent 70%);
-  --lm-blob-dur: 12s;
-  --lm-blob-delay: -3s;
-}
-
-@keyframes lm-blob-breathe {
-  from {
-    transform: scale(0.9);
-    opacity: calc(var(--lm-blob-opacity) * 0.6);
-  }
-  to {
-    transform: scale(1.1);
-    opacity: var(--lm-blob-opacity);
-  }
-}
-
-/* --- Vollbild-Landkarte (eigenes Overlay, kein zentriertes Modal-Card-Layout) --- */
-.learn-map-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  background: var(--color-surface-app, var(--color-surface));
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.learn-map-modal-overlay.is-visible {
-  opacity: 1;
-}
-
-.learn-map-modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: calc(0.85rem + env(safe-area-inset-top, 0px)) 1rem 0.7rem;
-  flex-shrink: 0;
-}
-
-.learn-map-modal-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--color-text-app);
-}
-
-.learn-map-modal-canvas {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-/* --- Gemeinsame Karten-Fläche --- */
-.learn-map-canvas {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background: var(--color-surface);
-  /* Eintritts-Choreografie Schritt 1: Beim Öffnen/Neuladen des Tabs poppt die Fläche aus der Mitte
-     smooth auf. Danach erscheinen (per --lm-delay) die Themen, dann zeichnen sich die Linien. */
-  transform-origin: center;
-  animation: lm-canvas-pop 0.5s cubic-bezier(0.2, 0.7, 0.3, 1.05) both;
-}
-
-@keyframes lm-canvas-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-}
-
-/* --- HUD (oben links): Themen-Fortschritt mit Akzent-Ring, Theme-Glas --- */
-.learn-map-hud {
-  position: absolute;
-  top: 0.8rem;
-  left: 0.8rem;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.42rem 0.85rem 0.42rem 0.5rem;
-  border: 1px solid var(--lm-glass-border);
-  border-radius: 999px;
-  background: var(--lm-glass);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
-  backdrop-filter: blur(12px) saturate(1.15);
-  box-shadow: 0 8px 22px var(--color-shadow-soft);
-  pointer-events: none;
-}
-
-.learn-map-hud-ring {
-  flex-shrink: 0;
-}
-
-.learn-map-hud-ring-track {
-  fill: none;
-  stroke: color-mix(in srgb, var(--color-text-app) 14%, transparent);
-  stroke-width: 3.4;
-}
-
-.learn-map-hud-ring-fill {
-  fill: none;
-  stroke: var(--lm-accent);
-  stroke-width: 3.4;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--lm-accent) 45%, transparent));
-  transition: stroke-dashoffset 0.6s ease;
-}
-
-.learn-map-hud-copy {
-  display: grid;
-  gap: 0.05rem;
-}
-
-.learn-map-hud-value {
-  margin: 0;
-  font-size: 0.85rem;
-  font-weight: 750;
-  line-height: 1.1;
-  color: var(--color-text-app);
-}
-
-.learn-map-hud-label {
-  margin: 0;
-  font-size: 0.62rem;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  line-height: 1.1;
-  color: var(--color-text-muted);
-}
-
-/* --- Zoom-Controls (unten rechts): Theme-Glas --- */
-.learn-map-zoom {
-  position: absolute;
-  right: 0.8rem;
-  bottom: 0.9rem;
-  z-index: 8;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.learn-map-zoom-button {
-  width: 2.05rem;
-  height: 2.05rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--lm-glass-border);
-  border-radius: 11px;
-  background: var(--lm-glass);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
-  backdrop-filter: blur(12px) saturate(1.15);
-  box-shadow: 0 6px 16px var(--color-shadow-soft);
-  color: var(--color-text-app);
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.learn-map-zoom-button:hover {
-  border-color: color-mix(in srgb, var(--lm-accent) 55%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--lm-accent) 25%, transparent);
-}
-
-/* Steuer-Symbole als geometrisch zentrierte SVG-Masken (Text-Glyphen sitzen wegen ihrer
-   Font-Metrik nie exakt mittig). currentColor folgt der Button-Farbe. */
-.learn-map-zoom-icon {
-  display: block;
-  width: 1.05rem;
-  height: 1.05rem;
-  background: currentColor;
-}
-
-.learn-map-zoom-icon--in {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-.learn-map-zoom-icon--out {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-.learn-map-zoom-icon--center {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='3.2'/%3E%3Cline x1='12' y1='2.5' x2='12' y2='5.5'/%3E%3Cline x1='12' y1='18.5' x2='12' y2='21.5'/%3E%3Cline x1='2.5' y1='12' x2='5.5' y2='12'/%3E%3Cline x1='18.5' y1='12' x2='21.5' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='3.2'/%3E%3Cline x1='12' y1='2.5' x2='12' y2='5.5'/%3E%3Cline x1='12' y1='18.5' x2='12' y2='21.5'/%3E%3Cline x1='2.5' y1='12' x2='5.5' y2='12'/%3E%3Cline x1='18.5' y1='12' x2='21.5' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-/* --- „Zurück zum Pfad" (oben mittig, damit das Tutor-Dock unten Platz hat) --- */
-.learn-map-recenter-button {
-  position: absolute;
-  top: 0.85rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  border: 1px solid var(--lm-glass-border);
-  border-radius: 999px;
-  padding: 0.45rem 1.05rem;
-  background: var(--lm-glass);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
-  backdrop-filter: blur(12px) saturate(1.15);
-  box-shadow: 0 8px 22px var(--color-shadow-soft);
-  color: var(--color-text-app);
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.learn-map-recenter-button:hover {
-  border-color: color-mix(in srgb, var(--lm-accent) 55%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--lm-accent) 28%, transparent);
 }
 
 /* --- Lernpfad-Tab: gestapelte Bento-Boxen — Tutor oben, darunter die Karten-Box --- */
@@ -433,14 +17,9 @@
   flex: 1 1 auto;
   min-height: 0;
   padding: 0;
-  /* Etwas Luft zwischen Karten-Box und unterem Rand. */
   padding-bottom: 0.85rem;
 }
 
-/* Vollflächige Landkarte OHNE Seiten-Scroll: Die gesamte Höhenkette vom Scroll-Container
-   (.learn-main) bis zur Karten-Box wird auf „exakt ausfüllen" gestellt, statt fixe Höhen zu
-   summieren (das ergab ~1–2rem Überhang → Scrollbalken). Alles auf den Map-Fall gescopet (:has),
-   damit die anderen Lern-Tabs weiter normal scrollen. */
 .learn-main:has(.learn-conversation--map) {
   overflow: hidden;
   display: flex;
@@ -451,11 +30,7 @@
 .learn-main:has(.learn-conversation--map) .learn-page-grid {
   flex: 1 1 auto;
   min-height: 0;
-  /* Die einzige Grid-Zeile (die Karten-Card) auf volle Höhe strecken — sonst bekäme sie nur
-     Content-Höhe und die Karte fiele auf ihre Mindesthöhe zurück. */
   grid-template-rows: minmax(0, 1fr);
-  /* Basis-Grid nutzt align-items:start → die Card würde oben andocken und content-hoch bleiben.
-     Für die vollflächige Karte muss die Card die Zeile ausfüllen. */
   align-items: stretch;
 }
 
@@ -470,8 +45,8 @@
   overflow: hidden;
 }
 
-/* Die Karten-Box: eine echte Bento-Karte (runde Ecken, Border, weicher Schatten), in der die
-   Aurora-Karte lebt. Nimmt den Restplatz unter der Tutor-Box ein. */
+/* Die Karten-Box: eine echte Bento-Karte (runde Ecken, Border, weicher Schatten), scrollt intern
+   vertikal. Nimmt den Restplatz unter der Tutor-Box ein. */
 .learn-path-map-surface {
   position: relative;
   flex: 1 1 auto;
@@ -485,810 +60,289 @@
 .learn-path-map-surface-canvas {
   position: absolute;
   inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.learn-path-map-expand {
-  position: absolute;
-  top: 0.8rem;
-  right: 0.8rem;
-  z-index: 8;
-  width: 2.1rem;
-  height: 2.1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* --- Themen-Zeitleiste: schlichte vertikale Punkt+Linie-Liste (Vorbild: .learn-chapter-plan). --- */
+.learn-map-canvas {
+  position: relative;
+  padding: 1.5rem 1.25rem 2rem;
+}
+
+.learn-map-plan {
+  list-style: none;
+  margin: 0;
   padding: 0;
-  border: 1px solid var(--lm-glass-border);
-  border-radius: 11px;
-  background: var(--lm-glass);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
-  backdrop-filter: blur(12px) saturate(1.15);
-  box-shadow: 0 6px 16px var(--color-shadow-soft);
-  color: var(--color-text-app);
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  max-width: 34rem;
 }
 
-.learn-path-map-expand:hover {
-  border-color: color-mix(in srgb, var(--lm-accent) 55%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--lm-accent) 25%, transparent);
-}
-
-.learn-path-map-expand-icon {
-  display: block;
-  width: 1rem;
-  height: 1rem;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cpolyline points='9 21 3 21 3 15'/%3E%3Cline x1='21' y1='3' x2='14' y2='10'/%3E%3Cline x1='3' y1='21' x2='10' y2='14'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cpolyline points='9 21 3 21 3 15'/%3E%3Cline x1='21' y1='3' x2='14' y2='10'/%3E%3Cline x1='3' y1='21' x2='10' y2='14'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-/* --- Vorschaukarte (oben rechts, unter dem Vollbild-Button): erscheint beim Klick auf ein
-   Hauptthema. Kapitelname + kurze Lernziele + Primär-Button „Kapitel starten". --- */
-.learn-map-preview {
-  position: absolute;
-  top: 3.35rem;
-  right: 0.8rem;
-  z-index: 11;
-  width: min(300px, calc(100% - 1.6rem));
-  min-height: 16rem;
+.learn-map-plan-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.95rem 1rem 1.1rem;
-  border: 1px solid var(--lm-glass-border);
-  border-radius: 16px;
-  background: var(--lm-glass);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  backdrop-filter: blur(16px) saturate(1.2);
-  box-shadow: 0 18px 40px var(--color-shadow-strong);
-  animation: lm-preview-in 0.22s ease both;
+  align-items: stretch;
+  gap: 0.9rem;
+  min-height: 3.25rem;
+  animation: lm-row-in 0.4s ease both;
+  animation-delay: calc(var(--lm-row-index, 0) * 45ms);
 }
 
-@keyframes lm-preview-in {
+@keyframes lm-row-in {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: translateY(6px);
   }
 }
 
-.learn-map-preview-close {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  width: 1.6rem;
-  height: 1.6rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.learn-map-preview-close:hover {
-  background: color-mix(in srgb, var(--color-text-app) 8%, transparent);
-  color: var(--color-text-app);
-}
-
-.learn-map-preview-close-icon {
-  display: block;
-  width: 0.85rem;
-  height: 0.85rem;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-.learn-map-preview-eyebrow {
-  padding-right: 1.5rem;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--lm-accent);
-}
-
-.learn-map-preview-title {
-  margin: 0;
-  padding-right: 1.2rem;
-  font-size: 1rem;
-  font-weight: 750;
-  line-height: 1.25;
-  color: var(--color-text-app);
-}
-
-/* Lernziele als Stichpunkt-Liste (max. 3) mit Akzent-Punkten. */
-.learn-map-preview-goals {
-  margin: 0.15rem 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 0.45rem;
-}
-
-.learn-map-preview-goal {
+/* Linke Schiene: durchgehende vertikale Linie + Status-Punkt mittig */
+.learn-map-plan-rail {
   position: relative;
-  margin: 0;
-  padding-left: 1.05rem;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  color: var(--color-text-secondary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  flex: 0 0 auto;
+  width: 2.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Graue Basis-Linie IMMER sichtbar; ein farbiges Overlay (::after) füllt sie, sobald der Weg bis
+   hierhin schon zurückgelegt ist. transform-origin:top + scaleY lässt das Overlay beim Wechsel
+   sichtbar „von oben nach unten wachsen" — die Transition greift nur bei echten Statuswechseln zur
+   Laufzeit (ein frisch gemountetes Element „von 0 wachsend" animiert nicht beim ersten Rendern). */
+.learn-map-plan-line {
+  position: relative;
+  width: 3px;
+  flex: 1 1 auto;
+  background: color-mix(in srgb, currentColor 16%, transparent);
   overflow: hidden;
 }
 
-.learn-map-preview-goal::before {
+.learn-map-plan-line::after {
   content: '';
   position: absolute;
-  left: 0.15rem;
-  top: 0.46em;
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 999px;
+  inset: 0;
+  background: var(--lm-accent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.65s ease;
+}
+
+.learn-map-plan-item.is-line-top-filled .learn-map-plan-line--top::after {
+  transform: scaleY(1);
+}
+
+.learn-map-plan-item.is-line-bottom-filled .learn-map-plan-line--bottom::after {
+  transform: scaleY(1);
+}
+
+.learn-map-plan-item.is-first .learn-map-plan-line--top,
+.learn-map-plan-item.is-last .learn-map-plan-line--bottom {
+  background: transparent;
+}
+
+.learn-map-plan-item.is-first .learn-map-plan-line--top::after,
+.learn-map-plan-item.is-last .learn-map-plan-line--bottom::after {
+  content: none;
+}
+
+/* Nur noch reine Punkte, kein Ring mehr. Fertige Punkte tragen ein weißes Häkchen in Akzentfarbe;
+   das aktuelle Kapitel bekommt statt eines Häkchens einen weißen Punkt in der Mitte. */
+.learn-map-plan-dot {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  box-sizing: border-box;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+  color: transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.learn-map-plan-dot.is-done {
+  background: var(--lm-accent);
+  color: #fff;
+}
+
+.learn-map-plan-dot.is-current {
   background: var(--lm-accent);
 }
 
-/* Kurzer Erklärtext in der Zwischenschritt-Detailkarte (statt Lernziel-Liste). */
-.learn-map-preview-step-hint {
-  margin: 0.15rem 0 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--color-text-secondary);
+.learn-map-plan-dot.is-current::after {
+  content: '';
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  background: #fff;
 }
 
-.learn-map-preview--step {
-  min-height: 12rem;
+.learn-map-plan-dot.is-upcoming {
+  background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
 }
 
-/* Button ans untere Ende gepinnt — die Karte läuft bewusst länger nach unten. */
-.learn-map-preview-start {
-  margin-top: auto;
+/* Flex + zentriert, damit der Name IMMER auf Höhe des (vertikal in der Schiene zentrierten) Punkts
+   sitzt — unabhängig von Zeilenhöhe/Padding-Unterschieden zwischen Themen- und Teilschritt-Zeilen. */
+.learn-map-plan-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 0;
+}
+
+/* Nicht-aktuelle Themen: nur Name + Ø-Score, keine Karte */
+.learn-map-plan-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
   width: 100%;
-}
-
-/* --- Kartenknoten --- */
-.learn-map-node {
-  display: grid;
-  justify-items: center;
-  gap: 0.34rem;
-  border: none;
   background: none;
+  border: none;
   padding: 0;
+  text-align: left;
   cursor: pointer;
-  color: var(--color-text-app);
-  animation: lm-node-in 0.55s cubic-bezier(0.2, 0.75, 0.3, 1.12) both;
-  animation-delay: var(--lm-delay, 0ms);
-  /* react-flow setzt den Knoten-Wrapper auf pointer-events:none, wenn Knoten weder draggable noch
-     selectable sind — sonst gingen alle Klicks an die Pan-Fläche (Greifer). Hier wieder aktivieren,
-     damit die Themen-Buttons klickbar sind (die restliche Fläche pannt weiterhin). */
-  pointer-events: auto;
+  color: inherit;
 }
 
-.learn-map-node:disabled {
-  pointer-events: none;
-}
-
-.learn-map-node:disabled {
+.learn-map-plan-name:disabled {
   cursor: default;
 }
 
-@keyframes lm-node-in {
-  from {
-    opacity: 0;
-    transform: scale(0.55);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+.learn-map-plan-name-title {
+  font-size: 1rem;
+  font-weight: 600;
 }
 
-/* --- Zwischenschritt-Haltepunkte: sitzen AUF der geschwungenen Verbindungslinie. Erledigte bleiben
-   als stille Lichtspur-Punkte, der aktive Halt ist grösser, pulst und trägt ein Label (Klick öffnet
-   die Detailkarte). So erscheint immer nur EIN Zwischenschritt zum Anfassen. --- */
-.learn-map-stop {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  animation: lm-node-in 0.55s cubic-bezier(0.2, 0.75, 0.3, 1.12) both;
-  animation-delay: var(--lm-delay, 0ms);
-}
-
-/* Erledigter Halt: kleiner, mit Akzent gefüllter Punkt (kein Label, nicht anklickbar). */
-.learn-map-stop-dot {
-  width: 0.92rem;
-  height: 0.92rem;
-  border-radius: 999px;
-  background: var(--lm-hex-fill);
-  border: 1.5px solid var(--color-border-strong);
-  box-shadow: 0 2px 8px var(--color-shadow-soft);
-}
-
-.learn-map-stop.is-completed .learn-map-stop-dot {
-  background: var(--lm-accent);
-  border-color: transparent;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--lm-accent) 45%, transparent);
-}
-
-/* Aktiver Halt: klickbarer Button (nur der Dot bestimmt die Grösse, das Label liegt absolut daneben,
-   damit die Linie sauber durch die Dot-Mitte läuft). */
-.learn-map-stop-button {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-}
-
-.learn-map-stop.is-active .learn-map-stop-dot {
-  width: 1.15rem;
-  height: 1.15rem;
-  background: var(--lm-hex-fill);
-  border: 2px solid var(--lm-accent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--lm-accent) 40%, transparent);
-  animation: lm-dot-pulse 2.6s ease-out infinite;
-}
-
-.learn-map-stop-button:hover .learn-map-stop-dot {
-  background: color-mix(in srgb, var(--lm-accent) 22%, var(--lm-hex-fill));
+.learn-map-plan-item.is-upcoming .learn-map-plan-name-title {
+  opacity: 0.6;
 }
 
 @media (hover: hover) {
-  .learn-map-stop-button:hover:enabled {
-    background: none;
-    border-color: transparent;
+  .learn-map-plan-name:not(:disabled):hover .learn-map-plan-name-title {
+    text-decoration: underline;
   }
+}
+
+.learn-map-plan-score {
+  font-size: 0.76rem;
+  font-weight: 650;
+  opacity: 0.65;
+}
+
+/* Aktuelles Thema: dezente graue Karte mit Name, Ø-Score + Akzent-Pfeil */
+.learn-map-plan-current-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.85rem 1.1rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+@media (hover: hover) {
+  .learn-map-plan-current-card:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+}
+
+.learn-map-plan-current-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.learn-map-plan-current-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.learn-map-plan-current-arrow {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-top: 2.5px solid var(--lm-accent);
+  border-right: 2.5px solid var(--lm-accent);
+  transform: rotate(45deg);
+}
+
+/* --- Teilthemen: EIGENE Zeilen auf derselben durchgehenden Schiene wie die Themen (keine
+   verschachtelte Liste mehr — sonst zentriert sich der Themen-Punkt über den ganzen wachsenden
+   Block statt auf Höhe des Themennamens zu bleiben). Kleinerer Punkt + eingerückter, gedämpfter
+   Name markieren sie optisch als "gehört zum Thema darüber". --- */
+.learn-map-plan-item--substep {
+  min-height: 2.1rem;
+}
+
+.learn-map-plan-item--substep .learn-map-plan-body {
+  padding: 0.15rem 0;
+}
+
+.learn-map-plan-dot--substep {
+  width: 0.55rem;
+  height: 0.55rem;
+  font-size: 0.4rem;
+}
+
+.learn-map-plan-name--substep {
+  padding-left: 0.15rem;
+}
+
+.learn-map-plan-name--substep .learn-map-plan-name-title {
+  font-size: 0.82rem;
+  font-weight: 550;
+  color: var(--color-text-secondary);
+}
+
+.learn-map-plan-item--substep.is-upcoming .learn-map-plan-name--substep .learn-map-plan-name-title {
+  opacity: 0.6;
+}
+
+@media (hover: hover) {
+  .learn-map-plan-name--substep:not(.is-static):hover .learn-map-plan-name-title {
+    text-decoration: underline;
+  }
+}
+
+/* --- Leichte Hervorhebung bei Statuswechsel (kein Kamera-/Marker-Effekt mehr) --- */
+.learn-map-plan-item.is-highlighted .learn-map-plan-dot {
+  animation: lm-dot-pulse 1.4s ease-out;
 }
 
 @keyframes lm-dot-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lm-accent) 38%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lm-accent) 45%, transparent);
   }
-  70% {
-    box-shadow: 0 0 0 9px transparent;
+  60% {
+    box-shadow: 0 0 0 8px transparent;
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
   }
 }
 
-/* Label des aktiven Halts: absolut rechts neben dem Dot, damit es die Linien-Achse nicht verschiebt. */
-.learn-map-stop-label {
-  position: absolute;
-  left: calc(100% + 0.5rem);
-  top: 50%;
-  transform: translateY(-50%);
-  max-width: 8.5rem;
-  font-size: 0.72rem;
-  font-weight: 650;
-  line-height: 1.2;
-  text-align: left;
-  color: var(--color-text-secondary);
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* Neu erschienener Halt (Choreografie): „poppt" ein, NACHDEM die Linie ihn erreicht hat
-   (Verzögerung ≈ Füll-Dauer der Kante), damit erst die Linie wächst und dann der Halt erscheint. */
-.learn-map-stop.is-just-revealed {
-  animation: lm-stop-reveal 0.7s cubic-bezier(0.2, 0.75, 0.3, 1.3) 0.42s both;
-}
-
-@keyframes lm-stop-reveal {
-  0% {
-    transform: scale(0);
-    opacity: 0;
-  }
-  60% {
-    transform: scale(1.25);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-/* --- Hauptthemen: Hexagons mit abgerundeten Ecken als SVG-Pfad (clip-path kann keine Rundungen).
-   Füllung/Rand liegen auf dem Pfad, der weiche Schatten kommt über drop-shadow auf dem Wrapper
-   und folgt so exakt der Hexagon-Silhouette — wie eine Bento-Karte, nur sechseckig. --- */
-.learn-map-node--topic {
-  gap: 0;
-}
-
-.learn-map-node-hexagon {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  width: 11.8rem;
-  height: 5.3rem;
-  padding: 0 1.3rem;
-  filter: drop-shadow(0 10px 20px var(--color-shadow-soft));
-  transition: filter 0.25s ease, transform 0.22s ease;
-}
-
-/* Ripple-Ring für Freischalt-/Abschluss-Momente: liegt unsichtbar bereit und wird nur über die
-   Choreografie-Klassen animiert. */
-.learn-map-node-hexagon::after {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 999px;
-  border: 2px solid var(--lm-accent);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.learn-map-node-hexagon-shape {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-/* Große Kapitel-Nummer als Wasserzeichen im Box-Hintergrund (Akzentfarbe, transparent) — die Zahl
-   „gehört zur Box", das Label liegt darüber. */
-.learn-map-node-hexagon-number {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3.4rem;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--lm-accent);
-  opacity: 0.24;
-  pointer-events: none;
-  user-select: none;
-}
-
-.learn-map-node-hexagon-shape path {
-  fill: var(--lm-hex-fill);
-  stroke: var(--color-border-strong);
-  stroke-width: 1.5;
-  transition: fill 0.25s ease, stroke 0.25s ease;
-}
-
-.learn-map-node-hexagon-status {
-  position: relative;
-  z-index: 1;
-  width: 0.92rem;
-  height: 0.92rem;
-  flex-shrink: 0;
-  display: none;
-  background: currentColor;
-}
-
-.learn-map-node-hexagon-label {
-  position: relative;
-  z-index: 1;
-  max-width: 100%;
-  font-size: 0.8rem;
-  font-weight: 650;
-  text-align: center;
-  line-height: 1.22;
-  color: var(--color-text-app);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-/* Gesperrt: abgesenkt in den Hintergrund, Schloss-Symbol, kein Schatten. */
-.learn-map-node.is-locked .learn-map-node-hexagon {
-  filter: none;
-}
-
-.learn-map-node.is-locked .learn-map-node-hexagon-shape path {
-  fill: color-mix(in srgb, var(--lm-hex-fill) 55%, var(--color-surface));
-  stroke: var(--color-border);
-}
-
-.learn-map-node.is-locked .learn-map-node-hexagon-label {
-  color: var(--color-text-muted);
-}
-
-.learn-map-node.is-locked .learn-map-node-hexagon-number {
-  color: var(--color-text-muted);
-  opacity: 0.16;
-}
-
-/* Aktiv: Akzent-Kontur mit ganz sanftem Atmen — hier bist du gerade. */
-.learn-map-node.is-active .learn-map-node-hexagon {
-  animation: lm-hex-breathe 4.5s ease-in-out infinite;
-}
-
-.learn-map-node.is-active .learn-map-node-hexagon-shape path {
-  stroke: var(--lm-accent);
-  stroke-width: 1.8;
-}
-
-@keyframes lm-hex-breathe {
-  0%,
-  100% {
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft))
-      drop-shadow(0 0 6px color-mix(in srgb, var(--lm-accent) 20%, transparent));
-  }
-  50% {
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft))
-      drop-shadow(0 0 15px color-mix(in srgb, var(--lm-accent) 38%, transparent));
-  }
-}
-
-/* Gemeistert: sanfte Akzent-Tönung + Häkchen — Belohnung ohne Neonlärm. */
-.learn-map-node.is-completed .learn-map-node-hexagon-shape path {
-  fill: color-mix(in srgb, var(--lm-accent) 16%, var(--lm-hex-fill));
-  stroke: color-mix(in srgb, var(--lm-accent) 62%, var(--color-border-strong));
-}
-
-.learn-map-node.is-completed .learn-map-node-hexagon-status {
-  display: inline-block;
-  color: color-mix(in srgb, var(--lm-accent) 85%, var(--color-text-app));
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-/* Hover auf klickbaren Knoten: Karte hebt sich physisch an, Akzent-Schein zieht leicht an.
-   Beim Drücken senkt sie sich minimal — Haptik ohne Haptik. */
-.learn-map-node:not(:disabled):hover .learn-map-node-hexagon {
-  transform: translateY(-4px);
-  filter: drop-shadow(0 14px 26px var(--color-shadow-soft))
-    drop-shadow(0 0 14px color-mix(in srgb, var(--lm-accent) 42%, transparent));
-}
-
-.learn-map-node:not(:disabled):active .learn-map-node-hexagon {
-  transform: translateY(-1px) scale(0.985);
-  transition-duration: 0.09s;
-}
-
-/* base.css legt global `button:hover:enabled { background/border }` an — das malt ein Rechteck über
-   die (rechteckige) Button-Fläche der Knoten. Hier neutralisieren: Der Hover-Effekt kommt allein vom
-   Hexagon-Glow in der richtigen Form. Die Glas-Buttons behalten ihr eigenes Glas statt Theme-Grau. */
-@media (hover: hover) {
-  .learn-map-node:hover:enabled {
-    background: none;
-    border-color: transparent;
-  }
-
-  .learn-map-zoom-button:hover:enabled,
-  .learn-path-map-expand:hover:enabled,
-  .learn-map-recenter-button:hover:enabled {
-    background: var(--lm-glass);
-    border-color: color-mix(in srgb, var(--lm-accent) 55%, transparent);
-  }
-
-  .learn-map-preview-close:hover:enabled {
-    background: color-mix(in srgb, var(--color-text-app) 8%, transparent);
-    border-color: transparent;
-  }
-}
-
-.learn-map-node-handle {
-  visibility: hidden;
-}
-
-/* --- Meisterschafts-Sterne (1–3) unter gemeisterten Themen: kleine Akzent-Pips.
-   Volle Sterne leuchten, leere bleiben als stille Einladung zum Wiederholen sichtbar. --- */
-.learn-map-node-stars {
-  display: inline-flex;
-  gap: 0.22rem;
-  margin-top: 0.34rem;
-}
-
-.learn-map-node-star {
-  width: 0.72rem;
-  height: 0.72rem;
-  background: color-mix(in srgb, var(--color-text-muted) 38%, transparent);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2l2.9 6.26 6.9 1.01-5 4.87 1.2 6.88-6-3.25-6 3.25 1.2-6.88-5-4.87 6.9-1.01z'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2l2.9 6.26 6.9 1.01-5 4.87 1.2 6.88-6-3.25-6 3.25 1.2-6.88-5-4.87 6.9-1.01z'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-.learn-map-node-star.is-filled {
-  background: var(--lm-accent);
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--lm-accent) 45%, transparent));
-}
-
-/* --- Freischalt-Moment: das nächste Thema „blüht auf" (Scale-in mit Überschwung + Ripple-Ring),
-   danach übernimmt das normale Atmen des aktiven Zustands. --- */
-.learn-map-node.is-just-unlocked .learn-map-node-hexagon {
-  animation:
-    lm-hex-bloom 0.9s cubic-bezier(0.2, 0.75, 0.3, 1.15) both,
-    lm-hex-breathe 4.5s ease-in-out 1s infinite;
-}
-
-.learn-map-node.is-just-unlocked .learn-map-node-hexagon::after {
-  animation: lm-hex-ripple 0.9s ease-out 0.3s both;
-}
-
-@keyframes lm-hex-bloom {
-  0% {
-    transform: scale(0.72);
-    opacity: 0.15;
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft))
-      drop-shadow(0 0 20px color-mix(in srgb, var(--lm-accent) 55%, transparent));
-  }
-  55% {
-    transform: scale(1.06);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft));
-  }
-}
-
-/* --- Abschluss-Feier: Hexagon pulst einmal groß auf, die Fläche füllt sich mit Akzent,
-   der Haken poppt ein, ein Licht-Ring läuft nach außen — der Höhepunkt der Session (Peak-End). --- */
-.learn-map-node.is-just-completed .learn-map-node-hexagon {
-  animation: lm-hex-celebrate 1.5s cubic-bezier(0.3, 0.7, 0.3, 1) both;
-}
-
-.learn-map-node.is-just-completed .learn-map-node-hexagon-shape path {
-  animation: lm-hex-fill-in 0.7s ease both;
-}
-
-.learn-map-node.is-just-completed .learn-map-node-hexagon-status {
-  animation: lm-check-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.45s both;
-}
-
-.learn-map-node.is-just-completed .learn-map-node-hexagon::after {
-  animation: lm-hex-ripple 1s ease-out 0.35s both;
-}
-
-@keyframes lm-hex-celebrate {
-  0% {
-    transform: scale(1);
-  }
-  22% {
-    transform: scale(1.07);
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft))
-      drop-shadow(0 0 26px color-mix(in srgb, var(--lm-accent) 60%, transparent));
-  }
-  60% {
-    transform: scale(1);
-  }
-  100% {
-    transform: scale(1);
-    filter: drop-shadow(0 10px 20px var(--color-shadow-soft));
-  }
-}
-
-@keyframes lm-hex-fill-in {
-  from {
-    fill: var(--lm-hex-fill);
-    stroke: var(--color-border-strong);
-  }
-  to {
-    fill: color-mix(in srgb, var(--lm-accent) 16%, var(--lm-hex-fill));
-    stroke: color-mix(in srgb, var(--lm-accent) 62%, var(--color-border-strong));
-  }
-}
-
-@keyframes lm-check-pop {
-  from {
-    transform: scale(0);
-  }
-  to {
-    transform: scale(1);
-  }
-}
-
-@keyframes lm-hex-ripple {
-  0% {
-    transform: scale(0.7);
-    opacity: 0.65;
-  }
-  100% {
-    transform: scale(1.45);
-    opacity: 0;
-  }
-}
-
-/* --- „Du bist hier"-Marker: leuchtender Akzent-Orb, der über dem aktuellen Thema schwebt.
-   Der äußere Container wird per JS in Flow-Koordinaten gesetzt; die Reise zum nächsten Thema
-   ist eine reine Transform-Transition. Innerer Anker floatet sanft auf und ab. --- */
-.learn-map-marker {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 1200;
-  pointer-events: none;
-  transition: transform 0.95s cubic-bezier(0.5, 0, 0.15, 1);
-  will-change: transform;
-  /* Beim Eintritt zuletzt einblenden — nach Fläche, Themen und Linien (nur Opazität, damit die
-     JS-gesteuerte Positions-Transform unberührt bleibt). */
-  animation: lm-marker-appear 0.6s ease 1.25s both;
-}
-
-@keyframes lm-marker-appear {
-  from {
-    opacity: 0;
-  }
-}
-
-.learn-map-marker-inner {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 18px;
-  height: 18px;
-  transform: translate(-50%, calc(-100% - 10px));
-  animation: lm-marker-bob 3.2s ease-in-out infinite alternate;
-}
-
-.learn-map-marker-orb {
-  position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: radial-gradient(
-    circle at 32% 30%,
-    var(--lm-accent-light),
-    var(--lm-accent) 55%,
-    var(--lm-accent-deep)
-  );
-  box-shadow:
-    0 3px 10px color-mix(in srgb, var(--lm-accent) 45%, transparent),
-    0 0 14px color-mix(in srgb, var(--lm-accent) 40%, transparent);
-}
-
-.learn-map-marker-halo {
-  position: absolute;
-  inset: -7px;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--lm-accent) 55%, transparent);
-  animation: lm-marker-halo 2.6s ease-out infinite;
-}
-
-@keyframes lm-marker-bob {
-  from {
-    transform: translate(-50%, calc(-100% - 7px));
-  }
-  to {
-    transform: translate(-50%, calc(-100% - 14px));
-  }
-}
-
-@keyframes lm-marker-halo {
-  0% {
-    transform: scale(0.75);
-    opacity: 0.9;
-  }
-  70%,
-  100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
-}
-
-/* --- HUD-Erweiterung: XP-Zähler tickt in Akzentfarbe neben dem Themen-Stand, die Label-Zeile
-   trägt das nächste Etappenziel (Goal-Gradient: die Zahl, die schrumpft). --- */
-.learn-map-hud-xp {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid color-mix(in srgb, var(--color-text-app) 16%, transparent);
-  color: var(--lm-accent);
-  font-weight: 750;
-  animation: lm-xp-pop 0.5s ease;
-}
-
-@keyframes lm-xp-pop {
-  30% {
-    transform: scale(1.14);
-  }
-}
-
-/* --- Reduzierte Bewegung: Atem-/Puls-/Fluss-Animationen abschalten, Aufbau ohne Verzögerung --- */
 @media (prefers-reduced-motion: reduce) {
-  .learn-map-node,
-  .learn-map-stop,
-  .learn-map-canvas,
-  .learn-map-canvas .react-flow__edge,
-  .learn-map-canvas .learn-map-edge-glow,
-  .learn-map-aurora-blob {
-    animation: none;
-  }
-
-  .learn-map-node.is-active .learn-map-node-hexagon,
-  .learn-map-stop.is-active .learn-map-stop-dot,
-  .learn-map-stop.is-just-revealed {
-    animation: none;
-  }
-
-  /* Linie sofort voll sichtbar statt „gezeichnet" — sonst bliebe sie bei dashoffset:1 unsichtbar. */
-  .learn-map-canvas .learn-map-edge-line {
-    animation: none;
-    stroke-dasharray: none;
-    stroke-dashoffset: 0;
-  }
-
-  .learn-map-canvas .learn-map-edge-pulse {
-    display: none;
-  }
-
-  .learn-map-marker {
-    transition: none;
-  }
-
-  .learn-map-marker,
-  .learn-map-marker-inner,
-  .learn-map-marker-halo,
-  .learn-map-hud-xp,
-  .learn-map-node.is-just-unlocked .learn-map-node-hexagon,
-  .learn-map-node.is-just-unlocked .learn-map-node-hexagon::after,
-  .learn-map-node.is-just-completed .learn-map-node-hexagon,
-  .learn-map-node.is-just-completed .learn-map-node-hexagon-shape path,
-  .learn-map-node.is-just-completed .learn-map-node-hexagon-status,
-  .learn-map-node.is-just-completed .learn-map-node-hexagon::after {
+  .learn-map-plan-item,
+  .learn-map-plan-dot {
     animation: none;
   }
 }
 
 @media (max-width: 860px) {
-  .learn-map-stop-label {
-    max-width: 6rem;
-  }
-
-  .learn-map-node-hexagon {
-    width: 9.8rem;
-    height: 4.6rem;
-  }
-
-  .learn-map-node-hexagon-label {
-    font-size: 0.72rem;
-  }
-
-  .learn-map-node-hexagon-number {
-    font-size: 2.8rem;
-  }
-
-  .learn-map-zoom {
-    display: none;
+  .learn-map-canvas {
+    padding: 1.1rem 0.9rem 1.5rem;
   }
 
   .learn-path-map-surface {
     border-radius: 16px;
-  }
-
-  .learn-map-preview {
-    width: min(300px, calc(100% - 1.2rem));
-  }
-
-  .learn-map-hud-label {
-    display: none;
-  }
-
-  .learn-map-hud {
-    padding: 0.38rem 0.7rem 0.38rem 0.45rem;
-  }
-
-  .learn-map-node-stars {
-    margin-top: 0.28rem;
-  }
-
-  .learn-map-node-star {
-    width: 0.62rem;
-    height: 0.62rem;
   }
 }

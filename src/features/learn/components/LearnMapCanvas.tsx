@@ -1,739 +1,276 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ReactFlow,
-  ReactFlowProvider,
-  ViewportPortal,
-  useNodesInitialized,
-  useOnViewportChange,
-  useReactFlow,
-} from '@xyflow/react'
-import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SyllabusEntry, TopicSession } from '../services/learn.persistence'
-import {
-  buildTopicMapGraph,
-  topicNodeId,
-  type LearnMapNodeVisualStatus,
-} from '../utils/learnMapLayout'
-import { splitLearningGoals } from '../utils/learnPageHelpers'
-import { LearnMapInteractionContext, type LearnMapStepSelection } from '../utils/learnMapInteractionContext'
-import { LearnMapEdge } from './LearnMapEdge'
-import { LearnMapStepNode, LearnMapTopicNode } from './LearnMapNodes'
-
-const learnMapNodeTypes = {
-  learnMapTopic: LearnMapTopicNode,
-  learnMapStep: LearnMapStepNode,
-}
-
-const learnMapEdgeTypes = {
-  learnMapEdge: LearnMapEdge,
-}
+import { buildTopicMapList, type LearnMapTopicItem } from '../utils/learnMapLayout'
 
 export type LearnMapCanvasProps = {
   syllabus: SyllabusEntry[]
   topicSessions: TopicSession[]
   effectiveTopic: string
-  /** Themen-Index, auf den beim Öffnen zentriert wird und dessen Sichtbarkeit den "Zurück zum Pfad"-Button steuert. */
+  /** Themen-Index, zu dem beim Öffnen einmalig gescrollt wird. */
   focusTopicIndex: number
   onOpenTopic: (topicIndex: number) => void
-  /** false = kompakte Vorschau (kein Pan/Zoom), true = Vollbild-Landkarte. */
-  interactive: boolean
 }
 
-const OFFSCREEN_MARGIN_PX = 28
+const HIGHLIGHT_MS = 1400
 
-/** Etappen-Rhythmus: alle N Kapitel ein Etappenziel — hält das nächste Ziel immer nah (Goal-Gradient). */
-const MILESTONE_SIZE = 3
-const XP_PER_CORRECT_ANSWER = 10
-const XP_PER_MASTERED_TOPIC = 100
-
-/** Abschluss-Choreografie: Zeitachse in ms ab Statuswechsel auf 'mastered' (Modal blendet parallel aus). */
-const CELEBRATE_CAMERA_DELAY_MS = 320
-const MARKER_TRAVEL_AT_MS = 1650
-const UNLOCK_BLOOM_AT_MS = 2700
-const CHOREOGRAPHY_END_MS = 3900
-const CHOREOGRAPHY_END_NO_NEXT_MS = 2300
-
-function clampTopicIndex(index: number, totalTopics: number): number {
-  if (totalTopics <= 0) {
-    return 0
-  }
-  if (index < 0) {
-    return totalTopics - 1
-  }
-  return Math.min(totalTopics - 1, index)
+function substepKey(topicIndex: number, substepIndex: number): string {
+  return `${topicIndex}-${substepIndex}`
 }
 
-function prefersReducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-/** Zahl weich hochzählen (rAF, ease-out) — der XP-Wert im HUD „tickt" statt zu springen. */
-function useCountUp(target: number, durationMs = 900): number {
-  const [display, setDisplay] = useState(target)
-  const fromRef = useRef(target)
-  const rafRef = useRef(0)
-
-  useEffect(() => {
-    const from = fromRef.current
-    if (from === target) {
-      return
+/** Vorherigen Status je Thema/Teilschritt einsammeln — Basis für den Übergangs-Diff (siehe unten). */
+function snapshotStatuses(topics: LearnMapTopicItem[]) {
+  const topicStatus = new Map<number, string>()
+  const substepStatus = new Map<string, string>()
+  for (const topic of topics) {
+    topicStatus.set(topic.topicIndex, topic.status)
+    for (const substep of topic.substeps) {
+      substepStatus.set(substepKey(topic.topicIndex, substep.index), substep.status)
     }
-    const start = performance.now()
-    const tick = (now: number) => {
-      const progress = Math.min(1, (now - start) / durationMs)
-      const eased = 1 - (1 - progress) ** 3
-      const value = Math.round(from + (target - from) * eased)
-      fromRef.current = value
-      setDisplay(value)
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(tick)
-      }
+  }
+  return { topicStatus, substepStatus }
+}
+
+/** Flache Zeilenliste für die Darstellung: Themen UND Teilschritte teilen sich EINE durchgehende
+ *  Schiene (Linie + Punkt), sonst zentriert sich der Themen-Punkt über den ganzen (wachsenden)
+ *  Block aus Name + Teilschritten statt exakt auf Höhe des Themennamens zu bleiben. */
+type LearnMapRow =
+  | { kind: 'topic'; topic: LearnMapTopicItem }
+  | { kind: 'substep'; topicIndex: number; substep: LearnMapTopicItem['substeps'][number] }
+
+function buildRows(topics: LearnMapTopicItem[]): LearnMapRow[] {
+  const rows: LearnMapRow[] = []
+  for (const topic of topics) {
+    rows.push({ kind: 'topic', topic })
+    for (const substep of topic.substeps) {
+      rows.push({ kind: 'substep', topicIndex: topic.topicIndex, substep })
     }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [target, durationMs])
-
-  return display
+  }
+  return rows
 }
 
-type ChoreographyRefState = {
-  active: boolean
-  finalMarkerIndex: number
-  timeouts: number[]
+type LearnMapRowStatus = 'done' | 'current' | 'upcoming'
+
+function rowStatus(row: LearnMapRow): LearnMapRowStatus {
+  if (row.kind === 'substep') {
+    return row.substep.status
+  }
+  return row.topic.status === 'mastered' ? 'done' : row.topic.status === 'active' ? 'current' : 'upcoming'
 }
 
-function LearnMapCanvasInner(props: LearnMapCanvasProps) {
-  const { syllabus, topicSessions, effectiveTopic, focusTopicIndex, onOpenTopic, interactive } = props
+/** "Erreicht" = der Weg bis hierhin wurde schon zurückgelegt (fertig oder gerade aktiv). */
+function isReached(status: LearnMapRowStatus): boolean {
+  return status !== 'upcoming'
+}
 
-  const { nodes, edges } = useMemo(
-    () => buildTopicMapGraph(syllabus, topicSessions, effectiveTopic),
+/** Landkarte: schlichte, vertikal scrollende Themen-Zeitleiste (kein Canvas/Pan/Zoom mehr). */
+export function LearnMapCanvas(props: LearnMapCanvasProps) {
+  const { syllabus, topicSessions, effectiveTopic, focusTopicIndex, onOpenTopic } = props
+
+  const topics = useMemo(
+    () => buildTopicMapList(syllabus, topicSessions, effectiveTopic),
     [syllabus, topicSessions, effectiveTopic],
   )
+  const rows = useMemo(() => buildRows(topics), [topics])
 
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const reactFlow = useReactFlow()
-  const nodesInitialized = useNodesInitialized()
-  const [isFocusNodeOffscreen, setIsFocusNodeOffscreen] = useState(false)
-  const [selectedTopicIndex, setSelectedTopicIndex] = useState<number | null>(null)
-  const [selectedStep, setSelectedStep] = useState<LearnMapStepSelection | null>(null)
-  const focusNodeId = topicNodeId(focusTopicIndex)
-
-  const totalTopics = syllabus.length
-  const masteredCount = topicSessions.filter((session) => session?.status === 'mastered').length
-
-  // --- Abschluss-Choreografie: Feiern → Marker-Reise → Aufblühen des nächsten Themas ---
-  const [celebratingTopicIndex, setCelebratingTopicIndex] = useState<number | null>(null)
-  const [heldLockedTopicIndexes, setHeldLockedTopicIndexes] = useState<number[]>([])
-  const [justUnlockedTopicIndexes, setJustUnlockedTopicIndexes] = useState<number[]>([])
-  const [markerTopicIndex, setMarkerTopicIndex] = useState(() => clampTopicIndex(focusTopicIndex, totalTopics))
-  const choreographyRef = useRef<ChoreographyRefState>({ active: false, finalMarkerIndex: 0, timeouts: [] })
-  const prevTopicStatusRef = useRef<Map<number, LearnMapNodeVisualStatus> | null>(null)
-  const graphSignatureRef = useRef<string | null>(null)
-  const entryPanTimerRef = useRef<number | null>(null)
-
-  // --- Halt-Choreografie: Wenn nach Abschluss eines Schrittes/der Diagnose der nächste Zwischenschritt
-  // auf der Linie erscheint, zeichnet sich das neue Teilstück (Kante mountet + is-filling) und der
-  // Halt „poppt" danach ein (justRevealed). Wir merken uns pro Thema den aktiven Halt und lösen nur
-  // bei einem echten Wechsel (nicht beim ersten Aufbau) aus. ---
-  const [revealingStopIds, setRevealingStopIds] = useState<string[]>([])
-  const prevActiveStopByTopicRef = useRef<Map<number, string> | null>(null)
-  const stopSignatureRef = useRef<string | null>(null)
-  const revealTimeoutsRef = useRef<number[]>([])
-
-  const interaction = useMemo(
-    () => ({
-      onOpenTopic,
-      onSelectTopic: (topicIndex: number) => {
-        setSelectedStep(null)
-        setSelectedTopicIndex(topicIndex)
-      },
-      onSelectStep: (selection: LearnMapStepSelection) => {
-        setSelectedTopicIndex(null)
-        setSelectedStep(selection)
-      },
-    }),
-    [onOpenTopic],
-  )
-
-  // Ausgewähltes Thema für die Vorschaukarte: Titel kommt aus dem Layout-Knoten (bereinigt),
-  // die Lernziele aus dem Syllabus. Bei ungültigem Index (z. B. nach Plan-Änderung) → keine Karte.
-  const selectedTopic = useMemo(() => {
-    if (selectedTopicIndex === null) {
-      return null
-    }
-    const node = nodes.find((candidate) => candidate.id === topicNodeId(selectedTopicIndex))
-    if (!node) {
-      return null
-    }
-    return {
-      index: selectedTopicIndex,
-      number: selectedTopicIndex + 1,
-      title: node.data.title,
-      learningGoals: splitLearningGoals(syllabus[selectedTopicIndex]?.learningGoal ?? ''),
-    }
-  }, [selectedTopicIndex, nodes, syllabus])
-
-  // Schritt-Detailkarte: nur der AKTIVE Halt ist auswählbar. Ändert sich der Graph (z. B. Schritt
-  // erledigt, nächster erscheint), zeigt der Lookup auf keinen aktiven Knoten mehr → Karte schließt.
-  const selectedStepInfo = useMemo(() => {
-    if (!selectedStep) {
-      return null
-    }
-    const node = nodes.find(
-      (candidate) =>
-        candidate.data.kind !== 'topic' &&
-        candidate.data.topicIndex === selectedStep.topicIndex &&
-        (typeof candidate.data.stepIndex === 'number' ? candidate.data.stepIndex : -1) === selectedStep.stepIndex,
-    )
-    if (!node || node.data.visualStatus !== 'active') {
-      return null
-    }
-    return {
-      topicIndex: selectedStep.topicIndex,
-      topicNumber: selectedStep.topicIndex + 1,
-      title: node.data.title,
-      isDiagnostic: node.data.kind === 'diagnostic',
-      stepNumber: selectedStep.stepIndex + 1,
-    }
-  }, [selectedStep, nodes])
+  const itemRefs = useRef(new Map<number, HTMLLIElement>())
+  const hasScrolledRef = useRef(false)
 
   useEffect(() => {
-    if (selectedStep && !selectedStepInfo) {
-      setSelectedStep(null)
-    }
-  }, [selectedStep, selectedStepInfo])
-
-  const checkFocusVisibility = useCallback(() => {
-    if (!interactive) {
+    const element = itemRefs.current.get(focusTopicIndex)
+    if (!element) {
       return
     }
-    const container = containerRef.current
-    const internalNode = reactFlow.getInternalNode(focusNodeId)
-    if (!container || !internalNode) {
-      setIsFocusNodeOffscreen(false)
-      return
+    element.scrollIntoView({ block: 'center', behavior: hasScrolledRef.current ? 'smooth' : 'auto' })
+    hasScrolledRef.current = true
+  }, [focusTopicIndex])
+
+  // --- Leichte Hervorhebung bei echten Statuswechseln (gesperrt→aktiv, aktiv→gemeistert,
+  // offen→aktuell/fertig) — reiner Status-Diff, keine Kamera-/Timing-Choreografie mehr.
+  // Der Diff läuft bewusst direkt im Render als „Zustand anpassen, wenn sich Props ändern"
+  // (vorheriger Stand in useState, nicht in einem Ref — Effekte dürfen hier keine Refs während
+  // des Renderns lesen/schreiben und kein setState synchron im Effekt-Rumpf aufrufen). Nur das
+  // verzögerte Zurücksetzen nach HIGHLIGHT_MS läuft als echter Effekt (setState im
+  // setTimeout-Callback, nicht direkt im Effekt-Rumpf). ---
+  const [prevTopics, setPrevTopics] = useState<LearnMapTopicItem[] | null>(null)
+  const [highlightedTopics, setHighlightedTopics] = useState<Set<number>>(new Set())
+  const [highlightedSubsteps, setHighlightedSubsteps] = useState<Set<string>>(new Set())
+  const [pendingClear, setPendingClear] = useState<{ topics: Set<number>; substeps: Set<string> } | null>(null)
+
+  if (topics !== prevTopics) {
+    const previousTopics = prevTopics
+    setPrevTopics(topics)
+    if (previousTopics) {
+      const prevSnapshot = snapshotStatuses(previousTopics)
+      const nextSnapshot = snapshotStatuses(topics)
+      const changedTopics = new Set<number>()
+      nextSnapshot.topicStatus.forEach((status, topicIndex) => {
+        const before = prevSnapshot.topicStatus.get(topicIndex)
+        if (before !== undefined && before !== status) {
+          changedTopics.add(topicIndex)
+        }
+      })
+      const changedSubsteps = new Set<string>()
+      nextSnapshot.substepStatus.forEach((status, key) => {
+        const before = prevSnapshot.substepStatus.get(key)
+        if (before !== undefined && before !== status) {
+          changedSubsteps.add(key)
+        }
+      })
+      if (changedTopics.size > 0 || changedSubsteps.size > 0) {
+        setHighlightedTopics((current) => new Set([...current, ...changedTopics]))
+        setHighlightedSubsteps((current) => new Set([...current, ...changedSubsteps]))
+        setPendingClear({ topics: changedTopics, substeps: changedSubsteps })
+      }
     }
-    const { width, height } = container.getBoundingClientRect()
-    const viewport = reactFlow.getViewport()
-    const nodeWidth = internalNode.measured.width ?? 0
-    const nodeHeight = internalNode.measured.height ?? 0
-    const centerFlowX = internalNode.internals.positionAbsolute.x + nodeWidth / 2
-    const centerFlowY = internalNode.internals.positionAbsolute.y + nodeHeight / 2
-    const screenX = centerFlowX * viewport.zoom + viewport.x
-    const screenY = centerFlowY * viewport.zoom + viewport.y
-    const offscreen =
-      screenX < OFFSCREEN_MARGIN_PX ||
-      screenX > width - OFFSCREEN_MARGIN_PX ||
-      screenY < OFFSCREEN_MARGIN_PX ||
-      screenY > height - OFFSCREEN_MARGIN_PX
-    setIsFocusNodeOffscreen(offscreen)
-  }, [focusNodeId, interactive, reactFlow])
+  }
 
-  useOnViewportChange({ onChange: checkFocusVisibility })
+  // Jedes Highlight-Ereignis bekommt einen eigenen, unabhängigen Timer (kein Effekt-Cleanup, das
+  // an das nächste Ereignis gekoppelt ist) — sonst würde ein neuer Statuswechsel den Timer eines
+  // noch laufenden älteren Highlights abbrechen und dieses bliebe dauerhaft hervorgehoben.
+  const activeTimeoutsRef = useRef<number[]>([])
 
-  /** Choreografie sofort in den Endzustand bringen (Klick auf die Karte überspringt sie). */
-  const skipChoreography = useCallback(() => {
-    const state = choreographyRef.current
-    if (!state.active) {
-      return
-    }
-    state.timeouts.forEach((timeout) => window.clearTimeout(timeout))
-    state.timeouts = []
-    state.active = false
-    setCelebratingTopicIndex(null)
-    setHeldLockedTopicIndexes([])
-    setJustUnlockedTopicIndexes([])
-    setMarkerTopicIndex(state.finalMarkerIndex)
-    reactFlow.fitView({
-      nodes: [{ id: topicNodeId(state.finalMarkerIndex) }],
-      duration: 300,
-      padding: 0.6,
-      maxZoom: 1,
-    })
-  }, [reactFlow])
-
-  // Statuswechsel der Themen beobachten: 'mastered' startet die Abschluss-Choreografie
-  // (Feier-Animation → Marker reist weiter → nächstes Thema blüht auf). Läuft genau dann,
-  // wenn das Themen-Modal schließt, weil der Status im selben Handler gesetzt wird.
   useEffect(() => {
-    const signature = syllabus.map((entry) => entry.topic).join('|')
-    const topicStatuses = new Map<number, LearnMapNodeVisualStatus>()
-    for (const node of nodes) {
-      if (node.data.kind === 'topic') {
-        topicStatuses.set(node.data.topicIndex, node.data.visualStatus)
-      }
-    }
-    const prev = graphSignatureRef.current === signature ? prevTopicStatusRef.current : null
-    prevTopicStatusRef.current = topicStatuses
-    graphSignatureRef.current = signature
-    if (!prev) {
+    if (!pendingClear) {
       return
     }
-
-    const completedNow: number[] = []
-    const unlockedNow: number[] = []
-    let unexpectedChanges = 0
-    topicStatuses.forEach((status, index) => {
-      const before = prev.get(index)
-      if (before === undefined || before === status) {
-        return
-      }
-      if (before === 'active' && status === 'completed') {
-        completedNow.push(index)
-      } else if (before === 'locked' && status === 'active') {
-        unlockedNow.push(index)
-      } else {
-        unexpectedChanges += 1
-      }
-    })
-
-    // Nur die echte Lern-Transition feiern (genau ein Thema aktiv → gemeistert). Alles andere
-    // (Pfadwechsel, wiederhergestellte Daten) still übernehmen, sonst feiert die Karte falsch.
-    if (unexpectedChanges > 0 || completedNow.length !== 1) {
-      if (unlockedNow.length > 0 && unexpectedChanges === 0 && completedNow.length === 0) {
-        setJustUnlockedTopicIndexes(unlockedNow)
-        const timeout = window.setTimeout(() => setJustUnlockedTopicIndexes([]), 1600)
-        choreographyRef.current.timeouts.push(timeout)
-      }
-      return
-    }
-
-    const completedIndex = completedNow[0]
-    const nextIndex = unlockedNow.length > 0 ? Math.min(...unlockedNow) : null
-    const finalMarkerIndex = nextIndex ?? clampTopicIndex(focusTopicIndex, totalTopics)
-
-    const state = choreographyRef.current
-    state.timeouts.forEach((timeout) => window.clearTimeout(timeout))
-    state.timeouts = []
-    state.finalMarkerIndex = finalMarkerIndex
-
-    if (prefersReducedMotion()) {
-      setMarkerTopicIndex(finalMarkerIndex)
-      reactFlow.fitView({ nodes: [{ id: topicNodeId(finalMarkerIndex) }], duration: 0, padding: 0.6, maxZoom: 1 })
-      return
-    }
-
-    state.active = true
-    setCelebratingTopicIndex(completedIndex)
-    setHeldLockedTopicIndexes(unlockedNow)
-    setMarkerTopicIndex(completedIndex)
-
-    const schedule = (delayMs: number, fn: () => void) => {
-      state.timeouts.push(window.setTimeout(fn, delayMs))
-    }
-
-    schedule(CELEBRATE_CAMERA_DELAY_MS, () => {
-      reactFlow.fitView({ nodes: [{ id: topicNodeId(completedIndex) }], duration: 500, padding: 0.6, maxZoom: 1 })
-    })
-
-    if (nextIndex !== null) {
-      schedule(MARKER_TRAVEL_AT_MS, () => {
-        setMarkerTopicIndex(finalMarkerIndex)
-        reactFlow.fitView({ nodes: [{ id: topicNodeId(finalMarkerIndex) }], duration: 950, padding: 0.6, maxZoom: 1 })
-      })
-      schedule(UNLOCK_BLOOM_AT_MS, () => {
-        setHeldLockedTopicIndexes([])
-        setJustUnlockedTopicIndexes(unlockedNow)
-      })
-      schedule(CHOREOGRAPHY_END_MS, () => {
-        setCelebratingTopicIndex(null)
-        setJustUnlockedTopicIndexes([])
-        state.active = false
-      })
-    } else {
-      schedule(CHOREOGRAPHY_END_NO_NEXT_MS, () => {
-        setCelebratingTopicIndex(null)
-        setMarkerTopicIndex(finalMarkerIndex)
-        state.active = false
-      })
-    }
-  }, [nodes, syllabus, focusTopicIndex, totalTopics, reactFlow])
-
-  // Marker folgt außerhalb der Choreografie dem aktiven Thema (Frontier).
-  useEffect(() => {
-    if (choreographyRef.current.active) {
-      return
-    }
-    setMarkerTopicIndex(clampTopicIndex(focusTopicIndex, totalTopics))
-  }, [focusTopicIndex, totalTopics])
-
-  // Neuen aktiven Haltepunkt erkennen → Linie füllt sich, dann poppt der Halt ein.
-  useEffect(() => {
-    const signature = syllabus.map((entry) => entry.topic).join('|')
-    const activeStopByTopic = new Map<number, string>()
-    for (const node of nodes) {
-      if (node.data.kind !== 'topic' && node.data.visualStatus === 'active') {
-        activeStopByTopic.set(node.data.topicIndex, node.id)
-      }
-    }
-    const prev = stopSignatureRef.current === signature ? prevActiveStopByTopicRef.current : null
-    prevActiveStopByTopicRef.current = activeStopByTopic
-    stopSignatureRef.current = signature
-
-    if (!prev) {
-      return
-    }
-
-    const newlyRevealed: string[] = []
-    activeStopByTopic.forEach((stopId, topicIndex) => {
-      const before = prev.get(topicIndex)
-      // Nur echte Fortschritte feiern: der aktive Halt hat gewechselt (vorher gab es schon einen).
-      if (before && before !== stopId) {
-        newlyRevealed.push(stopId)
-      }
-    })
-
-    if (newlyRevealed.length === 0 || prefersReducedMotion()) {
-      return
-    }
-
-    setRevealingStopIds((current) => [...new Set([...current, ...newlyRevealed])])
     const timeout = window.setTimeout(() => {
-      setRevealingStopIds((current) => current.filter((id) => !newlyRevealed.includes(id)))
-      revealTimeoutsRef.current = revealTimeoutsRef.current.filter((t) => t !== timeout)
-    }, 1400)
-    revealTimeoutsRef.current.push(timeout)
-  }, [nodes, syllabus])
+      setHighlightedTopics((current) => {
+        const next = new Set(current)
+        pendingClear.topics.forEach((index) => next.delete(index))
+        return next
+      })
+      setHighlightedSubsteps((current) => {
+        const next = new Set(current)
+        pendingClear.substeps.forEach((key) => next.delete(key))
+        return next
+      })
+    }, HIGHLIGHT_MS)
+    activeTimeoutsRef.current.push(timeout)
+  }, [pendingClear])
 
-  // Timer beim Unmount aufräumen (Choreografie + Einstiegs-Kamerafahrt + Halt-Reveals).
   useEffect(() => {
-    const state = choreographyRef.current
-    const revealTimeouts = revealTimeoutsRef.current
+    const timeouts = activeTimeoutsRef.current
     return () => {
-      state.timeouts.forEach((timeout) => window.clearTimeout(timeout))
-      revealTimeouts.forEach((timeout) => window.clearTimeout(timeout))
-      if (entryPanTimerRef.current !== null) {
-        window.clearTimeout(entryPanTimerRef.current)
-      }
+      timeouts.forEach((timeout) => window.clearTimeout(timeout))
     }
   }, [])
 
-  // Choreografie-Zustände in die Layout-Knoten einspiegeln: gehaltene Themen bleiben optisch
-  // gesperrt, bis der Marker angekommen ist — erst dann blühen sie mit 'justUnlocked' auf.
-  const displayNodes = useMemo(() => {
-    if (
-      celebratingTopicIndex === null &&
-      heldLockedTopicIndexes.length === 0 &&
-      justUnlockedTopicIndexes.length === 0 &&
-      revealingStopIds.length === 0
-    ) {
-      return nodes
-    }
-    return nodes.map((node) => {
-      if (node.data.kind !== 'topic') {
-        // Zwischenschritt-Halte: neu erschienenen Halt für die Einpopp-Animation markieren.
-        if (revealingStopIds.includes(node.id)) {
-          return { ...node, data: { ...node.data, justRevealed: true } }
-        }
-        return node
-      }
-      const topicIndex = node.data.topicIndex
-      const isHeld = heldLockedTopicIndexes.includes(topicIndex)
-      const isJustUnlocked = justUnlockedTopicIndexes.includes(topicIndex)
-      const isJustCompleted = celebratingTopicIndex === topicIndex
-      if (!isHeld && !isJustUnlocked && !isJustCompleted) {
-        return node
-      }
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          visualStatus: isHeld ? ('locked' as const) : node.data.visualStatus,
-          justUnlocked: isJustUnlocked,
-          justCompleted: isJustCompleted,
-        },
-      }
-    })
-  }, [nodes, celebratingTopicIndex, heldLockedTopicIndexes, justUnlockedTopicIndexes, revealingStopIds])
-
-  // Kante, die in einen neu erscheinenden Halt mündet: sofort „füllen" (is-filling) statt der
-  // langen Eintritts-Staffelung — die Linie wächst zum neuen Halt, bevor er einpoppt.
-  const displayEdges = useMemo(() => {
-    if (revealingStopIds.length === 0) {
-      return edges
-    }
-    return edges.map((edge) =>
-      revealingStopIds.includes(edge.target)
-        ? { ...edge, data: { ...(edge.data ?? {}), filling: true } }
-        : edge,
-    )
-  }, [edges, revealingStopIds])
-
-  const hasPlayedEntryPanRef = useRef(false)
-
-  useEffect(() => {
-    if (nodes.length === 0 || choreographyRef.current.active) {
-      return
-    }
-    // Bewusst nur bei Mount/Fokuswechsel zentrieren, NICHT bei jeder Knotenänderung (z. B. neu generierter
-    // Zwischenschritt im Hintergrund) — das würde die Sicht des Nutzers beim Pannen ungewollt zurückreißen.
-    const isFirstFit = !hasPlayedEntryPanRef.current
-    hasPlayedEntryPanRef.current = true
-    if (isFirstFit && interactive && focusTopicIndex > 0 && !prefersReducedMotion()) {
-      // Rückkehr-Kamerafahrt: erst der Startpunkt, dann entlang der Lichtspur zum aktuellen
-      // Standort schwenken — „schau, wie weit du gekommen bist".
-      reactFlow.fitView({ nodes: [{ id: topicNodeId(0) }], duration: 0, padding: 0.6, maxZoom: 1 })
-      entryPanTimerRef.current = window.setTimeout(() => {
-        entryPanTimerRef.current = null
-        reactFlow.fitView({ nodes: [{ id: focusNodeId }], duration: 1400, padding: 0.6, maxZoom: 1 })
-      }, 450)
-      return
-    }
-    reactFlow.fitView({ nodes: [{ id: focusNodeId }], duration: 650, padding: 0.6, maxZoom: 1 })
-    window.requestAnimationFrame(checkFocusVisibility)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusNodeId])
-
-  function handleRecenter() {
-    reactFlow.fitView({ nodes: [{ id: focusNodeId }], duration: 300, padding: 0.6, maxZoom: 1 })
-  }
-
-  // --- „Du bist hier"-Marker: schwebender Akzent-Orb über dem aktuellen Thema. Lebt im
-  // Viewport-Portal (Flow-Koordinaten) und reist per CSS-Transition mit, wenn sich der Index ändert. ---
-  const markerPosition = useMemo(() => {
-    if (totalTopics === 0) {
-      return null
-    }
-    const nodeId = topicNodeId(clampTopicIndex(markerTopicIndex, totalTopics))
-    const layoutNode = nodes.find((candidate) => candidate.id === nodeId)
-    if (!layoutNode) {
-      return null
-    }
-    // Erst nach der Vermessung durch react-flow die echte Knotenbreite nutzen (davor Layout-Schätzwert).
-    const measuredWidth = (nodesInitialized ? reactFlow.getInternalNode(nodeId)?.measured.width : undefined) ?? 190
-    return {
-      x: layoutNode.position.x + measuredWidth / 2,
-      y: layoutNode.position.y,
-    }
-  }, [markerTopicIndex, totalTopics, nodes, reactFlow, nodesInitialized])
-
-  // --- HUD-Werte: Etappen (Goal-Gradient) + XP (tickender Zähler) ---
-  const totalXp = useMemo(() => {
-    let xp = 0
-    for (const session of topicSessions) {
-      if (!session) {
-        continue
-      }
-      if (session.status === 'mastered') {
-        xp += XP_PER_MASTERED_TOPIC
-      }
-      for (const leaf of [session.diagnosticSession, session.stepSession]) {
-        if (!leaf) {
-          continue
-        }
-        for (const correct of Object.values(leaf.correctnessByStepId)) {
-          if (correct) {
-            xp += XP_PER_CORRECT_ANSWER
-          }
-        }
-      }
-    }
-    return xp
-  }, [topicSessions])
-  const displayXp = useCountUp(totalXp)
-
-  const milestoneLabel = useMemo(() => {
-    if (totalTopics === 0) {
-      return ''
-    }
-    if (masteredCount >= totalTopics) {
-      return 'Alle Etappen geschafft'
-    }
-    const stage = Math.floor(masteredCount / MILESTONE_SIZE) + 1
-    const nextMilestoneAt = Math.min(totalTopics, stage * MILESTONE_SIZE)
-    const remaining = Math.max(1, nextMilestoneAt - masteredCount)
-    return `Noch ${remaining} Kapitel bis Etappe ${stage}`
-  }, [masteredCount, totalTopics])
-
-  const hudRingRadius = 14
-  const hudRingCircumference = 2 * Math.PI * hudRingRadius
-  const hudRingOffset = hudRingCircumference * (1 - (totalTopics > 0 ? masteredCount / totalTopics : 0))
-
   return (
-    <div className="learn-map-canvas" ref={containerRef} onPointerDownCapture={skipChoreography}>
-      {/* Aurora-Hintergrund: große, stark weichgezeichnete Farb-Lecks in Tonstufen der Akzentfarbe,
-          die langsam und zeitversetzt „atmen" — ruhig statt Raster/Neon. */}
-      <div className="learn-map-aurora" aria-hidden="true">
-        <span className="learn-map-aurora-blob learn-map-aurora-blob--a" />
-        <span className="learn-map-aurora-blob learn-map-aurora-blob--b" />
-        <span className="learn-map-aurora-blob learn-map-aurora-blob--c" />
-        <span className="learn-map-aurora-blob learn-map-aurora-blob--d" />
-      </div>
-      <LearnMapInteractionContext.Provider value={interaction}>
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          nodeTypes={learnMapNodeTypes}
-          edgeTypes={learnMapEdgeTypes}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          panOnDrag={interactive}
-          zoomOnScroll={interactive}
-          zoomOnPinch={interactive}
-          zoomOnDoubleClick={false}
-          minZoom={0.4}
-          maxZoom={1.5}
-          proOptions={{ hideAttribution: true }}
-          className="learn-map-flow"
-        >
-          {markerPosition ? (
-            <ViewportPortal>
-              <div
-                className="learn-map-marker"
-                style={{ transform: `translate(${markerPosition.x}px, ${markerPosition.y}px)` }}
-                aria-hidden="true"
+    <div className="learn-map-canvas">
+      <ol className="learn-map-plan">
+        {rows.map((row, listIndex) => {
+          const isFirst = listIndex === 0
+          const isLast = listIndex === rows.length - 1
+          const rowStyle = { '--lm-row-index': Math.min(listIndex, 16) } as CSSProperties
+          // Ein Segment ist gefüllt, sobald der Weg bis DAHIN zurückgelegt ist — die obere Hälfte
+          // richtet sich nach dieser Zeile selbst, die untere nach der NÄCHSTEN (sonst entsteht ein
+          // Farbbruch genau an der Nahtstelle, z. B. Thema noch „aktuell", aber Teilschritt 1
+          // darunter schon „fertig" — dort muss die Linie durchgehend gefüllt sein).
+          const thisReached = isReached(rowStatus(row))
+          const nextRow = rows[listIndex + 1]
+          const nextReached = nextRow ? isReached(rowStatus(nextRow)) : thisReached
+          const lineFillClass = `${thisReached ? ' is-line-top-filled' : ''}${
+            nextReached ? ' is-line-bottom-filled' : ''
+          }`
+
+          if (row.kind === 'substep') {
+            const { topicIndex, substep } = row
+            const key = substepKey(topicIndex, substep.index)
+            const isSubstepClickable = substep.status === 'done' || substep.status === 'current'
+            const isHighlighted = highlightedSubsteps.has(key)
+
+            return (
+              <li
+                key={`substep-${key}`}
+                className={`learn-map-plan-item learn-map-plan-item--substep is-${substep.status}${
+                  isFirst ? ' is-first' : ''
+                }${isLast ? ' is-last' : ''}${isHighlighted ? ' is-highlighted' : ''}${lineFillClass}`}
+                style={rowStyle}
               >
-                <span className="learn-map-marker-inner">
-                  <span className="learn-map-marker-halo" />
-                  <span className="learn-map-marker-orb" />
+                <span className="learn-map-plan-rail" aria-hidden="true">
+                  <span className="learn-map-plan-line learn-map-plan-line--top" />
+                  <span className={`learn-map-plan-dot learn-map-plan-dot--substep is-${substep.status}`} />
+                  <span className="learn-map-plan-line learn-map-plan-line--bottom" />
                 </span>
-              </div>
-            </ViewportPortal>
-          ) : null}
-        </ReactFlow>
-      </LearnMapInteractionContext.Provider>
-      {interactive && totalTopics > 0 ? (
-        <div
-          className="learn-map-hud"
-          role="status"
-          aria-label={`${masteredCount} von ${totalTopics} Themen gemeistert, ${totalXp} Erfahrungspunkte`}
-        >
-          <svg className="learn-map-hud-ring" viewBox="0 0 36 36" width="34" height="34" aria-hidden="true">
-            <circle className="learn-map-hud-ring-track" cx="18" cy="18" r={hudRingRadius} />
-            <circle
-              className="learn-map-hud-ring-fill"
-              cx="18"
-              cy="18"
-              r={hudRingRadius}
-              strokeDasharray={hudRingCircumference}
-              strokeDashoffset={hudRingOffset}
-              transform="rotate(-90 18 18)"
-            />
-          </svg>
-          <div className="learn-map-hud-copy">
-            <p className="learn-map-hud-value">
-              {masteredCount}/{totalTopics} Themen
-              <span className="learn-map-hud-xp" key={totalXp}>
-                {displayXp} XP
-              </span>
-            </p>
-            <p className="learn-map-hud-label">{milestoneLabel}</p>
-          </div>
-        </div>
-      ) : null}
-      {interactive ? (
-        <div className="learn-map-zoom" aria-label="Kartenzoom">
-          <button
-            type="button"
-            className="learn-map-zoom-button"
-            onClick={() => reactFlow.zoomIn({ duration: 180 })}
-            aria-label="Vergrößern"
-          >
-            <span className="learn-map-zoom-icon learn-map-zoom-icon--in" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="learn-map-zoom-button"
-            onClick={() => reactFlow.zoomOut({ duration: 180 })}
-            aria-label="Verkleinern"
-          >
-            <span className="learn-map-zoom-icon learn-map-zoom-icon--out" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="learn-map-zoom-button"
-            onClick={handleRecenter}
-            aria-label="Auf aktives Thema zentrieren"
-          >
-            <span className="learn-map-zoom-icon learn-map-zoom-icon--center" aria-hidden="true" />
-          </button>
-        </div>
-      ) : null}
-      {interactive && isFocusNodeOffscreen ? (
-        <button type="button" className="learn-map-recenter-button" onClick={handleRecenter}>
-          Zurück zum Pfad
-        </button>
-      ) : null}
-      {selectedTopic ? (
-        <div className="learn-map-preview" role="dialog" aria-label={`Kapitel ${selectedTopic.number}`}>
-          <button
-            type="button"
-            className="learn-map-preview-close"
-            onClick={() => setSelectedTopicIndex(null)}
-            aria-label="Vorschau schließen"
-          >
-            <span className="learn-map-preview-close-icon" aria-hidden="true" />
-          </button>
-          <span className="learn-map-preview-eyebrow">Kapitel {selectedTopic.number}</span>
-          <h3 className="learn-map-preview-title">{selectedTopic.title}</h3>
-          {selectedTopic.learningGoals.length > 0 ? (
-            <ul className="learn-map-preview-goals">
-              {selectedTopic.learningGoals.map((goal) => (
-                <li key={goal} className="learn-map-preview-goal">
-                  {goal}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <PrimaryButton
-            type="button"
-            className="learn-map-preview-start"
-            onClick={() => {
-              onOpenTopic(selectedTopic.index)
-              setSelectedTopicIndex(null)
-            }}
-          >
-            Kapitel starten
-          </PrimaryButton>
-        </div>
-      ) : null}
-      {selectedStepInfo ? (
-        <div
-          className="learn-map-preview learn-map-preview--step"
-          role="dialog"
-          aria-label={selectedStepInfo.isDiagnostic ? 'Diagnosetest' : `Zwischenschritt ${selectedStepInfo.stepNumber}`}
-        >
-          <button
-            type="button"
-            className="learn-map-preview-close"
-            onClick={() => setSelectedStep(null)}
-            aria-label="Vorschau schließen"
-          >
-            <span className="learn-map-preview-close-icon" aria-hidden="true" />
-          </button>
-          <span className="learn-map-preview-eyebrow">
-            {selectedStepInfo.isDiagnostic
-              ? `Kapitel ${selectedStepInfo.topicNumber} · Diagnosetest`
-              : `Kapitel ${selectedStepInfo.topicNumber} · Zwischenschritt ${selectedStepInfo.stepNumber}`}
-          </span>
-          <h3 className="learn-map-preview-title">{selectedStepInfo.title}</h3>
-          <p className="learn-map-preview-step-hint">
-            {selectedStepInfo.isDiagnostic
-              ? 'Kurzer Einstiegstest — er zeigt, was du schon kannst und worauf sich die nächsten Schritte konzentrieren.'
-              : 'Ein fokussierter Lernschritt zu diesem Thema. Du machst genau diesen Schritt und kehrst danach zur Karte zurück.'}
-          </p>
-          <PrimaryButton
-            type="button"
-            className="learn-map-preview-start"
-            onClick={() => {
-              onOpenTopic(selectedStepInfo.topicIndex)
-              setSelectedStep(null)
-            }}
-          >
-            {selectedStepInfo.isDiagnostic ? 'Diagnosetest starten' : 'Schritt starten'}
-          </PrimaryButton>
-        </div>
-      ) : null}
-    </div>
-  )
-}
+                <div className="learn-map-plan-body">
+                  {isSubstepClickable ? (
+                    <button
+                      type="button"
+                      className="learn-map-plan-name learn-map-plan-name--substep"
+                      onClick={() => onOpenTopic(topicIndex)}
+                    >
+                      <span className="learn-map-plan-name-title">{substep.title}</span>
+                    </button>
+                  ) : (
+                    <span className="learn-map-plan-name learn-map-plan-name--substep is-static">
+                      <span className="learn-map-plan-name-title">{substep.title}</span>
+                    </span>
+                  )}
+                </div>
+              </li>
+            )
+          }
 
-/** Landkarte Phase 2: gemeinsame react-flow-Karte für Vorschau (statisch) und Vollbild (pannbar). */
-export function LearnMapCanvas(props: LearnMapCanvasProps) {
-  return (
-    <ReactFlowProvider>
-      <LearnMapCanvasInner {...props} />
-    </ReactFlowProvider>
+          const { topic } = row
+          const isCurrent = topic.status === 'active'
+          const isClickable = topic.status !== 'locked'
+          const isHighlighted = highlightedTopics.has(topic.topicIndex)
+          const dotStatus = rowStatus(row)
+
+          return (
+            <li
+              key={`topic-${topic.topicIndex}`}
+              ref={(el) => {
+                if (el) {
+                  itemRefs.current.set(topic.topicIndex, el)
+                } else {
+                  itemRefs.current.delete(topic.topicIndex)
+                }
+              }}
+              className={`learn-map-plan-item is-${dotStatus}${isFirst ? ' is-first' : ''}${
+                isLast ? ' is-last' : ''
+              }${isHighlighted ? ' is-highlighted' : ''}${lineFillClass}`}
+              style={rowStyle}
+            >
+              <span className="learn-map-plan-rail" aria-hidden="true">
+                <span className="learn-map-plan-line learn-map-plan-line--top" />
+                <span className={`learn-map-plan-dot is-${dotStatus}`}>{dotStatus === 'done' ? '✓' : ''}</span>
+                <span className="learn-map-plan-line learn-map-plan-line--bottom" />
+              </span>
+              <div className="learn-map-plan-body">
+                {isCurrent ? (
+                  <button
+                    type="button"
+                    className="learn-map-plan-current-card"
+                    onClick={() => onOpenTopic(topic.topicIndex)}
+                    aria-label={`Kapitel öffnen: ${topic.title}`}
+                  >
+                    <span className="learn-map-plan-current-copy">
+                      <span className="learn-map-plan-current-title">{topic.title}</span>
+                      {topic.scorePercent !== null ? (
+                        <span className="learn-map-plan-score">Ø {topic.scorePercent}%</span>
+                      ) : null}
+                    </span>
+                    <span className="learn-map-plan-current-arrow" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="learn-map-plan-name"
+                    disabled={!isClickable}
+                    onClick={() => isClickable && onOpenTopic(topic.topicIndex)}
+                  >
+                    <span className="learn-map-plan-name-title">{topic.title}</span>
+                    {topic.scorePercent !== null ? (
+                      <span className="learn-map-plan-score">Ø {topic.scorePercent}%</span>
+                    ) : null}
+                  </button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
   )
 }

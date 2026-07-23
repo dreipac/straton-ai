@@ -1,32 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
 import type { ChatMessage } from '../../chat/types'
 import { parseInteractiveContentWithFallback } from '../../chat/utils/interactiveQuiz'
-import type { ChapterBlueprint, LearnGenerationMode, TopicSession, UploadedMaterial } from '../services/learn.persistence'
+import type { LearnGenerationMode, TopicSession, UploadedMaterial } from '../services/learn.persistence'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   CHAPTER_GENERATION_TIMEOUT_MS,
-  TOPIC_MASTERY_THRESHOLD,
-  TOPIC_MAX_STEPS,
-  TOPIC_STEP_MIN_QUESTIONS,
-  buildChapterGenerationUserPrompt,
+  TOPIC_SUBSTEP_MAX,
+  TOPIC_SUBSTEP_MIN,
   buildChapterMaterialSearchQuery,
-  buildTopicStepFallback,
-  buildTopicStepPlaceholder,
+  buildSubstepOutlineFallback,
+  buildSubstepOutlinePrompt,
   collectTopicWeakQuestionSteps,
-  ensureMinimumChapterDepth,
   getChapterMaterialRagOptions,
   getDisplayPathTitle,
-  hasUnansweredTopicStep,
-  parseChapterBlueprintsFromText,
-  validateGeneratedChapter,
+  parseSubstepTitlesFromText,
 } from '../utils/learnPageHelpers'
-import { namespaceChapterStepIds } from '../utils/chapterStepIds'
 import { placeholderDelay } from '../utils/learnPlaceholder'
 
-export type UseTopicStepGenerationArgs = {
+export type UseTopicSubstepOutlineArgs = {
   activePathId: string
   activePathTitle: string | undefined
   generationMode: LearnGenerationMode
@@ -37,16 +31,16 @@ export type UseTopicStepGenerationArgs = {
   effectiveTopic: string
   selectedTopic: string
   materials: UploadedMaterial[]
-  /** Wird mit dem fertig generierten (oder Fallback-)Blueprint aufgerufen — Aufrufer hängt ihn an stepBlueprints an. */
-  onStepGenerated: (topicIndex: number, blueprint: ChapterBlueprint) => void
+  /** Wird einmalig mit der fertigen Teilthemen-Liste aufgerufen — Aufrufer legt daraus die Substeps an. */
+  onOutlineReady: (topicIndex: number, substepTitles: string[]) => void
 }
 
 /**
- * Landkarte Phase 1: generiert — analog zu useAdaptiveChapterGeneration.ts — jeweils EINEN
- * Zwischenschritt für ein Thema, solange dessen Mastery unter der Schwelle liegt. Läuft pro Thema
- * wiederholt (nicht nur einmalig wie der bestehende Schwachstellen-Abschluss-Hook).
+ * Neues Modell: sobald ein Thema in den Status `analyzing` wechselt (Einstiegscheck fertig), leitet dieser
+ * Hook aus den Einstiegscheck-Antworten EINMALIG eine Liste von Teilthemen (3–6) ab. Der Aufrufer legt daraus
+ * die Zwischenschritte an (Status → `learning`); der Vollinhalt jedes Zwischenschritts wird später lazy erzeugt.
  */
-export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
+export function useTopicSubstepOutline(args: UseTopicSubstepOutlineArgs) {
   const { getPrompt } = useSystemPrompts()
   const {
     activePathId,
@@ -59,45 +53,47 @@ export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
     effectiveTopic,
     selectedTopic,
     materials,
-    onStepGenerated,
+    onOutlineReady,
   } = args
 
-  const [isGeneratingTopicStep, setIsGeneratingTopicStep] = useState(false)
+  const [isGeneratingOutline, setIsGeneratingOutline] = useState(false)
   const generationInFlightRef = useRef(false)
 
-  const nextStepNumber = (topicSession?.stepBlueprints.length ?? 0) + 1
-
-  const stepPlaceholder = useMemo(() => buildTopicStepPlaceholder(nextStepNumber), [nextStepNumber])
-
-  const shouldGenerateNextStep = Boolean(
+  const shouldGenerateOutline = Boolean(
     topicSession &&
-      topicSession.status === 'learning' &&
-      topicSession.masteryScore < TOPIC_MASTERY_THRESHOLD &&
-      topicSession.stepBlueprints.length < TOPIC_MAX_STEPS &&
-      // Ein Zwischenschritt nach dem anderen: erst weiter, wenn der vorige beantwortet ist (kein Burst).
-      !hasUnansweredTopicStep(topicSession) &&
-      !isGeneratingTopicStep &&
+      topicSession.status === 'analyzing' &&
+      topicSession.substeps.length === 0 &&
+      !isGeneratingOutline &&
       !generationInFlightRef.current,
   )
 
-  const generateNextTopicStep = useCallback(async () => {
+  const generateOutline = useCallback(async () => {
     if (!topicSession || generationInFlightRef.current) {
       return
     }
-
-    const weakQuestions = collectTopicWeakQuestionSteps(topicSession)
-    const stepNumber = topicSession.stepBlueprints.length + 1
     generationInFlightRef.current = true
-    setIsGeneratingTopicStep(true)
+    setIsGeneratingOutline(true)
 
     try {
-      const weaknessSummary =
-        weakQuestions.length > 0
-          ? weakQuestions
-              .slice(0, 12)
-              .map((step, index) => `${index + 1}. ${step.prompt}`)
-              .join('\n')
-          : 'Noch keine explizit falschen Antworten in diesem Thema. Erzeuge einen fokussierten Lernschritt zu typischen Stolpersteinen.'
+      const weakQuestions = collectTopicWeakQuestionSteps(topicSession)
+      const weaknessSummary = weakQuestions
+        .slice(0, 12)
+        .map((step, index) => `${index + 1}. ${step.prompt}`)
+        .join('\n')
+      const entryCorrectness = topicSession.entryCheckSession?.correctnessByStepId ?? {}
+      const total = Object.keys(entryCorrectness).length
+      const correct = Object.values(entryCorrectness).filter(Boolean).length
+      const entryCheckSummary =
+        total > 0
+          ? `Einstiegscheck: ${correct} von ${total} Fragen richtig beantwortet.`
+          : 'Einstiegscheck ohne auswertbare Antworten — leite typische Teilthemen ab.'
+
+      // Platzhalter-Modus: ohne KI direkt Fallback-Titel.
+      if (generationMode === 'placeholder') {
+        await placeholderDelay()
+        onOutlineReady(topicIndex, buildSubstepOutlineFallback(topicTopic))
+        return
+      }
 
       const materialContext = formatRelevantMaterialContext(
         buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTopic),
@@ -106,38 +102,23 @@ export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
       )
 
       let validationHint = ''
-      let generatedStep: ChapterBlueprint | null = null
-
-      // Platzhalter-Modus: der bestehende Fallback-Baustein (Schwachstellen-Wiederholung) ersetzt
-      // die KI-Generierung — die Schleife unten wird übersprungen.
-      if (generationMode === 'placeholder') {
-        await placeholderDelay()
-        generatedStep =
-          namespaceChapterStepIds([buildTopicStepFallback(weakQuestions, stepNumber)], {
-            chapterIndexOffset: topicSession.stepBlueprints.length,
-          })[0] ?? null
-      }
-
-      for (let attempt = 1; !generatedStep && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+      let titles: string[] = []
+      for (let attempt = 1; titles.length === 0 && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
         const request: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'user',
-          content: buildChapterGenerationUserPrompt({
+          content: buildSubstepOutlinePrompt({
             pathTitle: getDisplayPathTitle(activePathTitle ?? ''),
-            chapterTopic: topicTopic,
+            topicTitle: topicTopic,
             learningGoal: topicLearningGoal,
-            aiGuidance: '',
-            proficiencyLevel: '',
-            materialContext,
-            entryQuizInsight: `Zwischenschritt ${stepNumber} innerhalb des Themas "${topicTopic}" — fokussiere gezielt auf offene Schwachstellen aus Diagnosetest und bisherigen Zwischenschritten.`,
-            validationHint,
-            attempt,
-            adaptive: true,
+            entryCheckSummary,
             weaknessSummary,
+            materialContext,
+            attempt,
+            validationHint,
           }),
           createdAt: new Date().toISOString(),
         }
-
         const response = await Promise.race([
           sendMessage([request], {
             systemPrompt: getPrompt('learn_tutor'),
@@ -147,52 +128,27 @@ export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
           }),
           new Promise<never>((_, reject) => {
             window.setTimeout(
-              () => reject(new Error('Generierung des Zwischenschritts dauert zu lange.')),
+              () => reject(new Error('Analyse der Teilthemen dauert zu lange.')),
               CHAPTER_GENERATION_TIMEOUT_MS,
             )
           }),
         ])
-
         const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
-        const parsedContent = parsed.cleanText || response.assistantMessage.content
-        const candidate = parseChapterBlueprintsFromText(parsedContent)[0]
-        if (!candidate) {
-          validationHint = 'Kein auslesbares Kapitel-JSON erhalten'
+        const parsedTitles = parseSubstepTitlesFromText(parsed.cleanText || response.assistantMessage.content)
+        if (parsedTitles.length < TOPIC_SUBSTEP_MIN) {
+          validationHint = `Zu wenige Teilthemen (mind. ${TOPIC_SUBSTEP_MIN}).`
           continue
         }
-        const validation = validateGeneratedChapter(candidate, {
-          minQuestions: TOPIC_STEP_MIN_QUESTIONS,
-          requireRecap: false,
-        })
-        if (!validation.valid) {
-          validationHint = validation.reason
-          continue
-        }
-        generatedStep =
-          namespaceChapterStepIds(ensureMinimumChapterDepth([candidate]), {
-            chapterIndexOffset: topicSession.stepBlueprints.length,
-          })[0] ?? null
+        titles = parsedTitles.slice(0, TOPIC_SUBSTEP_MAX)
         break
       }
 
-      const finalStep =
-        generatedStep ??
-        namespaceChapterStepIds([buildTopicStepFallback(weakQuestions, stepNumber)], {
-          chapterIndexOffset: topicSession.stepBlueprints.length,
-        })[0]!
-
-      onStepGenerated(topicIndex, {
-        ...finalStep,
-        title: finalStep.title.trim() || `Lernschritt ${stepNumber}`,
-      })
+      onOutlineReady(topicIndex, titles.length > 0 ? titles : buildSubstepOutlineFallback(topicTopic))
     } catch (err) {
-      console.error('Lernbereich: Zwischenschritt konnte nicht generiert werden', err)
-      const fallback = namespaceChapterStepIds([buildTopicStepFallback(weakQuestions, stepNumber)], {
-        chapterIndexOffset: topicSession.stepBlueprints.length,
-      })[0]!
-      onStepGenerated(topicIndex, fallback)
+      console.error('Lernbereich: Teilthemen-Outline konnte nicht generiert werden', err)
+      onOutlineReady(topicIndex, buildSubstepOutlineFallback(topicTopic))
     } finally {
-      setIsGeneratingTopicStep(false)
+      setIsGeneratingOutline(false)
       generationInFlightRef.current = false
     }
   }, [
@@ -201,7 +157,7 @@ export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
     generationMode,
     getPrompt,
     materials,
-    onStepGenerated,
+    onOutlineReady,
     selectedTopic,
     topicIndex,
     topicLearningGoal,
@@ -210,16 +166,16 @@ export function useTopicStepGeneration(args: UseTopicStepGenerationArgs) {
   ])
 
   useEffect(() => {
-    if (!shouldGenerateNextStep) {
+    if (!shouldGenerateOutline) {
       return
     }
-    void generateNextTopicStep()
-  }, [generateNextTopicStep, shouldGenerateNextStep])
+    void generateOutline()
+  }, [generateOutline, shouldGenerateOutline])
 
   useEffect(() => {
     generationInFlightRef.current = false
-    setIsGeneratingTopicStep(false)
+    setIsGeneratingOutline(false)
   }, [activePathId, topicIndex])
 
-  return { isGeneratingTopicStep, stepPlaceholder }
+  return { isGeneratingOutline }
 }
