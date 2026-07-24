@@ -102,16 +102,6 @@ function canSubmitChapterQuestionAnswer(step: ChapterStep | null, answer: string
   return answer.trim().length > 0
 }
 
-/** Hell- bis Dunkelgrün-Verlauf für den Fortschrittsbalken: je voller, desto dunkler das Grün. */
-const PROGRESS_FILL_LIGHT_GREEN = '#86efac'
-const PROGRESS_FILL_DARK_GREEN = '#15803d'
-
-function progressFillColor(ratio: number): string {
-  const clamped = Math.max(0, Math.min(1, ratio))
-  const darkPercent = Math.round(clamped * 100)
-  return `color-mix(in srgb, ${PROGRESS_FILL_DARK_GREEN} ${darkPercent}%, ${PROGRESS_FILL_LIGHT_GREEN} ${100 - darkPercent}%)`
-}
-
 type ChapterRailItemState = 'done' | 'current' | 'upcoming'
 
 function chapterRailStepLabel(step: ChapterStep, questionOrdinal: number): string {
@@ -316,6 +306,8 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
   const isHintPopoverOpen = hintPopoverMounted && !hintPopoverClosing && hintPopoverStepId === activeStepId
   const chapterStepTotal = Math.max(1, activeChapterBlueprint?.steps.length ?? 1)
   const isLastStepInChapter = safeChapterStepIndex >= chapterStepTotal - 1
+  /** Frage-Schritte laufen erst „Prüfen", danach wird derselbe Button zu „Weiter"/Abschluss. */
+  const needsCheck = activeChapterStep?.type === 'question' && !hasCurrentChapterEvaluation
 
   /**
    * Fortschritt zählt einen Schritt erst, wenn er wirklich abgeschlossen ist: Fragen erst nach
@@ -326,6 +318,48 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     activeChapterStep?.type === 'question' ? hasCurrentChapterEvaluation : false
   const filledStepCount = Math.min(chapterStepTotal, safeChapterStepIndex + (isCurrentStepCounted ? 1 : 0))
   const visualProgressPercent = (filledStepCount / chapterStepTotal) * 100
+  const targetProgressPercent = Math.round(visualProgressPercent)
+
+  /** Prozentzahl zählt sanft hoch statt statisch zu springen — außer bei einem Kontextwechsel
+   *  (neues Teilthema/Kapitel), da springt sie sofort auf den neuen Wert (kein Runterzählen vom
+   *  alten Kapitel aus). Alle setState-Aufrufe laufen bewusst in rAF-Callbacks, nicht synchron im
+   *  Effekt-Rumpf (Compiler-Regel: kein direktes setState im Effekt-Body). */
+  const [displayProgressPercent, setDisplayProgressPercent] = useState(targetProgressPercent)
+  const progressCountUpStateRef = useRef({ value: targetProgressPercent, blueprintId: activeChapterBlueprint?.id ?? null })
+  const progressCountUpFrameRef = useRef(0)
+
+  useEffect(() => {
+    const blueprintId = activeChapterBlueprint?.id ?? null
+    const state = progressCountUpStateRef.current
+    const isNewContext = state.blueprintId !== blueprintId
+    window.cancelAnimationFrame(progressCountUpFrameRef.current)
+
+    if (isNewContext || state.value === targetProgressPercent) {
+      state.blueprintId = blueprintId
+      state.value = targetProgressPercent
+      progressCountUpFrameRef.current = window.requestAnimationFrame(() =>
+        setDisplayProgressPercent(targetProgressPercent),
+      )
+      return () => window.cancelAnimationFrame(progressCountUpFrameRef.current)
+    }
+
+    state.blueprintId = blueprintId
+    const from = state.value
+    const durationMs = 550
+    const start = performance.now()
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - (1 - progress) ** 3
+      const value = Math.round(from + (targetProgressPercent - from) * eased)
+      state.value = value
+      setDisplayProgressPercent(value)
+      if (progress < 1) {
+        progressCountUpFrameRef.current = window.requestAnimationFrame(tick)
+      }
+    }
+    progressCountUpFrameRef.current = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(progressCountUpFrameRef.current)
+  }, [targetProgressPercent, activeChapterBlueprint?.id])
 
   const requestCloseHintPopover = () => {
     if (!isHintPopoverOpen || hintPopoverClosing) {
@@ -517,12 +551,19 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
           const isFirst = listIndex === 0
           const isLast = listIndex === substepList.length - 1
           const isCurrent = substep.status === 'current'
+          // Linie ist gefüllt, sobald der Weg bis dahin zurückgelegt ist — oben nach dem eigenen
+          // Status, unten nach dem NÄCHSTEN Teilthema (sonst Farbbruch an der Nahtstelle).
+          const isReached = (status: string) => status === 'done' || status === 'current'
+          const nextSubstep = substepList[listIndex + 1]
+          const lineFillClass = `${isReached(substep.status) ? ' is-line-top-filled' : ''}${
+            (nextSubstep ? isReached(nextSubstep.status) : isReached(substep.status)) ? ' is-line-bottom-filled' : ''
+          }`
           return (
             <li
               key={substep.index}
               className={`learn-chapter-plan-item is-${substep.status}${isFirst ? ' is-first' : ''}${
                 isLast ? ' is-last' : ''
-              }`}
+              }${lineFillClass}`}
             >
               <span className="learn-chapter-plan-rail" aria-hidden="true">
                 <span className="learn-chapter-plan-line learn-chapter-plan-line--top" />
@@ -809,9 +850,6 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                   ) : null}
                 </div>
               ) : null}
-              <p className="learn-chapter-modal-footer-step">
-                Schritt {safeChapterStepIndex + 1} von {chapterStepTotal}
-              </p>
             </div>
             <div className="learn-chapter-modal-footer-progress">
               <div
@@ -819,25 +857,17 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                 role="progressbar"
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={Math.round(visualProgressPercent)}
+                aria-valuenow={targetProgressPercent}
                 aria-label="Fortschritt im Kapitel"
               >
-                <span
-                  className="chat-md-badge chat-md-badge--green learn-chapter-progress-badge-text"
-                  aria-hidden="true"
-                >
-                  {Math.round(visualProgressPercent)}%
+                <span className="learn-chapter-progress-badge-text" aria-hidden="true">
+                  {displayProgressPercent}%
                 </span>
                 <div className="learn-chapter-progress-track" aria-hidden="true">
                   {Array.from({ length: chapterStepTotal }, (_, index) => {
                     const isFilled = index < filledStepCount
-                    const ratio = chapterStepTotal > 1 ? index / (chapterStepTotal - 1) : 1
                     return (
-                      <span
-                        key={index}
-                        className={`learn-chapter-progress-segment${isFilled ? ' is-filled' : ''}`}
-                        style={isFilled ? { backgroundColor: progressFillColor(ratio) } : undefined}
-                      />
+                      <span key={index} className={`learn-chapter-progress-dot${isFilled ? ' is-filled' : ''}`} />
                     )
                   })}
                 </div>
@@ -848,23 +878,32 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
             <SecondaryButton type="button" onClick={onPreviousChapterStep} disabled={safeChapterIndex === 0 && safeChapterStepIndex === 0}>
               Zurück
             </SecondaryButton>
-            {activeChapterStep?.type === 'question' ? (
-              <PrimaryButton
-                type="button"
-                onClick={() => {
-                  void onEvaluateChapterQuestion()
-                }}
-                disabled={!canSubmitChapterQuestionAnswer(activeChapterStep, currentChapterAnswer) || isEvaluatingChapterStep}
-              >
-                {isEvaluatingChapterStep ? 'Wird bewertet...' : 'Antwort prüfen'}
-              </PrimaryButton>
-            ) : null}
             <PrimaryButton
               type="button"
-              onClick={isLastStepInChapter ? onCompleteChapter : onNextChapterStep}
-              disabled={activeChapterStep?.type === 'question' && !currentChapterFeedback}
+              onClick={() => {
+                if (needsCheck) {
+                  void onEvaluateChapterQuestion()
+                  return
+                }
+                if (isLastStepInChapter) {
+                  onCompleteChapter()
+                } else {
+                  onNextChapterStep()
+                }
+              }}
+              disabled={
+                needsCheck
+                  ? !canSubmitChapterQuestionAnswer(activeChapterStep, currentChapterAnswer) || isEvaluatingChapterStep
+                  : false
+              }
             >
-              {isLastStepInChapter ? completeLabel ?? 'Kapitel abschließen' : 'Weiter'}
+              {needsCheck
+                ? isEvaluatingChapterStep
+                  ? 'Wird bewertet...'
+                  : 'Prüfen'
+                : isLastStepInChapter
+                  ? completeLabel ?? 'Kapitel abschließen'
+                  : 'Weiter'}
             </PrimaryButton>
           </div>
             </footer>

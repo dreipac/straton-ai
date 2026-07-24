@@ -94,6 +94,7 @@ export function LearnConversationSection(props: LearnConversationSectionProps) {
               syllabus={entries}
               topicSessions={topicSessions}
               effectiveTopic={effectiveTopic}
+              learnWorksheets={learnWorksheets}
               focusTopicIndex={targetTopicIndexForOpen}
               onOpenTopic={onOpenTopic}
             />

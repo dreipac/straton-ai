@@ -1,17 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { SyllabusEntry, TopicSession } from '../services/learn.persistence'
-import { buildTopicMapList, type LearnMapTopicItem } from '../utils/learnMapLayout'
+import type { LearnWorksheetItem, SyllabusEntry, TopicSession } from '../services/learn.persistence'
+import { buildTopicMapList, type LearnMapSubstepPhase, type LearnMapTopicItem } from '../utils/learnMapLayout'
 
 export type LearnMapCanvasProps = {
   syllabus: SyllabusEntry[]
   topicSessions: TopicSession[]
   effectiveTopic: string
+  learnWorksheets: LearnWorksheetItem[]
   /** Themen-Index, zu dem beim Öffnen einmalig gescrollt wird. */
   focusTopicIndex: number
   onOpenTopic: (topicIndex: number) => void
 }
 
 const HIGHLIGHT_MS = 1400
+
+/** Reihenfolge + Anzeigename der drei festen Teilthema-Flow-Phasen. */
+const SUBSTEP_PHASE_INFO: Record<LearnMapSubstepPhase, { number: number; label: string }> = {
+  flow: { number: 1, label: 'Erklärung' },
+  practice: { number: 2, label: 'Lernkarten' },
+  worksheet: { number: 3, label: 'Abschlusstest' },
+}
+const SUBSTEP_PHASE_COUNT = 3
+
+const SCORE_RING_RADIUS = 14
+const SCORE_RING_CIRCUMFERENCE = 2 * Math.PI * SCORE_RING_RADIUS
 
 function substepKey(topicIndex: number, substepIndex: number): string {
   return `${topicIndex}-${substepIndex}`
@@ -64,11 +76,11 @@ function isReached(status: LearnMapRowStatus): boolean {
 
 /** Landkarte: schlichte, vertikal scrollende Themen-Zeitleiste (kein Canvas/Pan/Zoom mehr). */
 export function LearnMapCanvas(props: LearnMapCanvasProps) {
-  const { syllabus, topicSessions, effectiveTopic, focusTopicIndex, onOpenTopic } = props
+  const { syllabus, topicSessions, effectiveTopic, learnWorksheets, focusTopicIndex, onOpenTopic } = props
 
   const topics = useMemo(
-    () => buildTopicMapList(syllabus, topicSessions, effectiveTopic),
-    [syllabus, topicSessions, effectiveTopic],
+    () => buildTopicMapList(syllabus, topicSessions, effectiveTopic, learnWorksheets),
+    [syllabus, topicSessions, effectiveTopic, learnWorksheets],
   )
   const rows = useMemo(() => buildRows(topics), [topics])
 
@@ -234,7 +246,16 @@ export function LearnMapCanvas(props: LearnMapCanvasProps) {
             >
               <span className="learn-map-plan-rail" aria-hidden="true">
                 <span className="learn-map-plan-line learn-map-plan-line--top" />
-                <span className={`learn-map-plan-dot is-${dotStatus}`}>{dotStatus === 'done' ? '✓' : ''}</span>
+                <span className={`learn-map-plan-dot is-${dotStatus}`}>
+                  {dotStatus === 'done' ? '✓' : ''}
+                  {topic.hasWrongAnswers ? (
+                    <span
+                      className="learn-map-plan-dot-warning"
+                      role="img"
+                      aria-label="Nicht alles richtig beantwortet"
+                    />
+                  ) : null}
+                </span>
                 <span className="learn-map-plan-line learn-map-plan-line--bottom" />
               </span>
               <div className="learn-map-plan-body">
@@ -247,11 +268,43 @@ export function LearnMapCanvas(props: LearnMapCanvasProps) {
                   >
                     <span className="learn-map-plan-current-copy">
                       <span className="learn-map-plan-current-title">{topic.title}</span>
-                      {topic.scorePercent !== null ? (
-                        <span className="learn-map-plan-score">Ø {topic.scorePercent}%</span>
+                      {topic.currentSubstepPhase ? (
+                        <span className="learn-map-plan-current-step">
+                          Schritt {SUBSTEP_PHASE_INFO[topic.currentSubstepPhase].number} von {SUBSTEP_PHASE_COUNT} ·{' '}
+                          {SUBSTEP_PHASE_INFO[topic.currentSubstepPhase].label}
+                        </span>
                       ) : null}
                     </span>
-                    <span className="learn-map-plan-current-arrow" aria-hidden="true" />
+                    <span className="learn-map-plan-current-meta">
+                      {topic.scorePercent !== null ? (
+                        <span
+                          className="learn-map-plan-score-ring"
+                          aria-label={`Ø Fortschritt ${topic.scorePercent} Prozent`}
+                        >
+                          <svg className="learn-map-plan-score-ring-svg" viewBox="0 0 36 36" aria-hidden="true">
+                            <circle
+                              className="learn-map-plan-score-ring-track"
+                              cx="18"
+                              cy="18"
+                              r={SCORE_RING_RADIUS}
+                            />
+                            <circle
+                              className="learn-map-plan-score-ring-fill"
+                              cx="18"
+                              cy="18"
+                              r={SCORE_RING_RADIUS}
+                              strokeDasharray={SCORE_RING_CIRCUMFERENCE}
+                              strokeDashoffset={
+                                SCORE_RING_CIRCUMFERENCE * (1 - Math.max(0, Math.min(100, topic.scorePercent)) / 100)
+                              }
+                              transform="rotate(-90 18 18)"
+                            />
+                          </svg>
+                          <span className="learn-map-plan-score-ring-value">{topic.scorePercent}%</span>
+                        </span>
+                      ) : null}
+                      <span className="learn-map-plan-current-arrow" aria-hidden="true" />
+                    </span>
                   </button>
                 ) : (
                   <button

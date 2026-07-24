@@ -182,6 +182,20 @@
   background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
 }
 
+/* Kleiner oranger Hinweis-Punkt oben rechts: Thema ist gemeistert, aber nicht alles wurde je
+   korrekt beantwortet (Ø-Score < 100 %). */
+.learn-map-plan-dot-warning {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid var(--color-surface);
+  box-sizing: content-box;
+}
+
 /* Flex + zentriert, damit der Name IMMER auf Höhe des (vertikal in der Schiene zentrierten) Punkts
    sitzt — unabhängig von Zeilenhöhe/Padding-Unterschieden zwischen Themen- und Teilschritt-Zeilen. */
 .learn-map-plan-body {
@@ -221,8 +235,9 @@
 }
 
 @media (hover: hover) {
+  /* Abgeschlossene Themen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. */
   .learn-map-plan-name:not(:disabled):hover .learn-map-plan-name-title {
-    text-decoration: underline;
+    color: var(--lm-accent);
   }
 }
 
@@ -249,8 +264,14 @@
 }
 
 @media (hover: hover) {
+  /* Etwas heller als die Karten-Fläche selbst statt eines weißlichen Overlays (das kippte im
+     Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). */
   .learn-map-plan-current-card:hover {
-    background: color-mix(in srgb, currentColor 10%, transparent);
+    background: var(--color-surface-elevated);
+  }
+
+  .learn-map-plan-current-card:hover .learn-map-plan-current-title {
+    color: var(--lm-accent);
   }
 }
 
@@ -266,10 +287,60 @@
   font-weight: 700;
 }
 
+/** Welche der 3 festen Teilthema-Flow-Phasen (Erklärung/Lernkarten/Abschlusstest) gerade läuft. */
+.learn-map-plan-current-step {
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+/* Score-Ring + Pfeil gruppiert rechts, damit der Score direkt neben dem Pfeil sitzt statt unter dem Titel. */
+.learn-map-plan-current-meta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.learn-map-plan-score-ring {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+}
+
+.learn-map-plan-score-ring-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.learn-map-plan-score-ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, currentColor 16%, transparent);
+  stroke-width: 3;
+}
+
+.learn-map-plan-score-ring-fill {
+  fill: none;
+  stroke: var(--lm-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+.learn-map-plan-score-ring-value {
+  position: absolute;
+  font-size: 0.62rem;
+  font-weight: 750;
+  color: var(--lm-accent);
+}
+
 .learn-map-plan-current-arrow {
   flex: 0 0 auto;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.15rem;
+  height: 1.15rem;
   border-top: 2.5px solid var(--lm-accent);
   border-right: 2.5px solid var(--lm-accent);
   transform: rotate(45deg);
@@ -309,7 +380,7 @@
 
 @media (hover: hover) {
   .learn-map-plan-name--substep:not(.is-static):hover .learn-map-plan-name-title {
-    text-decoration: underline;
+    color: var(--lm-accent);
   }
 }
 

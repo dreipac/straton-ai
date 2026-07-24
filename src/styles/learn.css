@@ -4737,7 +4737,7 @@ button.learn-chapter-rail-node:hover {
     animation: none;
   }
 
-  .learn-chapter-progress-segment.is-filled {
+  .learn-chapter-progress-dot.is-filled {
     animation: none;
   }
 }
@@ -4772,10 +4772,8 @@ button.learn-chapter-rail-node:hover {
   color: color-mix(in srgb, #f97316 80%, #ffffff 20%);
 }
 
-/* Segmentierter Fortschritt in Kapitel/Zwischenschritt: ein Abschnitt pro Schritt, Prozentzahl als
-   globales Badge (.chat-md-badge--green), linksbündig am Anfang der Linie. Gefüllte Abschnitte
-   werden wie Flüssigkeit eingefärbt — heller am Anfang, dunkler zum Ende (progressFillColor()),
-   mit konstanter Farbe (kein endlos loopender Schimmer, der die Farbe sichtbar verändert). */
+/* Fortschritt in Kapitel/Zwischenschritt: ein Punkt pro Schritt statt Balken, Prozentzahl als
+   schlichte Zahl in Akzentfarbe (kein Badge-Chip mehr). Punkte poppen beim Füllen kurz ein. */
 .learn-chapter-progress {
   width: 100%;
   min-width: 0;
@@ -4786,39 +4784,46 @@ button.learn-chapter-rail-node:hover {
 }
 
 .learn-chapter-progress-badge-text {
-  font-size: 0.78rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--color-accent, #6366f1);
 }
 
 .learn-chapter-progress-track {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 9px;
   width: 100%;
-  height: 8px;
+  height: 16px;
 }
 
-.learn-chapter-progress-segment {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  border-radius: 999px;
+.learn-chapter-progress-dot {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
   background: var(--color-border);
   transition: background-color 260ms ease;
 }
 
-.learn-chapter-progress-segment.is-filled {
-  animation: learn-chapter-progress-fill-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  transform-origin: left center;
+.learn-chapter-progress-dot.is-filled {
+  background: var(--color-accent, #6366f1);
+  animation: learn-chapter-progress-dot-in 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-@keyframes learn-chapter-progress-fill-in {
-  from {
-    transform: scaleX(0);
+/* Deutliches "Aufpoppen": kurz übers Ziel hinausschießen, dann leicht zurückfedern. */
+@keyframes learn-chapter-progress-dot-in {
+  0% {
+    transform: scale(0.2);
   }
-  to {
-    transform: scaleX(1);
+  55% {
+    transform: scale(1.45);
+  }
+  75% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
@@ -6081,32 +6086,59 @@ button.learn-chapter-rail-node:hover {
   min-height: 3.25rem;
 }
 
-/* Linke Schiene: durchgehende vertikale Linie + Status-Punkt mittig */
+/* Linke Schiene: durchgehende vertikale Linie + Status-Punkt mittig — gleiche Maße wie die
+   Hauptkarte (.learn-map-plan-rail/-line/-dot), damit beide Pfade optisch identisch wirken. */
 .learn-chapter-plan-rail {
   position: relative;
   flex: 0 0 auto;
-  width: 1.75rem;
+  width: 2.8rem;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
+/* Graue Basis-Linie IMMER sichtbar; ein Overlay (::after) füllt sie, sobald der Weg bis hierhin
+   zurückgelegt ist — grün wie die abgeschlossenen Punkte, außer beim letzten Stück direkt vor dem
+   aktiven Schritt: das blendet von Grün zu Akzentfarbe über (Verlauf zum aktiven Punkt hin). */
 .learn-chapter-plan-line {
-  width: 2px;
+  position: relative;
+  width: 3px;
   flex: 1 1 auto;
   background: color-mix(in srgb, currentColor 18%, transparent);
+  overflow: hidden;
+}
+.learn-chapter-plan-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #15803d;
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.5s ease;
+}
+.learn-chapter-plan-item.is-line-top-filled .learn-chapter-plan-line--top::after,
+.learn-chapter-plan-item.is-line-bottom-filled .learn-chapter-plan-line--bottom::after {
+  transform: scaleY(1);
+}
+.learn-chapter-plan-item.is-current .learn-chapter-plan-line--top::after {
+  background: linear-gradient(to bottom, #15803d, var(--color-accent, #6366f1));
 }
 .learn-chapter-plan-item.is-first .learn-chapter-plan-line--top,
 .learn-chapter-plan-item.is-last .learn-chapter-plan-line--bottom {
   background: transparent;
 }
+.learn-chapter-plan-item.is-first .learn-chapter-plan-line--top::after,
+.learn-chapter-plan-item.is-last .learn-chapter-plan-line--bottom::after {
+  content: none;
+}
 .learn-chapter-plan-dot {
+  position: relative;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 2.4rem;
+  height: 2.4rem;
   border-radius: 50%;
-  font-size: 0.8rem;
+  font-size: 1.15rem;
   font-weight: 800;
   line-height: 1;
   box-sizing: border-box;
@@ -6115,9 +6147,16 @@ button.learn-chapter-rail-node:hover {
   background: #15803d;
   color: #fff;
 }
+/* Aktueller Schritt: wie auf der Hauptkarte — Punkt in Akzentfarbe mit weißem Punkt in der Mitte. */
 .learn-chapter-plan-dot.is-current {
-  background: #f59e0b;
-  box-shadow: 0 0 0 4px color-mix(in srgb, #f59e0b 25%, transparent);
+  background: var(--color-accent, #6366f1);
+}
+.learn-chapter-plan-dot.is-current::after {
+  content: '';
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  background: #fff;
 }
 .learn-chapter-plan-dot.is-upcoming {
   background: color-mix(in srgb, currentColor 28%, transparent);
@@ -6139,8 +6178,9 @@ button.learn-chapter-rail-node:hover {
 .learn-chapter-plan-item.is-upcoming .learn-chapter-plan-name {
   opacity: 0.6;
 }
+/* Abgeschlossene Teilthemen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. */
 .learn-chapter-plan-name:hover {
-  text-decoration: underline;
+  color: var(--color-accent, #6366f1);
 }
 
 /* Aktuelles Teilthema: dezente graue Karte mit Name, "Schritt X von X" + Akzent-Pfeil */
@@ -6160,8 +6200,13 @@ button.learn-chapter-rail-node:hover {
   text-align: left;
   transition: background 0.15s ease;
 }
+/* Etwas heller als die Karten-Fläche selbst statt eines weißlichen Overlays (das kippte im
+   Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). */
 .learn-chapter-plan-current-card:hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: var(--color-surface-elevated);
+}
+.learn-chapter-plan-current-card:hover .learn-chapter-plan-current-title {
+  color: var(--color-accent, #6366f1);
 }
 .learn-chapter-plan-current-copy {
   display: flex;
