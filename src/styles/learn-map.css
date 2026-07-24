@@ -235,8 +235,15 @@
 }
 
 @media (hover: hover) {
-  /* Abgeschlossene Themen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. */
-  .learn-map-plan-name:not(:disabled):hover .learn-map-plan-name-title {
+  /* Abgeschlossene Themen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. Braucht
+     :hover:enabled (statt nur :hover), weil das globale `button:hover:enabled` aus base.css
+     sonst spezifischer ist und die Fläche trotzdem grau/weiß einfärbt. */
+  .learn-map-plan-name:hover:enabled {
+    background: none;
+    border-color: transparent;
+  }
+
+  .learn-map-plan-name:hover:enabled .learn-map-plan-name-title {
     color: var(--lm-accent);
   }
 }
@@ -265,12 +272,15 @@
 
 @media (hover: hover) {
   /* Etwas heller als die Karten-Fläche selbst statt eines weißlichen Overlays (das kippte im
-     Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). */
-  .learn-map-plan-current-card:hover {
+     Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). :hover:enabled statt
+     nur :hover, weil sonst das globale `button:hover:enabled` aus base.css spezifischer ist und
+     eine eigene (helle) Hover-Fläche/Randfarbe durchdrückt. */
+  .learn-map-plan-current-card:hover:enabled {
     background: var(--color-surface-elevated);
+    border-color: color-mix(in srgb, currentColor 12%, transparent);
   }
 
-  .learn-map-plan-current-card:hover .learn-map-plan-current-title {
+  .learn-map-plan-current-card:hover:enabled .learn-map-plan-current-title {
     color: var(--lm-accent);
   }
 }

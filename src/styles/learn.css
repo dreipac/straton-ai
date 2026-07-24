@@ -6178,8 +6178,12 @@ button.learn-chapter-rail-node:hover {
 .learn-chapter-plan-item.is-upcoming .learn-chapter-plan-name {
   opacity: 0.6;
 }
-/* Abgeschlossene Teilthemen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. */
-.learn-chapter-plan-name:hover {
+/* Abgeschlossene Teilthemen: kein Flächen-Hover, nur der Name wechselt in Akzentfarbe. Braucht
+   :hover:enabled (statt nur :hover), weil das globale `button:hover:enabled` aus base.css sonst
+   spezifischer ist und die Fläche trotzdem grau/weiß einfärbt. */
+.learn-chapter-plan-name:hover:enabled {
+  background: none;
+  border-color: transparent;
   color: var(--color-accent, #6366f1);
 }
 
@@ -6201,11 +6205,13 @@ button.learn-chapter-rail-node:hover {
   transition: background 0.15s ease;
 }
 /* Etwas heller als die Karten-Fläche selbst statt eines weißlichen Overlays (das kippte im
-   Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). */
-.learn-chapter-plan-current-card:hover {
+   Dark-/Black-Theme sichtbar ins Weiße, weil currentColor dort hell ist). :hover:enabled statt nur
+   :hover aus demselben Spezifitäts-Grund wie oben. */
+.learn-chapter-plan-current-card:hover:enabled {
   background: var(--color-surface-elevated);
+  border-color: color-mix(in srgb, currentColor 12%, transparent);
 }
-.learn-chapter-plan-current-card:hover .learn-chapter-plan-current-title {
+.learn-chapter-plan-current-card:hover:enabled .learn-chapter-plan-current-title {
   color: var(--color-accent, #6366f1);
 }
 .learn-chapter-plan-current-copy {
