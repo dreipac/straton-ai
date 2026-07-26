@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
+import { sectionMaterials } from '../utils/materialSectioning'
 import type { LearnGenerationMode, UploadedMaterial } from '../services/learn.persistence'
 import type { Concept, ConceptEdge } from '../engine/types'
 import { buildPlaceholderConceptGraph, placeholderDelay } from '../utils/learnPlaceholder'
@@ -8,10 +9,16 @@ import {
   buildConceptIngestionPrompt,
   parseConceptGraphFromText,
   validateConceptGraph,
+  mergeConceptGraphs,
   CONCEPT_INGESTION_MAX_ATTEMPTS,
   type IngestedGraph,
 } from '../utils/conceptIngestion'
 import { loadConceptGraph, saveConceptGraph } from '../services/learnConceptGraph.persistence'
+
+/** Map-Reduce-Parameter: pro Abschnitt eine KI-Anfrage, mit begrenzter Parallelitaet gegen Rate-Limits. */
+const INGEST_SECTION_TARGET_CHARS = 7000
+const INGEST_MAX_SECTIONS = 12
+const INGEST_CONCURRENCY = 3
 
 export type ConceptGraphSnapshot = { concepts: Concept[]; edges: ConceptEdge[] }
 
@@ -88,56 +95,82 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
         }
         graph = buildPlaceholderConceptGraph(topicHint)
       } else {
-        const materialContext = formatRelevantMaterialContext(
-          [topicHint, 'Konzepte Wissenseinheiten Voraussetzungen Abhaengigkeiten'].filter(Boolean).join(' '),
-          args.materials,
-          args.materials.length > 0
-            ? { maxChunks: 14, maxChars: 12000, denseChunks: true, emphasizePersonalSources: true }
-            : { maxChunks: 8, maxChars: 6000 },
-        )
-        let validationHint = ''
-        for (let attempt = 1; !graph && attempt <= CONCEPT_INGESTION_MAX_ATTEMPTS; attempt += 1) {
+        // Map-Reduce: das Material vollständig in Abschnitte teilen, JEDEN Abschnitt einzeln analysieren
+        // (statt nur eines RAG-Auszugs), dann alle Teilnetze zu einem deduplizierten Netz zusammenführen.
+        // So trägt jeder Teil des Dokuments bei — nichts wird durch einen Relevanz-Filter verworfen.
+        const sections = sectionMaterials(args.materials, {
+          targetChars: INGEST_SECTION_TARGET_CHARS,
+          maxSections: INGEST_MAX_SECTIONS,
+        })
+
+        // Eine einzelne Ingestion-Anfrage (tolerantes Parsen; die Mindestmengen-Validierung greift erst
+        // nach dem Merge, da ein einzelner Abschnitt legitim wenige Konzepte liefern kann).
+        const ingestContext = async (materialContext: string): Promise<IngestedGraph | null> => {
+          for (let attempt = 1; attempt <= CONCEPT_INGESTION_MAX_ATTEMPTS; attempt += 1) {
+            if (cancelled) {
+              return null
+            }
+            try {
+              const result = await sendMessage(
+                [
+                  {
+                    id: crypto.randomUUID(),
+                    role: 'user',
+                    content: buildConceptIngestionPrompt({ topicHint, materialContext, attempt, validationHint: '' }),
+                    createdAt: new Date().toISOString(),
+                  },
+                ],
+                {
+                  systemPrompt: args.getPrompt('learn_tutor'),
+                  useLearnPathModel: true,
+                  learnTelemetryMode: 'learn_tutor',
+                  learnPathSystemPromptMode: 'tutor_only',
+                },
+              )
+              if (cancelled) {
+                return null
+              }
+              const parsed = parseConceptGraphFromText(result.assistantMessage.content)
+              if (parsed.concepts.length > 0) {
+                return parsed
+              }
+            } catch {
+              // Abschnitt überspringen / nächster Versuch — andere Abschnitte tragen weiter bei.
+            }
+          }
+          return null
+        }
+
+        if (sections.length === 0) {
+          // Kein auswertbares Material: einmalig nur aus dem Thema ableiten (Legacy-Fallback).
+          const ctx = formatRelevantMaterialContext(
+            [topicHint, 'Konzepte Wissenseinheiten Voraussetzungen Abhaengigkeiten'].filter(Boolean).join(' '),
+            args.materials,
+            { maxChunks: 8, maxChars: 6000 },
+          )
+          graph = await ingestContext(ctx)
+        } else {
+          const graphs: IngestedGraph[] = []
+          for (let i = 0; i < sections.length && !cancelled; i += INGEST_CONCURRENCY) {
+            const batch = sections.slice(i, i + INGEST_CONCURRENCY)
+            const results = await Promise.all(
+              batch.map((section) => ingestContext(`Materialabschnitt (${section.label}):\n${section.text}`)),
+            )
+            for (const g of results) {
+              if (g) {
+                graphs.push(g)
+              }
+            }
+          }
           if (cancelled) {
             return
           }
-          try {
-            const result = await sendMessage(
-              [
-                {
-                  id: crypto.randomUUID(),
-                  role: 'user',
-                  content: buildConceptIngestionPrompt({ topicHint, materialContext, attempt, validationHint }),
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-              {
-                systemPrompt: args.getPrompt('learn_tutor'),
-                useLearnPathModel: true,
-                learnTelemetryMode: 'learn_tutor',
-                learnPathSystemPromptMode: 'tutor_only',
-              },
-            )
-            if (cancelled) {
-              return
-            }
-            const parsed = parseConceptGraphFromText(result.assistantMessage.content)
-            const validation = validateConceptGraph(parsed)
-            if (validation.valid) {
-              graph = parsed
-              break
-            }
-            validationHint = validation.reason
-          } catch (error) {
-            if (cancelled) {
-              return
-            }
-            validationHint = error instanceof Error ? error.message : 'Konzept-Ingestion fehlgeschlagen'
-          }
+          graph = graphs.length > 0 ? mergeConceptGraphs(graphs) : null
         }
       }
 
-      if (cancelled || !graph || graph.concepts.length === 0) {
-        // Stille Degradation: ohne Netz laufen spaetere Schichten auf dem Legacy-Pfad.
+      if (cancelled || !graph || !validateConceptGraph(graph).valid) {
+        // Stille Degradation: ohne (gueltiges) Netz laufen spaetere Schichten auf dem Legacy-Pfad.
         if (!cancelled) {
           args.onStatus('absent')
         }

@@ -5,7 +5,6 @@ export type LearnOverviewPanelProps = {
   isSetupComplete: boolean
   setupStep: 1 | 2 | 3 | 4
   effectiveTopic: string
-  proficiencyLabel: string
   materialsCount: number
   entryQuizResult: EntryQuizResult | null
   learningChapters: string[]
@@ -17,7 +16,6 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
     isSetupComplete,
     setupStep,
     effectiveTopic,
-    proficiencyLabel,
     materialsCount,
     entryQuizResult,
     learningChapters,
@@ -29,10 +27,10 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
       <>
         <div className="learn-progress-row">
           <span>Einrichtung</span>
-          <strong>{`Schritt ${setupStep}/4`}</strong>
+          <strong>{`Schritt ${Math.min(setupStep, 2)}/2`}</strong>
         </div>
         <div className="learn-progress-bar">
-          <span style={{ width: `${(setupStep / 4) * 100}%` }} />
+          <span style={{ width: `${(Math.min(setupStep, 2) / 2) * 100}%` }} />
         </div>
         <div className="learn-progress-row">
           <span>Thema</span>
@@ -40,10 +38,6 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
         </div>
         <div className="learn-progress-bar">
           <span style={{ width: `${effectiveTopic ? 100 : 0}%` }} />
-        </div>
-        <div className="learn-progress-row">
-          <span>Niveau</span>
-          <strong>{proficiencyLabel}</strong>
         </div>
         <div className="learn-progress-row">
           <span>Dateien</span>
@@ -67,10 +61,6 @@ export function LearnOverviewPanel(props: LearnOverviewPanelProps) {
         <div className="learn-overview-compact-item">
           <span>Thema</span>
           <strong>{effectiveTopic || '-'}</strong>
-        </div>
-        <div className="learn-overview-compact-item">
-          <span>Niveau</span>
-          <strong>{proficiencyLabel}</strong>
         </div>
         <div className="learn-overview-compact-item">
           <span>Dateien</span>

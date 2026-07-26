@@ -31,8 +31,6 @@ type UseCurriculumGenerationArgs = {
   /** Basis-Themenname (nur für Platzhalter-Titel; Slugs bleiben fix). */
   topicHint: string
   generationMode: LearnGenerationMode
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
-  aiGuidance: string
   getPrompt: (key: 'learn_tutor') => string
   setSyllabus: Dispatch<SetStateAction<SyllabusEntry[]>>
   setLearningChapters: Dispatch<SetStateAction<string[]>>
@@ -172,8 +170,6 @@ export function useCurriculumGeneration(args: UseCurriculumGenerationArgs) {
                   content: buildCurriculumPrompt({
                     concepts: conceptsForPrompt,
                     edges: edgesForPrompt,
-                    proficiencyLevel: args.proficiencyLevel,
-                    aiGuidance: args.aiGuidance,
                     attempt,
                     validationHint,
                   }),

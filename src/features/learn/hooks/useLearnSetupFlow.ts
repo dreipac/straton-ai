@@ -21,7 +21,6 @@ type UseLearnSetupFlowArgs = {
   isUploading: boolean
   isAnalyzingSetupTopic: boolean
   materials: UploadedMaterial[]
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
   generationMode: LearnGenerationMode
   setError: Dispatch<SetStateAction<string | null>>
   setIsAnalyzingSetupTopic: Dispatch<SetStateAction<boolean>>
@@ -52,7 +51,6 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     isUploading,
     isAnalyzingSetupTopic,
     materials,
-    proficiencyLevel,
     generationMode,
     setError,
     setIsAnalyzingSetupTopic,
@@ -185,31 +183,13 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setTopicSuggestions,
   ])
 
-  const handleContinueSetupStepTwo = useCallback(() => {
-    setError(null)
-    setSetupStep(3)
-  }, [setError, setSetupStep])
-
-  const handleContinueSetupStepThree = useCallback(() => {
-    if (!proficiencyLevel) {
-      setError('Bitte wähle deine Selbsteinschätzung aus.')
-      return
-    }
-    setError(null)
-    setSetupStep(4)
-  }, [proficiencyLevel, setError, setSetupStep])
-
-  /** Setup fertig → sofort weiter zur Syllabus-Generierung (kein Einstiegstest mehr dazwischen).
-   *  `tutorState = 'entry_quiz_done'` ist der bestehende Trigger für usePostEntrySyllabusGeneration —
-   *  Name bewusst beibehalten (keine Persistenz-Migration nötig), bedeutet inhaltlich jetzt „Setup fertig".
-   *  Die Themenanzahl kam früher aus dem Einstiegstest-Score; ohne Test dient die Selbsteinschätzung aus
-   *  Schritt 3 als Ersatzsignal (schwächer → mehr, kleinere Themen). */
+  /** Setup fertig → sofort weiter zur Konzept-Ingestion + Curriculum-Generierung.
+   *  `tutorState = 'entry_quiz_done'` ist der bestehende Trigger für die Post-Setup-Generierung —
+   *  Name bewusst beibehalten (keine Persistenz-Migration nötig), bedeutet inhaltlich „Setup fertig".
+   *  Die endgültige Themenanzahl bestimmt später das Curriculum aus dem Konzept-Netz; dieser Startwert
+   *  dient nur als Platzhalter für den Legacy-Fallback (kein Netz). */
   const handleFinishSetup = useCallback(() => {
-    if (!proficiencyLevel) {
-      setError('Bitte wähle deine Selbsteinschätzung aus.')
-      return
-    }
-    const recommendedChapterCount = proficiencyLevel === 'low' ? 4 : proficiencyLevel === 'medium' ? 3 : 2
+    const recommendedChapterCount = 3
     setError(null)
     setIsPostEntryPrepLoading(false)
     setPostEntryPrepStepIndex(0)
@@ -226,7 +206,6 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
     setTargetChapterCount(recommendedChapterCount)
     setTutorState('entry_quiz_done')
   }, [
-    proficiencyLevel,
     setChapterBlueprints,
     setChapterSession,
     setSkillMasteryBySkillId,
@@ -246,8 +225,6 @@ export function useLearnSetupFlow(args: UseLearnSetupFlowArgs) {
 
   return {
     handleContinueSetupStepOne,
-    handleContinueSetupStepTwo,
-    handleContinueSetupStepThree,
     handleFinishSetup,
   }
 }

@@ -127,8 +127,6 @@ export function useAdaptiveChapterGeneration(args: UseAdaptiveChapterGenerationA
           content: buildChapterGenerationUserPrompt({
             pathTitle: getDisplayPathTitle(activePathTitle ?? ''),
             chapterTopic,
-            aiGuidance: '',
-            proficiencyLevel: '',
             materialContext: adaptiveMaterialContext,
             validationHint,
             attempt,

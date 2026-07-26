@@ -5,12 +5,14 @@ import * as XLSX from 'xlsx'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-/** Max. gespeicherter Text pro Lernmaterial (Upload + Persistenz). */
-export const LEARN_MATERIAL_EXCERPT_MAX_CHARS = 30_000
+/** Max. gespeicherter Text pro Lernmaterial (Upload + Persistenz).
+ *  Hoch genug, dass die Map-Reduce-Ingestion ein ganzes Dokument abdeckt (kein früher Verlust). */
+export const LEARN_MATERIAL_EXCERPT_MAX_CHARS = 80_000
 
 const MAX_EXCERPT_LENGTH = LEARN_MATERIAL_EXCERPT_MAX_CHARS
-/** OCR-Fallback: max. Seiten (Performance im Browser). */
-const PDF_OCR_MAX_PAGES = 12
+/** OCR-Fallback: max. Seiten (Performance im Browser). Hoch genug, dass auch längere Scans vollständig
+ *  erfasst werden — Seiten jenseits davon würden sonst spurlos fehlen. */
+const PDF_OCR_MAX_PAGES = 30
 const PDF_OCR_RENDER_SCALE = 2
 /** Wie Chat documentExtract: dünn befüllter Textlayer → OCR auslösen. */
 const PDF_SPARSE_CHARS_PER_PAGE = 80
@@ -51,7 +53,7 @@ const IMAGE_EXTENSIONS = new Set([
 
 function normalizeExtractedText(raw: string): string {
   const normalized = raw
-    .replace(/\u0000/g, '')
+    .split('\u0000').join('')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')

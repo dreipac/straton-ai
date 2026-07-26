@@ -654,8 +654,6 @@ export type BuildSyllabusGenerationPromptArgs = {
   pathTitle: string
   mainTopic: string
   selectedTopic: string
-  aiGuidance: string
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
   chapterCount: number
   validationHint: string
@@ -676,12 +674,6 @@ export function buildSyllabusGenerationUserPrompt(args: BuildSyllabusGenerationP
     '- Keine inhaltliche Überlappung zwischen Kapiteln.',
     '- topic = konkretes Unterthema, NICHT nur das Hauptthema wiederholen.',
     '- learningGoals = 1 bis maximal 3 messbare Lernziele in Stichworten (je max. 6 Wörter, KEINE ganzen Sätze).',
-    args.aiGuidance.trim() ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}` : '',
-    args.proficiencyLevel
-      ? `Selbsteinschätzung Niveau: ${
-          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
-        }`
-      : '',
     args.materialContext
       ? `Materialauszüge (Unterthemen an diesen Inhalten ausrichten):\n${args.materialContext}`
       : 'Keine Materialauszüge — nutze realistische KV-Unterthemen zum Hauptthema.',
@@ -795,8 +787,6 @@ export type BuildChapterGenerationPromptArgs = {
   chapterTopic: string
   /** Verbindliches Lernziel aus dem Syllabus für dieses Kapitel. */
   learningGoal?: string
-  aiGuidance: string
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
   validationHint: string
   attempt: number
@@ -838,14 +828,6 @@ export function buildChapterGenerationUserPrompt(args: BuildChapterGenerationPro
     CHAPTER_CONTENT_STRUCTURE_RULES,
     WORKSHEET_EXERCISE_FIDELITY_RULES,
     CHAPTER_LEARNING_FIDELITY_RULES,
-    args.aiGuidance.trim()
-      ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}`
-      : 'Zusatzhinweise des Lernenden: keine',
-    args.proficiencyLevel
-      ? `Selbsteinschätzung Niveau: ${
-          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
-        }`
-      : 'Selbsteinschätzung Niveau: unbekannt',
     args.learnerStateSummary?.trim()
       ? [
           'Aktueller Lernstand (aus bereits bearbeiteten Kapiteln) — passe dieses Kapitel gezielt darauf an:',
@@ -872,8 +854,6 @@ export type BuildTopicDiagnosticPromptArgs = {
   pathTitle: string
   chapterTopic: string
   learningGoal?: string
-  aiGuidance: string
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materialContext: string
   validationHint: string
   attempt: number
@@ -897,14 +877,6 @@ export function buildTopicDiagnosticUserPrompt(args: BuildTopicDiagnosticPromptA
     `Schema-Beispiel (nur die "steps"-Fragen daraus übernehmen, kein explanation/recap): ${CHAPTER_JSON_SCHEMA_EXAMPLE}`,
     CHAPTER_SKILL_TAG_RULE,
     CHAPTER_LEARNING_FIDELITY_RULES,
-    args.aiGuidance.trim()
-      ? `Zusatzhinweise des Lernenden: ${args.aiGuidance.trim()}`
-      : 'Zusatzhinweise des Lernenden: keine',
-    args.proficiencyLevel
-      ? `Selbsteinschätzung Niveau: ${
-          args.proficiencyLevel === 'low' ? 'schwach' : args.proficiencyLevel === 'medium' ? 'mittel' : 'gut'
-        }`
-      : 'Selbsteinschätzung Niveau: unbekannt',
     args.materialContext
       ? `Materialauszüge (Diagnosefragen an diesen Inhalten ausrichten):\n${args.materialContext}`
       : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',

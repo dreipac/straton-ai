@@ -194,6 +194,74 @@ export function parseConceptGraphFromText(raw: string): IngestedGraph {
   return { concepts, edges }
 }
 
+/** Zwei Quellen-Referenzen zusammenfuehren (weiteste Seitenspanne, erster nicht-leerer Abschnitt). */
+function mergeSourceRef(a: IngestedSourceRef, b: IngestedSourceRef): IngestedSourceRef {
+  const merged: IngestedSourceRef = {}
+  const section = a.section?.trim() || b.section?.trim()
+  if (section) {
+    merged.section = section
+  }
+  const froms = [a.pageFrom, b.pageFrom].filter((n): n is number => typeof n === 'number')
+  const tos = [a.pageTo, b.pageTo].filter((n): n is number => typeof n === 'number')
+  if (froms.length > 0) {
+    merged.pageFrom = Math.min(...froms)
+  }
+  if (tos.length > 0) {
+    merged.pageTo = Math.max(...tos)
+  }
+  return merged
+}
+
+/**
+ * Mehrere Teil-Konzeptnetze (aus der abschnittsweisen Map-Reduce-Ingestion) zu EINEM Netz zusammenfuehren.
+ *  - Konzepte werden per Slug dedupliziert: laengere Beschreibung gewinnt, hoechste Schwierigkeit gewinnt,
+ *    Quellen-Referenzen werden vereinigt; die Reihenfolge (≈ Dokumentreihenfolge) bleibt erhalten.
+ *  - Bei Ueberschreiten von CONCEPT_INGESTION_MAX_CONCEPTS werden die zuletzt gesehenen Konzepte verworfen.
+ *  - Kanten werden vereinigt, auf ueberlebende Slugs gefiltert, Selbst-/Doppelkanten entfernt.
+ */
+export function mergeConceptGraphs(graphs: IngestedGraph[]): IngestedGraph {
+  const bySlug = new Map<string, IngestedConcept>()
+  const order: string[] = []
+
+  for (const graph of graphs) {
+    for (const concept of graph.concepts) {
+      const existing = bySlug.get(concept.slug)
+      if (!existing) {
+        bySlug.set(concept.slug, { ...concept })
+        order.push(concept.slug)
+        continue
+      }
+      existing.name = existing.name.length >= concept.name.length ? existing.name : concept.name
+      existing.description =
+        existing.description.length >= concept.description.length ? existing.description : concept.description
+      existing.difficulty = Math.max(existing.difficulty, concept.difficulty)
+      existing.sourceRef = mergeSourceRef(existing.sourceRef, concept.sourceRef)
+    }
+  }
+
+  const keptSlugs = order.slice(0, CONCEPT_INGESTION_MAX_CONCEPTS)
+  const keptSet = new Set(keptSlugs)
+  const concepts = keptSlugs.map((slug) => bySlug.get(slug)!).filter(Boolean)
+
+  const edges: IngestedEdge[] = []
+  const seenEdges = new Set<string>()
+  for (const graph of graphs) {
+    for (const edge of graph.edges) {
+      if (!keptSet.has(edge.fromSlug) || !keptSet.has(edge.toSlug) || edge.fromSlug === edge.toSlug) {
+        continue
+      }
+      const key = `${edge.fromSlug}|${edge.toSlug}|${edge.type}`
+      if (seenEdges.has(key)) {
+        continue
+      }
+      seenEdges.add(key)
+      edges.push({ fromSlug: edge.fromSlug, toSlug: edge.toSlug, type: edge.type })
+    }
+  }
+
+  return { concepts, edges }
+}
+
 /** Struktur-Validierung des geparsten Netzes (Mindestmenge, Kanten-Integritaet). */
 export function validateConceptGraph(graph: IngestedGraph): { valid: boolean; reason: string } {
   if (graph.concepts.length < CONCEPT_INGESTION_MIN_CONCEPTS) {

@@ -55,21 +55,11 @@ export function buildFallbackCurriculum(concepts: { slug: string; name: string }
 export function buildCurriculumPrompt(args: {
   concepts: { slug: string; name: string; difficulty: number }[]
   edges: { fromSlug: string; toSlug: string; type: string }[]
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
-  aiGuidance: string
   attempt: number
   validationHint: string
 }): string {
   const conceptLines = args.concepts.map((c) => `- ${c.slug} — ${c.name} (Schwierigkeit ${c.difficulty})`).join('\n')
   const edgeLines = args.edges.map((e) => `- ${e.fromSlug} -> ${e.toSlug} [${e.type}]`).join('\n')
-  const level =
-    args.proficiencyLevel === 'low'
-      ? 'schwach'
-      : args.proficiencyLevel === 'medium'
-        ? 'mittel'
-        : args.proficiencyLevel === 'high'
-          ? 'gut'
-          : 'unbekannt'
   const lines = [
     'Aufgabe: Gruppiere das folgende KONZEPT-NETZ in ein lernbares Curriculum aus Themen mit Schritten.',
     'Antwortformat: NUR valides JSON, kein Markdown/Fliesstext. Schema:',
@@ -81,8 +71,6 @@ export function buildCurriculumPrompt(args: {
     '- Schritte innerhalb eines Themas decken dessen Konzepte ab; jeder Schritt fokussiert 1-3 Konzepte.',
     '- conceptSlugs MUESSEN exakt die vorgegebenen slugs sein (unten). Keine neuen slugs erfinden.',
     '- Reihenfolge egal — sie wird spaeter topologisch (nach Voraussetzungen) sortiert.',
-    `Selbsteinschaetzung des Lernenden: ${level}.`,
-    args.aiGuidance.trim() ? `Zusatzhinweise: ${args.aiGuidance.trim()}` : '',
     args.attempt > 1 ? 'WICHTIG: Der vorige Versuch war ungueltig. Halte dich exakt an das Schema und alle Regeln.' : '',
     args.validationHint ? `Ungueltigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
     `Konzepte (${args.concepts.length}):\n${conceptLines}`,

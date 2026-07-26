@@ -4,7 +4,10 @@ import {
   buildConceptIngestionPrompt,
   parseConceptGraphFromText,
   validateConceptGraph,
+  mergeConceptGraphs,
   CONCEPT_INGESTION_MIN_CONCEPTS,
+  CONCEPT_INGESTION_MAX_CONCEPTS,
+  type IngestedGraph,
 } from './conceptIngestion'
 
 describe('normalizeConceptSlug', () => {
@@ -117,5 +120,64 @@ describe('validateConceptGraph', () => {
       }),
     )
     expect(validateConceptGraph(g).valid).toBe(true)
+  })
+})
+
+describe('mergeConceptGraphs', () => {
+  it('dedupliziert Konzepte per Slug: längere Beschreibung + höchste Schwierigkeit gewinnen', () => {
+    const a: IngestedGraph = {
+      concepts: [{ slug: 'x', name: 'X', description: 'kurz', difficulty: 2, sourceRef: { section: 'A', pageFrom: 3 } }],
+      edges: [],
+    }
+    const b: IngestedGraph = {
+      concepts: [
+        { slug: 'x', name: 'X lang', description: 'eine viel längere beschreibung', difficulty: 4, sourceRef: { pageTo: 7 } },
+        { slug: 'y', name: 'Y', description: '', difficulty: 3, sourceRef: {} },
+      ],
+      edges: [],
+    }
+    const m = mergeConceptGraphs([a, b])
+    expect(m.concepts).toHaveLength(2)
+    const x = m.concepts.find((c) => c.slug === 'x')!
+    expect(x.description).toBe('eine viel längere beschreibung')
+    expect(x.difficulty).toBe(4)
+    expect(x.sourceRef.section).toBe('A')
+    expect(x.sourceRef.pageFrom).toBe(3)
+    expect(x.sourceRef.pageTo).toBe(7)
+  })
+
+  it('vereinigt Kanten und filtert auf überlebende Slugs, ohne Doppel-/Selbstkanten', () => {
+    const a: IngestedGraph = {
+      concepts: [
+        { slug: 'a', name: 'A', description: '', difficulty: 1, sourceRef: {} },
+        { slug: 'b', name: 'B', description: '', difficulty: 1, sourceRef: {} },
+      ],
+      edges: [{ fromSlug: 'a', toSlug: 'b', type: 'prerequisite' }],
+    }
+    const b: IngestedGraph = {
+      concepts: [{ slug: 'b', name: 'B', description: '', difficulty: 1, sourceRef: {} }],
+      edges: [
+        { fromSlug: 'a', toSlug: 'b', type: 'prerequisite' }, // Duplikat
+        { fromSlug: 'b', toSlug: 'ghost', type: 'related' }, // ghost existiert nicht → raus
+      ],
+    }
+    const m = mergeConceptGraphs([a, b])
+    expect(m.edges).toEqual([{ fromSlug: 'a', toSlug: 'b', type: 'prerequisite' }])
+  })
+
+  it('begrenzt die Gesamtzahl der Konzepte auf CONCEPT_INGESTION_MAX_CONCEPTS (Dokumentreihenfolge zuerst)', () => {
+    const many: IngestedGraph = {
+      concepts: Array.from({ length: CONCEPT_INGESTION_MAX_CONCEPTS + 10 }, (_, i) => ({
+        slug: `c${i}`,
+        name: `C${i}`,
+        description: '',
+        difficulty: 3,
+        sourceRef: {},
+      })),
+      edges: [],
+    }
+    const m = mergeConceptGraphs([many])
+    expect(m.concepts).toHaveLength(CONCEPT_INGESTION_MAX_CONCEPTS)
+    expect(m.concepts[0].slug).toBe('c0')
   })
 })

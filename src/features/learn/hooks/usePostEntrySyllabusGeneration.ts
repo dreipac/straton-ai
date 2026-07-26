@@ -32,8 +32,6 @@ type UsePostEntrySyllabusGenerationArgs = {
   syllabus: SyllabusEntry[]
   effectiveTopic: string
   selectedTopic: string
-  aiGuidance: string
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
   materials: UploadedMaterial[]
   getPrompt: (key: 'learn_tutor') => string
   setSyllabus: Dispatch<SetStateAction<SyllabusEntry[]>>
@@ -125,8 +123,6 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
                   pathTitle: getDisplayPathTitle(args.activePathTitle),
                   mainTopic,
                   selectedTopic: args.selectedTopic,
-                  aiGuidance: args.aiGuidance,
-                  proficiencyLevel: args.proficiencyLevel,
                   materialContext,
                   chapterCount: targetChapterCount,
                   validationHint,
@@ -226,12 +222,10 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
     args.enabled,
     args.activePathId,
     args.activePathTitle,
-    args.aiGuidance,
     args.generationMode,
     args.effectiveTopic,
     args.getPrompt,
     args.materials,
-    args.proficiencyLevel,
     args.selectedTopic,
     args.setError,
     args.setIsPostEntryPrepLoading,

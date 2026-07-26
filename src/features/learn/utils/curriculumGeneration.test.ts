@@ -16,8 +16,6 @@ describe('buildCurriculumPrompt', () => {
     const p = buildCurriculumPrompt({
       concepts: [{ slug: 'binary', name: 'Binär', difficulty: 2 }],
       edges: [{ fromSlug: 'binary', toSlug: 'mask', type: 'prerequisite' }],
-      proficiencyLevel: 'low',
-      aiGuidance: '',
       attempt: 1,
       validationHint: '',
     })

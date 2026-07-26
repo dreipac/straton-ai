@@ -98,7 +98,12 @@ import {
   type EditableLearningPathSnapshot,
 } from '../features/learn/hooks/useLearningPathPersistence'
 import { parseInteractiveContentWithFallback, type InteractiveQuizPayload } from '../features/chat/utils/interactiveQuiz'
-import { extractLearningMaterialText, LEARN_MATERIAL_EXCERPT_MAX_CHARS } from '../features/learn/utils/documentParser'
+import {
+  extractLearningMaterialText,
+  isChatVisionImageFile,
+  LEARN_MATERIAL_EXCERPT_MAX_CHARS,
+} from '../features/learn/utils/documentParser'
+import { transcribeImageWithVision } from '../features/learn/services/visionTranscription'
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   DEFAULT_CHAPTER_SESSION,
@@ -790,12 +795,10 @@ export function LearnPage({
     onPathActivated: embedded ? handleEmbeddedPathActivated : undefined,
   })
 
-  const { handleContinueSetupStepOne, handleContinueSetupStepTwo, handleContinueSetupStepThree, handleFinishSetup } =
-    useLearnSetupFlow({
+  const { handleContinueSetupStepOne, handleFinishSetup } = useLearnSetupFlow({
     isUploading,
     isAnalyzingSetupTopic,
     materials,
-    proficiencyLevel,
     generationMode,
     setError,
     setIsAnalyzingSetupTopic,
@@ -1392,8 +1395,6 @@ export function LearnPage({
     syllabus,
     effectiveTopic,
     selectedTopic,
-    aiGuidance,
-    proficiencyLevel,
     materials,
     getPrompt,
     setSyllabus,
@@ -1433,8 +1434,6 @@ export function LearnPage({
     conceptGraph,
     topicHint: selectedTopic.trim() || effectiveTopic.trim(),
     generationMode,
-    proficiencyLevel,
-    aiGuidance,
     getPrompt,
     setSyllabus,
     setLearningChapters,
@@ -1789,7 +1788,6 @@ export function LearnPage({
     hasStartedFirstChapter,
     previewEstimatedMinutes,
     previewChapterBullets,
-    proficiencyLabel,
   } = useLearnWorkspaceDerived({
     user,
     profile,
@@ -1798,7 +1796,6 @@ export function LearnPage({
     learningChapters,
     effectiveTopic,
     isChapterPreviewVisible,
-    proficiencyLevel,
   })
 
   const worksheetModalItems = useMemo(() => {
@@ -2745,11 +2742,21 @@ export function LearnPage({
 
       for (const file of files) {
         const text = await extractLearningMaterialText(file)
+        let excerpt = text
+        // Bild-Materialien zusätzlich per Vision transkribieren (versteht Diagramme/Formeln/Tabellen,
+        // die reines OCR verliert). Best-effort mit OCR-Fallback; im Platzhalter-Modus kein KI-Aufruf.
+        if (generationMode !== 'placeholder' && isChatVisionImageFile(file)) {
+          const vision = await transcribeImageWithVision(file)
+          if (vision) {
+            excerpt = text.trim() ? `${vision}\n\n[OCR-Text]\n${text.trim()}` : vision
+            excerpt = excerpt.slice(0, LEARN_MATERIAL_EXCERPT_MAX_CHARS)
+          }
+        }
         uploaded.push({
           id: crypto.randomUUID(),
           name: file.name,
           size: file.size,
-          excerpt: text,
+          excerpt,
         })
       }
 
@@ -3145,8 +3152,6 @@ export function LearnPage({
               pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
               chapterTopic: topicTopic,
               learningGoal: topicLearningGoal,
-              aiGuidance,
-              proficiencyLevel,
               materialContext: topicMaterialContext,
               validationHint,
               attempt,
@@ -3312,8 +3317,6 @@ export function LearnPage({
               pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
               chapterTopic,
               learningGoal: chapterLearningGoal,
-              aiGuidance,
-              proficiencyLevel,
               materialContext: chapterMaterialContext,
               learnerStateSummary,
               validationHint,
@@ -4097,8 +4100,6 @@ export function LearnPage({
                 materials={materials}
                 isUploading={isUploading}
                 effectiveTopic={effectiveTopic}
-                proficiencyLevel={proficiencyLevel}
-                aiGuidance={aiGuidance}
                 onFilesChange={(files) => {
                   void handleUploadMaterials(files)
                 }}
@@ -4107,20 +4108,8 @@ export function LearnPage({
                 }}
                 onContinueStepOne={handleContinueSetupStepOne}
                 allowContinueWithoutMaterials={generationMode === 'placeholder'}
-                onContinueStepTwo={handleContinueSetupStepTwo}
-                onContinueStepThree={handleContinueSetupStepThree}
                 onFinishSetup={handleFinishSetup}
                 onBackToStep1={() => setSetupStep(1)}
-                onBackToStep2={() => setSetupStep(2)}
-                onBackToStep3={() => setSetupStep(3)}
-                onAiGuidanceChange={(value) => {
-                  setAiGuidance(value)
-                  setError(null)
-                }}
-                onSelectProficiency={(level) => {
-                  setProficiencyLevel(level)
-                  setError(null)
-                }}
               />
             ) : (
               <>
@@ -4636,7 +4625,6 @@ export function LearnPage({
               isSetupComplete={isSetupComplete}
               setupStep={setupStep}
               effectiveTopic={effectiveTopic}
-              proficiencyLabel={proficiencyLabel}
               materialsCount={materials.length}
               entryQuizResult={entryQuizResult}
               learningChapters={learningChapters}

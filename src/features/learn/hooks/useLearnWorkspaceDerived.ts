@@ -12,7 +12,6 @@ export type LearnWorkspaceDerivedArgs = {
   learningChapters: string[]
   effectiveTopic: string
   isChapterPreviewVisible: boolean
-  proficiencyLevel: '' | 'low' | 'medium' | 'high'
 }
 
 export type LearnWorkspaceDerived = {
@@ -46,7 +45,6 @@ export type LearnWorkspaceDerived = {
   showChapterPreview: boolean
   previewEstimatedMinutes: number
   previewChapterBullets: string[]
-  proficiencyLabel: string
 }
 
 export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): LearnWorkspaceDerived {
@@ -58,7 +56,6 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     learningChapters,
     effectiveTopic,
     isChapterPreviewVisible,
-    proficiencyLevel,
   } = args
 
   const safeChapterIndex = Math.max(
@@ -144,15 +141,6 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
           'Wichtige Kernkonzepte strukturiert aufbauen',
           'Typische Fehlerquellen in der Praxis vermeiden',
         ]
-  const proficiencyLabel =
-    proficiencyLevel === 'low'
-      ? 'Schlecht'
-      : proficiencyLevel === 'medium'
-        ? 'Mittel'
-        : proficiencyLevel === 'high'
-          ? 'Gut'
-          : '-'
-
   return {
     safeChapterIndex,
     activeChapterBlueprint,
@@ -183,6 +171,5 @@ export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): Learn
     showChapterPreview,
     previewEstimatedMinutes,
     previewChapterBullets,
-    proficiencyLabel,
   }
 }
