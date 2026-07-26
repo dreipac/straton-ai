@@ -25,6 +25,9 @@ type UsePostEntrySyllabusGenerationArgs = {
   activePathTitle: string
   generationMode: LearnGenerationMode
   tutorState: LearnTutorState
+  /** false = Konzept-Engine (Curriculum aus dem Netz) uebernimmt; diese Legacy-Generierung ist nur
+   *  Fallback (kein Konzept-Netz vorhanden). */
+  enabled: boolean
   targetChapterCount: number
   syllabus: SyllabusEntry[]
   effectiveTopic: string
@@ -56,7 +59,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       syllabus,
     } = args
 
-    if (!activePathId || tutorState !== 'entry_quiz_done') {
+    if (!args.enabled || !activePathId || tutorState !== 'entry_quiz_done') {
       return
     }
     if (syllabus.length >= targetChapterCount && targetChapterCount > 0) {
@@ -220,6 +223,7 @@ export function usePostEntrySyllabusGeneration(args: UsePostEntrySyllabusGenerat
       }
     }
   }, [
+    args.enabled,
     args.activePathId,
     args.activePathTitle,
     args.aiGuidance,

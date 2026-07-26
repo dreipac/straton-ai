@@ -6,6 +6,8 @@ import type {
   LearnWorksheetItem,
   SyllabusEntry,
 } from '../services/learn.persistence'
+import type { IngestedGraph } from './conceptIngestion'
+import type { Curriculum } from './curriculumGeneration'
 
 /** Platzhalter-Modus (Admin-Test ohne API-Kosten): zentrale Mock-Daten + kurze simulierte
  *  Wartezeiten, damit Ladezustände/Animationen sichtbar bleiben, man aber zügig durchklicken kann. */
@@ -202,4 +204,123 @@ export function buildPlaceholderWorksheetItems(): LearnWorksheetItem[] {
       skillTag: 'platzhalter-anwendung',
     },
   ]
+}
+
+/** Mock-Konzept-Netz (Ingestion, Schicht 1) ohne KI — deterministisch, mit sinnvoller Voraussetzungskette. */
+/** Ein Platzhalter-Konzept innerhalb eines Themen-Clusters. */
+type PlaceholderConceptSpec = { slug: string; label: string; difficulty: number }
+/** Ein Themen-Cluster: wird zu EINEM Curriculum-Thema (= ein Landkarten-Knoten). */
+type PlaceholderTopicSpec = { title: string; learningGoal: string; concepts: PlaceholderConceptSpec[] }
+
+/**
+ * Zentrale Platzhalter-Struktur: 6 Themen-Cluster à 3 Konzepte. Sowohl das Konzept-Netz
+ * (`buildPlaceholderConceptGraph`) als auch das Curriculum (`buildPlaceholderCurriculum`) leiten sich
+ * hieraus ab — so bleiben Slugs konsistent und die Landkarte zeigt wie früher MEHRERE Themen-Knoten
+ * (statt eines einzigen "Grundlagen"-Knotens durch das Fallback-Chunking).
+ */
+function placeholderTopicSpecs(base: string): PlaceholderTopicSpec[] {
+  return [
+    {
+      title: `Grundlagen: ${base}`,
+      learningGoal: 'Kernbegriffe sicher erklären\nTypische Beispiele erkennen',
+      concepts: [
+        { slug: 'grundbegriffe', label: `Grundbegriffe: ${base}`, difficulty: 1 },
+        { slug: 'kernprinzip', label: `Kernprinzip von ${base}`, difficulty: 2 },
+        { slug: 'fachsprache', label: `Fachsprache zu ${base}`, difficulty: 2 },
+      ],
+    },
+    {
+      title: 'Berechnung & Anwendung',
+      learningGoal: 'Standardfälle selbst berechnen\nFormeln korrekt anwenden',
+      concepts: [
+        { slug: 'formeln', label: `Formeln rund um ${base}`, difficulty: 3 },
+        { slug: 'standardfaelle', label: `Standardfälle von ${base}`, difficulty: 3 },
+        { slug: 'umformung', label: `Umformungen bei ${base}`, difficulty: 4 },
+      ],
+    },
+    {
+      title: 'Sonderfälle & Ausnahmen',
+      learningGoal: 'Ausnahmen benennen\nFehlerquellen vermeiden',
+      concepts: [
+        { slug: 'ausnahmen', label: `Ausnahmen bei ${base}`, difficulty: 3 },
+        { slug: 'grenzfaelle', label: `Grenzfälle von ${base}`, difficulty: 4 },
+        { slug: 'fehlerquellen', label: `Typische Fehler bei ${base}`, difficulty: 3 },
+      ],
+    },
+    {
+      title: 'Praxis & Belege',
+      learningGoal: 'Belege korrekt prüfen\nPraxisfälle lösen',
+      concepts: [
+        { slug: 'belege-pruefen', label: `Belege prüfen zu ${base}`, difficulty: 3 },
+        { slug: 'praxisfall', label: `Praxisfall zu ${base}`, difficulty: 4 },
+        { slug: 'dokumentation', label: `Dokumentation bei ${base}`, difficulty: 2 },
+      ],
+    },
+    {
+      title: 'Vertiefung & Transfer',
+      learningGoal: 'Wissen auf neue Fälle übertragen\nKomplexe Aufgaben lösen',
+      concepts: [
+        { slug: 'transfer', label: `Transfer von ${base}`, difficulty: 4 },
+        { slug: 'komplexe-aufgaben', label: `Komplexe Aufgaben zu ${base}`, difficulty: 5 },
+        { slug: 'verknuepfung', label: `Verknüpfung mit Nachbarthemen`, difficulty: 4 },
+      ],
+    },
+    {
+      title: 'Repetition & Prüfungsvorbereitung',
+      learningGoal: 'Gesamtstoff zusammenfassen\nPrüfungsaufgaben sicher lösen',
+      concepts: [
+        { slug: 'zusammenfassung', label: `Zusammenfassung ${base}`, difficulty: 2 },
+        { slug: 'pruefungsaufgaben', label: `Prüfungsaufgaben zu ${base}`, difficulty: 5 },
+        { slug: 'selbsttest', label: `Selbsttest ${base}`, difficulty: 3 },
+      ],
+    },
+  ]
+}
+
+export function buildPlaceholderConceptGraph(topic: string): IngestedGraph {
+  const base = (topic || 'Thema').trim()
+  const specs = placeholderTopicSpecs(base)
+
+  const concepts = specs.flatMap((spec) =>
+    spec.concepts.map((c) => ({
+      slug: c.slug,
+      name: c.label,
+      description: `${c.label} im Kontext von ${base}.`,
+      difficulty: c.difficulty,
+      sourceRef: { section: spec.title },
+    })),
+  )
+
+  const edges: IngestedGraph['edges'] = []
+  specs.forEach((spec, topicIndex) => {
+    // Kette innerhalb eines Clusters: c0 -> c1 -> c2 (Voraussetzungen).
+    for (let i = 0; i < spec.concepts.length - 1; i += 1) {
+      edges.push({ fromSlug: spec.concepts[i].slug, toSlug: spec.concepts[i + 1].slug, type: 'prerequisite' })
+    }
+    // Brücke zum nächsten Cluster: letztes Konzept -> erstes Konzept des Folge-Themas (topologische Ordnung).
+    const next = specs[topicIndex + 1]
+    if (next) {
+      const last = spec.concepts[spec.concepts.length - 1]
+      edges.push({ fromSlug: last.slug, toSlug: next.concepts[0].slug, type: 'prerequisite' })
+    }
+  })
+
+  return { concepts, edges }
+}
+
+/**
+ * Platzhalter-Curriculum: bildet die 6 Cluster direkt auf 6 Themen ab (ein Schritt je Konzept). Ersetzt im
+ * Platzhalter-Modus das Größe-6-Fallback-Chunking, das alle Konzepte in ein einziges "Grundlagen"-Thema
+ * gelegt hätte → die Landkarte zeigt wieder alle Themen-Knoten.
+ */
+export function buildPlaceholderCurriculum(topic: string): Curriculum {
+  const base = (topic || 'Thema').trim()
+  return {
+    topics: placeholderTopicSpecs(base).map((spec) => ({
+      title: spec.title,
+      learningGoal: spec.learningGoal,
+      conceptSlugs: spec.concepts.map((c) => c.slug),
+      steps: spec.concepts.map((c) => ({ title: c.label, conceptSlugs: [c.slug] })),
+    })),
+  }
 }

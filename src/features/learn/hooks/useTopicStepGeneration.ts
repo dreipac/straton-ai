@@ -5,6 +5,7 @@ import { parseInteractiveContentWithFallback } from '../../chat/utils/interactiv
 import type { LearnGenerationMode, TopicSession, UploadedMaterial } from '../services/learn.persistence'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
+import { prependConceptDirective } from '../utils/conceptConditioning'
 import {
   CHAPTER_GENERATION_MAX_ATTEMPTS,
   CHAPTER_GENERATION_TIMEOUT_MS,
@@ -31,6 +32,9 @@ export type UseTopicSubstepOutlineArgs = {
   effectiveTopic: string
   selectedTopic: string
   materials: UploadedMaterial[]
+  /** Entscheidung 2 (adaptiver Motor): personalisiert den Plan (beherrschte Konzepte nicht neu unterrichten).
+   *  Leer → vollständiger Plan wie bisher. */
+  stepPlanDirective?: string
   /** Wird einmalig mit der fertigen Teilthemen-Liste aufgerufen — Aufrufer legt daraus die Substeps an. */
   onOutlineReady: (topicIndex: number, substepTitles: string[]) => void
 }
@@ -53,6 +57,7 @@ export function useTopicSubstepOutline(args: UseTopicSubstepOutlineArgs) {
     effectiveTopic,
     selectedTopic,
     materials,
+    stepPlanDirective,
     onOutlineReady,
   } = args
 
@@ -95,10 +100,13 @@ export function useTopicSubstepOutline(args: UseTopicSubstepOutlineArgs) {
         return
       }
 
-      const materialContext = formatRelevantMaterialContext(
-        buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTopic),
-        materials,
-        getChapterMaterialRagOptions(materials.length),
+      const materialContext = prependConceptDirective(
+        formatRelevantMaterialContext(
+          buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTopic),
+          materials,
+          getChapterMaterialRagOptions(materials.length),
+        ),
+        stepPlanDirective ?? '',
       )
 
       let validationHint = ''
@@ -159,6 +167,7 @@ export function useTopicSubstepOutline(args: UseTopicSubstepOutlineArgs) {
     materials,
     onOutlineReady,
     selectedTopic,
+    stepPlanDirective,
     topicIndex,
     topicLearningGoal,
     topicSession,

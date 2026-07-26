@@ -3,7 +3,7 @@ import { TextArea } from '../../../components/ui/inputs/TextArea'
 import { ModalShell } from '../../../components/ui/modal/ModalShell'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import { evaluatePlaceholderAnswer } from '../utils/learnPlaceholder'
-import { isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
+import { computeStructuredCredit, isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
 import type { LearnWorksheetItem } from '../services/learn.persistence'
 import {
   canSubmitWorksheetAnswer,
@@ -23,7 +23,7 @@ export type LearnWorksheetModalProps = {
   error: string | null
   onClose: () => void
   /** Persistiert Kreis-Prüfung im Lernpfad (Fortschritt / Freischaltung). */
-  onItemEvaluated?: (itemId: string, payload: { correct: boolean; answer: string }) => void
+  onItemEvaluated?: (itemId: string, payload: { correct: boolean; answer: string; credit?: number }) => void
   /** Speichert Antworttext (debounced), bleibt nach Schließen erhalten. */
   onSavedAnswerChange?: (itemId: string, answer: string) => void
   onSubmitWorksheet?: () => void
@@ -173,15 +173,19 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
     }
     setCheckingId(item.id)
     try {
+      const question = worksheetItemToInteractiveQuestion(item)
       const result = useLocalEvaluation
-        ? evaluatePlaceholderAnswer(worksheetItemToInteractiveQuestion(item), answer.trim())
+        ? evaluatePlaceholderAnswer(question, answer.trim())
         : await evaluateQuizAnswerWithAi({
-            question: worksheetItemToInteractiveQuestion(item),
+            question,
             userAnswer: answer.trim(),
           })
       setCorrectById((prev) => ({ ...prev, [item.id]: result.isCorrect }))
       setFeedbackById((prev) => ({ ...prev, [item.id]: result.feedback }))
-      onItemEvaluated?.(item.id, { correct: result.isCorrect, answer: answer.trim() })
+      // Semantische Teilbewertung: strukturierte Items (match/categorize) liefern deterministischen
+      // Teil-Credit; sonst undefined → binär.
+      const credit = computeStructuredCredit(answer.trim(), question) ?? undefined
+      onItemEvaluated?.(item.id, { correct: result.isCorrect, answer: answer.trim(), credit })
     } catch {
       setCorrectById((prev) => ({ ...prev, [item.id]: false }))
       setFeedbackById((prev) => ({

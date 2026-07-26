@@ -63,6 +63,28 @@ import { useLearnWorkspaceDerived } from '../features/learn/hooks/useLearnWorksp
 import { useLearningPathActions } from '../features/learn/hooks/useLearningPathActions'
 import { useLearnSetupFlow } from '../features/learn/hooks/useLearnSetupFlow'
 import { usePostEntrySyllabusGeneration } from '../features/learn/hooks/usePostEntrySyllabusGeneration'
+import { useConceptIngestion, type ConceptGraphSnapshot } from '../features/learn/hooks/useConceptIngestion'
+import { useCurriculumGeneration, type IngestionStatus } from '../features/learn/hooks/useCurriculumGeneration'
+import { useConceptLearnerModel } from '../features/learn/hooks/useConceptLearnerModel'
+import { useAdaptiveEngine } from '../features/learn/hooks/useAdaptiveEngine'
+import { useLearnCardStore } from '../features/learn/hooks/useLearnCardStore'
+import { useConceptDirectives } from '../features/learn/hooks/useConceptDirectives'
+import { normalizeConceptTag } from '../features/learn/utils/conceptTag'
+import {
+  prependConceptDirective,
+  buildEntryCheckDirective,
+  buildStepPlanDirective,
+} from '../features/learn/utils/conceptConditioning'
+import { useSessionCursorPersistence } from '../features/learn/hooks/useSessionCursorPersistence'
+import {
+  isTopicUnlocked as isTopicUnlockedByStatus,
+  firstUnmasteredIndex,
+  allTopicsMastered,
+  masteredCount as masteredTopicCount,
+} from '../features/learn/engine/sessionMachine'
+import { adaptiveDeckOrder } from '../features/learn/engine/adaptiveDifficulty'
+import { canSkipEntryCheck } from '../features/learn/engine/adaptivePlan'
+import type { PersistedCurriculum } from '../features/learn/services/learnCurriculum.persistence'
 import {
   buildPlaceholderChapterBlueprint,
   buildPlaceholderDiagnosticBlueprint,
@@ -215,19 +237,6 @@ function clamp01(value: number): number {
 }
 
 /** Konzept-Slug normalisieren (z. B. "MWSt Berechnung!" → "mwst-berechnung"). */
-function normalizeConceptTag(raw: string | undefined): string {
-  if (!raw) {
-    return ''
-  }
-  return raw
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60)
-}
-
 /**
  * Quellenübergreifender Skill-Schlüssel: Wenn ein Konzept-Tag vorliegt, teilen sich alle Quellen
  * (Kapitel, Lernkarten, Arbeitsblatt) denselben `concept:`-Bucket → echte Aggregation pro Kompetenz.
@@ -324,6 +333,12 @@ export function LearnPage({
   const [skillMasteryBySkillId, setSkillMasteryBySkillId] = useState<SkillMasteryBySkillId>({})
   /** Landkarte Phase 1: pro-Thema-Fortschritt (Diagnosetest + dynamische Zwischenschritte). Additiv zum Kapitel-Modell. */
   const [topicSessions, setTopicSessions] = useState<TopicSession[]>([])
+  /** Neue Architektur (Schicht 1): das persistierte Konzept-Netz des aktiven Pfads (Ingestion). */
+  const [conceptGraph, setConceptGraph] = useState<ConceptGraphSnapshot>({ concepts: [], edges: [] })
+  /** Koordination Ingestion → Curriculum vs. Legacy-Fallback: 'running' (default) → 'ready' | 'absent'. */
+  const [ingestionStatus, setIngestionStatus] = useState<IngestionStatus>('running')
+  /** Neue Architektur (Schicht 2): das persistierte Curriculum (Themen/Schritte). Speist den adaptiven Motor. */
+  const [curriculum, setCurriculum] = useState<PersistedCurriculum>({ topics: [] })
   /** != null während ein Thema (Einstiegscheck/Analyse/Zwischenschritt) im Arbeitsbereich aktiv ist. */
   const [activeTopicFlowIndex, setActiveTopicFlowIndex] = useState<number | null>(null)
   /** Aktiver Zwischenschritt innerhalb des Themas; null = Einstiegscheck/Landing/Analyse (kein Substep gewählt). */
@@ -807,6 +822,12 @@ export function LearnPage({
 
   useEffect(() => {
     activePathIdRef.current = activePathId
+  }, [activePathId])
+
+  // Pfadwechsel: Ingestion-Status zuruecksetzen ('running'), bis die Ingestion ihn erneut setzt.
+  // Verhindert, dass der Legacy-Fallback fuer einen neuen Pfad verfrueht auf 'absent' laeuft.
+  useEffect(() => {
+    setIngestionStatus('running')
   }, [activePathId])
 
   useEffect(() => {
@@ -1364,6 +1385,9 @@ export function LearnPage({
     activePathTitle: activePath?.title ?? '',
     generationMode,
     tutorState,
+    // Legacy-Syllabus-Generierung nur als Fallback: greift erst, wenn die Konzept-Ingestion
+    // KEIN Netz liefern konnte ('absent'). Bei einem vorhandenen Netz uebernimmt useCurriculumGeneration.
+    enabled: ingestionStatus === 'absent',
     targetChapterCount,
     syllabus,
     effectiveTopic,
@@ -1382,6 +1406,125 @@ export function LearnPage({
     onGenerationComplete: handlePathGenerationComplete,
   })
 
+  // Neue Architektur — Schicht 1: Konzept-Netz aus dem Material generieren + persistieren (bzw. laden,
+  // wenn bereits vorhanden). Additiv; beeinflusst den bestehenden Syllabus-/Themen-Flow (noch) nicht.
+  useConceptIngestion({
+    userId: user?.id ?? null,
+    activePathId: activePathId || null,
+    isSetupComplete,
+    generationMode,
+    materials,
+    effectiveTopic,
+    selectedTopic,
+    getPrompt,
+    hasExistingContent: syllabus.length > 0 || topicSessions.length > 0,
+    onGraphReady: setConceptGraph,
+    onStatus: setIngestionStatus,
+  })
+
+  // Neue Architektur — Schicht 2: sobald das Konzept-Netz bereit ist ('ready'), daraus ein
+  // topologisch geordnetes, konzept-geclustertes Curriculum generieren + persistieren und die
+  // bestehende Syllabus-/Landkarten-Anzeige daraus ableiten. Ersetzt bei vorhandenem Netz die
+  // Legacy-Syllabus-Generierung (die dann via `enabled: false` schlaeft).
+  useCurriculumGeneration({
+    userId: user?.id ?? null,
+    activePathId: activePathId || null,
+    ingestionStatus,
+    conceptGraph,
+    topicHint: selectedTopic.trim() || effectiveTopic.trim(),
+    generationMode,
+    proficiencyLevel,
+    aiGuidance,
+    getPrompt,
+    setSyllabus,
+    setLearningChapters,
+    setTargetChapterCount,
+    setTutorMessages,
+    setIsPostEntryPrepLoading,
+    setPostEntryPrepStepIndex,
+    setPostEntryPrepPercents,
+    setError,
+    onCurriculumReady: setCurriculum,
+    onGenerationComplete: handlePathGenerationComplete,
+  })
+
+  // Neue Architektur — Schicht 3: BKT-Lerner-Modell. Laedt die persistierten Konzept-Zustaende (mit
+  // Verfall) und liefert `applyConceptSignalByTag`, das jede ausgewertete Antwort als echtes BKT-Update
+  // auf das getroffene Konzept anwendet + atomar persistiert. Graph-gated: greift nur bei vorhandenem Netz.
+  const conceptLearnerModel = useConceptLearnerModel({
+    userId: user?.id ?? null,
+    activePathId: activePathId || null,
+    conceptGraph,
+  })
+  const applyConceptSignalByTag = conceptLearnerModel.applyConceptSignalByTag
+
+  // Neue Architektur — Schicht 4: adaptiver Motor. Leitet aus Curriculum + BKT-Zustaenden die
+  // konzept-basierten Entscheidungen (Einstiegscheck, Skip, Remediation, gewichtete Pruefung) + das
+  // Themen-/Pfad-Scoring ab. `hasConceptScoring=false` (kein Netz/Curriculum) → Legacy-Anzeige greift.
+  const adaptiveEngine = useAdaptiveEngine({
+    curriculum,
+    conceptGraph,
+    conceptStatesById: conceptLearnerModel.conceptStatesById,
+  })
+
+  // Neue Architektur — Entscheidung 5 (Schicht 4/6): persistenter Karten-SR-Store. Spiegelt die
+  // generierten Karten konzept-getaggt nach learn_cards und schreibt bei jeder Selbstbewertung einen
+  // SM-2-artigen SR-Zustand (learner_card_states). Graph-gated über hasConceptScoring → sonst inaktiv.
+  const allFlashcards = useMemo(
+    () =>
+      learnFlashcardSets.flatMap((set) =>
+        set.cards.map((c) => ({ question: c.question, answer: c.answer, skillTag: c.skillTag })),
+      ),
+    [learnFlashcardSets],
+  )
+  const conceptDecayById = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const [id, state] of conceptLearnerModel.conceptStatesById) {
+      m.set(id, state.decayRate)
+    }
+    return m
+  }, [conceptLearnerModel.conceptStatesById])
+  const learnCardStore = useLearnCardStore({
+    pathId: activePathId || null,
+    userId: user?.id ?? null,
+    conceptGraph,
+    flashcards: allFlashcards,
+    conceptDecayById,
+    enabled: adaptiveEngine.hasConceptScoring,
+  })
+  const reviewCardByQuestion = learnCardStore.reviewByQuestion
+
+  // Neue Architektur — Schicht 5 + Entscheidungen 1–3/6: konzept-/lerner-konditionierte Direktiven-
+  // Ableitung (Slugs + verfall-bereinigter Lernstand + Quelle + gewichtete Prüfung). Aus dem Orchestrator
+  // extrahiert (useConceptDirectives); ohne Netz liefern alle Direktiven leere Strings → Legacy-Verhalten.
+  const conceptMasteryForSlug = conceptLearnerModel.masteryForSlug
+  const { conceptBySlug, conceptDirective, topicConceptItems, topicExamDirective } =
+    useConceptDirectives({
+      conceptGraph,
+      curriculum,
+      hasConceptScoring: adaptiveEngine.hasConceptScoring,
+      planForTopic: adaptiveEngine.planForTopic,
+      masteryForSlug: conceptMasteryForSlug,
+    })
+
+  // Neue Architektur — Schicht 7: Session-Cursor persistieren + wiederherstellen ("dort fortsetzen").
+  // Speichert das aktive Thema/den aktiven Zwischenschritt je (User x Pfad) und stellt beim Oeffnen einen
+  // Zwischenschritt-Cursor ueber die bestehende openSubstep-Navigation wieder her (konservativ, kein
+  // Auto-Generieren auf Themen-Ebene).
+  useSessionCursorPersistence({
+    userId: user?.id ?? null,
+    activePathId: activePathId || null,
+    activeTopicOrdinal: activeTopicFlowIndex,
+    activeStepOrdinal: activeSubstepIndex,
+    phase: activeSubstepIndex !== null ? 'substep' : activeTopicFlowIndex !== null ? 'topic' : 'landing',
+    isReady: topicSessions.length > 0,
+    hasNavigated: activeTopicFlowIndex !== null,
+    onRestore: (topicOrdinal, stepOrdinal) => openSubstep(topicOrdinal, stepOrdinal),
+  })
+
+  // Legacy-EWMA (Skalar-Mastery je Skill-ID): bleibt bewusst als FALLBACK erhalten für Pfade OHNE
+  // Konzept-Netz (z. B. Ingestion ohne verwertbaren Graph). Wo ein Netz existiert, ist das BKT-Modell
+  // autoritativ (Landkarten-Ring/Fortschritt lesen adaptiveEngine); dort läuft EWMA nur als Beiwerk mit.
   const applySkillMasterySignal = useCallback(
     (payload: {
       source: 'chapter' | 'flashcard' | 'worksheet'
@@ -1440,6 +1583,8 @@ export function LearnPage({
         correct: payload.correct,
         weight: 0.35,
       })
+      // Neue Architektur (Schicht 3): dasselbe Signal als echtes BKT-Update auf das getroffene Konzept.
+      void applyConceptSignalByTag(payload.skillTag, { correct: payload.correct })
       if (payload.correct && activePathId) {
         gamification.recordEvent({
           dedupeKey: `${activePathId}:chapter-step:${payload.stepId}`,
@@ -1449,7 +1594,7 @@ export function LearnPage({
         })
       }
     },
-    [applySkillMasterySignal, activePathId, gamification.recordEvent],
+    [applySkillMasterySignal, applyConceptSignalByTag, activePathId, gamification.recordEvent],
   )
 
   const { handleEvaluateCurrentChapterQuestion, handleNextChapterStep, handlePreviousChapterStep } = useChapterSessionFlow({
@@ -1501,6 +1646,8 @@ export function LearnPage({
         correct: payload.correct,
         weight: 0.35,
       })
+      // Neue Architektur (Schicht 3): BKT-Update auf das getroffene Konzept.
+      void applyConceptSignalByTag(payload.skillTag, { correct: payload.correct })
       if (payload.correct && activePathId) {
         gamification.recordEvent({
           dedupeKey: `${activePathId}:topic-step:${payload.stepId}`,
@@ -1510,7 +1657,7 @@ export function LearnPage({
         })
       }
     },
-    [applySkillMasterySignal, activePathId, gamification.recordEvent],
+    [applySkillMasterySignal, applyConceptSignalByTag, activePathId, gamification.recordEvent],
   )
 
 
@@ -1546,6 +1693,8 @@ export function LearnPage({
     effectiveTopic,
     selectedTopic,
     materials,
+    // Entscheidung 2 (adaptiver Motor): beherrschte Konzepte des Themas nicht neu unterrichten → kürzerer Plan.
+    stepPlanDirective: activeTopicFlowIndex !== null ? buildStepPlanDirective(topicConceptItems(activeTopicFlowIndex)) : '',
     onOutlineReady: handleSubstepOutlineReady,
   })
 
@@ -1782,7 +1931,7 @@ export function LearnPage({
     if (topicSessions.length === 0) {
       return 0
     }
-    const firstNotMastered = topicSessions.findIndex((session) => session.status !== 'mastered')
+    const firstNotMastered = firstUnmasteredIndex(topicSessions.map((session) => session.status))
     return firstNotMastered === -1 ? Math.max(0, topicSessions.length - 1) : firstNotMastered
   }, [topicSessions])
 
@@ -1890,7 +2039,7 @@ export function LearnPage({
 
   const isPathFullyCompleted = useMemo(() => {
     if (topicSessions.length > 0) {
-      return topicSessions.every((session) => session.status === 'mastered')
+      return allTopicsMastered(topicSessions.map((session) => session.status))
     }
     return chapterBlueprints.length > 0 && chapterSession.completedChapterIndexes.length >= chapterBlueprints.length
   }, [topicSessions, chapterBlueprints, chapterSession.completedChapterIndexes])
@@ -1906,7 +2055,7 @@ export function LearnPage({
     const previousErrorLogbookTotal = pathChanged ? null : previousErrorLogbookTotalRef.current
     const context: GamificationBadgeContext = {
       completedChapterCount: chapterSession.completedChapterIndexes.length,
-      masteredTopicsCount: topicSessions.filter((session) => session.status === 'mastered').length,
+      masteredTopicsCount: masteredTopicCount(topicSessions.map((session) => session.status)),
       hasHighMasteryTopic: topicSessions.some(
         (session) => session.status === 'mastered' && topicMasteryScore(session) >= 0.95,
       ),
@@ -2026,7 +2175,7 @@ export function LearnPage({
       const cards =
         generationMode === 'placeholder'
           ? await placeholderDelay().then(() => buildPlaceholderFlashcards())
-          : await generateLearnFlashcards(outlineForApi)
+          : await generateLearnFlashcards(prependConceptDirective(outlineForApi, conceptDirective))
       const newSet: LearnFlashcardSet = { id: crypto.randomUUID(), cards: initializeNewFlashcardSet(cards) }
       setFlashcardsModalSetId(newSet.id)
       setLearnFlashcardSets((prev) => {
@@ -2066,6 +2215,7 @@ export function LearnPage({
     topicSessions,
     learnFlashcardSets,
     learnWorksheets,
+    conceptDirective,
   ],
   )
 
@@ -2135,7 +2285,7 @@ export function LearnPage({
       const items =
         generationMode === 'placeholder'
           ? await placeholderDelay().then(() => buildPlaceholderWorksheetItems())
-          : await generateLearnWorksheet(outlineForApi)
+          : await generateLearnWorksheet(prependConceptDirective(outlineForApi, conceptDirective))
       const fallbackChapterIndex = Math.max(0, chapterSession.chapterIndex)
       const chapterTag = useMixed
         ? MIXED_LEARN_MATERIAL_CHAPTER_INDEX
@@ -2184,6 +2334,7 @@ export function LearnPage({
     topicCorpora,
     topicSessions,
     learnFlashcardSets,
+    conceptDirective,
   ],
   )
 
@@ -2234,7 +2385,7 @@ export function LearnPage({
   )
 
   const handleWorksheetItemEvaluated = useCallback(
-    (itemId: string, payload: { correct: boolean; answer: string }) => {
+    (itemId: string, payload: { correct: boolean; answer: string; credit?: number }) => {
       const clippedAnswer =
         payload.answer.length > 16000 ? `${payload.answer.slice(0, 16000)}…` : payload.answer
       const pathId = activePathIdRef.current
@@ -2272,8 +2423,10 @@ export function LearnPage({
         correct: payload.correct,
         weight: 0.3,
       })
+      // Neue Architektur (Schicht 3 + semantische Teilbewertung): BKT-Update mit optionalem Teil-Credit.
+      void applyConceptSignalByTag(item?.skillTag, { correct: payload.correct, credit: payload.credit })
     },
-    [applySkillMasterySignal, learnWorksheets, learningPaths],
+    [applySkillMasterySignal, applyConceptSignalByTag, learnWorksheets, learningPaths],
   )
 
   const handleSubmitWorksheet = useCallback(() => {
@@ -2318,8 +2471,10 @@ export function LearnPage({
         correct,
         weight: 0.15,
       })
+      // Neue Architektur (Schicht 3): BKT-Update auf das getroffene Konzept.
+      void applyConceptSignalByTag(item.skillTag, { correct })
     })
-  }, [applySkillMasterySignal, learningPaths, worksheetModalItems])
+  }, [applySkillMasterySignal, applyConceptSignalByTag, learningPaths, worksheetModalItems])
 
   const worksheetSubmittedCount = useMemo(
     () =>
@@ -2361,6 +2516,10 @@ export function LearnPage({
             correct: rating === 'known',
             weight: 0.25,
           })
+          // Neue Architektur (Schicht 3): BKT-Update auf das getroffene Konzept.
+          void applyConceptSignalByTag(currentCard.skillTag, { correct: rating === 'known' })
+          // Neue Architektur (Entscheidung 5): persistenter Karten-SR-Zustand (SM-2, learner_card_states).
+          reviewCardByQuestion(currentCard.question, rating === 'known')
           const todayKey = new Date().toISOString().slice(0, 10)
           gamification.recordEvent({
             dedupeKey: `${cardId}:review:${todayKey}`,
@@ -2375,7 +2534,14 @@ export function LearnPage({
         applySubstepMastery(substepTarget.topicIndex, substepTarget.substepIndex, rating === 'known')
       }
     },
-    [applySkillMasterySignal, applySubstepMastery, learningPaths, gamification.recordEvent],
+    [
+      applySkillMasterySignal,
+      applyConceptSignalByTag,
+      reviewCardByQuestion,
+      applySubstepMastery,
+      learningPaths,
+      gamification.recordEvent,
+    ],
   )
 
   const handleRateSubstepPracticeCard = useCallback(
@@ -2636,10 +2802,13 @@ export function LearnPage({
         .slice(0, 12)
         .map((step, index) => `${index + 1}. ${step.prompt}`)
         .join('\n')
-      const materialContext = formatRelevantMaterialContext(
-        buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTitle),
-        materials,
-        getChapterMaterialRagOptions(materials.length),
+      const materialContext = prependConceptDirective(
+        formatRelevantMaterialContext(
+          buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTitle),
+          materials,
+          getChapterMaterialRagOptions(materials.length),
+        ),
+        conceptDirective,
       )
 
       if (generationMode === 'placeholder') {
@@ -2739,14 +2908,24 @@ export function LearnPage({
       const cards =
         generationMode === 'placeholder'
           ? await placeholderDelay().then(() => buildPlaceholderFlashcards())
-          : await generateLearnFlashcards(outline)
+          : await generateLearnFlashcards(prependConceptDirective(outline, conceptDirective))
       if (activePathIdRef.current !== activePathIdAtStart) {
         return
       }
+      // Entscheidung 4 (Echtzeit-Schwierigkeit): das Deck deterministisch nach Lernstand ordnen —
+      // schwache Konzepte zuerst (Remediation), dann Schwierigkeits-Anstieg. Ohne Netz unverändert.
+      const initializedCards = initializeNewFlashcardSet(cards)
+      const orderedCards = adaptiveEngine.hasConceptScoring
+        ? adaptiveDeckOrder(initializedCards, (card) => {
+            const slug = normalizeConceptTag(card.skillTag)
+            const concept = slug ? conceptBySlug.get(slug) : undefined
+            return { difficulty: concept?.difficulty ?? 3, mastery: conceptMasteryForSlug(card.skillTag) }
+          })
+        : initializedCards
       const newSet: LearnFlashcardSet = {
         id: crypto.randomUUID(),
         title: substep.blueprint.title,
-        cards: initializeNewFlashcardSet(cards),
+        cards: orderedCards,
         topicIndex,
         substepIndex,
       }
@@ -2811,10 +2990,14 @@ export function LearnPage({
         ? learnFlashcardSets.find((set) => set.id === substep.practiceFlashcardSetId)
         : undefined
       const outline = buildSubstepCompletionWorksheetOutline(substep, practiceSet?.cards ?? [])
+      // Entscheidung 6: Konzept-Direktive + gewichtete Prüfungs-Verteilung kombinieren.
+      const completionDirective = [conceptDirective, topicExamDirective(topicIndex)]
+        .filter((part) => part.trim().length > 0)
+        .join('\n\n')
       const items =
         generationMode === 'placeholder'
           ? await placeholderDelay().then(() => buildPlaceholderWorksheetItems())
-          : await generateLearnWorksheet(outline)
+          : await generateLearnWorksheet(prependConceptDirective(outline, completionDirective))
       if (activePathIdRef.current !== activePathIdAtStart) {
         return
       }
@@ -2884,12 +3067,28 @@ export function LearnPage({
       return
     }
     /** Landkarte Phase 2: die Karte erlaubt Klicks auf beliebige Themen-Knoten — noch gesperrte Themen ignorieren. */
-    const isTopicUnlocked = topicIndex === 0 || topicSessions[topicIndex - 1]?.status === 'mastered'
+    const isTopicUnlocked = isTopicUnlockedByStatus(topicSessions.map((session) => session.status), topicIndex)
     if (!isTopicUnlocked) {
       return
     }
 
-    if (existing.status === 'locked') {
+    // Entscheidung 2 (harter, deterministischer Skip): ist laut BKT kein Konzept des Themas mehr
+    // prüfenswert, den Einstiegscheck ohne KI-Aufruf überspringen und direkt in die Analyse gehen
+    // (dort erzeugt useTopicSubstepOutline den — via D2 kurzen — Lernplan).
+    const hardSkipTopic = curriculum.topics[topicIndex]
+    const hardSkipPlan =
+      adaptiveEngine.hasConceptScoring && hardSkipTopic ? adaptiveEngine.planForTopic(hardSkipTopic.id) : null
+    const canHardSkipEntryCheck = Boolean(
+      hardSkipPlan && canSkipEntryCheck(hardSkipPlan, hardSkipTopic?.conceptIds.length ?? 0),
+    )
+
+    if (existing.status === 'locked' && canHardSkipEntryCheck) {
+      setTopicSessions((prev) =>
+        prev.map((session, index) =>
+          index === topicIndex ? { ...session, status: 'analyzing' as const } : session,
+        ),
+      )
+    } else if (existing.status === 'locked') {
       if (chapterGenerationInFlightRef.current) {
         return
       }
@@ -2911,14 +3110,19 @@ export function LearnPage({
         setError('Einstiegscheck wird vorbereitet...')
         setIsChapterGenerationLoading(true)
         setChapterGenerationPercent(8)
-        const topicMaterialContext = formatRelevantMaterialContext(
-          buildChapterMaterialSearchQuery(
-            effectiveTopic || getDisplayPathTitle(activePath?.title ?? ''),
-            selectedTopic,
-            topicTopic,
+        // Entscheidung 1 (adaptiver Motor): den Einstiegscheck auf die noch nicht beherrschten Konzepte
+        // dieses Themas fokussieren, bereits Beherrschtes auslassen/kurz bestätigen. Leer ohne Netz.
+        const topicMaterialContext = prependConceptDirective(
+          formatRelevantMaterialContext(
+            buildChapterMaterialSearchQuery(
+              effectiveTopic || getDisplayPathTitle(activePath?.title ?? ''),
+              selectedTopic,
+              topicTopic,
+            ),
+            materials,
+            getChapterMaterialRagOptions(materials.length),
           ),
-          materials,
-          getChapterMaterialRagOptions(materials.length),
+          buildEntryCheckDirective(topicConceptItems(topicIndex)),
         )
         let validationHint = ''
         let generatedDiagnostic: ChapterBlueprint | null = null
@@ -3722,7 +3926,21 @@ export function LearnPage({
   const topicWorkspaceName = isTopicFlowActive
     ? (syllabus[activeTopicFlowIndex ?? -1]?.topic || learningChapters[activeTopicFlowIndex ?? -1] || 'Thema').trim()
     : undefined
-  const topicWorkspaceMasteryPercent = activeTopicSession ? topicMasteryScore(activeTopicSession) * 100 : 0
+  // Ring-Score: bevorzugt der echte BKT-Themen-Score (neue Architektur), sonst der Legacy-Substep-Schnitt.
+  // Themen korrespondieren ordinal (Curriculum wurde in derselben Reihenfolge in den Syllabus abgeleitet).
+  const activeCurriculumTopic =
+    adaptiveEngine.hasConceptScoring && activeTopicFlowIndex !== null
+      ? curriculum.topics[activeTopicFlowIndex]
+      : undefined
+  const conceptTopicScore = activeCurriculumTopic
+    ? adaptiveEngine.topicScoreById.get(activeCurriculumTopic.id)
+    : undefined
+  const topicWorkspaceMasteryPercent =
+    conceptTopicScore !== undefined
+      ? Math.round(conceptTopicScore * 100)
+      : activeTopicSession
+        ? topicMasteryScore(activeTopicSession) * 100
+        : 0
   const activeSubstepPracticeSet = activeSubstep?.practiceFlashcardSetId
     ? (learnFlashcardSets.find((set) => set.id === activeSubstep.practiceFlashcardSetId) ?? null)
     : null

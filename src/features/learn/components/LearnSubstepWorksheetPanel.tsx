@@ -3,7 +3,7 @@ import { TextArea } from '../../../components/ui/inputs/TextArea'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { evaluateQuizAnswerWithAi } from '../../chat/services/chat.service'
 import { evaluatePlaceholderAnswer } from '../utils/learnPlaceholder'
-import { isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
+import { computeStructuredCredit, isCategorizeQuestion, isMatchQuestion } from '../../chat/utils/interactiveQuiz'
 import type { LearnWorksheetItem } from '../services/learn.persistence'
 import { canSubmitWorksheetAnswer, worksheetItemToInteractiveQuestion, worksheetQuestionKindLabel } from '../utils/learnPageHelpers'
 import { LearnEntryQuizMatch } from './LearnEntryQuizMatch'
@@ -15,7 +15,7 @@ export type LearnSubstepWorksheetPanelProps = {
   items: LearnWorksheetItem[]
   isLoading: boolean
   error: string | null
-  onItemEvaluated: (itemId: string, payload: { correct: boolean; answer: string }) => void
+  onItemEvaluated: (itemId: string, payload: { correct: boolean; answer: string; credit?: number }) => void
   onSavedAnswerChange: (itemId: string, answer: string) => void
   onFinish: () => void
   useLocalEvaluation?: boolean
@@ -74,15 +74,18 @@ export function LearnSubstepWorksheetPanel(props: LearnSubstepWorksheetPanelProp
     }
     setCheckingId(item.id)
     try {
+      const question = worksheetItemToInteractiveQuestion(item)
       const result = useLocalEvaluation
-        ? evaluatePlaceholderAnswer(worksheetItemToInteractiveQuestion(item), answer.trim())
+        ? evaluatePlaceholderAnswer(question, answer.trim())
         : await evaluateQuizAnswerWithAi({
-            question: worksheetItemToInteractiveQuestion(item),
+            question,
             userAnswer: answer.trim(),
           })
       setCorrectById((prev) => ({ ...prev, [item.id]: result.isCorrect }))
       setFeedbackById((prev) => ({ ...prev, [item.id]: result.feedback }))
-      onItemEvaluated(item.id, { correct: result.isCorrect, answer: answer.trim() })
+      // Semantische Teilbewertung: strukturierte Items liefern deterministischen Teil-Credit.
+      const credit = computeStructuredCredit(answer.trim(), question) ?? undefined
+      onItemEvaluated(item.id, { correct: result.isCorrect, answer: answer.trim(), credit })
     } catch {
       setCorrectById((prev) => ({ ...prev, [item.id]: false }))
       setFeedbackById((prev) => ({ ...prev, [item.id]: 'Prüfung ist fehlgeschlagen. Bitte später erneut versuchen.' }))

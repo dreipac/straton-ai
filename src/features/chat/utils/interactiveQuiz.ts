@@ -570,3 +570,52 @@ export function evaluateInteractiveAnswer(
     feedback: question.explanation ? `${baseHint} ${question.explanation}` : baseHint,
   }
 }
+
+/**
+ * Deterministischer Teil-Credit ∈ [0,1] fuer strukturierte Mehrteil-Aufgaben (match/categorize):
+ * der Anteil korrekt zugeordneter Elemente. Fuer alle anderen Fragetypen (oder ungueltige/unvollstaendige
+ * Antworten) `null` → der Aufrufer bleibt bei der binaeren Bewertung. Rein (kein I/O), unit-testbar.
+ */
+export function computeStructuredCredit(
+  answer: string,
+  question: InteractiveQuizQuestion,
+): number | null {
+  if (question.questionType === 'match' && isMatchQuestion(question)) {
+    const n = question.matchLeft!.length
+    const parts = answer
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+    if (parts.length !== n) {
+      return null
+    }
+    const nums = parts.map((p) => Number.parseInt(p, 10))
+    if (nums.some((x) => Number.isNaN(x) || x < 0 || x >= n)) {
+      return null
+    }
+    const correct = nums.reduce((acc, value, i) => acc + (value === i ? 1 : 0), 0)
+    return correct / n
+  }
+
+  if (question.questionType === 'categorize' && isCategorizeQuestion(question)) {
+    const itemCount = question.items!.length
+    const categoryCount = question.categories!.length
+    const parts = answer.split(',').map((s) => s.trim())
+    if (parts.length !== itemCount || parts.some((p) => p.length === 0)) {
+      return null
+    }
+    const nums = parts.map((p) => Number.parseInt(p, 10))
+    if (nums.some((x) => Number.isNaN(x) || x < 0 || x >= categoryCount)) {
+      return null
+    }
+    const expectedParts = (question.expectedAnswer || '').split(',').map((s) => s.trim())
+    if (expectedParts.length !== itemCount) {
+      return null
+    }
+    const expected = expectedParts.map((p) => Number.parseInt(p, 10))
+    const correct = nums.reduce((acc, value, i) => acc + (value === expected[i] ? 1 : 0), 0)
+    return correct / itemCount
+  }
+
+  return null
+}
