@@ -229,6 +229,8 @@ export type LearnChapterWorkspaceProps = {
   isGeneratingContent?: boolean
   /** true, wenn die KI-Inhaltsgenerierung des Zwischenschritts fehlgeschlagen ist → Fehler + Retry. */
   contentFailed?: boolean
+  /** Technischer Grund des Fehlschlags (z. B. „…überlastet (429)"), sichtbar in der Fehlermeldung. */
+  contentFailedReason?: string | null
   /** „Erneut versuchen" nach fehlgeschlagener Inhaltsgenerierung. */
   onRetryContent?: () => void
   /** Übungskarten (echtes Lernkarten-Set) des aktiven Zwischenschritts — topicMode 'practice'. */
@@ -283,6 +285,7 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     onStartEntryCheck,
     isGeneratingContent = false,
     contentFailed = false,
+    contentFailedReason,
     onRetryContent,
     practiceCards = [],
     isGeneratingPractice = false,
@@ -642,6 +645,11 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
           <p className="learn-chapter-topic-landing-sub">
             Die KI konnte den Inhalt dieses Teilthemas gerade nicht erzeugen. Bitte versuche es erneut.
           </p>
+          {contentFailedReason ? (
+            <p className="learn-muted" style={{ maxWidth: '38rem', fontSize: '0.85rem' }}>
+              Grund: {contentFailedReason}
+            </p>
+          ) : null}
           <PrimaryButton type="button" className="learn-chapter-topic-landing-cta" onClick={onRetryContent}>
             <span>Erneut versuchen</span>
           </PrimaryButton>

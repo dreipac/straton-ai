@@ -337,6 +337,8 @@ export function LearnPage({
   const [entryCheckStarted, setEntryCheckStarted] = useState(false)
   /** Läuft, während der Vollinhalt eines Zwischenschritts lazy generiert wird. */
   const [isGeneratingSubstepContent, setIsGeneratingSubstepContent] = useState(false)
+  /** Technischer Grund des letzten Zwischenschritt-Inhalt-Fehlschlags (für die sichtbare Fehlermeldung). */
+  const [substepContentErrorReason, setSubstepContentErrorReason] = useState<string | null>(null)
   /** true, sobald der feste Flow eines Zwischenschritts durchlaufen ist — schaltet auf die Übungskarten-Phase. */
   const [isSubstepPracticePhase, setIsSubstepPracticePhase] = useState(false)
   /** Läuft, während das Übungskarten-Set eines Zwischenschritts lazy generiert wird. */
@@ -2801,6 +2803,7 @@ export function LearnPage({
     }
     // Beim (erneuten) Start den Fehlerzustand löschen → UI wechselt von Fehler zu Ladeanzeige.
     setContentFailed(false)
+    setSubstepContentErrorReason(null)
     try {
       const syllabusEntry = syllabus[topicIndex]
       const topicTitle = (
@@ -2905,20 +2908,44 @@ export function LearnPage({
       }
       if (generated) {
         applyBlueprint(generated)
+        // Sobald die Erklärungen stehen: die Folgeschritte GESTAFFELT im Hintergrund vorproduzieren
+        // (+5s Übungskarten, danach +10s Abschluss-Arbeitsblatt). Spreizt die KI-Last (weniger 429) und
+        // hält alles bereit. (Der Platzhalter-Fall wurde oben bereits per early-return behandelt.)
+        void prepareSubstepFollowupsInBackground(topicIndex, substepIndex)
       } else {
         // Kein Platzhalter mehr: ehrlichen Fehlerzustand zeigen (Fehlermeldung + „Erneut versuchen").
         console.error('Lernbereich: Zwischenschritt-Inhalt endgültig fehlgeschlagen — letzter Grund:', validationHint)
+        setSubstepContentErrorReason(validationHint || null)
         setContentFailed(true)
       }
     } catch (err) {
       console.error('Lernbereich: Zwischenschritt-Inhalt konnte nicht generiert werden', err)
       if (activePathIdRef.current === activePathIdAtStart) {
+        setSubstepContentErrorReason(err instanceof Error ? err.message : 'Unbekannter Fehler')
         setContentFailed(true)
       }
     } finally {
       substepContentInFlightRef.current = false
       setIsGeneratingSubstepContent(false)
     }
+  }
+
+  /**
+   * Nach erfolgreicher Erklärungs-Generierung: die ÜBUNGSKARTEN nach 5s im Hintergrund vorproduzieren,
+   * damit sie bereitstehen und die KI-Last gespreizt wird. Idempotent (eigener Guard) → ein späteres
+   * manuelles Öffnen der Übungsphase löst keinen Doppel-Lauf aus. Bricht ab, wenn der Pfad wechselt.
+   *
+   * Das ABSCHLUSS-Arbeitsblatt wird bewusst NICHT hier vorproduziert, sondern erst nach den Übungskarten
+   * (`handleFinishSubstepPractice` → `ensureSubstepCompletionWorksheet`) — so bleibt es adaptiv zur
+   * tatsächlichen Karten-/Flow-Leistung.
+   */
+  async function prepareSubstepFollowupsInBackground(topicIndex: number, substepIndex: number) {
+    const pathAtStart = activePathIdRef.current
+    await sleep(5000)
+    if (activePathIdRef.current !== pathAtStart) {
+      return
+    }
+    await ensureSubstepPracticeSet(topicIndex, substepIndex)
   }
 
   /** Lazy-Generierung des Übungskarten-Sets eines Zwischenschritts (echtes `LearnFlashcardSet`, sobald der
@@ -4090,6 +4117,7 @@ export function LearnPage({
               onStartEntryCheck={() => setEntryCheckStarted(true)}
               isGeneratingContent={isGeneratingSubstepContent || (isTopicFlowActive && activeSubstepIndex === null && isGeneratingOutline)}
               contentFailed={isTopicFlowActive && activeSubstepIndex !== null ? Boolean(activeSubstep?.contentFailed) : false}
+              contentFailedReason={substepContentErrorReason}
               onRetryContent={handleRetrySubstepContent}
               practiceCards={activeSubstepPracticeCards}
               isGeneratingPractice={isGeneratingSubstepPractice}
