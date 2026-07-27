@@ -70,6 +70,7 @@ import { useAdaptiveEngine } from '../features/learn/hooks/useAdaptiveEngine'
 import { useLearnCardStore } from '../features/learn/hooks/useLearnCardStore'
 import { useConceptDirectives } from '../features/learn/hooks/useConceptDirectives'
 import { normalizeConceptTag } from '../features/learn/utils/conceptTag'
+import { isTransientAiFailure, aiBackoffDelayMs, sleep } from '../features/learn/utils/aiRetry'
 import {
   prependConceptDirective,
   buildEntryCheckDirective,
@@ -210,22 +211,6 @@ type LearnPageChatDraftState = {
     sourceFolderId?: string | null
   }
 } | null
-
-function isTransientAiFailure(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-  const message = error.message.toLowerCase()
-  return (
-    message.includes('429') ||
-    message.includes('500') ||
-    message.includes('502') ||
-    message.includes('503') ||
-    message.includes('timeout') ||
-    message.includes('network') ||
-    message.includes('fehlgeschlagen')
-  )
-}
 
 function toSkillIdFromText(prefix: 'chapter' | 'flashcard' | 'worksheet', raw: string): string {
   const normalized = raw
@@ -1497,7 +1482,7 @@ export function LearnPage({
   // Ableitung (Slugs + verfall-bereinigter Lernstand + Quelle + gewichtete Prüfung). Aus dem Orchestrator
   // extrahiert (useConceptDirectives); ohne Netz liefern alle Direktiven leere Strings → Legacy-Verhalten.
   const conceptMasteryForSlug = conceptLearnerModel.masteryForSlug
-  const { conceptBySlug, conceptDirective, topicConceptItems, topicExamDirective } =
+  const { conceptBySlug, conceptDirective, topicConceptItems, topicConceptDirective, topicExamDirective } =
     useConceptDirectives({
       conceptGraph,
       curriculum,
@@ -2826,13 +2811,15 @@ export function LearnPage({
         .slice(0, 12)
         .map((step, index) => `${index + 1}. ${step.prompt}`)
         .join('\n')
+      // Nur die Konzepte DIESES Themas in die Direktive (statt aller Pfad-Konzepte): kleinerer/schnellerer
+      // Prompt (weniger Timeout-/Rate-Limit-Risiko) und fokussiertere, themen-treue Inhalte.
       const materialContext = prependConceptDirective(
         formatRelevantMaterialContext(
           buildChapterMaterialSearchQuery(effectiveTopic, selectedTopic, topicTitle),
           materials,
           getChapterMaterialRagOptions(materials.length),
         ),
-        conceptDirective,
+        topicConceptDirective(topicIndex),
       )
 
       if (generationMode === 'placeholder') {
@@ -2844,56 +2831,74 @@ export function LearnPage({
       let validationHint = ''
       let generated: ChapterBlueprint | null = null
       for (let attempt = 1; !generated && attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
-        const request: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: buildSubstepContentPrompt({
-            pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
-            topicTitle,
-            substepTitle,
-            learningGoal: syllabusEntry?.learningGoal,
-            materialContext,
-            weaknessSummary,
-            attempt,
-            validationHint,
-          }),
-          createdAt: new Date().toISOString(),
-        }
-        let timeoutId: number | null = null
-        const response = await Promise.race([
-          sendMessage([request], {
-            systemPrompt: getPrompt('learn_tutor'),
-            useLearnPathModel: true,
-            learnTelemetryMode: 'learn_tutor',
-            learnPathSystemPromptMode: 'tutor_only',
-          }),
-          new Promise<never>((_, reject) => {
-            timeoutId = window.setTimeout(
-              () => reject(new Error('Generierung des Zwischenschritts dauert zu lange.')),
-              CHAPTER_ON_DEMAND_TIMEOUT_MS,
-            )
-          }),
-        ]).finally(() => {
-          if (timeoutId !== null) {
-            window.clearTimeout(timeoutId)
+        try {
+          const request: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: 'user',
+            content: buildSubstepContentPrompt({
+              pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
+              topicTitle,
+              substepTitle,
+              learningGoal: syllabusEntry?.learningGoal,
+              materialContext,
+              weaknessSummary,
+              attempt,
+              validationHint,
+            }),
+            createdAt: new Date().toISOString(),
           }
-        })
-        if (activePathIdRef.current !== activePathIdAtStart) {
-          return
+          let timeoutId: number | null = null
+          const response = await Promise.race([
+            sendMessage([request], {
+              systemPrompt: getPrompt('learn_tutor'),
+              useLearnPathModel: true,
+              learnTelemetryMode: 'learn_tutor',
+              learnPathSystemPromptMode: 'tutor_only',
+            }),
+            new Promise<never>((_, reject) => {
+              timeoutId = window.setTimeout(
+                () => reject(new Error('Generierung des Zwischenschritts dauert zu lange.')),
+                CHAPTER_ON_DEMAND_TIMEOUT_MS,
+              )
+            }),
+          ]).finally(() => {
+            if (timeoutId !== null) {
+              window.clearTimeout(timeoutId)
+            }
+          })
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
+          const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
+          const candidate = parseChapterBlueprintsFromText(parsed.cleanText || response.assistantMessage.content)[0]
+          if (!candidate) {
+            validationHint = 'Kein auslesbares JSON erhalten'
+          } else {
+            const validation = validateGeneratedSubstep(candidate)
+            if (validation.valid) {
+              generated = candidate
+              break
+            }
+            validationHint = validation.reason
+          }
+        } catch (err) {
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
+          validationHint = err instanceof Error ? err.message : 'Modell-Fehler'
+          console.error(`Lernbereich: Zwischenschritt-Versuch ${attempt} fehlgeschlagen`, err)
+          // Nicht-vorübergehende Fehler (z. B. aufgebrauchtes Kontingent) → kein weiterer Versuch.
+          if (!isTransientAiFailure(err)) {
+            break
+          }
         }
-        const parsed = parseInteractiveContentWithFallback(response.assistantMessage.content)
-        const candidate = parseChapterBlueprintsFromText(parsed.cleanText || response.assistantMessage.content)[0]
-        if (!candidate) {
-          validationHint = 'Kein auslesbares JSON erhalten'
-          continue
+        // Vor dem nächsten Versuch kurz warten (Backoff), damit ein überlastetes Rate-Limit-Fenster frei wird.
+        if (!generated && attempt < CHAPTER_GENERATION_MAX_ATTEMPTS) {
+          await sleep(aiBackoffDelayMs(attempt))
+          if (activePathIdRef.current !== activePathIdAtStart) {
+            return
+          }
         }
-        const validation = validateGeneratedSubstep(candidate)
-        if (!validation.valid) {
-          validationHint = validation.reason
-          continue
-        }
-        generated = candidate
-        break
       }
       if (activePathIdRef.current !== activePathIdAtStart) {
         return
@@ -2902,7 +2907,7 @@ export function LearnPage({
         applyBlueprint(generated)
       } else {
         // Kein Platzhalter mehr: ehrlichen Fehlerzustand zeigen (Fehlermeldung + „Erneut versuchen").
-        console.error('Lernbereich: Zwischenschritt-Inhalt ungültig — letzter Grund:', validationHint)
+        console.error('Lernbereich: Zwischenschritt-Inhalt endgültig fehlgeschlagen — letzter Grund:', validationHint)
         setContentFailed(true)
       }
     } catch (err) {

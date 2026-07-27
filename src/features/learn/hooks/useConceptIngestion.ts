@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { sendMessage } from '../../chat/services/chat.service'
 import { formatRelevantMaterialContext } from '../utils/ragLite'
 import { sectionMaterials } from '../utils/materialSectioning'
+import { aiBackoffDelayMs, isTransientAiFailure, sleep } from '../utils/aiRetry'
 import type { LearnGenerationMode, UploadedMaterial } from '../services/learn.persistence'
 import type { Concept, ConceptEdge } from '../engine/types'
 import { buildPlaceholderConceptGraph, placeholderDelay } from '../utils/learnPlaceholder'
@@ -15,10 +16,13 @@ import {
 } from '../utils/conceptIngestion'
 import { loadConceptGraph, saveConceptGraph } from '../services/learnConceptGraph.persistence'
 
-/** Map-Reduce-Parameter: pro Abschnitt eine KI-Anfrage, mit begrenzter Parallelitaet gegen Rate-Limits. */
-const INGEST_SECTION_TARGET_CHARS = 7000
-const INGEST_MAX_SECTIONS = 12
-const INGEST_CONCURRENCY = 3
+/** Map-Reduce-Parameter: pro Abschnitt eine KI-Anfrage, mit begrenzter Parallelitaet gegen Rate-Limits.
+ *  Bewusst gedrosselt (Parallelitaet 2 + Batch-Pause), damit die Pfad-Erstellung keinen 429-Burst ausloest. */
+const INGEST_SECTION_TARGET_CHARS = 8000
+const INGEST_MAX_SECTIONS = 10
+const INGEST_CONCURRENCY = 2
+/** Kurze Pause zwischen den Batches, um das Rate-Limit-Fenster zu entlasten. */
+const INGEST_BATCH_PAUSE_MS = 700
 
 export type ConceptGraphSnapshot = { concepts: Concept[]; edges: ConceptEdge[] }
 
@@ -134,8 +138,12 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
               if (parsed.concepts.length > 0) {
                 return parsed
               }
-            } catch {
-              // Abschnitt überspringen / nächster Versuch — andere Abschnitte tragen weiter bei.
+            } catch (err) {
+              // Bei vorübergehender Überlast kurz warten und erneut versuchen; sonst Abschnitt überspringen
+              // (andere Abschnitte tragen weiter bei).
+              if (isTransientAiFailure(err) && attempt < CONCEPT_INGESTION_MAX_ATTEMPTS) {
+                await sleep(aiBackoffDelayMs(attempt))
+              }
             }
           }
           return null
@@ -160,6 +168,10 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
               if (g) {
                 graphs.push(g)
               }
+            }
+            // Kurze Pause vor dem nächsten Batch, um das Rate-Limit-Fenster nicht zu überfahren.
+            if (i + INGEST_CONCURRENCY < sections.length && !cancelled) {
+              await sleep(INGEST_BATCH_PAUSE_MS)
             }
           }
           if (cancelled) {

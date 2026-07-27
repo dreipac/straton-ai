@@ -29,6 +29,9 @@ export type ConceptDirectives = {
   conceptDirective: string
   /** Konzept-Direktive-Items eines Themas (per Ordinal) fuer die adaptiven Entscheidungen 1–3. */
   topicConceptItems: (topicIndex: number) => ConceptDirectiveItem[]
+  /** Schlanke, NUR auf die Konzepte DIESES Themas beschraenkte Generierungs-Direktive (statt aller
+   *  Konzepte des Pfads) — kleinerer/schnellerer Prompt + fokussiertere Inhalte. Leer ohne Netz. */
+  topicConceptDirective: (topicIndex: number) => string
   /** Entscheidung 6 — gewichtete Abschlusspruefung als Direktive. Leer ohne Netz. */
   topicExamDirective: (topicIndex: number) => string
 }
@@ -92,6 +95,11 @@ export function useConceptDirectives(args: UseConceptDirectivesArgs): ConceptDir
     [hasConceptScoring, curriculum, conceptById, masteryForSlug],
   )
 
+  const topicConceptDirective = useCallback(
+    (topicIndex: number): string => buildConceptDirective(topicConceptItems(topicIndex)),
+    [topicConceptItems],
+  )
+
   const topicExamDirective = useCallback(
     (topicIndex: number): string => {
       if (!hasConceptScoring) {
@@ -116,5 +124,12 @@ export function useConceptDirectives(args: UseConceptDirectivesArgs): ConceptDir
     [hasConceptScoring, curriculum, planForTopic, conceptById],
   )
 
-  return { conceptById, conceptBySlug, conceptDirective, topicConceptItems, topicExamDirective }
+  return {
+    conceptById,
+    conceptBySlug,
+    conceptDirective,
+    topicConceptItems,
+    topicConceptDirective,
+    topicExamDirective,
+  }
 }

@@ -4,6 +4,7 @@ import type { LearnGenerationMode, SyllabusEntry, TutorChatEntry } from '../serv
 import type { Concept, ConceptEdge } from '../engine/types'
 import { topologicalOrder } from '../engine/conceptGraph'
 import { buildPlaceholderCurriculum, placeholderDelay } from '../utils/learnPlaceholder'
+import { aiBackoffDelayMs, isTransientAiFailure, sleep } from '../utils/aiRetry'
 import { buildSyllabusReadyTutorMessage } from '../utils/learnTutorCoachMessages'
 import {
   buildCurriculumPrompt,
@@ -161,6 +162,7 @@ export function useCurriculumGeneration(args: UseCurriculumGenerationArgs) {
           if (cancelled) {
             return
           }
+          let lastErrorTransient = false
           try {
             const result = await sendMessage(
               [
@@ -198,6 +200,14 @@ export function useCurriculumGeneration(args: UseCurriculumGenerationArgs) {
               return
             }
             validationHint = error instanceof Error ? error.message : 'Curriculum-Generierung fehlgeschlagen'
+            lastErrorTransient = isTransientAiFailure(error)
+          }
+          // Bei vorübergehender Überlast kurz warten, bevor das nächste Modell-Anfrage-Fenster genutzt wird.
+          if (!curriculum && lastErrorTransient && attempt < CURRICULUM_MAX_ATTEMPTS) {
+            await sleep(aiBackoffDelayMs(attempt))
+            if (cancelled) {
+              return
+            }
           }
         }
         if (!curriculum) {

@@ -25,7 +25,7 @@ export type Curriculum = {
   topics: CurriculumTopic[]
 }
 
-export const CURRICULUM_MAX_ATTEMPTS = 2
+export const CURRICULUM_MAX_ATTEMPTS = 3
 /** Zielgroesse eines Themas im deterministischen Fallback (Chunking). */
 export const FALLBACK_TOPIC_SIZE = 6
 
