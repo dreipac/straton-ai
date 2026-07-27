@@ -1989,11 +1989,11 @@ export const TOPIC_SUBSTEP_MAX = 4
  *  Übungskarten (Lernkarten-Set) und Abschluss-Arbeitsblatt kommen danach als eigene, aus dem Flow generierte
  *  Elemente — nicht Teil dieses Blueprints (siehe `learnFlashcardSets`/`learnWorksheets`). */
 export const SUBSTEP_FLOW_RULES = [
-  'FESTER AUFBAU (Reihenfolge exakt einhalten): Der Zwischenschritt besteht aus 3 identisch aufgebauten Blöcken.',
-  'Jeder Block (3×): 2 explanation-Steps → 1 question-Step (questionType mcq ODER true_false).',
-  'Ergebnis pro Zwischenschritt: genau 6 explanation-Steps und genau 3 question-Steps (jeweils mcq ODER true_false — KEINE Freitext-/text-Fragen) — in genau dieser Reihenfolge.',
-  'explanation-Steps lehren das Teilthema Schritt für Schritt (Definition, Beispiel, Rechenweg); jede braucht ein Feld "keyPrinciple".',
-  'question-Steps prüfen kurz das gerade Erklärte (schnelle Verständnisfrage); jede braucht ein Feld "hint".',
+  'AUFBAU: abwechselnd erklären und prüfen — erst mehrere explanation-Steps, dann jeweils eine kurze question dazu.',
+  'Richtwert: 4–6 explanation-Steps und 2–3 question-Steps (mindestens 3 explanation + 2 question).',
+  'Fragetypen passend zum Inhalt wählen: mcq, true_false ODER text (Freitext ist erlaubt).',
+  'explanation-Steps lehren das Teilthema Schritt für Schritt (Definition, Beispiel, Anwendung); jede braucht ein Feld "keyPrinciple".',
+  'question-Steps prüfen kurz das gerade Erklärte; jede braucht ein Feld "hint".',
 ].join('\n')
 
 const SUBSTEP_JSON_SCHEMA_EXAMPLE =
@@ -2093,7 +2093,7 @@ export function buildSubstepContentPrompt(args: BuildSubstepContentPromptArgs): 
     args.materialContext
       ? `Materialauszüge (mind. die Hälfte der Fragen muss sich hierauf beziehen):\n${args.materialContext}`
       : 'Keine Materialauszüge vorhanden — nutze praxisnahe kaufmännische Beispiele.',
-    args.attempt > 1 ? 'WICHTIG: Der vorige Versuch hielt den festen Aufbau nicht ein. Halte dich exakt an 6 explanation + 3 question (mcq/true_false).' : '',
+    args.attempt > 1 ? 'WICHTIG: Der vorige Versuch war unvollständig. Liefere als valides JSON mindestens 3 explanation-Steps und 2 question-Steps.' : '',
     args.validationHint ? `Ungültigkeitsgrund im Vorversuch: ${args.validationHint}` : '',
   ]
   return lines.filter(Boolean).join('\n\n')
@@ -2108,12 +2108,13 @@ export function validateGeneratedSubstep(chapter: ChapterBlueprint): { valid: bo
   const questions = chapter.steps.filter(
     (step): step is Extract<ChapterStep, { type: 'question' }> => step.type === 'question',
   )
-  if (explanations.length < 6) {
-    return { valid: false, reason: `Es braucht mindestens 6 Erklärungen (explanation), gefunden: ${explanations.length}.` }
+  // Bewusst flexibel (statt starr 6+3/mcq-only): so gehen auch geistes-/rechtskundliche Inhalte durch,
+  // die das Modell natürlicherweise mit Freitextfragen und variabler Erklärungszahl erzeugt.
+  if (explanations.length < 3) {
+    return { valid: false, reason: `Es braucht mindestens 3 Erklärungen (explanation), gefunden: ${explanations.length}.` }
   }
-  const checkQuestions = questions.filter((q) => q.questionType === 'mcq' || q.questionType === 'true_false').length
-  if (checkQuestions < 3) {
-    return { valid: false, reason: `Es braucht mindestens 3 Zwischenfragen (mcq/true_false), gefunden: ${checkQuestions}.` }
+  if (questions.length < 2) {
+    return { valid: false, reason: `Es braucht mindestens 2 Zwischenfragen (question), gefunden: ${questions.length}.` }
   }
   return { valid: true, reason: '' }
 }

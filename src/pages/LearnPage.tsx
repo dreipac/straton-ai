@@ -2793,12 +2793,29 @@ export function LearnPage({
             : {
                 ...entry,
                 substeps: entry.substeps.map((ss, j) =>
-                  j === substepIndex ? { ...ss, blueprint: namespaced, contentReady: true } : ss,
+                  j === substepIndex ? { ...ss, blueprint: namespaced, contentReady: true, contentFailed: false } : ss,
                 ),
               },
         ),
       )
     }
+    // Fehlerzustand setzen/zurücksetzen (contentReady bleibt false → beim nächsten Öffnen wird neu versucht).
+    const setContentFailed = (failed: boolean) => {
+      setTopicSessions((prev) =>
+        prev.map((entry, index) =>
+          index !== topicIndex
+            ? entry
+            : {
+                ...entry,
+                substeps: entry.substeps.map((ss, j) =>
+                  j === substepIndex ? { ...ss, contentFailed: failed } : ss,
+                ),
+              },
+        ),
+      )
+    }
+    // Beim (erneuten) Start den Fehlerzustand löschen → UI wechselt von Fehler zu Ladeanzeige.
+    setContentFailed(false)
     try {
       const syllabusEntry = syllabus[topicIndex]
       const topicTitle = (
@@ -2881,11 +2898,17 @@ export function LearnPage({
       if (activePathIdRef.current !== activePathIdAtStart) {
         return
       }
-      applyBlueprint(generated ?? buildSubstepContentFallback(substepTitle, weakQuestions))
+      if (generated) {
+        applyBlueprint(generated)
+      } else {
+        // Kein Platzhalter mehr: ehrlichen Fehlerzustand zeigen (Fehlermeldung + „Erneut versuchen").
+        console.error('Lernbereich: Zwischenschritt-Inhalt ungültig — letzter Grund:', validationHint)
+        setContentFailed(true)
+      }
     } catch (err) {
       console.error('Lernbereich: Zwischenschritt-Inhalt konnte nicht generiert werden', err)
       if (activePathIdRef.current === activePathIdAtStart) {
-        applyBlueprint(buildSubstepContentFallback(substepTitle, []))
+        setContentFailed(true)
       }
     } finally {
       substepContentInFlightRef.current = false
@@ -3041,6 +3064,14 @@ export function LearnPage({
       substepWorksheetInFlightRef.current = false
       setIsGeneratingSubstepWorksheet(false)
     }
+  }
+
+  /** „Erneut versuchen" nach fehlgeschlagener Inhalts-Generierung eines Zwischenschritts. */
+  function handleRetrySubstepContent() {
+    if (activeTopicFlowIndex === null || activeSubstepIndex === null) {
+      return
+    }
+    void ensureSubstepContent(activeTopicFlowIndex, activeSubstepIndex)
   }
 
   /** Öffnet einen bestimmten Zwischenschritt im Arbeitsbereich (Schiene) und generiert bei Bedarf den Inhalt. */
@@ -4053,6 +4084,8 @@ export function LearnPage({
               topicMasteryPercent={topicWorkspaceMasteryPercent}
               onStartEntryCheck={() => setEntryCheckStarted(true)}
               isGeneratingContent={isGeneratingSubstepContent || (isTopicFlowActive && activeSubstepIndex === null && isGeneratingOutline)}
+              contentFailed={isTopicFlowActive && activeSubstepIndex !== null ? Boolean(activeSubstep?.contentFailed) : false}
+              onRetryContent={handleRetrySubstepContent}
               practiceCards={activeSubstepPracticeCards}
               isGeneratingPractice={isGeneratingSubstepPractice}
               onRatePracticeCard={handleRateSubstepPracticeCard}

@@ -213,6 +213,9 @@ export type TopicSubstep = {
   masteryAttempts: number
   /** false = nur Titel/Outline vorhanden, Vollinhalt wird beim ersten Öffnen lazy generiert. */
   contentReady: boolean
+  /** true, wenn die KI-Inhaltsgenerierung fehlgeschlagen ist → UI zeigt Fehler + „Erneut versuchen"
+   *  (statt eines eingefrorenen Platzhalters). Wird NICHT zusammen mit contentReady gesetzt. */
+  contentFailed?: boolean
   /** true, sobald der Flow einmal bis zum Ende durchlaufen wurde — steuert die lineare Plan-Progression. */
   completed: boolean
   /** ID des zu diesem Zwischenschritt gehörenden `LearnFlashcardSet` (Übungskarten) — lazy generiert,
@@ -878,12 +881,28 @@ function mapTopicSubstep(value: unknown, topicIndex: number, substepIndex: numbe
     typeof item.practiceFlashcardSetId === 'string' && item.practiceFlashcardSetId.trim()
       ? item.practiceFlashcardSetId.trim()
       : null
+  // Selbstheilung für Alt-Pfade: früher wurde bei KI-Fehler ein generischer Platzhalter mit
+  // contentReady=true eingefroren. Solche Zwischenschritte erkennen wir am Fallback-Marker und setzen
+  // contentReady=false zurück → beim nächsten Öffnen wird der Inhalt sauber neu generiert.
+  const hasLegacyFallbackContent = blueprint.steps.some(
+    (step) =>
+      step.type === 'explanation' &&
+      typeof step.content === 'string' &&
+      step.content.includes('ersetzt vorübergehend den KI-Inhalt'),
+  )
+  const contentReady = hasLegacyFallbackContent
+    ? false
+    : typeof item.contentReady === 'boolean'
+      ? item.contentReady
+      : blueprint.steps.length > 0
+
   return {
     blueprint,
     session: mapChapterSession(item.session),
     masteryScore: Math.max(0, Math.min(1, masteryScoreRaw)),
     masteryAttempts: Math.max(0, Math.floor(masteryAttemptsRaw)),
-    contentReady: typeof item.contentReady === 'boolean' ? item.contentReady : blueprint.steps.length > 0,
+    contentReady,
+    contentFailed: item.contentFailed === true,
     completed: item.completed === true,
     practiceFlashcardSetId,
   }

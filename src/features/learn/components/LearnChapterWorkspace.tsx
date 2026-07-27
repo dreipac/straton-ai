@@ -227,6 +227,10 @@ export type LearnChapterWorkspaceProps = {
   onStartEntryCheck?: () => void
   /** true, während der Vollinhalt des Zwischenschritts lazy generiert wird. */
   isGeneratingContent?: boolean
+  /** true, wenn die KI-Inhaltsgenerierung des Zwischenschritts fehlgeschlagen ist → Fehler + Retry. */
+  contentFailed?: boolean
+  /** „Erneut versuchen" nach fehlgeschlagener Inhaltsgenerierung. */
+  onRetryContent?: () => void
   /** Übungskarten (echtes Lernkarten-Set) des aktiven Zwischenschritts — topicMode 'practice'. */
   practiceCards?: LearnFlashcard[]
   /** true, während das Übungskarten-Set für den Zwischenschritt lazy generiert wird. */
@@ -278,6 +282,8 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     topicMasteryPercent = 0,
     onStartEntryCheck,
     isGeneratingContent = false,
+    contentFailed = false,
+    onRetryContent,
     practiceCards = [],
     isGeneratingPractice = false,
     onRatePracticeCard,
@@ -438,8 +444,19 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     topicMode === 'flow' &&
     isGeneratingContent &&
     (!activeChapterBlueprint || activeChapterBlueprint.steps.length === 0)
+  const showContentError =
+    topicMode === 'flow' &&
+    contentFailed &&
+    !isGeneratingContent &&
+    (!activeChapterBlueprint || activeChapterBlueprint.steps.length === 0)
   const showTopicSpecial =
-    showLanding || showAnalyzing || showOverview || showPractice || showWorksheet || showContentLoading
+    showLanding ||
+    showAnalyzing ||
+    showOverview ||
+    showPractice ||
+    showWorksheet ||
+    showContentLoading ||
+    showContentError
   const masteryPct = Math.max(0, Math.min(100, Math.round(topicMasteryPercent)))
   const masteryRingCirc = 2 * Math.PI * 20
 
@@ -619,7 +636,17 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     />
   ) : (
     <div className="learn-chapter-topic-special">
-      {showLanding ? (
+      {showContentError ? (
+        <>
+          <h2 className="learn-chapter-topic-landing-title">Erklärung konnte nicht erstellt werden</h2>
+          <p className="learn-chapter-topic-landing-sub">
+            Die KI konnte den Inhalt dieses Teilthemas gerade nicht erzeugen. Bitte versuche es erneut.
+          </p>
+          <PrimaryButton type="button" className="learn-chapter-topic-landing-cta" onClick={onRetryContent}>
+            <span>Erneut versuchen</span>
+          </PrimaryButton>
+        </>
+      ) : showLanding ? (
         <>
           <div className="learn-chapter-topic-mastery-circle" aria-label={`Beherrschung ${masteryPct} Prozent`}>
             <svg viewBox="0 0 48 48" width="96" height="96" aria-hidden="true">
