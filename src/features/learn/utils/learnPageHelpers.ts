@@ -567,7 +567,7 @@ export const LEARN_TUTOR_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPTS.learn_tutor
 export const POST_ENTRY_PREP_STEPS = ['Einstiegstest wird analysiert', 'Lernplan wird erstellt'] as const
 export const SYLLABUS_GENERATION_MAX_ATTEMPTS = 2
 /** Client-seitiges Maximum für eine KI-Kapitelgenerierung (großes JSON, Sonnet — 90s war oft zu knapp). */
-export const CHAPTER_GENERATION_TIMEOUT_MS = 180000
+export const CHAPTER_GENERATION_TIMEOUT_MS = 240000
 export const CHAPTER_GENERATION_MAX_ATTEMPTS = 3
 export const CHAPTER_MIN_QUESTIONS = 6
 export const CHAPTER_MIN_QUESTIONS_ADAPTIVE = 8

@@ -116,8 +116,12 @@ Deno.serve(async (req: Request) => {
   const servicePath = `/home/deno/functions/${service_name}`
   console.error(`serving the request with ${servicePath}`)
 
-  const memoryLimitMb = 150
-  const workerTimeoutMs = 1 * 60 * 1000
+  const memoryLimitMb = 256
+  // Lern-KI-Generierungen (Reasoning-Modelle + Fallback-Kette) können lange dauern; das alte
+  // 60s-Wall-Clock-Limit killte den Worker mitten im OpenAI-Call → "non-2xx".
+  // Effektives Limit ist der Client-Timeout (240s = 4min); die Edge bekommt etwas Marge (270s),
+  // damit bei Überschreitung der Client sauber "dauert zu lange" meldet (+ Retry) statt Edge-Hard-Kill.
+  const workerTimeoutMs = 270 * 1000
   const noModuleCache = false
   const importMapPath = null
   const envVarsObj = Deno.env.toObject()

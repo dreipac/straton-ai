@@ -265,7 +265,7 @@ export function LearnPage({
   setHostLearningPaths,
 }: LearnPageProps = {}) {
   const MODAL_ANIMATION_MS = 220
-  const CHAPTER_ON_DEMAND_TIMEOUT_MS = 120_000
+  const CHAPTER_ON_DEMAND_TIMEOUT_MS = 240_000
   const CHAPTER_ON_DEMAND_STEPS = ['Kapitel wird vorbereitet', 'Kapitelinhalt wird erstellt', 'Qualitätsprüfung läuft'] as const
   const { user, profile, isLoading, refreshProfile } = useAuth()
   const gamification = useLearnGamification(user?.id)
