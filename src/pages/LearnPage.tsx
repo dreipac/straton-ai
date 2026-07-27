@@ -44,6 +44,7 @@ import {
   deleteEmptyLearningPathsByUserId,
   listLearningPathsByUserId,
   type EntryQuizResult,
+  type LearnFlashcard,
   type LearnFlashcardSet,
   type LearnGenerationMode,
   type LearnTutorState,
@@ -2967,11 +2968,32 @@ export function LearnPage({
     const activePathIdAtStart = activePathId
     try {
       const outline = buildFlashcardSourceFromBlueprints([substep.blueprint])
-      const cards =
-        generationMode === 'placeholder'
-          ? await placeholderDelay().then(() => buildPlaceholderFlashcards())
-          : await generateLearnFlashcards(prependConceptDirective(outline, conceptDirective))
-      if (activePathIdRef.current !== activePathIdAtStart) {
+      let cards: LearnFlashcard[] | null = null
+      if (generationMode === 'placeholder') {
+        await placeholderDelay()
+        cards = buildPlaceholderFlashcards()
+      } else {
+        // Bei Fehlschlag SOFORT (im Hintergrund) erneut versuchen — kurzer Backoff bei Überlast.
+        for (let attempt = 1; attempt <= CHAPTER_GENERATION_MAX_ATTEMPTS; attempt += 1) {
+          try {
+            cards = await generateLearnFlashcards(prependConceptDirective(outline, conceptDirective))
+            break
+          } catch (err) {
+            if (activePathIdRef.current !== activePathIdAtStart) {
+              return
+            }
+            console.error(`Lernbereich: Übungskarten-Versuch ${attempt} fehlgeschlagen`, err)
+            if (attempt >= CHAPTER_GENERATION_MAX_ATTEMPTS) {
+              throw err
+            }
+            await sleep(isTransientAiFailure(err) ? aiBackoffDelayMs(attempt) : 1200)
+            if (activePathIdRef.current !== activePathIdAtStart) {
+              return
+            }
+          }
+        }
+      }
+      if (!cards || activePathIdRef.current !== activePathIdAtStart) {
         return
       }
       // Entscheidung 4 (Echtzeit-Schwierigkeit): das Deck deterministisch nach Lernstand ordnen —

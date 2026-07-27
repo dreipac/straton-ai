@@ -2932,6 +2932,23 @@ function mockFlashcardsFromOutline(outline: string): LearnFlashcard[] {
   ]
 }
 
+/**
+ * Lernkarten-Text auf einen kurzen Satz begrenzen (Sicherung, falls das Modell doch zu lang wird):
+ * Whitespace normalisieren; bei langen Mehrsatz-Texten NUR den ersten Satz behalten. Einen einzelnen
+ * langen Satz NICHT mitten zerschneiden (lieber ganz lassen als verstümmeln).
+ */
+function shortenLearnCardText(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ')
+  if (t.length <= 160) {
+    return t
+  }
+  const firstSentence = t.match(/^[^.!?]*[.!?]/)?.[0]?.trim()
+  if (firstSentence && firstSentence.length >= 20 && firstSentence.length < t.length) {
+    return firstSentence
+  }
+  return t
+}
+
 export async function generateLearnFlashcards(chapterOutline: string): Promise<LearnFlashcard[]> {
   const trimmed = chapterOutline.trim()
   if (!trimmed) {
@@ -2970,8 +2987,8 @@ export async function generateLearnFlashcards(chapterOutline: string): Promise<L
           continue
         }
         const o = entry as { question?: unknown; answer?: unknown; skillTag?: unknown }
-        const question = typeof o.question === 'string' ? o.question.trim() : ''
-        const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+        const question = typeof o.question === 'string' ? shortenLearnCardText(o.question) : ''
+        const answer = typeof o.answer === 'string' ? shortenLearnCardText(o.answer) : ''
         const skillTag = typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
         if (question && answer) {
           cards.push({

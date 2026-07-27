@@ -5986,9 +5986,10 @@ button.learn-chapter-rail-node:hover {
   gap: 1.25rem;
   padding: 1rem 0;
 }
-/* Etwas kompakter als die Modal-Lernkarte, damit Karte + Buttons in den Arbeitsbereich passen. */
+/* Breite Übungskarte; Karte und Button-Reihe teilen dieselbe Breite → symmetrisch. */
 .learn-flashcard--practice {
-  max-width: 480px;
+  width: 100%;
+  max-width: min(680px, 100%);
   min-height: min(260px, 40dvh);
 }
 .learn-flashcard--practice .learn-flashcard-inner {
@@ -6005,7 +6006,7 @@ button.learn-chapter-rail-node:hover {
   display: flex;
   gap: 1rem;
   width: 100%;
-  max-width: 480px;
+  max-width: min(680px, 100%);
 }
 .learn-practice-rating-btn {
   flex: 1 1 0;
