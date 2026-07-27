@@ -29,6 +29,11 @@ export function isTransientAiFailure(error: unknown): boolean {
   return (
     message.includes('429') ||
     message.includes('überlast') ||
+    // Gemini-Überlast wird für den Nutzer zu „stark ausgelastet" / „nicht erreichbar" umgeschrieben.
+    message.includes('ausgelast') ||
+    message.includes('nicht erreichbar') ||
+    message.includes('unavailable') ||
+    message.includes('high demand') ||
     message.includes('500') ||
     message.includes('502') ||
     message.includes('503') ||
@@ -36,7 +41,11 @@ export function isTransientAiFailure(error: unknown): boolean {
     message.includes('dauert zu lange') ||
     message.includes('network') ||
     message.includes('netzwerk') ||
-    message.includes('fehlgeschlagen')
+    message.includes('fehlgeschlagen') ||
+    // Supabase-Generik, wenn der echte Status/Body nicht ausgelesen werden konnte — meist eine
+    // vorübergehende Überlast (die Edge verpackt 429/5xx als non-2xx). Ein Retry lohnt (gedeckelt).
+    message.includes('non-2xx') ||
+    message.includes('edge function returned')
   )
 }
 

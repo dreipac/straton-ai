@@ -404,13 +404,31 @@ function createAssistantMessage(content: string): ChatMessage {
 }
 
 /** Liefert die vom Server gesendete Fehlermeldung (z. B. `{ error: "..." }`), sonst Status-Hinweis. */
+/**
+ * Supabase `functions.invoke` liefert bei non-2xx oft KEIN `response`-Objekt zurück; der echte
+ * Response-Body (mit dem eigentlichen Grund, z. B. „OpenAI ist gerade überlastet (429)") steckt dann
+ * im `FunctionsHttpError.context`. Diesen als Fallback herausziehen, damit die reale Meldung durchkommt.
+ */
+function responseFromInvokeError(error: unknown): Response | undefined {
+  if (error && typeof error === 'object' && 'context' in error) {
+    const ctx = (error as { context?: unknown }).context
+    if (ctx instanceof Response) {
+      return ctx
+    }
+  }
+  return undefined
+}
+
 async function messageFromFunctionsInvokeFailure(
   error: unknown,
   response: Response | undefined,
 ): Promise<string> {
-  if (response) {
+  const httpResponse = response ?? responseFromInvokeError(error)
+  if (httpResponse) {
     try {
-      const text = (await response.text()).trim()
+      // clone(), falls der Body des Kontext-Response noch nicht konsumiert wurde (defensiv).
+      const readable = typeof httpResponse.clone === 'function' ? httpResponse.clone() : httpResponse
+      const text = (await readable.text()).trim()
       if (text) {
         try {
           const parsed = JSON.parse(text) as { error?: unknown; message?: unknown }
@@ -432,7 +450,7 @@ async function messageFromFunctionsInvokeFailure(
     } catch {
       // Response-Body nicht lesbar
     }
-    if (response.status === 401) {
+    if (httpResponse.status === 401) {
       return 'Nicht angemeldet oder Sitzung abgelaufen. Bitte neu anmelden.'
     }
   }
