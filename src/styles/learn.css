@@ -5986,14 +5986,26 @@ button.learn-chapter-rail-node:hover {
   gap: 1.25rem;
   padding: 1rem 0;
 }
-/* Breite Übungskarte; Karte und Button-Reihe teilen dieselbe Breite → symmetrisch. */
-.learn-flashcard--practice {
+/* Breite Übungskarte; Karte und Button-Reihe teilen dieselbe Breite → symmetrisch.
+   Kompound-Selektor (.learn-flashcard.learn-flashcard--practice) übersteuert die Basis-max-width (560px)
+   garantiert — die Breite gilt für den ganzen Karten-Button, also Vorder- UND Rückseite identisch. */
+.learn-flashcard.learn-flashcard--practice {
   width: 100%;
-  max-width: min(680px, 100%);
-  min-height: min(260px, 40dvh);
+  max-width: min(920px, 100%);
+  min-height: min(320px, 44dvh);
 }
-.learn-flashcard--practice .learn-flashcard-inner {
-  min-height: min(260px, 40dvh);
+.learn-flashcard.learn-flashcard--practice .learn-flashcard-inner {
+  min-height: min(320px, 44dvh);
+}
+/* Mehr Platz pro Zeile: schmaleres horizontales Padding, Text nutzt die volle Kartenbreite,
+   lange Wörter dürfen umbrechen statt zu überlaufen. Gilt für Vorder- UND Rückseite gleich. */
+.learn-flashcard.learn-flashcard--practice .learn-flashcard-face {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.learn-flashcard.learn-flashcard--practice .learn-flashcard-text {
+  max-width: 100%;
+  overflow-wrap: break-word;
 }
 .learn-practice-flip-hint {
   font-size: 0.75rem;
@@ -6006,7 +6018,7 @@ button.learn-chapter-rail-node:hover {
   display: flex;
   gap: 1rem;
   width: 100%;
-  max-width: min(680px, 100%);
+  max-width: min(920px, 100%);
 }
 .learn-practice-rating-btn {
   flex: 1 1 0;

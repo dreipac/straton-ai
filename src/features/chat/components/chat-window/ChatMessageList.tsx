@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import fileIcon from '../../../../assets/icons/file.svg'
 import { ChatExportActionHint } from '../ChatExportActionHint'
 import { ChatInstantAnalyzeDebugPanel } from '../ChatInstantAnalyzeDebugPanel'
@@ -52,6 +52,7 @@ import {
   type PptxSlide,
 } from '../../utils/pptxOutline'
 import type { ChatMessage, ChatMessagePptxExport } from '../../types'
+import { applySquircleMask } from '../../../../utils/squircleMask'
 import { renderInlineMarkdown } from '../../utils/markdownInline'
 import { renderAssistantRichContent } from '../../utils/renderAssistantRichContent'
 import type { AssistantRichContentOptions } from '../../utils/renderAssistantRichContent'
@@ -209,6 +210,52 @@ export function ChatMessageList(props: ChatMessageListProps) {
   } = props
 
   const userMessageMenuAnchorRef = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * Squircle-Maskierung der User-Bubbles: `corner-shape: squircle` (chat.css) ist Chromium-only,
+   * hier stattdessen ein per-Element SVG-`mask-image` mit echtem Superellipse-Pfad in Ist-Pixelgröße
+   * (kein `mask-size: 100% 100%`-Stretch, der bei breiten/kurzen Bubbles die Ecken verzerren würde) —
+   * funktioniert in jedem Browser mit CSS-Masking-Support. ResizeObserver hält den Pfad bei
+   * Textänderung/Viewport-Resize aktuell, MutationObserver erfasst neu gerenderte Bubbles.
+   */
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') {
+      return
+    }
+    const container = messagesScrollRef.current
+    if (!container) {
+      return
+    }
+
+    const observed = new WeakSet<Element>()
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement
+        const box = entry.borderBoxSize?.[0]
+        const width = box ? box.inlineSize : entry.contentRect.width
+        const height = box ? box.blockSize : entry.contentRect.height
+        applySquircleMask(el, width, height, { radius: 25, smoothing: 5 })
+      }
+    })
+
+    const scanForNewBubbles = () => {
+      container.querySelectorAll<HTMLElement>('.chat-message.is-user').forEach((el) => {
+        if (!observed.has(el)) {
+          observed.add(el)
+          resizeObserver.observe(el)
+        }
+      })
+    }
+
+    scanForNewBubbles()
+    const mutationObserver = new MutationObserver(scanForNewBubbles)
+    mutationObserver.observe(container, { childList: true, subtree: true })
+
+    return () => {
+      mutationObserver.disconnect()
+      resizeObserver.disconnect()
+    }
+  }, [messagesScrollRef])
 
   /**
    * Editier-Turns (`pptxEditAnchorMessageId` gesetzt) werden unten komplett übersprungen (kein
