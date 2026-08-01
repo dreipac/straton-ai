@@ -100,11 +100,15 @@ import {
   formatUsdEstimate,
 } from '../features/auth/utils/aiModelPricing'
 import {
+  createFeedbackPhotoSignedUrl,
   deleteUserFeedbackById,
   listUserFeedbackForAdmin,
   resolveUserFeedback,
   type UserFeedbackRow,
 } from '../features/feedback/services/feedback.persistence'
+import { AdminFeedbackChatViewerModal } from '../features/feedback/components/AdminFeedbackChatViewerModal'
+import { ChatImageLightbox } from '../features/chat/components/chat-window/ChatImageLightbox'
+import { useChatImageLightbox } from '../features/chat/hooks/useChatImageLightbox'
 import { useAuth } from '../features/auth/context/useAuth'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
 import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
@@ -349,6 +353,9 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [feedbackResolveTarget, setFeedbackResolveTarget] = useState<UserFeedbackRow | null>(null)
   const [feedbackResolveMessage, setFeedbackResolveMessage] = useState('')
   const [isResolvingFeedback, setIsResolvingFeedback] = useState(false)
+  const [feedbackChatViewerThreadId, setFeedbackChatViewerThreadId] = useState<string | null>(null)
+  const [loadingFeedbackPhotoId, setLoadingFeedbackPhotoId] = useState<string | null>(null)
+  const feedbackImageLightbox = useChatImageLightbox()
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlanRow[]>([])
   const [isLoadingSubscriptionPlans, setIsLoadingSubscriptionPlans] = useState(false)
   const [subscriptionPlansError, setSubscriptionPlansError] = useState<string | null>(null)
@@ -1599,6 +1606,25 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleViewFeedbackPhoto(row: UserFeedbackRow) {
+    if (!row.attachment_photo_path || loadingFeedbackPhotoId) {
+      return
+    }
+    setLoadingFeedbackPhotoId(row.id)
+    setFeedbackError(null)
+    try {
+      const signedUrl = await createFeedbackPhotoSignedUrl(row.attachment_photo_path)
+      if (!signedUrl) {
+        throw new Error('Foto konnte nicht geladen werden.')
+      }
+      feedbackImageLightbox.setImageLightboxSrc(signedUrl)
+    } catch (err) {
+      setFeedbackError(getErrorMessage(err, 'Foto konnte nicht geladen werden.'))
+    } finally {
+      setLoadingFeedbackPhotoId(null)
+    }
+  }
+
   function openFeedbackResolveModal(row: UserFeedbackRow) {
     setFeedbackResolveTarget(row)
     setFeedbackResolveMessage(row.resolution_message ?? '')
@@ -2110,6 +2136,27 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         <p className="admin-feedback-display-id">Feedback-ID: {row.display_id}</p>
         <p className="admin-feedback-userid">Nutzer-ID: {row.user_id}</p>
         <p className="admin-feedback-body">{row.body}</p>
+        {row.attachment_photo_path || row.attachment_chat_thread_id ? (
+          <div className="admin-feedback-attachments">
+            {row.attachment_photo_path ? (
+              <SecondaryButton
+                type="button"
+                disabled={loadingFeedbackPhotoId === row.id}
+                onClick={() => void handleViewFeedbackPhoto(row)}
+              >
+                {loadingFeedbackPhotoId === row.id ? 'Foto lädt…' : 'Foto ansehen'}
+              </SecondaryButton>
+            ) : null}
+            {row.attachment_chat_thread_id ? (
+              <SecondaryButton
+                type="button"
+                onClick={() => setFeedbackChatViewerThreadId(row.attachment_chat_thread_id)}
+              >
+                Chat öffnen
+              </SecondaryButton>
+            ) : null}
+          </div>
+        ) : null}
         {row.resolved_at ? (
           <div className="admin-feedback-resolved">
             <p className="admin-feedback-resolved-label">Erledigt</p>
@@ -4113,6 +4160,20 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
             </form>
           </section>
         </ModalShell>
+      ) : null}
+      {feedbackImageLightbox.imageLightboxSrc !== null ? (
+        <ChatImageLightbox
+          src={feedbackImageLightbox.imageLightboxSrc}
+          open={feedbackImageLightbox.imageLightboxOpen}
+          onClose={feedbackImageLightbox.closeImageLightbox}
+          onTransitionEnd={feedbackImageLightbox.handleImageLightboxTransitionEnd}
+        />
+      ) : null}
+      {feedbackChatViewerThreadId ? (
+        <AdminFeedbackChatViewerModal
+          threadId={feedbackChatViewerThreadId}
+          onClose={() => setFeedbackChatViewerThreadId(null)}
+        />
       ) : null}
       {confirmDraftUserId ? (
         <ModalShell isOpen={Boolean(confirmDraftUserId)} onRequestClose={() => setConfirmDraftUserId(null)}>

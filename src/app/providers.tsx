@@ -4,8 +4,10 @@ import { AuthProvider } from '../features/auth/context/AuthProvider'
 import { ChatInvitationSubscriptions } from '../features/chat/components/ChatInvitationSubscriptions'
 import { AppNewsSubscriptions } from '../features/news/components/AppNewsSubscriptions'
 import { SystemPromptsProvider } from '../features/systemPrompts/SystemPromptsContext'
+import { useSquircleBorder } from '../hooks/useSquircleBorder'
 
 export function AppProviders({ children }: PropsWithChildren) {
+  useSquircleBorder()
   return (
     <AuthProvider>
       <ToastProvider>

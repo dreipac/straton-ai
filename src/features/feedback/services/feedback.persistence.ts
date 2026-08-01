@@ -1,4 +1,7 @@
 import { getSupabaseClient } from '../../../integrations/supabase/client'
+import { createStorageSignedUrl } from '../../chat/services/chatMediaSignedUrl'
+
+export const FEEDBACK_MEDIA_BUCKET = 'feedback-media'
 
 export type UserFeedbackRow = {
   id: string
@@ -12,6 +15,13 @@ export type UserFeedbackRow = {
   resolved_at: string | null
   resolution_message: string | null
   resolution_seen_at: string | null
+  attachment_photo_path: string | null
+  attachment_chat_thread_id: string | null
+}
+
+export type FeedbackAttachmentInput = {
+  photoFile?: File | null
+  chatThreadId?: string | null
 }
 
 export type UnseenFeedbackResolution = {
@@ -34,9 +44,35 @@ function toErrorMessage(error: unknown): string {
   return 'Feedback konnte nicht gespeichert werden.'
 }
 
+function extensionFromMimeType(mimeType: string): string {
+  const raw = mimeType.split('/')[1]?.toLowerCase().trim()
+  if (!raw) {
+    return 'jpg'
+  }
+  return raw === 'jpeg' ? 'jpg' : raw.replace(/[^a-z0-9]/g, '') || 'jpg'
+}
+
+async function uploadFeedbackPhoto(userId: string, file: File): Promise<string> {
+  const supabase = getSupabaseClient()
+  const path = `${userId}/${crypto.randomUUID()}.${extensionFromMimeType(file.type)}`
+  const { error } = await supabase.storage.from(FEEDBACK_MEDIA_BUCKET).upload(path, file, {
+    contentType: file.type || 'image/jpeg',
+    upsert: false,
+  })
+  if (error) {
+    throw new Error(error.message || 'Foto konnte nicht hochgeladen werden.')
+  }
+  return path
+}
+
+export function createFeedbackPhotoSignedUrl(path: string): Promise<string | null> {
+  return createStorageSignedUrl(FEEDBACK_MEDIA_BUCKET, path)
+}
+
 export async function submitUserFeedback(
   body: string,
   author: FeedbackAuthorSnapshot,
+  attachment: FeedbackAttachmentInput = {},
 ): Promise<{ displayId: string }> {
   const supabase = getSupabaseClient()
   const {
@@ -53,6 +89,8 @@ export async function submitUserFeedback(
     throw new Error('Bitte gib einen Text ein.')
   }
 
+  const attachmentPhotoPath = attachment.photoFile ? await uploadFeedbackPhoto(user.id, attachment.photoFile) : null
+
   const { data, error } = await supabase
     .from('user_feedback')
     .insert({
@@ -61,6 +99,8 @@ export async function submitUserFeedback(
       author_email: author.email?.trim() || null,
       author_first_name: author.firstName?.trim() || null,
       author_last_name: author.lastName?.trim() || null,
+      attachment_photo_path: attachmentPhotoPath,
+      attachment_chat_thread_id: attachment.chatThreadId || null,
     })
     .select('display_id')
     .single()
@@ -82,7 +122,7 @@ export async function listUserFeedbackForAdmin(): Promise<UserFeedbackRow[]> {
   const { data, error } = await supabase
     .from('user_feedback')
     .select(
-      'id, display_id, user_id, body, author_email, author_first_name, author_last_name, created_at, resolved_at, resolution_message, resolution_seen_at',
+      'id, display_id, user_id, body, author_email, author_first_name, author_last_name, created_at, resolved_at, resolution_message, resolution_seen_at, attachment_photo_path, attachment_chat_thread_id',
     )
     .order('created_at', { ascending: false })
     .limit(500)

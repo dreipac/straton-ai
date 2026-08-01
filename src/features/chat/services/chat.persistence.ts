@@ -348,6 +348,23 @@ export async function listChatThreads(userId: string): Promise<ChatThread[]> {
   return threads
 }
 
+/** Für Admin-Feedback-Anhänge: Titel/Metadaten eines einzelnen (fremden) Threads laden. RLS
+ *  erlaubt das nur dem Owner/Mitglied oder einem Superadmin (siehe user_feedback_attachments-Migration). */
+export async function getChatThreadById(threadId: string): Promise<ChatThread | null> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('chat_threads')
+    .select('id, user_id, title, created_at, updated_at, archived_at')
+    .eq('id', threadId)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return data ? mapThread(data as ChatThreadRow) : null
+}
+
 const CHAT_MESSAGE_SELECT_WITH_METADATA =
   'id, thread_id, role, content, created_at, metadata' as const
 

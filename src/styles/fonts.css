@@ -1,0 +1,20 @@
+/*
+ * Selbst gehostete Fonts, die nicht über @fontsource (npm) verfügbar sind — Manrope/Plus-Jakarta
+ * kommen weiterhin über @fontsource-variable (siehe main.tsx). Satoshi (Fontshare) gibt es dort
+ * nicht, daher hier manuell registriert.
+ *
+ * Setup: Satoshi-Variable.woff2 (und optional .woff als Fallback) von https://www.fontshare.com/fonts/satoshi
+ * herunterladen und unter src/assets/fonts/satoshi/ ablegen — Dateinamen exakt wie unten. Ohne
+ * diese Dateien fällt `font-family: 'Satoshi Variable'` automatisch auf Manrope zurück (siehe
+ * Fallback-Kette an den jeweiligen Nutzungsstellen).
+ */
+@font-face {
+  font-family: 'Satoshi Variable';
+  src:
+    url('../assets/fonts/satoshi/Satoshi-Variable.woff2') format('woff2-variations'),
+    url('../assets/fonts/satoshi/Satoshi-Variable.woff2') format('woff2'),
+    url('../assets/fonts/satoshi/Satoshi-Variable.woff') format('woff');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}

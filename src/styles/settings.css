@@ -170,6 +170,18 @@
   color: var(--color-text-app);
 }
 
+/* Squircle-Ecken (Desktop-Modal-Variante, siehe squircle.css `.squircle-clip` +
+   useSquircleBorder): maskiert Modal + Kinder als Gruppe auf die Silhouette, da Sidebar/
+   Content/Footer die Fläche bereits deckend ausfüllen — `border`/`border-radius` bleiben als
+   Fallback für Browser ohne Mask-Support stehen. */
+.settings-modal.squircle-clip {
+  --squircle-radius: 22px;
+  /* 0 = mathematisch identisch mit einem normalen `border-radius`-Kreisbogen (kein Squircle-Effekt
+     mehr sichtbar), 1 = sehr flach/eckig. 0.6 ist der iOS-typische Sweet Spot, klar als Squircle
+     erkennbar, ohne eckig zu wirken. */
+  --squircle-smoothing: 0.6;
+}
+
 /* Eingebettet ins ProfileFullSheet (Mobile): kein Desktop-Modal-Rahmen */
 .settings-modal.settings-modal--sheet-embed {
   width: 100%;
@@ -202,11 +214,61 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.settings-sidebar h2 {
+.settings-menu-search-shell {
+  position: relative;
+}
+
+/* Squircle-Ecken über den globalen Mechanismus (squircle.css `.squircle` + useSquircleBorder) —
+   Fläche wird als SVG-`background-image` gemalt. Kein Rand: `--squircle-border-width` bleibt
+   auf dem registrierten Default (0px, siehe squircle.css `@property`), keine `--squircle-stroke`. */
+.settings-menu-search {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
   margin: 0;
-  font-size: 1rem;
-  color: var(--color-text-app);
-  font-weight: 700;
+  font: inherit;
+  padding: 0.5rem 0.7rem 0.5rem 2.15rem;
+  font-size: 0.88rem;
+  color: var(--input-field-text);
+  --squircle-fill: var(--input-field-bg);
+  --squircle-radius: 10px;
+  transition: box-shadow 220ms ease;
+}
+
+.settings-menu-search::-webkit-search-cancel-button,
+.settings-menu-search::-webkit-search-decoration {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.settings-menu-search::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.settings-menu-search:focus-visible {
+  outline: none;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.settings-menu-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.65rem;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+  transition: color 220ms ease;
+}
+
+.settings-menu-search:focus-visible ~ .settings-menu-search-icon {
+  color: var(--color-accent, var(--accent-ring-base, #6366f1));
+}
+
+.settings-menu-empty {
+  margin: 0;
+  padding: 0.4rem 0.2rem;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
 }
 
 .settings-menu {
@@ -236,6 +298,16 @@
     color 200ms ease,
     box-shadow 220ms ease,
     border-color 200ms ease;
+}
+
+/* Kompaktere Buttons nur im Desktop-Modal — Mobile/Sheet bleibt unverändert. */
+.settings-modal:not(.settings-modal--mobile-nav) .settings-menu {
+  gap: 0.4rem;
+}
+
+.settings-modal:not(.settings-modal--mobile-nav) .settings-menu-item {
+  padding: 0.48rem 0.68rem;
+  min-height: 39px;
 }
 
 .settings-menu-icon {
@@ -278,11 +350,36 @@
 }
 
 .settings-content {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Desktop ohne Header: Body füllt die Zeile allein, X-Button/Sprach-Hinweis schweben frei
+   (position: absolute, siehe unten) über `.settings-content` statt in einer eigenen Zeile. */
+.settings-content--no-header {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.settings-content--no-header .settings-body {
+  padding-top: 3.25rem;
+}
+
+.settings-close-button--floating {
+  position: absolute;
+  top: 1rem;
+  right: 1.1rem;
+  z-index: 5;
+}
+
+.settings-save-indicator.settings-save-indicator--floating {
+  top: 1.05rem;
+  right: 4.5rem;
+  transform: none;
+  z-index: 5;
 }
 
 .settings-titlebar {
@@ -543,29 +640,133 @@
   font-size: 0.88rem;
 }
 
-.general-settings-panel {
+.feedback-attachments {
+  margin-top: 0.9rem;
   display: grid;
-  gap: 0.65rem;
+  gap: 0.55rem;
 }
 
-.general-setting-row {
+.feedback-attachments-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.feedback-attachment-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.9rem;
-  padding: 0.1rem 0;
 }
 
-.general-setting-copy h3 {
-  margin: 0;
+.feedback-attachment-label {
+  font-size: 0.9rem;
   color: var(--color-text-app);
-  font-size: 1rem;
 }
 
-.general-setting-copy p {
-  margin: 0.14rem 0 0;
-  color: var(--color-text-secondary);
-  font-size: 0.88rem;
+.feedback-attachment-control {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Screenreader-/Fokus-erreichbar, aber unsichtbar — der eigentliche Trigger ist der Button
+   daneben (`photoInputRef.current?.click()`). */
+.feedback-photo-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.feedback-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.feedback-photo-preview-img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+}
+
+.feedback-chat-trigger {
+  min-width: 200px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feedback-chat-menu {
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.general-settings-panel {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.general-section-title {
+  margin: 0;
+  font-family: 'Satoshi Variable', 'Manrope Variable', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--color-text-app);
+}
+
+/* Squircle-Ecken über den globalen Mechanismus (squircle.css `.squircle` + useSquircleBorder) —
+   nur Fläche, kein Rand (kein `--squircle-stroke` gesetzt). `color-mix` statt einem der
+   `--color-surface*`-Tokens: die liegen alle nur 1-2 Lightness-Stufen auseinander und der Balken
+   war gegen den Body praktisch unsichtbar — der Mix mit der Textfarbe garantiert sichtbaren
+   Kontrast in jedem Theme, ohne 4 Theme-Blöcke einzeln anzufassen. */
+.general-setting-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.32rem 0.9rem;
+  --squircle-fill: color-mix(in srgb, var(--color-text-app) 3%, var(--settings-body-bg));
+  --squircle-radius: 14px;
+}
+
+/* Variante für mehrere Optionen in einer Bar (z. B. "Schriftarten": System + KI-Output). */
+.general-setting-bar--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.15rem 0.9rem;
+}
+
+.general-setting-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.5rem 0;
+}
+
+.general-setting-bar-divider {
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.6;
+}
+
+.general-setting-bar-label {
+  font-family: 'Manrope Variable', sans-serif;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--color-text-app);
+  opacity: 0.8;
 }
 
 .general-setting-control {
@@ -573,15 +774,15 @@
   flex-shrink: 0;
 }
 
+/* Squircle-Ecken, kein Rand — nur Fläche (kein `--squircle-stroke` gesetzt), analog zur Bar. */
 .general-language-trigger {
   min-width: 150px;
-  min-height: 36px;
-  border: 1px solid #d7deea;
-  border-radius: 10px;
-  background: #ffffff;
-  color: #0f172a;
-  padding: 0.42rem 0.62rem;
+  min-height: 30px;
+  padding: 0.3rem 0.62rem;
   text-align: left;
+  color: var(--color-text-app);
+  --squircle-fill: color-mix(in srgb, var(--color-text-app) 7%, var(--settings-body-bg));
+  --squircle-radius: 10px;
 }
 
 .general-language-menu {
@@ -1277,6 +1478,59 @@
   padding: 1rem 1.1rem;
   box-shadow: 0 22px 54px var(--color-shadow-strong);
   color: var(--color-text-app);
+}
+
+.admin-feedback-chat-viewer-modal {
+  width: min(640px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-feedback-chat-viewer-status {
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+}
+
+.admin-feedback-chat-viewer-messages {
+  margin-top: 0.6rem;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.6rem;
+  padding-right: 0.2rem;
+}
+
+.admin-feedback-chat-viewer-message {
+  justify-self: start;
+  max-width: 85%;
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  background: var(--settings-card-bg);
+  border: 1px solid var(--color-border);
+}
+
+.admin-feedback-chat-viewer-message--user {
+  justify-self: end;
+  background: var(--chat-user-bubble-bg);
+}
+
+.admin-feedback-chat-viewer-message-role {
+  margin: 0 0 0.2rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.admin-feedback-chat-viewer-message-content {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .rename-modal-header h3 {
@@ -2203,6 +2457,13 @@
   line-height: 1.45;
 }
 
+.admin-feedback-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
 .admin-feedback-display-id {
   margin: 0.35rem 0 0.15rem;
   font-size: 0.8rem;
@@ -2922,7 +3183,7 @@
     padding: 0.9rem 0.85rem;
   }
 
-  .general-setting-row,
+  .general-setting-bar,
   .chat-setting-row,
   .status-settings-row,
   .admin-user-row {
@@ -2999,20 +3260,6 @@
 
 :root[data-theme='dark'] .personalize-hint {
   color: var(--color-text-muted);
-}
-
-:root[data-theme='dark'] .general-setting-copy h3 {
-  color: var(--color-text-app);
-}
-
-:root[data-theme='dark'] .general-setting-copy p {
-  color: var(--color-text-secondary);
-}
-
-:root[data-theme='dark'] .general-language-trigger {
-  border-color: var(--color-border-strong);
-  background: var(--input-field-bg);
-  color: var(--color-text-app);
 }
 
 :root[data-theme='dark'] .status-settings-heading {
@@ -3402,7 +3649,8 @@
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-title-row-heading,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-subtitle,
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-setting-copy h3,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-section-title,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-setting-bar-label,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .status-settings-heading,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-setting-copy h3,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-user-name {
@@ -3411,7 +3659,6 @@
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-card p,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-list,
-:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-setting-copy p,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .status-settings-subtitle,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .status-settings-last-check,
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .status-settings-value,
@@ -3477,8 +3724,7 @@
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass'] .general-language-trigger {
-  border-color: rgba(249, 168, 212, 0.35);
-  background: rgba(72, 22, 52, 0.48);
+  --squircle-fill: rgba(72, 22, 52, 0.26);
   color: #f8fafc;
 }
 

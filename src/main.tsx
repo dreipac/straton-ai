@@ -30,6 +30,8 @@ import {
 } from './features/settings/uiSettings'
 import { syncThemeColorMeta } from './utils/themeColorMeta'
 import './styles/theme.css'
+import './styles/squircle.css'
+import './styles/fonts.css'
 import './styles/base.css'
 import './styles/ui.css'
 import './styles/menus.css'

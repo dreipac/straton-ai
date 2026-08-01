@@ -1,0 +1,64 @@
+/*
+ * Globale Squircle-Utility (figma-squircle + squircleShape.ts + useSquircleBorder).
+ *
+ * Zwei Klassen, je nach Element:
+ * - `squircle` — für einfache Elemente, die selbst die sichtbare Fläche sind (z. B. Chat-Bubble).
+ *   Malt Fläche + Rand als SVG-`background-image` auf denselben Pfad; dazu `--squircle-fill` /
+ *   `--squircle-stroke` setzen (optional `--squircle-radius` / `--squircle-smoothing` /
+ *   `--squircle-border-width` überschreiben).
+ * - `squircle-clip` — für Container, deren Kind-Elemente die Fläche bereits deckend ausfüllen
+ *   (z. B. ein Modal mit Sidebar+Content, siehe settings.css). Maskiert Element + Kinder als
+ *   Gruppe auf die Silhouette; nur `--squircle-radius` / `--squircle-smoothing` nötig, kein
+ *   Fill/Stroke (der bestehende CSS-`border` bleibt einfach stehen).
+ *
+ * `useSquircleBorder()` ist einmal global gemountet (AppProviders) und übernimmt beide
+ * Varianten automatisch für jedes passende Element — kein per-Feature-Wiring nötig.
+ *
+ * Registriert per `@property`, damit `getComputedStyle()` in squircleShape.ts fertige Werte
+ * liefert statt des rohen Custom-Property-Textes (Themes nutzen teils verschachtelte `var()` /
+ * `color-mix()`, die SVG-Attribute nicht auflösen könnten). `inherits: false`, damit die Werte
+ * nicht ungewollt in verschachtelte `.squircle`-Kinder durchschlagen.
+ */
+@property --squircle-fill {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --squircle-stroke {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --squircle-radius {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 16px;
+}
+
+@property --squircle-smoothing {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0.6;
+}
+
+@property --squircle-border-width {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+.squircle {
+  background-color: transparent;
+  border: none;
+  border-radius: var(--squircle-radius);
+  /* Chromium-natives `corner-shape` als Fast-Path ohne JS; wo unterstützt deckungsgleich mit
+     dem figma-squircle-Pfad aus useSquircleBorder, daher unkritisch falls beides aktiv ist. */
+  corner-shape: squircle;
+}
+
+.squircle-clip {
+  border-radius: var(--squircle-radius);
+  corner-shape: squircle;
+}

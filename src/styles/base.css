@@ -152,7 +152,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input) {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search) {
   font: inherit;
   width: 100%;
   margin: 0;
@@ -176,7 +176,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input)::placeholder {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search)::placeholder {
   color: var(--input-field-placeholder);
   opacity: 1;
 }
@@ -185,12 +185,12 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus,
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus,
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus-visible {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus-visible {
   outline: none;
 }
 
@@ -198,7 +198,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):focus-visible {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus-visible {
   background-color: var(--input-field-bg);
   background-image: var(--accent-gradient-line);
   background-size: 100% 1px;
@@ -213,7 +213,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
     [type='submit']
   ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(.learn-path-title-input):not(
     .chat-input
-  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):disabled {
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):disabled {
   opacity: 0.62;
   cursor: not-allowed;
 }

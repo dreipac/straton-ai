@@ -1419,8 +1419,17 @@
 
 .chat-message.is-user {
   justify-self: end;
-  background: var(--chat-user-bubble-bg);
-  border: 1px solid color-mix(in srgb, var(--chat-user-bubble-bg) 94%, #0f172a 6%);
+  /* Globaler Squircle-Mechanismus (squircle.css + useSquircleBorder + squircleShape.ts) — die
+     `squircle`-Klasse auf dem Element (ChatMessageList.tsx) lässt den Hook Fläche + Rand als
+     SVG-`background-image` auf demselben Pfad zeichnen. Werte hier sind bubble-spezifisch,
+     explizit statt aus `.squircle` geerbt, damit sie unabhängig von der Ladereihenfolge der
+     Stylesheets zuverlässig gegen `.chat-message`s Basis-`background`/`border` gewinnen. */
+  --squircle-fill: var(--chat-user-bubble-bg);
+  --squircle-stroke: color-mix(in srgb, var(--chat-user-bubble-bg) 94%, #0f172a 6%);
+  --squircle-radius: 25px;
+  --squircle-border-width: 1px;
+  background-color: transparent;
+  border: none;
   box-shadow: none;
   border-radius: 25px;
   corner-shape: squircle;
@@ -8403,8 +8412,10 @@
 }
 
 :root[data-theme='dark'] .chat-message.is-user {
-  background: var(--chat-user-bubble-bg-dark);
-  border: 1px solid color-mix(in srgb, var(--chat-user-bubble-bg-dark) 94%, #ffffff 6%);
+  --squircle-fill: var(--chat-user-bubble-bg-dark);
+  --squircle-stroke: color-mix(in srgb, var(--chat-user-bubble-bg-dark) 94%, #ffffff 6%);
+  background-color: transparent;
+  border: none;
   box-shadow: none;
 }
 

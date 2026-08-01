@@ -123,6 +123,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     logout,
   } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
+  const [menuSearchQuery, setMenuSearchQuery] = useState('')
   const [isNarrowSettings, setIsNarrowSettings] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)').matches : false,
   )
@@ -245,18 +246,42 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   }, [initialSection, isNarrowSettings, variant])
 
   const i18n = {
-    menuTitle:
+    searchPlaceholder:
       language === 'en'
-        ? 'Menu'
+        ? 'Search'
         : language === 'hr'
-          ? 'Izbornik'
+          ? 'Pretraga'
           : language === 'it'
-            ? 'Menu'
+            ? 'Cerca'
             : language === 'sq'
-              ? 'Meny'
+              ? 'Kërko'
               : language === 'es-PE'
-                ? 'Menú'
-                : 'Menü',
+                ? 'Buscar'
+                : 'Suche',
+    searchAriaLabel:
+      language === 'en'
+        ? 'Search settings'
+        : language === 'hr'
+          ? 'Pretraži postavke'
+          : language === 'it'
+            ? 'Cerca impostazioni'
+            : language === 'sq'
+              ? 'Kërko cilësimet'
+              : language === 'es-PE'
+                ? 'Buscar ajustes'
+                : 'Einstellungen durchsuchen',
+    searchNoResults:
+      language === 'en'
+        ? 'No matching settings'
+        : language === 'hr'
+          ? 'Nema odgovarajućih postavki'
+          : language === 'it'
+            ? 'Nessuna impostazione trovata'
+            : language === 'sq'
+              ? 'Asnjë cilësim i përputhur'
+              : language === 'es-PE'
+                ? 'Sin ajustes coincidentes'
+                : 'Keine passenden Einstellungen',
     closeLabel:
       language === 'en'
         ? 'Close settings'
@@ -659,6 +684,10 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   }, [learnPathTitleColorMode])
 
   const activeSectionConfig = sections.find((section) => section.id === activeSection) ?? sections[0]
+  const normalizedMenuSearchQuery = menuSearchQuery.trim().toLocaleLowerCase()
+  const filteredSections = normalizedMenuSearchQuery
+    ? sections.filter((section) => section.label.toLocaleLowerCase().includes(normalizedMenuSearchQuery))
+    : sections
   const autoRemoveEmptyChats = profile?.auto_remove_empty_chats ?? true
 
   async function handleSaveIntroduction(value: IntroductionEditorValue) {
@@ -934,10 +963,34 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
           ) : null}
         </div>
       ) : (
-        <h2>{i18n.menuTitle}</h2>
+        <div className="settings-menu-search-shell">
+          <input
+            type="search"
+            className="settings-menu-search squircle"
+            placeholder={i18n.searchPlaceholder}
+            aria-label={i18n.searchAriaLabel}
+            value={menuSearchQuery}
+            onChange={(event) => setMenuSearchQuery(event.target.value)}
+          />
+          <svg
+            className="settings-menu-search-icon"
+            width={16}
+            height={16}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+            <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
       )}
       <nav className="settings-menu">
-        {sections.map((section) => (
+        {!layoutNarrow && filteredSections.length === 0 ? (
+          <p className="settings-menu-empty">{i18n.searchNoResults}</p>
+        ) : null}
+        {(layoutNarrow ? sections : filteredSections).map((section) => (
           <button
             key={section.id}
             type="button"
@@ -990,24 +1043,47 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   )
 
   const settingsMain = (
-    <div className="settings-content">
-      <header className="settings-titlebar">
-        <ModalHeader
-          title={activeSectionConfig.title}
-          headingLevel="h1"
-          onClose={onClose}
-          closeLabel={i18n.closeLabel}
-          onBack={layoutNarrow && mobileStack === 'detail' ? handleMobileSettingsBack : undefined}
-          backLabel={i18n.backLabel}
-          showCloseButton={variant !== 'sheet'}
-        />
-        {languageFeedback ? (
-          <div className="settings-save-indicator" role="status" aria-live="polite">
-            <span className="settings-save-indicator-spinner" aria-hidden="true" />
-            <span>Sprache gespeichert</span>
-          </div>
-        ) : null}
-      </header>
+    <div className={`settings-content${layoutNarrow ? '' : ' settings-content--no-header'}`}>
+      {layoutNarrow ? (
+        <header className="settings-titlebar">
+          <ModalHeader
+            title={activeSectionConfig.title}
+            headingLevel="h1"
+            onClose={onClose}
+            closeLabel={i18n.closeLabel}
+            onBack={mobileStack === 'detail' ? handleMobileSettingsBack : undefined}
+            backLabel={i18n.backLabel}
+            showCloseButton={variant !== 'sheet'}
+          />
+          {languageFeedback ? (
+            <div className="settings-save-indicator" role="status" aria-live="polite">
+              <span className="settings-save-indicator-spinner" aria-hidden="true" />
+              <span>Sprache gespeichert</span>
+            </div>
+          ) : null}
+        </header>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="settings-close-button settings-close-button--floating"
+            onClick={onClose}
+            aria-label={i18n.closeLabel}
+          >
+            <span className="ui-icon settings-close-icon" aria-hidden="true" />
+          </button>
+          {languageFeedback ? (
+            <div
+              className="settings-save-indicator settings-save-indicator--floating"
+              role="status"
+              aria-live="polite"
+            >
+              <span className="settings-save-indicator-spinner" aria-hidden="true" />
+              <span>Sprache gespeichert</span>
+            </div>
+          ) : null}
+        </>
+      )}
 
       <section className="settings-body">
         {activeSection === 'general' ? (
@@ -1073,6 +1149,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
         {activeSection === 'feedback' ? (
           <FeedbackSettingsSection
             language={language}
+            userId={user?.id ?? null}
             userEmail={user?.email ?? null}
             authorFirstName={profile?.first_name ?? null}
             authorLastName={profile?.last_name ?? null}
@@ -1127,7 +1204,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
         </div>
       ) : (
         <section
-          className={`settings-modal${layoutNarrow ? ' settings-modal--mobile-nav' : ''}`}
+          className={`settings-modal${layoutNarrow ? ' settings-modal--mobile-nav' : ' squircle-clip'}`}
           role="dialog"
           aria-modal="true"
           aria-label="Einstellungen"
