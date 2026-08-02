@@ -166,6 +166,21 @@
   color: #fff;
 }
 
+.learn-map-plan-dot-check {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  background: currentColor;
+  -webkit-mask-image: url('../assets/icons/check_2.svg');
+  mask-image: url('../assets/icons/check_2.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 .learn-map-plan-dot.is-current {
   background: var(--lm-accent);
 }

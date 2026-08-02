@@ -65,6 +65,7 @@ import {
   adminSetInstantAnalyzeDebugEnabled,
   adminSetGeminiInstantEnabled,
   adminSetChatFoldersEnabled,
+  adminSetFriendsEnabled,
   adminSetThinkingGeminiModelsDraft,
   adminDeployThinkingGeminiModelsDraft,
   adminSetInstantAnalyzeModelDraft,
@@ -437,6 +438,8 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
   const [isLoadingInstantAnalyzeDebugToggle, setIsLoadingInstantAnalyzeDebugToggle] = useState(false)
   const [chatFoldersEnabled, setChatFoldersEnabled] = useState(true)
   const [isLoadingChatFoldersToggle, setIsLoadingChatFoldersToggle] = useState(false)
+  const [friendsEnabled, setFriendsEnabled] = useState(true)
+  const [isLoadingFriendsToggle, setIsLoadingFriendsToggle] = useState(false)
   const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
   const [geminiInstantEnabled, setGeminiInstantEnabled] = useState(false)
   const [thinkingGeminiStandardActive, setThinkingGeminiStandardActive] =
@@ -722,6 +725,7 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
         setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersEnabled(flags.chat_folders_enabled)
+        setFriendsEnabled(flags.friends_enabled)
         setGeminiInstantEnabled(flags.gemini_instant_enabled)
         setThinkingGeminiStandardActive(flags.thinking_gemini_model_standard_active)
         setThinkingGeminiRichActive(flags.thinking_gemini_model_rich_active)
@@ -1978,6 +1982,19 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
     }
   }
 
+  async function handleToggleFriendsEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingFriendsToggle(true)
+    try {
+      await adminSetFriendsEnabled(nextEnabled)
+      setFriendsEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Freunde-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingFriendsToggle(false)
+    }
+  }
+
   async function handleSaveLearnAreaBannerText() {
     const nextText = learnAreaBannerTextDraft.trim()
     if (!nextText) {
@@ -2709,6 +2726,29 @@ export function AdministratorModal({ onClose }: AdministratorModalProps) {
                   disabled={isLoadingChatFoldersToggle}
                   onClick={() => {
                     void handleToggleChatFoldersEnabled(!chatFoldersEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="chat-setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Freunde-Funktion global aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, ist der Freunde-Button in der Sidebar für alle Nutzer ausgeblendet.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${friendsEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={friendsEnabled}
+                  aria-label="Freunde-Funktion global aktivieren"
+                  disabled={isLoadingFriendsToggle}
+                  onClick={() => {
+                    void handleToggleFriendsEnabled(!friendsEnabled)
                   }}
                 >
                   <span className="ios-switch-track" aria-hidden="true">

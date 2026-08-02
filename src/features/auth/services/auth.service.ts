@@ -87,6 +87,10 @@ const PROFILE_INTRODUCTION_SELECT =
 
 /** Volle Profil-Spalten inkl. KI-Speicher (`20260425120000_profiles_ai_chat_memory`). */
 const PROFILE_SELECT =
+  `first_name, last_name, avatar_url, auto_remove_empty_chats, auto_remove_empty_learning_paths, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ${PROFILE_INTRODUCTION_SELECT}, ai_chat_memory, ai_chat_memory_enabled` as const
+
+/** Ohne `auto_remove_empty_learning_paths` — wenn Migration `..._add_auto_remove_empty_learning_paths_to_profiles` auf der Remote-DB noch nicht ausgerollt ist. */
+const PROFILE_SELECT_WITHOUT_AUTO_REMOVE_LEARNING_PATHS =
   `first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, ui_settings, must_change_password_on_first_login, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date ), ${PROFILE_INTRODUCTION_SELECT}, ai_chat_memory, ai_chat_memory_enabled` as const
 
 /** Ohne Einführung — wenn Migration noch nicht ausgerollt. */
@@ -104,6 +108,14 @@ const PROFILE_SELECT_COMPAT =
 /** Ohne ui_settings und ohne must_change_password_on_first_login (aeltere DB ohne Spalte). */
 const PROFILE_SELECT_COMPAT_LEGACY =
   'first_name, last_name, avatar_url, auto_remove_empty_chats, is_superadmin, language, chat_onboarding_completed, beta_notice_seen, subscription_plan_id, subscription_plans!subscription_plan_id ( id, name, max_tokens, instant_token_balance_max, max_images, max_files, image_generation_model, chat_allow_model_choice, chat_allow_custom_mode, default_chat_model_id, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id ), subscription_usages ( used_tokens, used_images, used_files, image_credit_balance, token_balance, web_search_credit_balance, used_web_searches, thinking_credit_balance, used_thinking_requests, last_reset_date )' as const
+
+function isMissingAutoRemoveEmptyLearningPathsColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false
+  }
+  const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
+  return msg.includes('auto_remove_empty_learning_paths')
+}
 
 function isMissingUiSettingsColumnError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -145,6 +157,20 @@ async function updateProfileReturningNoUiSettingsPatch(
   let r = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_SELECT).single()
   if (!r.error) {
     return r
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'auto_remove_empty_learning_paths')) {
+    return r
+  }
+  if (isMissingAutoRemoveEmptyLearningPathsColumnError(r.error)) {
+    r = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId)
+      .select(PROFILE_SELECT_WITHOUT_AUTO_REMOVE_LEARNING_PATHS)
+      .single()
+    if (!r.error) {
+      return r
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'ui_settings')) {
     return r
@@ -188,6 +214,7 @@ type ProfileRow = {
   last_name: string | null
   avatar_url: string | null
   auto_remove_empty_chats: boolean
+  auto_remove_empty_learning_paths?: boolean
   is_superadmin: boolean
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
   chat_onboarding_completed: boolean
@@ -352,6 +379,7 @@ function mapProfileRow(data: ProfileRow | null): UserProfile | null {
     last_name: data.last_name,
     avatar_url: data.avatar_url,
     auto_remove_empty_chats: data.auto_remove_empty_chats,
+    auto_remove_empty_learning_paths: data.auto_remove_empty_learning_paths !== false,
     is_superadmin: data.is_superadmin,
     language: data.language,
     chat_onboarding_completed: data.chat_onboarding_completed,
@@ -378,6 +406,7 @@ export type UserProfile = {
   last_name: string | null
   avatar_url: string | null
   auto_remove_empty_chats: boolean
+  auto_remove_empty_learning_paths: boolean
   is_superadmin: boolean
   language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
   /** false = Chat-Einstiegs-Tour (Neuer Chat, Lernpfade) noch anzeigen */
@@ -538,6 +567,13 @@ export function getUserFromSession(session: Session | null): User | null {
 export async function getProfileByUserId(userId: string): Promise<UserProfile | null> {
   const supabase = getSupabaseClient()
   let { data, error } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', userId).maybeSingle()
+  if (error && isMissingAutoRemoveEmptyLearningPathsColumnError(error)) {
+    ;({ data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_WITHOUT_AUTO_REMOVE_LEARNING_PATHS)
+      .eq('id', userId)
+      .maybeSingle())
+  }
   if (error && isMissingIntroductionColumnError(error)) {
     ;({ data, error } = await supabase
       .from('profiles')
@@ -611,6 +647,21 @@ export async function updateAutoRemoveEmptyChatsByUserId(
 ): Promise<UserProfile | null> {
   const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
     auto_remove_empty_chats: enabled,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return mapProfileRow(data as ProfileRow)
+}
+
+export async function updateAutoRemoveEmptyLearningPathsByUserId(
+  userId: string,
+  enabled: boolean,
+): Promise<UserProfile | null> {
+  const { data, error } = await updateProfileReturningNoUiSettingsPatch(userId, {
+    auto_remove_empty_learning_paths: enabled,
   })
 
   if (error) {

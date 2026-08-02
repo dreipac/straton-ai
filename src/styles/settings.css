@@ -156,6 +156,7 @@
 }
 
 .settings-modal {
+  position: relative;
   width: min(1050px, calc(100vw - 2rem));
   height: min(720px, calc(100dvh - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -172,14 +173,30 @@
 
 /* Squircle-Ecken (Desktop-Modal-Variante, siehe squircle.css `.squircle-clip` +
    useSquircleBorder): maskiert Modal + Kinder als Gruppe auf die Silhouette, da Sidebar/
-   Content/Footer die Fläche bereits deckend ausfüllen — `border`/`border-radius` bleiben als
-   Fallback für Browser ohne Mask-Support stehen. */
+   Content/Footer die Fläche bereits deckend ausfüllen. Der normale CSS-`border` folgt aber dem
+   Kreisbogen von `border-radius`, der in den Ecken sichtbar von der flacheren Squircle-Kontur
+   abweicht (dunkler Saum, da der Rand dort von der Maske ungleichmäßig abgeschnitten wird) —
+   deshalb hier unsichtbar geschaltet und durch `.settings-modal-squircle-border` unten ersetzt,
+   die denselben figma-squircle-Pfad wie die Maske zeichnet und dadurch exakt deckungsgleich ist.
+   `border-radius`/`corner-shape` bleiben als Fallback für Browser ohne Mask-Support stehen. */
 .settings-modal.squircle-clip {
   --squircle-radius: 22px;
   /* 0 = mathematisch identisch mit einem normalen `border-radius`-Kreisbogen (kein Squircle-Effekt
      mehr sichtbar), 1 = sehr flach/eckig. 0.6 ist der iOS-typische Sweet Spot, klar als Squircle
      erkennbar, ohne eckig zu wirken. */
   --squircle-smoothing: 0.6;
+  border-color: transparent;
+}
+
+.settings-modal-squircle-border {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  --squircle-fill: transparent;
+  --squircle-stroke: var(--color-border);
+  --squircle-radius: 22px;
+  --squircle-smoothing: 0.6;
+  --squircle-border-width: 1px;
 }
 
 /* Eingebettet ins ProfileFullSheet (Mobile): kein Desktop-Modal-Rahmen */
@@ -767,6 +784,38 @@
   font-size: 0.92rem;
   color: var(--color-text-app);
   opacity: 0.8;
+}
+
+/* Label + Beschreibungstext gestapelt (Chat-Einstellungen, in Allgemein verschoben). */
+.general-setting-bar-label--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  opacity: 1;
+  max-width: 62ch;
+}
+
+.general-setting-bar-label-title {
+  font-family: 'Manrope Variable', sans-serif;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--color-text-app);
+}
+
+.general-setting-bar-label-desc {
+  font-family: 'Manrope Variable', sans-serif;
+  font-weight: 400;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.general-setting-bar-label-desc--success {
+  color: #2f855a;
+}
+
+:root[data-theme='dark'] .general-setting-bar-label-desc--success {
+  color: #86efac;
 }
 
 .general-setting-control {

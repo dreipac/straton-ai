@@ -19,6 +19,7 @@ import {
   signOut,
   updateAiChatMemoryByUserId,
   updateAutoRemoveEmptyChatsByUserId,
+  updateAutoRemoveEmptyLearningPathsByUserId,
   updateLanguageByUserId,
   completeChatOnboardingByUserId,
   markBetaNoticeSeenByUserId,
@@ -242,6 +243,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(nextProfile)
   }
 
+  async function updateAutoRemoveEmptyLearningPaths(enabled: boolean) {
+    if (!user) {
+      return
+    }
+
+    setError(null)
+    const nextProfile = await updateAutoRemoveEmptyLearningPathsByUserId(user.id, enabled)
+    setProfile(nextProfile)
+  }
+
   async function updateProfileNames(firstName: string, lastName: string) {
     if (!user) {
       return
@@ -362,6 +373,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     logout,
     refreshProfile,
     updateAutoRemoveEmptyChats,
+    updateAutoRemoveEmptyLearningPaths,
     updateProfileNames,
     uploadProfileAvatar,
     removeProfileAvatar,

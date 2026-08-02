@@ -25,6 +25,14 @@ export type LearningPathSummary = {
   sidebarListKey?: string
   /** Client-only: Ausblend-Animation vor dem Entfernen leerer Pfade. */
   isRemoving?: boolean
+  /** Anzahl gemeisterter Themen (Sidebar-Fortschrittsanzeige). */
+  masteredTopicsCount?: number
+  /** Gesamtzahl geplanter Themen laut Syllabus (Sidebar-Fortschrittsanzeige). */
+  totalTopicsCount?: number
+  /** Titel des Themas, bei dem der Nutzer aktuell steht ("Weitermachen"-Karte auf der Startseite). */
+  currentTopicTitle?: string
+  /** Titel des Teilthemas innerhalb des aktuellen Themas ("Weitermachen"-Karte auf der Startseite). */
+  currentSubstepTitle?: string
 }
 
 export type UploadedMaterial = {

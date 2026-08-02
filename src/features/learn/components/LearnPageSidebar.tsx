@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useDocumentThemeVariant } from '../../../hooks/useDocumentThemeVariant'
-import settingsIcon from '../../../assets/icons/settings.svg'
+import settingsIcon from '../../../assets/icons/settings-outlined.svg'
 import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import statusIcon from '../../../assets/icons/status.svg'
 import type { LearnGenerationMode, LearningPathSummary } from '../services/learn.persistence'

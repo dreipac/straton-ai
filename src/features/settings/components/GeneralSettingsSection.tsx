@@ -61,12 +61,84 @@ function useDropdown() {
   return { isOpen, setIsOpen, ref }
 }
 
+type SettingsLanguage = 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
+
 type GeneralSettingsSectionProps = {
-  language: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE'
-  onChangeLanguage: (nextLanguage: 'de' | 'en' | 'hr' | 'it' | 'sq' | 'es-PE') => void | Promise<void>
+  language: SettingsLanguage
+  onChangeLanguage: (nextLanguage: SettingsLanguage) => void | Promise<void>
+  assistantEmojisEnabled: boolean
+  onToggleAssistantEmojis: () => void
+  mobileComposerCompact: boolean
+  onToggleMobileComposerCompact: () => void
+  /** UI-Toggle dafür ist aktuell entfernt (siehe unten) — Feature/State bleibt im Code bestehen. */
+  chatFoldersFeatureEnabled: boolean
+  desktopFoldersInSidebar: boolean
+  onToggleDesktopFoldersInSidebar: () => void
+  autoRemoveEmptyChats: boolean
+  isUpdatingChatSetting: boolean
+  autoRemoveEmptyLearningPaths: boolean
+  isUpdatingLearningPathSetting: boolean
+  isCleaningEmptyChats: boolean
+  chatCleanupInfo: string | null
+  disableCleanup: boolean
+  onToggleAutoRemoveEmptyChats: () => Promise<void>
+  onToggleAutoRemoveEmptyLearningPaths: () => Promise<void>
+  onCleanupEmptyChats: () => Promise<void>
 }
 
-export function GeneralSettingsSection({ language, onChangeLanguage }: GeneralSettingsSectionProps) {
+function assistantEmojiCopy(language: SettingsLanguage): { title: string; body: string } {
+  switch (language) {
+    case 'en':
+      return {
+        title: 'Emojis in AI replies',
+        body: 'Headings (##/###) include one emoji in the title; occasional emojis in the body.',
+      }
+    case 'hr':
+      return {
+        title: 'Emoji u odgovorima AI-a',
+        body: 'Asistent povremeno koristi prikladne emoji.',
+      }
+    case 'it':
+      return {
+        title: 'Emoji nelle risposte IA',
+        body: "L'assistente può usare di tanto in tanto emoji pertinenti al contesto.",
+      }
+    case 'sq':
+      return {
+        title: 'Emoji në përgjigjet e IA',
+        body: 'Asistenti mund të përdorë herë pas here emoji të përshtatshme me kontekstin.',
+      }
+    case 'es-PE':
+      return {
+        title: 'Emojis en respuestas de IA',
+        body: 'El asistente puede usar de vez en cuando emojis acordes al contexto.',
+      }
+    default:
+      return {
+        title: 'Emoji in KI-Antworten',
+        body: 'Die KI verwendet Emojis beim Antworten',
+      }
+  }
+}
+
+export function GeneralSettingsSection({
+  language,
+  onChangeLanguage,
+  assistantEmojisEnabled,
+  onToggleAssistantEmojis,
+  mobileComposerCompact,
+  onToggleMobileComposerCompact,
+  autoRemoveEmptyChats,
+  isUpdatingChatSetting,
+  autoRemoveEmptyLearningPaths,
+  isUpdatingLearningPathSetting,
+  isCleaningEmptyChats,
+  chatCleanupInfo,
+  disableCleanup,
+  onToggleAutoRemoveEmptyChats,
+  onToggleAutoRemoveEmptyLearningPaths,
+  onCleanupEmptyChats,
+}: GeneralSettingsSectionProps) {
   const i18n = {
     title: language === 'en' ? 'Language' : language === 'hr' ? 'Jezik' : 'Sprache',
     activeLabel:
@@ -142,6 +214,7 @@ export function GeneralSettingsSection({ language, onChangeLanguage }: GeneralSe
     FONT_OPTIONS.find((option) => option.id === systemFontId)?.label ?? FONT_OPTIONS[0].label
   const selectedAiOutputFontLabel =
     FONT_OPTIONS.find((option) => option.id === aiOutputFontId)?.label ?? FONT_OPTIONS[0].label
+  const emojiLabels = assistantEmojiCopy(language)
 
   return (
     <div className="general-settings-panel">
@@ -250,6 +323,123 @@ export function GeneralSettingsSection({ language, onChangeLanguage }: GeneralSe
                 ))}
               </ContextMenu>
             ) : null}
+          </div>
+        </div>
+      </div>
+
+      <h2 className="general-section-title">Chat</h2>
+
+      <div className="general-setting-bar general-setting-bar--stacked squircle">
+        <div className="general-setting-bar-row">
+          <span className="general-setting-bar-label general-setting-bar-label--stacked">
+            <span className="general-setting-bar-label-title">{emojiLabels.title}</span>
+            <span className="general-setting-bar-label-desc">{emojiLabels.body}</span>
+          </span>
+          <button
+            type="button"
+            className={`ios-switch ${assistantEmojisEnabled ? 'is-on' : ''}`}
+            aria-label={
+              language === 'en' ? 'Toggle emojis in AI replies' : 'Emoji in KI-Antworten umschalten'
+            }
+            aria-pressed={assistantEmojisEnabled}
+            onClick={onToggleAssistantEmojis}
+          >
+            <span className="ios-switch-track" aria-hidden="true">
+              <span className="ios-switch-thumb" />
+            </span>
+          </button>
+        </div>
+
+        <div className="general-setting-bar-divider" />
+
+        <div className="general-setting-bar-row">
+          <span className="general-setting-bar-label general-setting-bar-label--stacked">
+            <span className="general-setting-bar-label-title">Kompaktes Eingabefeld</span>
+            <span className="general-setting-bar-label-desc">Sorgt für eine kompaktere Chat-Oberfläche</span>
+          </span>
+          <button
+            type="button"
+            className={`ios-switch ${mobileComposerCompact ? 'is-on' : ''}`}
+            aria-label="Kompaktes Eingabefeld umschalten"
+            aria-pressed={mobileComposerCompact}
+            onClick={onToggleMobileComposerCompact}
+          >
+            <span className="ios-switch-track" aria-hidden="true">
+              <span className="ios-switch-thumb" />
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <h2 className="general-section-title">Löschen</h2>
+
+      <div className="general-setting-bar general-setting-bar--stacked squircle">
+        <div className="general-setting-bar-row">
+          <span className="general-setting-bar-label general-setting-bar-label--stacked">
+            <span className="general-setting-bar-label-title">Auto löschen von leeren Chats</span>
+            <span className="general-setting-bar-label-desc">Leere Chats werden automatisch gelöscht.</span>
+          </span>
+          <button
+            type="button"
+            className={`ios-switch ${autoRemoveEmptyChats ? 'is-on' : ''}`}
+            disabled={isUpdatingChatSetting}
+            aria-label="Auto-Löschen bei leeren Chats umschalten"
+            aria-pressed={autoRemoveEmptyChats}
+            onClick={() => {
+              void onToggleAutoRemoveEmptyChats()
+            }}
+          >
+            <span className="ios-switch-track" aria-hidden="true">
+              <span className="ios-switch-thumb" />
+            </span>
+          </button>
+        </div>
+
+        <div className="general-setting-bar-divider" />
+
+        <div className="general-setting-bar-row">
+          <span className="general-setting-bar-label general-setting-bar-label--stacked">
+            <span className="general-setting-bar-label-title">Auto löschen von leeren Lernpfaden</span>
+            <span className="general-setting-bar-label-desc">Leere Lernpfade werden automatisch gelöscht.</span>
+          </span>
+          <button
+            type="button"
+            className={`ios-switch ${autoRemoveEmptyLearningPaths ? 'is-on' : ''}`}
+            disabled={isUpdatingLearningPathSetting}
+            aria-label="Auto-Löschen bei leeren Lernpfaden umschalten"
+            aria-pressed={autoRemoveEmptyLearningPaths}
+            onClick={() => {
+              void onToggleAutoRemoveEmptyLearningPaths()
+            }}
+          >
+            <span className="ios-switch-track" aria-hidden="true">
+              <span className="ios-switch-thumb" />
+            </span>
+          </button>
+        </div>
+
+        <div className="general-setting-bar-divider" />
+
+        <div className="general-setting-bar-row">
+          <span className="general-setting-bar-label general-setting-bar-label--stacked">
+            <span className="general-setting-bar-label-title">Leere Chats löschen</span>
+            {chatCleanupInfo ? (
+              <span className="general-setting-bar-label-desc general-setting-bar-label-desc--success">
+                {chatCleanupInfo}
+              </span>
+            ) : null}
+          </span>
+          <div className="general-setting-control">
+            <button
+              type="button"
+              className="general-language-trigger squircle"
+              disabled={disableCleanup || isCleaningEmptyChats}
+              onClick={() => {
+                void onCleanupEmptyChats()
+              }}
+            >
+              {isCleaningEmptyChats ? 'Wird gelöscht …' : 'Löschen'}
+            </button>
           </div>
         </div>
       </div>

@@ -59,9 +59,7 @@
 .chat-sidebar-section-chevron {
   display: inline-flex;
   flex-shrink: 0;
-  font-size: 0.55rem;
-  line-height: 1;
-  color: color-mix(in srgb, var(--color-accent, #6366f1) 75%, var(--color-text-muted, #64748b));
+  color: var(--color-text-muted, #64748b);
   transform: rotate(0deg);
   transition: transform 0.18s ease;
 }
@@ -72,20 +70,12 @@
 
 .chat-sidebar-section-title {
   flex-shrink: 0;
-  font-size: 0.68rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   color: var(--color-text-muted, #64748b);
   transition: color 0.15s ease;
-}
-
-.chat-sidebar-section-line {
-  flex: 1;
-  min-width: 0.75rem;
-  height: 1px;
-  background: color-mix(in srgb, var(--color-border-subtle, #e2e8f0) 72%, transparent);
 }
 
 .chat-sidebar .chat-sidebar-section-header-wrap .chat-folder-create-btn {
@@ -396,10 +386,6 @@
 
 .chat-folders-mobile-folder-threads .chat-folder-group-empty {
   margin: 0 0 0.15rem;
-}
-
-:root[data-theme='dark'] .chat-sidebar-section-line {
-  background: rgba(148, 163, 184, 0.16);
 }
 
 :root[data-theme='dark'] .chat-sidebar-section-title,

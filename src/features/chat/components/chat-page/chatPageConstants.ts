@@ -27,7 +27,6 @@ export const PROFILE_SETTINGS_SHEET_SECTIONS: { id: SettingsSectionId; label: st
   { id: 'account', label: 'Konto' },
   { id: 'introduction', label: 'Einführung' },
   { id: 'general', label: 'Allgemein' },
-  { id: 'chat', label: 'Chat Einstellungen' },
   { id: 'invitations', label: 'Einladungen' },
   { id: 'archived-chats', label: 'Archiv' },
   { id: 'personalize', label: 'Personalisieren' },

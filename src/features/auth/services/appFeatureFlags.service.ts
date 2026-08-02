@@ -54,6 +54,7 @@ export type AppFeatureFlags = {
   instant_analyze_model_draft: AnalyzeModelId
   thinking_analyze_model_active: AnalyzeModelId
   thinking_analyze_model_draft: AnalyzeModelId
+  friends_enabled: boolean
 }
 
 export type ThinkingGeminiModelsDraft = {
@@ -128,6 +129,7 @@ export async function getAppFeatureFlags(): Promise<AppFeatureFlags> {
     instant_analyze_model_draft: parseAnalyzeModelId(row?.instant_analyze_model_draft, ANALYZE_MODEL_DEFAULT),
     thinking_analyze_model_active: parseAnalyzeModelId(row?.thinking_analyze_model_active, ANALYZE_MODEL_DEFAULT),
     thinking_analyze_model_draft: parseAnalyzeModelId(row?.thinking_analyze_model_draft, ANALYZE_MODEL_DEFAULT),
+    friends_enabled: row?.friends_enabled !== false,
   }
 }
 
@@ -175,6 +177,16 @@ export async function adminSetInstantAnalyzeDebugEnabled(enabled: boolean): Prom
 export async function adminSetChatFoldersEnabled(enabled: boolean): Promise<void> {
   const supabase = getSupabaseClient()
   const { error } = await supabase.rpc('admin_set_chat_folders_enabled', {
+    p_enabled: enabled,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetFriendsEnabled(enabled: boolean): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_friends_enabled', {
     p_enabled: enabled,
   })
   if (error) {

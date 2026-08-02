@@ -21,6 +21,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
   const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
   const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
   const [chatFoldersFeatureEnabled, setChatFoldersFeatureEnabled] = useState(true)
+  const [friendsFeatureEnabled, setFriendsFeatureEnabled] = useState(true)
   const [showBetaNoticeOnFirstLogin, setShowBetaNoticeOnFirstLogin] = useState(true)
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
         setLearnPathCreateEnabled(flags.learn_path_create_enabled)
         setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
         setChatFoldersFeatureEnabled(flags.chat_folders_enabled)
+        setFriendsFeatureEnabled(flags.friends_enabled)
         setGeminiInstantEnabledFromSupabase(flags.gemini_instant_enabled)
         setThinkingGeminiModelsFromSupabase({
           standard: flags.thinking_gemini_model_standard_active,
@@ -56,6 +58,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
         setLearnPathsEnabled(true)
         setLearnPathCreateEnabled(true)
         setChatFoldersFeatureEnabled(true)
+        setFriendsFeatureEnabled(true)
         setGeminiInstantEnabledFromSupabase(false)
       }
     })()
@@ -92,6 +95,7 @@ export function useChatPageFeatureFlags({ user, profile, isLoading }: UseChatPag
     learnPathCreateEnabled,
     instantAnalyzeDebugEnabled,
     chatFoldersFeatureEnabled,
+    friendsFeatureEnabled,
     showBetaNoticeOnFirstLogin,
     isAdmin,
     isLearnPathsButtonDisabled,

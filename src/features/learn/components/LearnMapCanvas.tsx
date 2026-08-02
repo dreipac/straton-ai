@@ -247,7 +247,7 @@ export function LearnMapCanvas(props: LearnMapCanvasProps) {
               <span className="learn-map-plan-rail" aria-hidden="true">
                 <span className="learn-map-plan-line learn-map-plan-line--top" />
                 <span className={`learn-map-plan-dot is-${dotStatus}`}>
-                  {dotStatus === 'done' ? '✓' : ''}
+                  {dotStatus === 'done' ? <span className="learn-map-plan-dot-check" aria-hidden="true" /> : null}
                   {topic.hasWrongAnswers ? (
                     <span
                       className="learn-map-plan-dot-warning"

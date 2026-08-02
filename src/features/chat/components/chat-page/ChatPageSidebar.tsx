@@ -1,27 +1,20 @@
 import { type MouseEvent, type ReactNode, type RefObject, useState } from 'react'
-import accountIcon from '../../../../assets/icons/account.svg'
 import newsIcon from '../../../../assets/icons/news.svg'
 import userAddIcon from '../../../../assets/icons/userAdd.svg'
-import settingsIcon from '../../../../assets/icons/settings.svg'
 import sidebarIcon from '../../../../assets/icons/sidebar.svg'
-import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../../auth/services/auth.service'
 import type { LearnGenerationMode } from '../../../learn/services/learn.persistence'
-import { ChatFolderSidebarSection } from '../ChatFolderSidebarSection'
 import { ChatLearningPathsSidebarSection } from '../ChatLearningPathsSidebarSection'
 import { ChatSidebarSectionHeader } from '../ChatSidebarSectionHeader'
 import { ChatThreadListSkeleton } from '../ChatThreadListSkeleton'
-import type { ChatFolder, ChatThread } from '../../types'
+import type { ChatThread } from '../../types'
 import type { LearningPathSummary } from '../../../learn/services/learn.persistence'
-import type { useChatFolders } from '../../hooks/useChatFolders'
 import type { useGlassPillTouchFeedback } from '../../../../hooks/useGlassPillTouchFeedback'
 import { hapticLightImpact } from '../../../../utils/haptics'
 
 type GlassPillTouch = ReturnType<typeof useGlassPillTouchFeedback>
-type ChatFoldersState = ReturnType<typeof useChatFolders>
 
 type ChatPageSidebarProps = {
-  user: User
   profile: UserProfile | null
   isSidebarCollapsed: boolean
   isCompactMobileSidebarLayout: boolean
@@ -31,13 +24,11 @@ type ChatPageSidebarProps = {
   greetingName: string
   avatarFallback: string
   subscriptionPlanName: string | null
-  showFoldersInSidebar: boolean
   showLearningPathsInSidebar: boolean
+  showFriendsInSidebar: boolean
   learningPaths: LearningPathSummary[]
   activeLearnPathId: string | null
   isLearnPathCreateDisabled: boolean
-  chatFolders: ChatFoldersState
-  openFolderMenuId: string | null
   threadSkeletonMounted: boolean
   threadSkeletonExiting: boolean
   isBootstrapping: boolean
@@ -55,31 +46,25 @@ type ChatPageSidebarProps = {
   sidebarNewChatTouch: GlassPillTouch
   renderThreadRow: (thread: ChatThread, threadIndex: number) => ReactNode
   onOpenBetaNotice: () => void
+  onGoHome: () => void
   onSidebarHeaderToggle: () => void
   onExpandSidebar: () => void
   onCreateNewChat: () => void
   onOpenSettings: () => void
   onOpenNews: () => void
   onOpenFriends: () => void
+  onCloseFriends: () => void
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
-  onCreateFolder: () => void
-  onOpenFolder: (folderId: string) => void
   onSelectLearningPath: (pathId: string) => void
   onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
   openLearningPathMenuId?: string | null
   onLearningPathContextMenu?: (event: MouseEvent, pathId: string) => void
-  selectedFolderId?: string | null
-  onFolderContextMenu: (folder: ChatFolder, event: React.MouseEvent) => void
-  onFolderLongPressStart: (folder: ChatFolder, event: React.TouchEvent) => void
-  onFolderLongPressMove: (event: React.TouchEvent) => void
-  onFolderLongPressEnd: () => void
   onThreadSkeletonTransitionEnd: () => void
   onShowLearnUnavailable: () => void
 }
 
 export function ChatPageSidebar({
-  user,
   profile,
   isSidebarCollapsed,
   isCompactMobileSidebarLayout,
@@ -88,13 +73,11 @@ export function ChatPageSidebar({
   greetingName,
   avatarFallback,
   subscriptionPlanName,
-  showFoldersInSidebar,
   showLearningPathsInSidebar,
+  showFriendsInSidebar,
   learningPaths,
   activeLearnPathId,
   isLearnPathCreateDisabled,
-  chatFolders,
-  openFolderMenuId,
   threadSkeletonMounted,
   threadSkeletonExiting,
   isBootstrapping,
@@ -112,29 +95,26 @@ export function ChatPageSidebar({
   sidebarNewChatTouch,
   renderThreadRow,
   onOpenBetaNotice,
+  onGoHome,
   onSidebarHeaderToggle,
   onExpandSidebar,
   onCreateNewChat,
   onOpenSettings,
   onOpenNews,
   onOpenFriends,
+  onCloseFriends,
   onOpenAdmin,
   onToggleCompactProfileSheet,
-    onCreateFolder,
-    onOpenFolder,
     onSelectLearningPath,
     onCreateLearningPath,
     openLearningPathMenuId = null,
     onLearningPathContextMenu,
-    selectedFolderId = null,
-    onFolderContextMenu,
-  onFolderLongPressStart,
-  onFolderLongPressMove,
-  onFolderLongPressEnd,
   onThreadSkeletonTransitionEnd,
   onShowLearnUnavailable,
 }: ChatPageSidebarProps) {
   const [isChatsSectionExpanded, setIsChatsSectionExpanded] = useState(true)
+  const [isFooterMoreExpanded, setIsFooterMoreExpanded] = useState(false)
+  const [isSettingsIconFlipped, setIsSettingsIconFlipped] = useState(false)
 
   return (
     <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
@@ -142,8 +122,22 @@ export function ChatPageSidebar({
         {!isSidebarCollapsed ? (
           <div className="chat-sidebar-header-row">
             <div className="chat-brand">
-              <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
-              <h2>Straton</h2>
+              <div
+                className="chat-brand-home-button"
+                role="button"
+                tabIndex={0}
+                aria-label="Zur Startseite"
+                onClick={onGoHome}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onGoHome()
+                  }
+                }}
+              >
+                <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
+                <h2>Straton</h2>
+              </div>
               {!isCompactMobileSidebarLayout ? (
                 <button type="button" className="ui-pill-badge ui-pill-badge--purple chat-beta-badge-button" onClick={onOpenBetaNotice}>
                   Beta
@@ -184,94 +178,6 @@ export function ChatPageSidebar({
             <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
           </button>
         ) : null}
-        <button
-          ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
-          type="button"
-          className={`chat-sidebar-nav-button chat-sidebar-new-chat-button chat-sidebar-new-chat-button--toolbar${
-            chatTourEligible ? ' chat-onboarding-tour-block' : ''
-          }`}
-          onClick={() => void onCreateNewChat()}
-          aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
-        >
-          <span className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon" aria-hidden="true" />
-          {!isSidebarCollapsed ? <span className="chat-sidebar-new-chat-label">Neuer Chat</span> : null}
-        </button>
-        <button
-          type="button"
-          className="chat-sidebar-nav-button"
-          onClick={onOpenSettings}
-          aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
-        >
-          <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
-          {!isSidebarCollapsed ? 'Einstellungen' : null}
-        </button>
-        <button
-          type="button"
-          className={`chat-sidebar-nav-button chat-sidebar-nav-button--news${
-            isSidebarCollapsed && newsUnreadCount > 0 ? ' is-collapsed-badge' : ''
-          }`}
-          onClick={onOpenNews}
-          aria-label={
-            isSidebarCollapsed
-              ? `Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`
-              : undefined
-          }
-        >
-          <img className="ui-icon chat-sidebar-top-button-icon" src={newsIcon} alt="" aria-hidden="true" />
-          {!isSidebarCollapsed ? (
-            <span className="chat-sidebar-nav-label-row">
-              Updates & Neuigkeiten
-              {newsUnreadCount > 0 ? (
-                <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
-                  {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
-                </span>
-              ) : null}
-            </span>
-          ) : newsUnreadCount > 0 ? (
-            <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
-              {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          className={`chat-sidebar-nav-button chat-sidebar-nav-button--friends${
-            isFriendsOverviewOpen ? ' is-active' : ''
-          }${isSidebarCollapsed && friendsIncomingCount > 0 ? ' is-collapsed-badge' : ''}`}
-          onClick={onOpenFriends}
-          aria-label={
-            isSidebarCollapsed
-              ? `Freunde${friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''}`
-              : undefined
-          }
-        >
-          <img className="ui-icon chat-sidebar-top-button-icon" src={userAddIcon} alt="" aria-hidden="true" />
-          {!isSidebarCollapsed ? (
-            <span className="chat-sidebar-nav-label-row">
-              Freunde
-              {friendsIncomingCount > 0 ? (
-                <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
-                  {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
-                </span>
-              ) : null}
-            </span>
-          ) : friendsIncomingCount > 0 ? (
-            <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
-              {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
-            </span>
-          ) : null}
-        </button>
-        {profile?.is_superadmin ? (
-          <button
-            type="button"
-            className="chat-sidebar-nav-button"
-            onClick={onOpenAdmin}
-            aria-label={isSidebarCollapsed ? 'Administrator' : undefined}
-          >
-            <img className="ui-icon chat-sidebar-top-button-icon" src={accountIcon} alt="" aria-hidden="true" />
-            {!isSidebarCollapsed ? 'Administrator' : null}
-          </button>
-        ) : null}
         {learnFeatureInfoVisible && !isSidebarCollapsed ? (
           <p className="chat-learn-feature-info chat-learn-feature-info--sidebar">Noch nicht verfügbar</p>
         ) : null}
@@ -280,21 +186,6 @@ export function ChatPageSidebar({
       <div className="chat-sidebar-list-wrap">
         {!isSidebarCollapsed ? (
           <div className="chat-thread-list">
-            {user && showFoldersInSidebar ? (
-              <ChatFolderSidebarSection
-                folders={chatFolders.folders}
-                threadsByFolderId={chatFolders.threadsByFolderId}
-                selectedFolderId={selectedFolderId}
-                openFolderMenuId={openFolderMenuId}
-                onCreateFolder={onCreateFolder}
-                onOpenFolder={onOpenFolder}
-                onFolderContextMenu={onFolderContextMenu}
-                onFolderLongPressStart={onFolderLongPressStart}
-                onFolderLongPressMove={onFolderLongPressMove}
-                onFolderLongPressEnd={onFolderLongPressEnd}
-                renderThreadRow={renderThreadRow}
-              />
-            ) : null}
             {showLearningPathsInSidebar ? (
               <ChatLearningPathsSidebarSection
                 sectionRef={learnTourRef}
@@ -318,6 +209,16 @@ export function ChatPageSidebar({
               />
               {isChatsSectionExpanded ? (
                 <>
+                  <button
+                    ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
+                    type="button"
+                    className={`chat-sidebar-dashed-create-btn${
+                      chatTourEligible ? ' chat-onboarding-tour-block' : ''
+                    }`}
+                    onClick={() => void onCreateNewChat()}
+                  >
+                    Neuer Chat
+                  </button>
                   {threadSkeletonMounted ? (
                     <ChatThreadListSkeleton
                       exiting={threadSkeletonExiting}
@@ -330,13 +231,6 @@ export function ChatPageSidebar({
                   {!isBootstrapping && !threadSkeletonMounted && threadsCount === 0 ? (
                     <p className="thread-list-info">Noch keine Chats vorhanden.</p>
                   ) : null}
-                  {!isBootstrapping &&
-                  !threadSkeletonMounted &&
-                  showFoldersInSidebar &&
-                  threadsCount > 0 &&
-                  chatFolders.threadsWithoutFolder.length === 0 ? (
-                    <p className="thread-list-info thread-list-info--muted">Alle Chats sind in Ordnern.</p>
-                  ) : null}
                 </>
               ) : null}
             </div>
@@ -345,10 +239,151 @@ export function ChatPageSidebar({
 
         <div className="chat-sidebar-footer-dock">
           <div className="chat-sidebar-bottom">
+            <div className="chat-sidebar-footer-divider" aria-hidden="true" />
+
+            <button
+              type="button"
+              className="chat-sidebar-footer-nav-button chat-sidebar-footer-settings-button"
+              onClick={() => {
+                setIsSettingsIconFlipped((prev) => !prev)
+                onOpenSettings()
+              }}
+              aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
+            >
+              <span
+                className={`chat-sidebar-footer-nav-icon chat-sidebar-footer-settings-icon${
+                  isSettingsIconFlipped ? ' is-flipped' : ''
+                }`}
+                aria-hidden="true"
+              />
+              {!isSidebarCollapsed ? 'Einstellungen' : null}
+            </button>
+
+            {profile?.is_superadmin ? (
+              <button
+                type="button"
+                className="chat-sidebar-footer-nav-button chat-sidebar-footer-admin-button"
+                onClick={onOpenAdmin}
+                aria-label={isSidebarCollapsed ? 'Administrator' : undefined}
+              >
+                <span className="chat-sidebar-footer-nav-icon chat-sidebar-footer-admin-icon" aria-hidden="true" />
+                {!isSidebarCollapsed ? 'Administrator' : null}
+              </button>
+            ) : null}
+
+            {isSidebarCollapsed ? (
+              <>
+                <button
+                  type="button"
+                  className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--news${
+                    newsUnreadCount > 0 ? ' is-collapsed-badge' : ''
+                  }`}
+                  onClick={onOpenNews}
+                  aria-label={`Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`}
+                >
+                  <img className="ui-icon chat-sidebar-footer-nav-icon" src={newsIcon} alt="" aria-hidden="true" />
+                  {newsUnreadCount > 0 ? (
+                    <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                      {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                    </span>
+                  ) : null}
+                </button>
+                {showFriendsInSidebar ? (
+                  <button
+                    type="button"
+                    className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--friends${
+                      isFriendsOverviewOpen ? ' is-active' : ''
+                    }${friendsIncomingCount > 0 ? ' is-collapsed-badge' : ''}`}
+                    onClick={onOpenFriends}
+                    aria-label={`Freunde${
+                      friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''
+                    }`}
+                  >
+                    <img className="ui-icon chat-sidebar-footer-nav-icon" src={userAddIcon} alt="" aria-hidden="true" />
+                    {friendsIncomingCount > 0 ? (
+                      <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                        {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="chat-sidebar-footer-nav-button chat-sidebar-footer-more-button"
+                  aria-expanded={isFooterMoreExpanded}
+                  onClick={() => {
+                    setIsFooterMoreExpanded((prev) => {
+                      const next = !prev
+                      if (!next && isFriendsOverviewOpen) {
+                        onCloseFriends()
+                      }
+                      return next
+                    })
+                  }}
+                >
+                  <span
+                    className={`chat-sidebar-footer-more-dots${isFooterMoreExpanded ? ' is-open' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--l" />
+                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--c" />
+                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--r" />
+                  </span>
+                  <span className="chat-sidebar-nav-label-row">Mehr</span>
+                </button>
+                <div className={`chat-sidebar-footer-more-panel${isFooterMoreExpanded ? ' is-open' : ''}`}>
+                  <div className="chat-sidebar-footer-more-panel-inner">
+                    <button type="button" className="chat-sidebar-footer-subnav-button" onClick={onOpenNews}>
+                      <img className="ui-icon chat-sidebar-footer-nav-icon" src={newsIcon} alt="" aria-hidden="true" />
+                      <span className="chat-sidebar-nav-label-row">
+                        Updates & Neuigkeiten
+                        {newsUnreadCount > 0 ? (
+                          <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                            {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                    {showFriendsInSidebar ? (
+                      <button
+                        type="button"
+                        className={`chat-sidebar-footer-subnav-button${isFriendsOverviewOpen ? ' is-active' : ''}`}
+                        onClick={onOpenFriends}
+                      >
+                        <img
+                          className="ui-icon chat-sidebar-footer-nav-icon"
+                          src={userAddIcon}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                        <span className="chat-sidebar-nav-label-row">
+                          Freunde
+                          {friendsIncomingCount > 0 ? (
+                            <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                              {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="chat-sidebar-footer-divider" aria-hidden="true" />
+
             <div className="account-profile-row">
               <div
                 ref={profileMenuRef}
-                className={`account-profile chat-sidebar-profile-card${isCompactMobileSidebarLayout ? ' chat-sidebar-profile-badge' : ''}`}
+                className={`account-profile${
+                  isCompactMobileSidebarLayout
+                    ? ' chat-sidebar-profile-badge chat-sidebar-profile-card'
+                    : ' chat-sidebar-profile-flat'
+                }`}
                 role={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 'button' : undefined}
                 tabIndex={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 0 : undefined}
                 onClick={

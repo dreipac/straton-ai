@@ -11,7 +11,6 @@ import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { AccountSettingsSection } from '../features/settings/components/AccountSettingsSection'
-import { ChatSettingsSection } from '../features/settings/components/ChatSettingsSection'
 import { ArchivedChatsSettingsSection } from '../features/settings/components/ArchivedChatsSettingsSection'
 import { ChatInvitationsSection } from '../features/settings/components/ChatInvitationsSection'
 import { ErrorStatusSettingsSection } from '../features/settings/components/ErrorStatusSettingsSection'
@@ -77,7 +76,6 @@ import {
 export type SettingsSectionId =
   | 'general'
   | 'straton'
-  | 'chat'
   | 'introduction'
   | 'invitations'
   | 'archived-chats'
@@ -113,6 +111,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     error,
     isConfigured,
     updateAutoRemoveEmptyChats,
+    updateAutoRemoveEmptyLearningPaths,
     updateProfileNames,
     uploadProfileAvatar,
     removeProfileAvatar,
@@ -181,6 +180,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
   const [desktopFoldersInSidebar, setDesktopFoldersInSidebar] = useState(() => readDesktopFoldersInSidebar())
   const [chatFoldersFeatureEnabled, setChatFoldersFeatureEnabled] = useState(true)
   const [isUpdatingChatSetting, setIsUpdatingChatSetting] = useState(false)
+  const [isUpdatingLearningPathSetting, setIsUpdatingLearningPathSetting] = useState(false)
   const [isCleaningEmptyChats, setIsCleaningEmptyChats] = useState(false)
   const [chatCleanupInfo, setChatCleanupInfo] = useState<string | null>(null)
   const [languageFeedback, setLanguageFeedback] = useState<string | null>(null)
@@ -348,23 +348,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
                   ? 'Ajustes generales'
             : 'Allgemeine Einstellungen',
       icon: generalIcon,
-    },
-    {
-      id: 'chat',
-      label: 'Chat',
-      title:
-        language === 'en'
-          ? 'Chat Settings'
-          : language === 'hr'
-            ? 'Chat postavke'
-            : language === 'it'
-              ? 'Impostazioni chat'
-              : language === 'sq'
-                ? 'Cilësimet e chat-it'
-                : language === 'es-PE'
-                  ? 'Ajustes de chat'
-                  : 'Chat Einstellungen',
-      icon: newMessageIcon,
     },
     {
       id: 'invitations',
@@ -689,6 +672,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
     ? sections.filter((section) => section.label.toLocaleLowerCase().includes(normalizedMenuSearchQuery))
     : sections
   const autoRemoveEmptyChats = profile?.auto_remove_empty_chats ?? true
+  const autoRemoveEmptyLearningPaths = profile?.auto_remove_empty_learning_paths ?? true
 
   async function handleSaveIntroduction(value: IntroductionEditorValue) {
     await updateUserIntroduction({
@@ -875,6 +859,15 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
       await updateAutoRemoveEmptyChats(!autoRemoveEmptyChats)
     } finally {
       setIsUpdatingChatSetting(false)
+    }
+  }
+
+  async function handleToggleAutoRemoveEmptyLearningPaths() {
+    try {
+      setIsUpdatingLearningPathSetting(true)
+      await updateAutoRemoveEmptyLearningPaths(!autoRemoveEmptyLearningPaths)
+    } finally {
+      setIsUpdatingLearningPathSetting(false)
     }
   }
 
@@ -1087,7 +1080,27 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
 
       <section className="settings-body">
         {activeSection === 'general' ? (
-          <GeneralSettingsSection language={language} onChangeLanguage={handleChangeLanguage} />
+          <GeneralSettingsSection
+            language={language}
+            onChangeLanguage={handleChangeLanguage}
+            assistantEmojisEnabled={assistantEmojisEnabled}
+            onToggleAssistantEmojis={handleToggleAssistantEmojis}
+            mobileComposerCompact={mobileComposerCompact}
+            onToggleMobileComposerCompact={handleToggleMobileComposerCompact}
+            chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
+            desktopFoldersInSidebar={desktopFoldersInSidebar}
+            onToggleDesktopFoldersInSidebar={handleToggleDesktopFoldersInSidebar}
+            autoRemoveEmptyChats={autoRemoveEmptyChats}
+            isUpdatingChatSetting={isUpdatingChatSetting}
+            autoRemoveEmptyLearningPaths={autoRemoveEmptyLearningPaths}
+            isUpdatingLearningPathSetting={isUpdatingLearningPathSetting}
+            isCleaningEmptyChats={isCleaningEmptyChats}
+            chatCleanupInfo={chatCleanupInfo}
+            disableCleanup={!user}
+            onToggleAutoRemoveEmptyChats={handleToggleAutoRemoveEmptyChats}
+            onToggleAutoRemoveEmptyLearningPaths={handleToggleAutoRemoveEmptyLearningPaths}
+            onCleanupEmptyChats={handleCleanupEmptyChats}
+          />
         ) : null}
         {activeSection === 'straton' ? <StratonSettingsSection /> : null}
         {activeSection === 'personalize' ? (
@@ -1114,25 +1127,6 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             profile={profile}
             disableActions={!isConfigured || !user}
             onSaveIntroduction={handleSaveIntroduction}
-          />
-        ) : null}
-        {activeSection === 'chat' ? (
-          <ChatSettingsSection
-            language={language}
-            assistantEmojisEnabled={assistantEmojisEnabled}
-            onToggleAssistantEmojis={handleToggleAssistantEmojis}
-            mobileComposerCompact={mobileComposerCompact}
-            onToggleMobileComposerCompact={handleToggleMobileComposerCompact}
-            chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
-            desktopFoldersInSidebar={desktopFoldersInSidebar}
-            onToggleDesktopFoldersInSidebar={handleToggleDesktopFoldersInSidebar}
-            autoRemoveEmptyChats={autoRemoveEmptyChats}
-            isUpdatingChatSetting={isUpdatingChatSetting}
-            isCleaningEmptyChats={isCleaningEmptyChats}
-            chatCleanupInfo={chatCleanupInfo}
-            disableCleanup={!user}
-            onToggleAutoRemoveEmptyChats={handleToggleAutoRemoveEmptyChats}
-            onCleanupEmptyChats={handleCleanupEmptyChats}
           />
         ) : null}
         {activeSection === 'invitations' ? <ChatInvitationsSection userId={user?.id} /> : null}
@@ -1220,6 +1214,7 @@ export function SettingsModal({ onClose, initialSection = 'general', variant = '
             <>
               {settingsSidebar}
               {settingsMain}
+              <span className="settings-modal-squircle-border squircle" aria-hidden="true" />
             </>
           )}
         </section>

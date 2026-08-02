@@ -238,6 +238,16 @@ function resolveConceptSkillId(skillTag: string | undefined, fallback: () => str
   return slug ? `concept:${slug}` : fallback()
 }
 
+/**
+ * Modul-weiter Cache für bereits geladene Lernpfad-Datensätze. `LearnPage` wird im eingebetteten
+ * Chat-Modus bei jedem Schließen/Öffnen des Lernbereichs komplett neu gemountet (siehe ChatPage.tsx,
+ * `{isLearnWorkspaceOpen ? <LearnPage .../> : null}`). Läge dieser Cache in einem komponentenlokalen
+ * `useRef`, ginge er bei jedem Remount verloren — dadurch hielt die App bereits fertig generierte
+ * Lernpfade beim erneuten Öffnen fälschlich für "neu" und zeigte kurz den "wird vorbereitet"-Backdrop.
+ * Als Modul-Variable übersteht der Cache den Remount und wird nur bei echtem Logout geleert.
+ */
+const learningPathCacheStore: { current: Record<string, LearningPathRecord> } = { current: {} }
+
 export type LearnPageProps = {
   /** Eingebettet im Chat-Hauptbereich (ohne eigene Learn-Sidebar). */
   embedded?: boolean
@@ -466,7 +476,7 @@ export function LearnPage({
 
   const suppressAutosaveRef = useRef(false)
   const activePathIdRef = useRef('')
-  const pathCacheRef = useRef<Record<string, LearningPathRecord>>({})
+  const pathCacheRef = learningPathCacheStore
   const chatDraftImportDoneRef = useRef(false)
   const parentDrivenPathIdRef = useRef<string | null>(null)
   const embeddedCreateInFlightRef = useRef(false)
@@ -753,7 +763,7 @@ export function LearnPage({
     snapshot: editableSnapshot,
   })
 
-  const autoRemoveEmptyLearningPaths = profile?.auto_remove_empty_chats ?? true
+  const autoRemoveEmptyLearningPaths = profile?.auto_remove_empty_learning_paths ?? true
 
   const {
     handleCreateLearningPath,
@@ -1086,13 +1096,7 @@ export function LearnPage({
         if (autoRemoveEmptyLearningPaths && !deferDefaultPathSelection) {
           await deleteEmptyLearningPathsByUserId(userId).catch(() => {})
         }
-        const loaded = await listLearningPathsByUserId(userId)
-        const records =
-          loaded.length > 0
-            ? loaded
-            : deferDefaultPathSelection
-              ? loaded
-              : [await createLearningPathByUserId(userId, 'Neuer Lernpfad')]
+        const records = await listLearningPathsByUserId(userId)
 
         if (!isMounted || chatDraftImportDoneRef.current) {
           return
@@ -3957,6 +3961,7 @@ export function LearnPage({
     learnWorksheets.length > 0 ||
     tutorMessages.length > 0
   const showSetupFlow = !isSetupComplete && !hasExistingLearnContent
+  const hasNoLearningPaths = learningPaths.length === 0
   const workspaceDisplayPath =
     embedded && isSwitchingLearningPath && controlledPathId
       ? learningPaths.find((entry) => entry.id === controlledPathId) ?? activePath
@@ -4166,13 +4171,29 @@ export function LearnPage({
             {learnAreaBannerEnabled && learnAreaBannerText.trim() ? (
               <LearnAreaAdminBanner text={learnAreaBannerText} />
             ) : null}
-            <header className="learn-workspace-header">
-              <span className="learn-workspace-title-icon" aria-hidden="true" />
-              <h1 className="learn-page-title-text">{getDisplayPathTitle(workspaceDisplayPath?.title ?? '')}</h1>
-            </header>
+            {hasNoLearningPaths ? null : (
+              <header className="learn-workspace-header">
+                <span className="learn-workspace-title-icon" aria-hidden="true" />
+                <h1 className="learn-page-title-text">{getDisplayPathTitle(workspaceDisplayPath?.title ?? '')}</h1>
+              </header>
+            )}
             {error ? <p className="error-text">{error}</p> : null}
 
-            {isPathWorkspaceBusy ? (
+            {hasNoLearningPaths ? (
+              <div className="learn-empty-paths">
+                <span className="learn-empty-paths-icon" aria-hidden="true" />
+                <h2 className="learn-empty-paths-title">Erstelle deinen ersten Lernpfad</h2>
+                <p className="learn-empty-paths-subtitle">
+                  Lade dein Lernmaterial hoch und Straton baut dir einen personalisierten Lernpfad.
+                </p>
+                <PrimaryButton type="button" onClick={() => void handleCreateLearningPath()}>
+                  <span className="learn-empty-paths-create-plus" aria-hidden="true">
+                    +
+                  </span>
+                  Lernpfad erstellen
+                </PrimaryButton>
+              </div>
+            ) : isPathWorkspaceBusy ? (
               <div className="learn-path-workspace-loader" aria-busy="true">
                 <ChatPendingReplyLoader statusLabel="Lernpfad wird vorbereitet …" />
               </div>

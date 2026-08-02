@@ -32,6 +32,7 @@ import { useFriends } from '../features/friends/hooks/useFriends'
 import type { ChatFriendsOverviewTab } from '../features/friends/types'
 import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
+import { ChatHomeDashboard } from '../features/chat/components/ChatHomeDashboard'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import { useChat } from '../features/chat/hooks/useChat'
 import { useChatFolders } from '../features/chat/hooks/useChatFolders'
@@ -65,6 +66,7 @@ export function ChatPage() {
   const { unreadCount: newsUnreadCount } = useNewsUnreadCount(Boolean(user))
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const threadIdFromUrl = searchParams.get('thread')
   /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
   const isNarrowViewport = useIsMobileViewport()
   /** Wie Freigabe-Leiste: max-width 860px — Comfort/Strict nativ in der Oberleiste. */
@@ -128,6 +130,7 @@ export function ChatPage() {
   const {
     instantAnalyzeDebugEnabled,
     chatFoldersFeatureEnabled,
+    friendsFeatureEnabled,
     showBetaNoticeOnFirstLogin,
     isAdmin,
     isLearnPathsButtonDisabled,
@@ -189,6 +192,7 @@ export function ChatPage() {
     deleteChat,
     leaveSharedChatAsMember,
     selectChat,
+    clearActiveThread,
     composerModelId,
     setComposerModelId,
     chatReplyMode,
@@ -218,6 +222,7 @@ export function ChatPage() {
     subscriptionUsage: chatSubscriptionUsage,
     customModeAllowed,
     resolveThreadFolderContext,
+    initialThreadId: threadIdFromUrl,
   })
   const chatFolders = useChatFolders(user?.id, threads)
   chatFoldersRef.current = chatFolders
@@ -246,6 +251,52 @@ export function ChatPage() {
   const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl && !isLearnWorkspaceOpen)
   const friendsState = useFriends(user?.id)
   const learningPathsSidebar = useLearningPathsSidebar(user?.id)
+  /** Home-Dashboard: kein Chat aktiv, keine andere Ansicht offen, aber es gibt bereits Lernpfade. */
+  const isHomeDashboardOpen = Boolean(
+    user &&
+      !activeThreadId &&
+      !isLearnWorkspaceOpen &&
+      !isFolderOverviewOpen &&
+      !isFriendsOverviewOpen &&
+      !learningPathsSidebar.isLoading &&
+      learningPathsSidebar.learningPaths.length > 0,
+  )
+  const homeDashboardSortedPaths = useMemo(() => {
+    if (!isHomeDashboardOpen) {
+      return []
+    }
+    return [...learningPathsSidebar.learningPaths].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }, [isHomeDashboardOpen, learningPathsSidebar.learningPaths])
+  const homeDashboardContinuePath = useMemo(() => {
+    const mostRecent = homeDashboardSortedPaths[0]
+    if (!mostRecent) {
+      return null
+    }
+    const total = mostRecent.totalTopicsCount ?? 0
+    const mastered = mostRecent.masteredTopicsCount ?? 0
+    return {
+      id: mostRecent.id,
+      title: mostRecent.title.trim() || 'Neuer Lernpfad',
+      currentTopicTitle: mostRecent.currentTopicTitle ?? '',
+      currentSubstepTitle: mostRecent.currentSubstepTitle ?? '',
+      percent: total > 0 ? (mastered / total) * 100 : 0,
+    }
+  }, [homeDashboardSortedPaths])
+  const homeDashboardAllPaths = useMemo(
+    () =>
+      homeDashboardSortedPaths.map((path) => {
+        const total = path.totalTopicsCount ?? 0
+        const mastered = path.masteredTopicsCount ?? 0
+        return {
+          id: path.id,
+          title: path.title.trim() || 'Neuer Lernpfad',
+          masteredCount: mastered,
+          totalCount: total,
+          percent: total > 0 ? (mastered / total) * 100 : 0,
+        }
+      }),
+    [homeDashboardSortedPaths],
+  )
   const folderOverviewThreads = useMemo(() => {
     if (!activeOverviewFolder) {
       return []
@@ -332,7 +383,6 @@ export function ChatPage() {
     setIsMobileFoldersOpen,
     isCompactMobileSidebarLayout,
     chatTourOverlayActive,
-    showFoldersInSidebar,
     isMobileFoldersTabDisabled,
     swipeOpenThreadId,
     setSwipeOpenThreadId,
@@ -353,7 +403,7 @@ export function ChatPage() {
     setGuestOptimisticPillTabIndex,
   } = mobileShell
 
-  const sidebarThreadList = showFoldersInSidebar ? chatFolders.threadsWithoutFolder : threads
+  const sidebarThreadList = threads
 
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
 
@@ -395,6 +445,7 @@ export function ChatPage() {
 
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
   const learnTourRef = useRef<HTMLDivElement | null>(null)
+  const hasHandledInitialLearnLandingRef = useRef(false)
 
   useEffect(() => {
     if (!chatFoldersFeatureEnabled) {
@@ -444,6 +495,85 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- closeFriendsOverview is stable URL helper
   }, [isFriendsOverviewFromUrl, user])
 
+  /**
+   * Lern- und Chatbereich sind vereint: beim erstmaligen Landen (kein expliziter Deep-Link, z. B.
+   * kein `?thread=`) soll jemand ohne Lernpfade zuerst den "Ersten Lernpfad erstellen"-Bereich
+   * sehen statt automatisch im letzten Chat zu landen (dieser bleibt dann auch in der Sidebar
+   * unmarkiert, da `activeThreadId` in diesem Fall bewusst nicht gesetzt wird). Gibt es bereits
+   * Lernpfade, wird stattdessen der zuletzt bearbeitete Chat aktiviert. Feuert nur einmal pro
+   * Sitzung (Ref-Guard), damit spätere Navigation (z. B. bewusst zu einem Chat wechseln) nicht
+   * wieder zurück in den Lernbereich zwingt.
+   */
+  useEffect(() => {
+    if (hasHandledInitialLearnLandingRef.current) {
+      return
+    }
+    if (!user || isLearnPathsButtonDisabled || learningPathsSidebar.isLoading || isBootstrapping) {
+      return
+    }
+    hasHandledInitialLearnLandingRef.current = true
+    if (
+      folderIdFromUrl ||
+      isFriendsOverviewFromUrl ||
+      learnPathIdFromUrl ||
+      pendingCreateLearningPath ||
+      threadIdFromUrl ||
+      searchParams.get('learn') === '1'
+    ) {
+      return
+    }
+    goToStartPage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- goToStartPage ist eine stabile, in der Komponente definierte Handler-Funktion
+  }, [
+    user,
+    isLearnPathsButtonDisabled,
+    learningPathsSidebar.isLoading,
+    learningPathsSidebar.learningPaths.length,
+    isBootstrapping,
+    threadIdFromUrl,
+    folderIdFromUrl,
+    isFriendsOverviewFromUrl,
+    learnPathIdFromUrl,
+    pendingCreateLearningPath,
+    searchParams,
+    setSearchParams,
+    clearActiveThread,
+  ])
+
+  /**
+   * Hält den `?thread=`-Link mit dem aktiven Chat synchron (eigener Link pro Chat, Reload landet
+   * wieder im selben Chat) — außer gerade ein anderer Bereich (Lernpfad/Ordner/Freunde) offen ist,
+   * dessen eigene Deep-Link-Parameter Vorrang haben.
+   */
+  useEffect(() => {
+    if (isLearnWorkspaceOpen || isFolderOverviewOpen || isFriendsOverviewOpen) {
+      return
+    }
+    const currentThreadParam = searchParams.get('thread')
+    if (activeThreadId === currentThreadParam) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (activeThreadId) {
+          next.set('thread', activeThreadId)
+        } else {
+          next.delete('thread')
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }, [
+    activeThreadId,
+    isLearnWorkspaceOpen,
+    isFolderOverviewOpen,
+    isFriendsOverviewOpen,
+    searchParams,
+    setSearchParams,
+  ])
+
   function clearOverlaySearchParams(params: URLSearchParams) {
     params.delete('folder')
     params.delete('tab')
@@ -464,6 +594,31 @@ export function ChatPage() {
       },
       { replace: true },
     )
+  }
+
+  /**
+   * "Startseite": alle Deep-Links (Ordner/Freunde/Lernpfad/Chat) verwerfen und neu entscheiden —
+   * ohne Lernpfade landet man im leeren Lernbereich (kein Chat in der Sidebar markiert), sonst auf
+   * dem Home-Dashboard (Begrüssung + "Weitermachen"-Karte zum letzten Lernpfad), ebenfalls ohne
+   * markierten Chat. Gleiche Logik wie beim erstmaligen Landen, hier aber jederzeit erneut
+   * auslösbar (Klick auf das Straton-Logo).
+   */
+  function goToStartPage() {
+    const shouldShowLearnLanding = learningPathsSidebar.learningPaths.length === 0 && !isLearnPathsButtonDisabled
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.delete('thread')
+        if (shouldShowLearnLanding) {
+          next.set('learn', '1')
+        }
+        return next
+      },
+      { replace: true },
+    )
+    clearActiveThread()
+    setIsMobileSidebarOpen(false)
   }
 
   function closeFolderOverview() {
@@ -803,13 +958,21 @@ export function ChatPage() {
     setIsMobileFoldersOpen(false)
   }
 
+  /**
+   * Zeigt in der Chat-Liste keinen Chat als aktiv an, solange ein anderer Bereich (Lernpfad/
+   * Ordner/Freunde) den Hauptinhalt überlagert — sonst bliebe z. B. beim automatischen Landen im
+   * leeren Lernbereich (keine Lernpfade) der zuletzt bearbeitete Chat fälschlich markiert.
+   */
+  const sidebarActiveThreadId =
+    isLearnWorkspaceOpen || isFolderOverviewOpen || isFriendsOverviewOpen ? null : activeThreadId
+
   function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
     return (
       <ChatSidebarThreadRow
         key={thread.id}
         thread={thread}
         threadIndex={threadIndex}
-        activeThreadId={activeThreadId}
+        activeThreadId={sidebarActiveThreadId}
         openMenuThreadId={pageMenus.openMenuThreadId}
         swipeOpenThreadId={swipeOpenThreadId}
         pressingThreadId={pageMenus.pressingThreadId}
@@ -943,7 +1106,6 @@ export function ChatPage() {
       }${pageEnterShellClass}`}
     >
       <ChatPageSidebar
-        user={user}
         profile={profile}
         isSidebarCollapsed={isSidebarCollapsed}
         isCompactMobileSidebarLayout={isCompactMobileSidebarLayout}
@@ -953,8 +1115,8 @@ export function ChatPage() {
         greetingName={greetingName}
         avatarFallback={avatarFallback}
         subscriptionPlanName={subscriptionPlanName}
-        showFoldersInSidebar={showFoldersInSidebar}
         showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+        showFriendsInSidebar={friendsFeatureEnabled}
         learningPaths={learningPathsSidebar.learningPaths}
         activeLearnPathId={learnPathIdFromUrl}
         isLearnPathCreateDisabled={
@@ -962,8 +1124,6 @@ export function ChatPage() {
           pendingCreateLearningPath ||
           learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
         }
-        chatFolders={chatFolders}
-        openFolderMenuId={pageMenus.openFolderMenuId}
         threadSkeletonMounted={threadSkeletonMounted}
         threadSkeletonExiting={threadSkeletonExiting}
         isBootstrapping={isBootstrapping}
@@ -979,6 +1139,7 @@ export function ChatPage() {
         sidebarNewChatTouch={sidebarNewChatTouch}
         renderThreadRow={renderSidebarThreadRow}
         onOpenBetaNotice={() => pageModals.openBetaNoticeModal(false)}
+        onGoHome={goToStartPage}
         onSidebarHeaderToggle={handleSidebarHeaderToggleClick}
         onExpandSidebar={() => {
           hapticLightImpact()
@@ -990,21 +1151,15 @@ export function ChatPage() {
         onOpenSettings={() => pageModals.openSettingsModal()}
         onOpenNews={pageModals.openNewsModal}
         onOpenFriends={() => openFriendsOverview('friends')}
+        onCloseFriends={closeFriendsOverview}
         friendsIncomingCount={friendsState.incomingCount}
         isFriendsOverviewOpen={isFriendsOverviewOpen}
         onOpenAdmin={pageModals.openAdminModal}
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
-        onCreateFolder={pageMenus.openCreateFolderSheet}
-        onOpenFolder={openFolderOverview}
         onSelectLearningPath={(pathId) => openLearnWorkspace(pathId)}
         onCreateLearningPath={(mode) => openLearnWorkspace(undefined, { create: true, createMode: mode })}
         openLearningPathMenuId={learningPathMenus.openMenuPathId}
         onLearningPathContextMenu={learningPathMenus.openLearningPathContextMenu}
-        selectedFolderId={activeOverviewFolder?.id ?? null}
-        onFolderContextMenu={pageMenus.openFolderContextMenu}
-        onFolderLongPressStart={pageMenus.handleFolderLongPressTouchStart}
-        onFolderLongPressMove={pageMenus.handleFolderLongPressTouchMove}
-        onFolderLongPressEnd={pageMenus.handleFolderLongPressTouchEnd}
         onThreadSkeletonTransitionEnd={handleThreadSkeletonTransitionEnd}
         onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
       />
@@ -1014,8 +1169,17 @@ export function ChatPage() {
           isFolderOverviewOpen ? ' is-folder-overview-active' : ''
         }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}${
           isLearnWorkspaceOpen ? ' is-learn-workspace-active' : ''
-        }`}
+        }${isHomeDashboardOpen ? ' is-home-dashboard-active' : ''}`}
       >
+        {isHomeDashboardOpen ? (
+          <ChatHomeDashboard
+            greetingName={greetingName}
+            learningPathsCount={learningPathsSidebar.learningPaths.length}
+            continuePath={homeDashboardContinuePath}
+            allPaths={homeDashboardAllPaths}
+            onOpenPath={(pathId) => openLearnWorkspace(pathId)}
+          />
+        ) : null}
         {isLearnWorkspaceOpen ? (
           <LearnPage
             embedded

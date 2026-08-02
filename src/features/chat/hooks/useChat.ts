@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabaseClient } from '../../../integrations/supabase/client'
 import { useSystemPrompts } from '../../systemPrompts/useSystemPrompts'
-import {
-  CHAT_THREADS_REFRESH_EVENT,
-  CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY,
-  type ChatThreadsRefreshDetail,
-} from '../constants/events'
+import { CHAT_THREADS_REFRESH_EVENT, type ChatThreadsRefreshDetail } from '../constants/events'
 import { stripChartCommandMarker, userWantsChartExport } from '../constants/chartExportPrompt'
 import { stripDiagramCommandMarker, userWantsDiagramExport } from '../constants/diagramExportPrompt'
 import { stripExcelCommandMarker, userWantsExcelExport } from '../constants/excelExportPrompt'
@@ -288,32 +284,6 @@ function getMessagesByThread(
   }, {})
 }
 
-function readLastActiveThreadId(): string | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-  try {
-    return sessionStorage.getItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-function persistLastActiveThreadId(threadId: string | null) {
-  if (typeof window === 'undefined') {
-    return
-  }
-  try {
-    if (threadId) {
-      sessionStorage.setItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY, threadId)
-    } else {
-      sessionStorage.removeItem(CHAT_LAST_ACTIVE_THREAD_STORAGE_KEY)
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 function threadLikelyHasMessages(thread: ChatThread): boolean {
   return thread.updatedAt !== thread.createdAt
 }
@@ -457,9 +427,12 @@ export function useChat(
     resolveThreadFolderContext?: (
       threadId: string,
     ) => Promise<import('../constants/folderSourceIntent').ChatThreadFolderContext | null>
+    /** Thread-ID aus dem URL-Link (`?thread=`), einmalig beim ersten Laden bevorzugt aktiviert. */
+    initialThreadId?: string | null
   },
 ) {
   const { getPrompt } = useSystemPrompts()
+  const initialThreadIdRef = useRef(options?.initialThreadId ?? null)
   const [threads, setThreads] = useState<ChatThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messagesByThreadId, setMessagesByThreadId] = useState<Record<string, ChatMessage[]>>({})
@@ -653,10 +626,6 @@ export function useChat(
         if (currentId && nextThreads.some((thread) => thread.id === currentId)) {
           return currentId
         }
-        const storedId = readLastActiveThreadId()
-        if (storedId && nextThreads.some((thread) => thread.id === storedId)) {
-          return storedId
-        }
         return null
       })
     },
@@ -774,7 +743,7 @@ export function useChat(
       setError(null)
 
       try {
-        await refreshThreadsFromServer(currentUserId, true)
+        await refreshThreadsFromServer(currentUserId, true, initialThreadIdRef.current)
       } catch (err) {
         if (isMounted) {
           setError(err instanceof Error ? err.message : 'Chats konnten nicht geladen werden.')
@@ -792,10 +761,6 @@ export function useChat(
       isMounted = false
     }
   }, [userId, refreshThreadsFromServer])
-
-  useEffect(() => {
-    persistLastActiveThreadId(activeThreadId)
-  }, [activeThreadId])
 
   useEffect(() => {
     if (!activeThreadId || isBootstrapping) {
@@ -1444,6 +1409,19 @@ export function useChat(
       setActiveThreadId(threadId)
       setError(err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden.')
     }
+  }
+
+  function clearActiveThread() {
+    setThinkingClarifyDialog(null)
+    if (autoRemoveEmptyChats && activeThreadId) {
+      const activeThread = threads.find((thread) => thread.id === activeThreadId)
+      const hasMessages = (messagesByThreadId[activeThreadId]?.length ?? 0) > 0
+
+      if (activeThread?.isTemporary && !activeThread.isRemoving && !hasMessages) {
+        removeTemporaryThread(activeThreadId)
+      }
+    }
+    setActiveThreadId(null)
   }
 
   async function submitMessage(content: string, sendOpts?: ChatSendMessageOptions) {
@@ -3564,6 +3542,7 @@ export function useChat(
     archiveChat,
     leaveSharedChatAsMember,
     selectChat,
+    clearActiveThread,
     canSend,
     composerModelId: effectiveComposerModelId,
     setComposerModelId: persistComposerModelId,
