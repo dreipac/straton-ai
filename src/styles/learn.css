@@ -4323,16 +4323,18 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   gap: 0.65rem;
   width: 100%;
   margin: 0;
-  border: none;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 3px;
   background: color-mix(in srgb, var(--color-text-app) 5%, var(--color-surface));
   color: var(--color-text-app);
   border-radius: 12px;
-  padding: 0.62rem 0.75rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   cursor: pointer;
   box-shadow: none;
   transition:
     background-color 160ms ease,
+    border-color 160ms ease,
     box-shadow 200ms ease,
     color 160ms ease;
   font: inherit;
@@ -4345,6 +4347,7 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 .learn-entry-test-option.is-selected {
   background: color-mix(in srgb, #2563eb 12%, var(--color-surface));
   color: var(--color-text-app);
+  border-color: #2563eb;
   box-shadow: 0 4px 18px color-mix(in srgb, #2563eb 20%, transparent);
 }
 
@@ -4427,6 +4430,7 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 .learn-entry-test-option.is-correct {
   background: color-mix(in srgb, #16a34a 14%, var(--color-surface));
   color: var(--color-text-app);
+  border-color: #16a34a;
 }
 
 .learn-entry-test-option.is-correct.is-selected {
@@ -4436,6 +4440,7 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 .learn-entry-test-option.is-wrong {
   background: color-mix(in srgb, #dc2626 12%, var(--color-surface));
   color: var(--color-text-app);
+  border-color: #dc2626;
 }
 
 .learn-entry-test-option.is-wrong.is-selected {
@@ -4445,6 +4450,23 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 .learn-entry-test-option:disabled {
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+/* Nummer-Badge rechts: Squircle-Rand ohne Fläche (border-only), analog zum Settings-Muster. */
+.learn-entry-test-option-number {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  --squircle-fill: transparent;
+  --squircle-stroke: var(--color-border);
+  --squircle-radius: 7px;
+  --squircle-border-width: 1.5px;
 }
 
 .learn-entry-test-feedback {
@@ -4507,11 +4529,10 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
 
 .learn-chapter-modal-header {
   padding: 0.84rem 1rem 0.7rem;
-  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.8rem;
+  justify-content: flex-start;
+  gap: 0.6rem;
 }
 
 .learn-chapter-modal-header-actions {
@@ -4573,27 +4594,75 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   padding-right: 0.25rem;
 }
 
-/* Fragen liegen direkt auf dem Hintergrund — keine umschliessende Karte, kein Strecken. */
+.learn-chapter-workspace .learn-chapter-top-progress-row {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+/* Fragen liegen direkt auf dem Hintergrund — keine umschliessende Karte, kein Strecken.
+   Flex statt Grid: die Frage bleibt oben direkt unter dem Fortschrittsbalken, die Antwortzone
+   (Optionen/Freitext) füllt den Rest der Karte und zentriert sich darin vertikal, rechtsbündig. */
 .learn-chapter-workspace .learn-chapter-modal-body {
+  display: flex;
+  flex-direction: column;
   padding: 1.5rem clamp(1rem, 4vw, 2.4rem) 1.8rem;
-  align-content: start;
 }
 
 .learn-chapter-workspace .learn-chapter-step-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: clamp(0.5rem, 5vw, 3.5rem);
   border: none;
   background: transparent;
   border-radius: 0;
   padding: 0;
-  align-content: start;
   gap: 1rem;
+}
+
+/* Erklärschritt: Illustration links (max. 1 pro Teilthema, freigestellt), Inhalt rechts davon —
+   dieselbe Rechts-Ausrichtung wie bei Fragen, die Illustration füllt den frei werdenden Platz links. */
+.learn-chapter-explanation-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+  width: 100%;
+}
+
+.learn-chapter-explanation-illustration {
+  flex-shrink: 0;
+  align-self: center;
+  width: clamp(150px, 19vw, 260px);
+  height: auto;
+  max-height: 75%;
+  object-fit: contain;
 }
 
 .learn-chapter-workspace .learn-chapter-step-card h3 {
   font-size: clamp(1.06rem, 1rem + 0.4vw, 1.28rem);
   line-height: 1.4;
+}
+
+.learn-chapter-workspace .learn-chapter-step-question-title {
+  text-align: center;
+}
+
+/* Nur bei Fragen (Optionen/Freitext-Eingabe): vertikal mittig im Restraum der Karte, rechtsbündig. */
+.learn-chapter-step-answer-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: min(680px, 90%);
+  margin-top: auto;
+  margin-bottom: auto;
+  align-self: flex-end;
 }
 
 .learn-chapter-workspace.is-visible {
@@ -4801,17 +4870,14 @@ button.learn-chapter-rail-node:hover {
   .learn-chapter-rail-item.is-current .learn-chapter-rail-dot {
     animation: none;
   }
-
-  .learn-chapter-progress-dot.is-filled {
-    animation: none;
-  }
 }
 
 .learn-chapter-modal-header-copy h2 {
   margin: 0;
-  font-size: clamp(1.1rem, 1rem + 0.6vw, 1.6rem);
-  font-weight: 800;
-  line-height: 1.15;
+  font-size: clamp(0.86rem, 0.8rem + 0.3vw, 1.05rem);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text-secondary);
 }
 
 .learn-chapter-modal-header-copy p {
@@ -4820,76 +4886,84 @@ button.learn-chapter-rail-node:hover {
   font-size: 0.82rem;
 }
 
-.learn-chapter-source-row {
-  margin-top: 0.35rem;
+/* Fortschritt in Kapitel/Zwischenschritt: fetter Balken ganz oben im Workspace statt Punkten
+   unten; die Prozentzahl reitet als Kreis-Badge auf der Füllkante mit (Position + Zahl folgen
+   direkt dem bereits vorhandenen sanften Hochzähl-Wert `displayProgressPercent`, keine eigene
+   CSS-Transition nötig — sonst würde die Bewegung doppelt geglättet und nachhinken). Das
+   Schliessen-X sitzt als reines Icon (kein Button-Chrome) links daneben in derselben Zeile. */
+.learn-chapter-top-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.95rem 1.1rem 1.5rem;
+  box-sizing: border-box;
 }
 
-.learn-chapter-streak-badge {
+.learn-chapter-top-close-icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.12rem 0.5rem;
-  border-radius: 8px;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  background: color-mix(in srgb, #f97316 24%, transparent);
-  color: color-mix(in srgb, #f97316 80%, #ffffff 20%);
+  justify-content: center;
+  flex-shrink: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
-/* Fortschritt in Kapitel/Zwischenschritt: ein Punkt pro Schritt statt Balken, Prozentzahl als
-   schlichte Zahl in Akzentfarbe (kein Badge-Chip mehr). Punkte poppen beim Füllen kurz ein. */
-.learn-chapter-progress {
-  width: 100%;
+.learn-chapter-top-close-icon-btn .settings-close-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: 0.7;
+  transition: opacity 140ms ease;
+}
+
+.learn-chapter-top-close-icon-btn:hover .settings-close-icon {
+  opacity: 1;
+}
+
+.learn-chapter-top-progress {
+  position: relative;
+  flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
 }
 
-.learn-chapter-progress-badge-text {
-  font-size: 1.35rem;
-  font-weight: 800;
-  color: var(--color-accent, #6366f1);
-}
-
-.learn-chapter-progress-track {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.learn-chapter-top-progress-track {
+  position: relative;
   width: 100%;
-  height: 16px;
-}
-
-.learn-chapter-progress-dot {
-  flex: 0 0 auto;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
+  height: 10px;
+  border-radius: 999px;
   background: var(--color-border);
-  transition: background-color 260ms ease;
+  overflow: hidden;
 }
 
-.learn-chapter-progress-dot.is-filled {
+.learn-chapter-top-progress-fill {
+  height: 100%;
+  border-radius: 999px;
   background: var(--color-accent, #6366f1);
-  animation: learn-chapter-progress-dot-in 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-/* Deutliches "Aufpoppen": kurz übers Ziel hinausschießen, dann leicht zurückfedern. */
-@keyframes learn-chapter-progress-dot-in {
-  0% {
-    transform: scale(0.2);
-  }
-  55% {
-    transform: scale(1.45);
-  }
-  75% {
-    transform: scale(0.9);
-  }
-  100% {
-    transform: scale(1);
-  }
+.learn-chapter-top-progress-badge {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 30px;
+  height: 30px;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent, #6366f1);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent, #6366f1) 45%, transparent);
 }
 
 .learn-chapter-step-info-button {
@@ -5088,12 +5162,6 @@ button.learn-chapter-rail-node:hover {
   letter-spacing: 0.01em;
 }
 
-.learn-chapter-step-card .learn-chapter-question-kind-label {
-  color: var(--color-accent, #2563eb);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 .learn-chapter-step-bullets {
   margin: 0;
   padding-left: 1.1rem;
@@ -5205,11 +5273,6 @@ button.learn-chapter-rail-node:hover {
   align-items: center;
   gap: 0.55rem;
   flex-wrap: wrap;
-  min-width: 0;
-}
-
-.learn-chapter-modal-footer-progress {
-  width: 100%;
   min-width: 0;
 }
 

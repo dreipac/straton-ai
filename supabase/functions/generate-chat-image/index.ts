@@ -142,11 +142,12 @@ type OpenAiImagesResponse = {
   }
 }
 
-async function callOpenAiImageGeneration(
+async function requestOpenAiImageGeneration(
   apiKey: string,
   apiModel: string,
   prompt: string,
-): Promise<{ dataUrl: string; usage: OpenAiImagesResponse['usage'] }> {
+  transparentBackground: boolean,
+): Promise<{ ok: boolean; status: number; json: OpenAiImagesResponse }> {
   const openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
@@ -159,26 +160,49 @@ async function callOpenAiImageGeneration(
       n: 1,
       size: IMAGE_OUTPUT_SIZE,
       quality: 'medium',
+      // `background:"transparent"` verlangt bei OpenAI zwingend ein Alpha-fähiges Ausgabeformat
+      // (png/webp) — ohne explizites `output_format` schlägt die Anfrage sonst fehl.
+      ...(transparentBackground ? { background: 'transparent', output_format: 'png' } : {}),
     }),
   })
-
   const openAiJson = (await openAiRes.json()) as OpenAiImagesResponse
-  if (!openAiRes.ok) {
+  return { ok: openAiRes.ok, status: openAiRes.status, json: openAiJson }
+}
+
+async function callOpenAiImageGeneration(
+  apiKey: string,
+  apiModel: string,
+  prompt: string,
+  transparentBackground: boolean,
+): Promise<{ dataUrl: string; usage: OpenAiImagesResponse['usage'] }> {
+  let result = await requestOpenAiImageGeneration(apiKey, apiModel, prompt, transparentBackground)
+
+  // Manche Modelle/Konten unterstützen `background:"transparent"` (noch) nicht — statt die ganze
+  // Generierung scheitern zu lassen, einmal undurchsichtig nachfassen (besser ein Bild mit Hintergrund
+  // als gar keins).
+  if (!result.ok && transparentBackground) {
+    const detail = typeof result.json?.error?.message === 'string' ? result.json.error.message : ''
+    if (detail.toLowerCase().includes('background') || detail.toLowerCase().includes('transparent')) {
+      result = await requestOpenAiImageGeneration(apiKey, apiModel, prompt, false)
+    }
+  }
+
+  if (!result.ok) {
     const detail =
-      typeof openAiJson?.error?.message === 'string'
-        ? openAiJson.error.message
-        : `OpenAI Images (${openAiRes.status})`
+      typeof result.json?.error?.message === 'string'
+        ? result.json.error.message
+        : `OpenAI Images (${result.status})`
     throw new Error(`Bildgenerierung fehlgeschlagen: ${detail}`)
   }
 
-  const b64 = openAiJson?.data?.[0]?.b64_json
+  const b64 = result.json?.data?.[0]?.b64_json
   if (typeof b64 !== 'string' || !b64.trim()) {
     throw new Error('OpenAI hat kein Bild geliefert.')
   }
 
   return {
     dataUrl: `data:image/png;base64,${b64.trim()}`,
-    usage: openAiJson.usage,
+    usage: result.json.usage,
   }
 }
 
@@ -300,12 +324,18 @@ serve(async (req) => {
     return jsonResponse({ error: 'Nicht authentifiziert.' }, 401)
   }
 
-  let bodyJson: { prompt?: unknown; contextMessages?: unknown; sourceImageDataUrl?: unknown }
+  let bodyJson: {
+    prompt?: unknown
+    contextMessages?: unknown
+    sourceImageDataUrl?: unknown
+    transparentBackground?: unknown
+  }
   try {
     bodyJson = (await req.json()) as {
       prompt?: unknown
       contextMessages?: unknown
       sourceImageDataUrl?: unknown
+      transparentBackground?: unknown
     }
   } catch {
     return jsonResponse({ error: 'Ungültiger JSON-Body.' }, 400)
@@ -322,6 +352,8 @@ serve(async (req) => {
   const contextTurns = normalizeContextMessages(bodyJson.contextMessages)
   const sourceImageDataUrl = sanitizeSourceImageDataUrl(bodyJson.sourceImageDataUrl)
   const isEdit = Boolean(sourceImageDataUrl)
+  /** Nur für Generierung (kein Edit) relevant — z. B. Lernbereich-Illustrationen ohne Hintergrund. */
+  const transparentBackground = !isEdit && bodyJson.transparentBackground === true
   const prompt = isEdit
     ? buildEditImagePrompt(directPrompt, contextTurns)
     : buildFullImagePrompt(directPrompt, contextTurns)
@@ -390,7 +422,7 @@ serve(async (req) => {
   try {
     const result = isEdit
       ? await callOpenAiImageEdit(openAiKey, apiModel, prompt, sourceImageDataUrl!)
-      : await callOpenAiImageGeneration(openAiKey, apiModel, prompt)
+      : await callOpenAiImageGeneration(openAiKey, apiModel, prompt, transparentBackground)
     dataUrl = result.dataUrl
     const normalized = normalizeImageUsage(result.usage)
     inputTokens = normalized.inputTokens

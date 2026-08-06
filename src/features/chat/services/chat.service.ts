@@ -1272,6 +1272,9 @@ function sanitizeContentForImageContext(content: string): string {
 export type GenerateChatImageOptions = {
   /** Referenzfoto aus Composer — Bearbeitung via Images-Edits, Ausgabe max. 1024×1024. */
   sourceImageDataUrl?: string
+  /** Nur Generierung (kein Edit): freigestellt statt auf undurchsichtigem Hintergrund — für
+   *  Illustrationen, die frei platziert werden (z. B. Lernbereich-Teilthema-Illustration). */
+  transparentBackground?: boolean
 }
 
 export async function generateChatImageFromPrompt(
@@ -1284,6 +1287,7 @@ export async function generateChatImageFromPrompt(
     prompt: string
     contextMessages?: ChatImageContextTurn[]
     sourceImageDataUrl?: string
+    transparentBackground?: boolean
   } = { prompt }
   if (contextMessages?.length) {
     body.contextMessages = contextMessages.map((m) => ({
@@ -1295,6 +1299,9 @@ export async function generateChatImageFromPrompt(
     typeof options?.sourceImageDataUrl === 'string' ? options.sourceImageDataUrl.trim() : ''
   if (sourceInline.startsWith('data:image/') && sourceInline.length > 96) {
     body.sourceImageDataUrl = sourceInline
+  }
+  if (options?.transparentBackground === true) {
+    body.transparentBackground = true
   }
   const { data, error, response } = await supabase.functions.invoke('generate-chat-image', {
     body,

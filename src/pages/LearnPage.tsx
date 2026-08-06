@@ -35,7 +35,12 @@ import { useAuth } from '../features/auth/context/useAuth'
 import { getAppFeatureFlags } from '../features/auth/services/appFeatureFlags.service'
 import { incrementMySubscriptionUsage } from '../features/auth/services/subscription.service'
 import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
-import { generateLearnFlashcards, generateLearnWorksheet, sendMessage } from '../features/chat/services/chat.service'
+import {
+  generateChatImageFromPrompt,
+  generateLearnFlashcards,
+  generateLearnWorksheet,
+  sendMessage,
+} from '../features/chat/services/chat.service'
 import type { ChatMessage } from '../features/chat/types'
 import {
   createLearningPathByUserId,
@@ -276,7 +281,7 @@ export function LearnPage({
   setHostLearningPaths,
 }: LearnPageProps = {}) {
   const MODAL_ANIMATION_MS = 220
-  const CHAPTER_ON_DEMAND_TIMEOUT_MS = 240_000
+  const CHAPTER_ON_DEMAND_TIMEOUT_MS = 480_000
   const CHAPTER_ON_DEMAND_STEPS = ['Kapitel wird vorbereitet', 'Kapitelinhalt wird erstellt', 'Qualitätsprüfung läuft'] as const
   const { user, profile, isLoading, refreshProfile } = useAuth()
   const gamification = useLearnGamification(user?.id)
@@ -415,6 +420,7 @@ export function LearnPage({
   const chapterGenerationInFlightRef = useRef(false)
   const substepContentInFlightRef = useRef(false)
   const substepPracticeInFlightRef = useRef(false)
+  const substepIllustrationInFlightRef = useRef(false)
   const substepWorksheetInFlightRef = useRef(false)
   const flashcardsModalCloseTimerRef = useRef<number | null>(null)
   const worksheetModalCloseTimerRef = useRef<number | null>(null)
@@ -2761,6 +2767,12 @@ export function LearnPage({
     }
   }
 
+  /** Themen-Titel für Prompts/Illustration — gleiche Herleitung überall (Syllabus → Kapitelname → Thema). */
+  function deriveTopicTitleForIndex(topicIndex: number): string {
+    const syllabusEntry = syllabus[topicIndex]
+    return (syllabusEntry?.topic?.trim() || learningChapters[topicIndex]?.trim() || effectiveTopic).trim()
+  }
+
   /** Lazy-Generierung des Vollinhalts eines Zwischenschritts (fester Flow + Übungskarten) beim ersten Öffnen. */
   async function ensureSubstepContent(topicIndex: number, substepIndex: number) {
     const session = topicSessions[topicIndex]
@@ -2810,10 +2822,7 @@ export function LearnPage({
     setContentFailed(false)
     setSubstepContentErrorReason(null)
     try {
-      const syllabusEntry = syllabus[topicIndex]
-      const topicTitle = (
-        syllabusEntry?.topic?.trim() || learningChapters[topicIndex]?.trim() || effectiveTopic
-      ).trim()
+      const topicTitle = deriveTopicTitleForIndex(topicIndex)
       const weakQuestions = collectTopicWeakQuestionSteps(session)
       const weaknessSummary = weakQuestions
         .slice(0, 12)
@@ -2847,7 +2856,7 @@ export function LearnPage({
               pathTitle: getDisplayPathTitle(activePath?.title ?? ''),
               topicTitle,
               substepTitle,
-              learningGoal: syllabusEntry?.learningGoal,
+              learningGoal: syllabus[topicIndex]?.learningGoal,
               materialContext,
               weaknessSummary,
               attempt,
@@ -2932,6 +2941,63 @@ export function LearnPage({
     } finally {
       substepContentInFlightRef.current = false
       setIsGeneratingSubstepContent(false)
+    }
+  }
+
+  /**
+   * Lazy, EINMALIGE KI-Illustration (freigestellt, ohne Hintergrund) zu einem Zwischenschritt — max.
+   * 1 Bild pro Teilthema, wird während der Erklärschritte links vom Inhalt angezeigt. Rein dekorativ:
+   * Fehler (auch fehlendes Bild-Guthaben) werden nur geloggt und blockieren den Lern-Flow nicht.
+   */
+  async function ensureSubstepIllustration(
+    topicIndex: number,
+    substepIndex: number,
+    topicTitle: string,
+    substepTitle: string,
+  ) {
+    const session = topicSessions[topicIndex]
+    const substep = session?.substeps[substepIndex]
+    if (!session || !substep || substep.illustrationImageUrl || substepIllustrationInFlightRef.current) {
+      return
+    }
+    if (generationMode === 'placeholder') {
+      return
+    }
+    substepIllustrationInFlightRef.current = true
+    const activePathIdAtStart = activePathId
+    try {
+      const prompt = [
+        `Einfache, freigestellte Illustration zum Lernthema "${substepTitle}" (Teil von "${topicTitle}").`,
+        'Nur das Hauptmotiv, OHNE Hintergrund, keine Szenerie, kein Rahmen, keine Bodenfläche.',
+        'Klarer, moderner, flacher Illustrationsstil. Keine Schrift, keine Wasserzeichen, keine Personen mit erkennbaren Gesichtern.',
+        // Echte Alpha-Transparenz kommt über den API-Parameter `background:"transparent"` — im Prompt
+        // NICHT nochmal "transparent" erwähnen, sonst zeichnet das Modell ein Karo-/Schachbrettmuster
+        // als Symbolbild für Transparenz statt echter Transparenz zu nutzen.
+        'KEIN grafisch gezeichnetes Karo- oder Schachbrettmuster als Hintergrund-Symbol.',
+      ].join(' ')
+      const { assistantMarkdown } = await generateChatImageFromPrompt(prompt, undefined, {
+        transparentBackground: true,
+      })
+      const dataUrl = assistantMarkdown.match(/\((data:image\/[^)]+)\)/)?.[1]
+      if (!dataUrl || activePathIdRef.current !== activePathIdAtStart) {
+        return
+      }
+      setTopicSessions((prev) =>
+        prev.map((entry, index) =>
+          index !== topicIndex
+            ? entry
+            : {
+                ...entry,
+                substeps: entry.substeps.map((ss, j) =>
+                  j === substepIndex ? { ...ss, illustrationImageUrl: dataUrl } : ss,
+                ),
+              },
+        ),
+      )
+    } catch (err) {
+      console.error('Lernbereich: Teilthema-Illustration konnte nicht generiert werden', err)
+    } finally {
+      substepIllustrationInFlightRef.current = false
     }
   }
 
@@ -3135,7 +3201,8 @@ export function LearnPage({
   /** Öffnet einen bestimmten Zwischenschritt im Arbeitsbereich (Schiene) und generiert bei Bedarf den Inhalt. */
   function openSubstep(topicIndex: number, substepIndex: number) {
     const session = topicSessions[topicIndex]
-    if (!session || !session.substeps[substepIndex]) {
+    const substep = session?.substeps[substepIndex]
+    if (!session || !substep) {
       return
     }
     setActiveTopicFlowIndex(topicIndex)
@@ -3144,6 +3211,14 @@ export function LearnPage({
     setIsSubstepPracticePhase(false)
     setIsSubstepWorksheetPhase(false)
     void ensureSubstepContent(topicIndex, substepIndex)
+    // Unabhängig vom Inhalt (eigener Guard über `illustrationImageUrl`) — läuft bei jedem Öffnen erneut
+    // an, solange noch keine Illustration da ist (z. B. nach einem vorherigen Fehlschlag).
+    void ensureSubstepIllustration(
+      topicIndex,
+      substepIndex,
+      deriveTopicTitleForIndex(topicIndex),
+      substep.blueprint.title,
+    )
     if (chapterModalCloseTimerRef.current) {
       window.clearTimeout(chapterModalCloseTimerRef.current)
       chapterModalCloseTimerRef.current = null
@@ -4146,6 +4221,9 @@ export function LearnPage({
               contentFailed={isTopicFlowActive && activeSubstepIndex !== null ? Boolean(activeSubstep?.contentFailed) : false}
               contentFailedReason={substepContentErrorReason}
               onRetryContent={handleRetrySubstepContent}
+              explanationIllustrationUrl={
+                isTopicFlowActive && activeSubstepIndex !== null ? activeSubstep?.illustrationImageUrl : undefined
+              }
               practiceCards={activeSubstepPracticeCards}
               isGeneratingPractice={isGeneratingSubstepPractice}
               onRatePracticeCard={handleRateSubstepPracticeCard}
@@ -4471,6 +4549,7 @@ export function LearnPage({
                         {flashcardSrStats.scheduledLater > 0
                           ? ` · ${flashcardSrStats.scheduledLater} später geplant`
                           : ''}
+                        {flashcardSrStats.mastered > 0 ? ` · ${flashcardSrStats.mastered} gemeistert` : ''}
                       </p>
                     ) : null}
                     <section className="learn-tests-list learn-flashcards-list-spaced" aria-label="Lernkarten Sets">
@@ -4480,22 +4559,27 @@ export function LearnPage({
                         learnFlashcardSets.map((set, setIndex) => {
                           const total = set.cards.length
                           const dueInSet = set.cards.filter((c) => isFlashcardDue(c)).length
+                          const masteredInSet = set.cards.filter((c) => c.mastered).length
                           const known = set.cards.filter((c) => c.selfRating === 'known').length
                           const unknown = set.cards.filter((c) => c.selfRating === 'unknown').length
                           const fcStatus: 'open' | 'in_progress' | 'completed' =
-                            total > 0 && dueInSet === 0 && known + unknown === total
+                            total > 0 && masteredInSet === total
                               ? 'completed'
-                              : known > 0 || unknown > 0 || dueInSet > 0
-                                ? 'in_progress'
-                                : 'open'
+                              : total > 0 && dueInSet === 0 && known + unknown === total
+                                ? 'completed'
+                                : known > 0 || unknown > 0 || dueInSet > 0
+                                  ? 'in_progress'
+                                  : 'open'
                           const fcLabel =
-                            dueInSet > 0
-                              ? `${dueInSet} fällig`
-                              : total > 0 && known + unknown === total
-                                ? 'Geplant'
-                                : known > 0 || unknown > 0
-                                  ? 'Teilweise'
-                                  : 'Offen'
+                            total > 0 && masteredInSet === total
+                              ? 'Gemeistert'
+                              : dueInSet > 0
+                                ? `${dueInSet} fällig`
+                                : total > 0 && known + unknown === total
+                                  ? 'Geplant'
+                                  : known > 0 || unknown > 0
+                                    ? 'Teilweise'
+                                    : 'Offen'
                           const setTopicTitle =
                             typeof set.topicIndex === 'number'
                               ? (syllabus[set.topicIndex]?.topic || learningChapters[set.topicIndex] || '').trim()
@@ -4519,6 +4603,7 @@ export function LearnPage({
                                 <p className="learn-tests-list-item-meta">
                                   {total} Karten
                                   {dueInSet > 0 ? ` · ${dueInSet} heute fällig` : ''}
+                                  {masteredInSet > 0 ? ` · ${masteredInSet} gemeistert` : ''}
                                   {known > 0 ? ` · ${known} gewusst` : ''}
                                   {unknown > 0 ? ` · ${unknown} nicht gewusst` : ''}
                                 </p>

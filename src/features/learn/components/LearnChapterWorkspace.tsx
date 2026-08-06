@@ -70,25 +70,6 @@ function buildQuestionInfoPanelText(blueprint: ChapterBlueprint | null, step: Ch
   return 'Formuliere eine kurze, sachliche Antwort direkt zur Frage. Achte auf Fachbegriffe und — wo nötig — auf Format und Einheit (z. B. bei Adressen oder Zahlen).'
 }
 
-function chapterQuestionKindLabel(step: ChapterStep): string {
-  if (step.type !== 'question') {
-    return ''
-  }
-  if (step.questionType === 'mcq') {
-    return 'Interaktive Multiple-Choice Frage'
-  }
-  if (step.questionType === 'true_false') {
-    return 'Wahr oder Falsch'
-  }
-  if (step.questionType === 'match') {
-    return 'Zuordnungsaufgabe'
-  }
-  if (step.questionType === 'categorize') {
-    return 'Kategorien-Aufgabe'
-  }
-  return 'Interaktive Freitext Frage'
-}
-
 function canSubmitChapterQuestionAnswer(step: ChapterStep | null, answer: string): boolean {
   if (!step || step.type !== 'question') {
     return false
@@ -233,6 +214,9 @@ export type LearnChapterWorkspaceProps = {
   contentFailedReason?: string | null
   /** „Erneut versuchen" nach fehlgeschlagener Inhaltsgenerierung. */
   onRetryContent?: () => void
+  /** Freigestellte KI-Illustration (Data-URL) des aktiven Zwischenschritts — nur bei Erklärschritten
+   *  links vom Inhalt angezeigt, max. 1 pro Teilthema. */
+  explanationIllustrationUrl?: string
   /** Übungskarten (echtes Lernkarten-Set) des aktiven Zwischenschritts — topicMode 'practice'. */
   practiceCards?: LearnFlashcard[]
   /** true, während das Übungskarten-Set für den Zwischenschritt lazy generiert wird. */
@@ -262,7 +246,6 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     onClose,
     activeChapterBlueprint,
     safeChapterIndex,
-    bestCorrectStreak = 0,
     safeChapterStepIndex,
     activeChapterStep,
     currentChapterAnswer,
@@ -271,7 +254,6 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     hasCurrentChapterEvaluation,
     isEvaluatingChapterStep,
     stepCorrectnessById,
-    stepOrdinalLabel,
     onSelectStepIndex,
     onChapterAnswerChange,
     onSelectMcqOption,
@@ -287,6 +269,7 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     contentFailed = false,
     contentFailedReason,
     onRetryContent,
+    explanationIllustrationUrl,
     practiceCards = [],
     isGeneratingPractice = false,
     onRatePracticeCard,
@@ -326,8 +309,23 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
   const isCurrentStepCounted =
     activeChapterStep?.type === 'question' ? hasCurrentChapterEvaluation : false
   const filledStepCount = Math.min(chapterStepTotal, safeChapterStepIndex + (isCurrentStepCounted ? 1 : 0))
-  const visualProgressPercent = (filledStepCount / chapterStepTotal) * 100
-  const targetProgressPercent = Math.round(visualProgressPercent)
+
+  /**
+   * Der Fortschrittsbalken deckt beide Phasen des Zwischenschritts ab: Erklärungen/Fragen (erste
+   * 70 %) und danach die Übungskarten (letzte 30 %) — feste Aufteilung statt Kartenanzahl in den
+   * Nenner zu mischen, weil die Kartenzahl erst beim Erreichen der Übungsphase feststeht (sonst
+   * würde der Balken beim Wechsel in die Übungskarten rückwärts springen).
+   */
+  const STEP_PHASE_WEIGHT = 70
+  const isPracticePhase = topicMode === 'practice'
+  const practiceRatedCount = practiceCards.filter((card) => Boolean(card.selfRating)).length
+  const stepPhasePercent = (filledStepCount / chapterStepTotal) * STEP_PHASE_WEIGHT
+  const targetProgressPercent = Math.round(
+    isPracticePhase
+      ? STEP_PHASE_WEIGHT +
+          (practiceCards.length > 0 ? (practiceRatedCount / practiceCards.length) * (100 - STEP_PHASE_WEIGHT) : 0)
+      : stepPhasePercent,
+  )
 
   /** Prozentzahl zählt sanft hoch statt statisch zu springen — außer bei einem Kontextwechsel
    *  (neues Teilthema/Kapitel), da springt sie sofort auf den neuen Wert (kein Runterzählen vom
@@ -460,6 +458,10 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
     showWorksheet ||
     showContentLoading ||
     showContentError
+  /** Fortschrittsbalken bleibt auch in den Übungskarten sichtbar (zweite Phase desselben
+   *  Zwischenschritts) — nur bei Landing/Analyse/Übersicht/Arbeitsblatt/Ladezustand ausgeblendet. */
+  const hideTopProgressBar =
+    showLanding || showAnalyzing || showOverview || showWorksheet || showContentLoading || showContentError
   const masteryPct = Math.max(0, Math.min(100, Math.round(topicMasteryPercent)))
   const masteryRingCirc = 2 * Math.PI * 20
 
@@ -700,37 +702,61 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
       role="region"
       aria-label="Lernkapitel"
     >
-        <header className="learn-chapter-modal-header">
-          <div className="learn-chapter-modal-header-copy">
-            <h2>
-              {showLanding || showAnalyzing || showOverview
-                ? topicName || 'Thema'
-                : activeChapterBlueprint?.title || 'Lernkapitel'}
-            </h2>
-            {showOverview ? (
-              <p
-                className="learn-chapter-header-score"
-                aria-label={`Durchschnittlicher Fortschritt ${masteryPct} Prozent`}
-              >
-                <span className="learn-chapter-header-score-value">{masteryPct}%</span>
-                <span className="learn-chapter-header-score-label">Ø Fortschritt</span>
-              </p>
-            ) : null}
-            {bestCorrectStreak >= 2 ? (
-              <p className="learn-chapter-source-row">
-                <span className="learn-chapter-streak-badge" title="Deine beste Richtig-Serie">
-                  {'🔥'} {bestCorrectStreak} in Folge
-                </span>
-              </p>
-            ) : null}
-            <p>{stepOrdinalLabel}</p>
-          </div>
-          <div className="learn-chapter-modal-header-actions">
-            <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">
+        {!hideTopProgressBar ? (
+          <div className="learn-chapter-top-progress-row">
+            <button
+              type="button"
+              className="learn-chapter-top-close-icon-btn"
+              onClick={onClose}
+              aria-label="Schließen"
+            >
               <span className="ui-icon settings-close-icon" aria-hidden="true" />
             </button>
+            <div
+              className="learn-chapter-top-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={targetProgressPercent}
+              aria-label="Fortschritt im Kapitel"
+            >
+              <div className="learn-chapter-top-progress-track">
+                <div className="learn-chapter-top-progress-fill" style={{ width: `${displayProgressPercent}%` }} />
+              </div>
+              <div
+                className="learn-chapter-top-progress-badge"
+                style={{ left: `${Math.min(97, Math.max(3, displayProgressPercent))}%` }}
+                aria-hidden="true"
+              >
+                {displayProgressPercent}%
+              </div>
+            </div>
           </div>
-        </header>
+        ) : (
+          <header className="learn-chapter-modal-header">
+            <div className="learn-chapter-modal-header-actions">
+              <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">
+                <span className="ui-icon settings-close-icon" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="learn-chapter-modal-header-copy">
+              <h2>
+                {showLanding || showAnalyzing || showOverview
+                  ? topicName || 'Thema'
+                  : activeChapterBlueprint?.title || 'Lernkapitel'}
+              </h2>
+              {showOverview ? (
+                <p
+                  className="learn-chapter-header-score"
+                  aria-label={`Durchschnittlicher Fortschritt ${masteryPct} Prozent`}
+                >
+                  <span className="learn-chapter-header-score-value">{masteryPct}%</span>
+                  <span className="learn-chapter-header-score-label">Ø Fortschritt</span>
+                </p>
+              ) : null}
+            </div>
+          </header>
+        )}
         <div className="learn-chapter-modal-main">
           {showTopicSpecial ? topicSpecialPanel : (
           <>
@@ -748,10 +774,8 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
             <p className="learn-muted">Keine Schritte verfuegbar.</p>
           ) : activeChapterStep.type === 'question' ? (
             <article className="learn-chapter-step-card">
-              <p className="learn-chapter-step-label learn-chapter-question-kind-label">
-                {chapterQuestionKindLabel(activeChapterStep)}
-              </p>
-              <h3>{activeChapterStep.prompt}</h3>
+              <h3 className="learn-chapter-step-question-title">{activeChapterStep.prompt}</h3>
+              <div className="learn-chapter-step-answer-area">
               {activeChapterStep.questionType === 'match' &&
               activeChapterStep.matchLeft &&
               activeChapterStep.matchRight ? (
@@ -777,7 +801,7 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
               ) : (activeChapterStep.questionType === 'mcq' || activeChapterStep.questionType === 'true_false') &&
                 (activeChapterStep.options?.length ?? 0) > 0 ? (
                 <div className="learn-entry-test-options" role="radiogroup" aria-label="Antwortoptionen Kapitel">
-                  {activeChapterStep.options?.map((option) => {
+                  {activeChapterStep.options?.map((option, optionIndex) => {
                     const isSelected = currentChapterAnswer.trim() === option
                     const normalizedOption = option.trim().toLowerCase()
                     const normalizedExpected = activeChapterStep.expectedAnswer.trim().toLowerCase()
@@ -798,6 +822,9 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                       >
                         <span className="learn-entry-test-option-radio" aria-hidden="true" />
                         <span className="learn-entry-test-option-text">{option}</span>
+                        <span className="squircle learn-entry-test-option-number" aria-hidden="true">
+                          {optionIndex + 1}
+                        </span>
                       </button>
                     )
                   })}
@@ -819,8 +846,18 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                   {currentChapterFeedback}
                 </p>
               ) : null}
+              </div>
             </article>
           ) : (
+            <div className="learn-chapter-explanation-row">
+              {explanationIllustrationUrl ? (
+                <img
+                  className="learn-chapter-explanation-illustration"
+                  src={explanationIllustrationUrl}
+                  alt=""
+                  aria-hidden="true"
+                />
+              ) : null}
             <article className="learn-chapter-step-card">
               <p className="learn-chapter-step-label">{activeChapterStep.type === 'recap' ? 'Zusammenfassung' : 'Erklärung'}</p>
               <h3>{activeChapterStep.title}</h3>
@@ -839,6 +876,7 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                 </ul>
               ) : null}
             </article>
+            </div>
           )}
             </div>
             <footer className="learn-chapter-modal-footer">
@@ -885,28 +923,6 @@ export function LearnChapterWorkspace(props: LearnChapterWorkspaceProps) {
                   ) : null}
                 </div>
               ) : null}
-            </div>
-            <div className="learn-chapter-modal-footer-progress">
-              <div
-                className="learn-chapter-progress"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={targetProgressPercent}
-                aria-label="Fortschritt im Kapitel"
-              >
-                <span className="learn-chapter-progress-badge-text" aria-hidden="true">
-                  {displayProgressPercent}%
-                </span>
-                <div className="learn-chapter-progress-track" aria-hidden="true">
-                  {Array.from({ length: chapterStepTotal }, (_, index) => {
-                    const isFilled = index < filledStepCount
-                    return (
-                      <span key={index} className={`learn-chapter-progress-dot${isFilled ? ' is-filled' : ''}`} />
-                    )
-                  })}
-                </div>
-              </div>
             </div>
           </div>
           <div className="learn-chapter-modal-footer-actions">

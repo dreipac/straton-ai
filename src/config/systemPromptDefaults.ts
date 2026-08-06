@@ -12,6 +12,7 @@ export const LEARN_CHAPTER_JSON_SYSTEM_SUPPLEMENT = [
   'Steps: mindestens 1 explanation, mehrere question (mcq, text, match, true_false gemischt), 1 recap.',
   'Jeder question-Step braucht: prompt, expectedAnswer, hint (1-2 Sätze ohne Lösung), questionType.',
   'MCQ: options mit 2-6 Einträgen; text: evaluation "exact" oder "contains"; true_false: expectedAnswer "Wahr" oder "Falsch".',
+  'KRITISCH — prompt darf die Lösung nie vorwegnehmen: das prompt-Feld ist nur die Frage, niemals Frage + Antwort in einem. Verboten sind Formulierungen, die den gesuchten Begriff direkt danach erklären oder umschreiben (z. B. "Was versteht man unter X, also Y?" oder "…(nämlich Y)"). Die Frage muss lösbar bleiben, ohne dass die Antwort schon im Fragetext steht — bei MCQ darf zudem keine Option den Lösungshinweis in der Frage selbst vorwegnehmen.',
 ].join('\n')
 
 export type SystemPromptKey = (typeof SYSTEM_PROMPT_KEYS)[number]

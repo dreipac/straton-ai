@@ -62,6 +62,10 @@
   animation-delay: 190ms;
 }
 
+.chat-home-dashboard > *:nth-child(5) {
+  animation-delay: 240ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-home-dashboard > * {
     animation: none;
@@ -149,6 +153,71 @@ button.chat-home-continue-card:hover:enabled {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+  background: var(--color-text-muted, #64748b);
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transform: rotate(180deg);
+}
+
+.chat-home-due-flashcards-hint {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+/* Höhere Spezifität als `button:hover:enabled` in base.css nötig, siehe Kommentar oben bei .chat-home-continue-card. */
+button.chat-home-due-flashcards-hint:hover:enabled {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+}
+
+.chat-home-due-flashcards-hint-icon {
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  background: var(--color-accent, #6366f1);
+  -webkit-mask-image: url('../assets/icons/cards-filled.svg');
+  mask-image: url('../assets/icons/cards-filled.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.chat-home-due-flashcards-hint-text {
+  min-width: 0;
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-home-due-flashcards-hint-arrow {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
   background: var(--color-text-muted, #64748b);
   -webkit-mask-image: url('../assets/icons/chevron-left.svg');
   mask-image: url('../assets/icons/chevron-left.svg');

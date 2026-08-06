@@ -33,6 +33,7 @@ import type { ChatFriendsOverviewTab } from '../features/friends/types'
 import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
 import { ChatWindow } from '../features/chat/components/ChatWindow'
 import { ChatHomeDashboard } from '../features/chat/components/ChatHomeDashboard'
+import { ChatDueFlashcardsScreen } from '../features/chat/components/ChatDueFlashcardsScreen'
 import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
 import { useChat } from '../features/chat/hooks/useChat'
 import { useChatFolders } from '../features/chat/hooks/useChatFolders'
@@ -249,6 +250,8 @@ export function ChatPage() {
     activeOverviewFolder && chatFoldersFeatureEnabled && !isFriendsOverviewFromUrl && !isLearnWorkspaceOpen,
   )
   const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl && !isLearnWorkspaceOpen)
+  const isDueFlashcardsFromUrl = searchParams.get('dueCards') === '1'
+  const isDueFlashcardsOpen = Boolean(user && isDueFlashcardsFromUrl && !isLearnWorkspaceOpen)
   const friendsState = useFriends(user?.id)
   const learningPathsSidebar = useLearningPathsSidebar(user?.id)
   /** Home-Dashboard: kein Chat aktiv, keine andere Ansicht offen, aber es gibt bereits Lernpfade. */
@@ -258,6 +261,7 @@ export function ChatPage() {
       !isLearnWorkspaceOpen &&
       !isFolderOverviewOpen &&
       !isFriendsOverviewOpen &&
+      !isDueFlashcardsOpen &&
       !learningPathsSidebar.isLoading &&
       learningPathsSidebar.learningPaths.length > 0,
   )
@@ -583,6 +587,34 @@ export function ChatPage() {
     params.delete('learn')
     params.delete('learnCreate')
     params.delete('learnCreateMode')
+    params.delete('dueCards')
+  }
+
+  function openDueFlashcardsScreen() {
+    if (!user) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('dueCards', '1')
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+  }
+
+  function closeDueFlashcardsScreen() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('dueCards')
+        return next
+      },
+      { replace: true },
+    )
   }
 
   function dismissMainOverlays() {
@@ -645,6 +677,9 @@ export function ChatPage() {
       },
       { replace: true },
     )
+    // Im Lernbereich bewertete Lernkarten (Spaced Repetition) sollen auf der Startseite sofort
+    // aktuell sein, nicht erst nach einem Reload.
+    void learningPathsSidebar.refreshLearningPaths()
   }
 
   function openLearnWorkspace(
@@ -1169,7 +1204,9 @@ export function ChatPage() {
           isFolderOverviewOpen ? ' is-folder-overview-active' : ''
         }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}${
           isLearnWorkspaceOpen ? ' is-learn-workspace-active' : ''
-        }${isHomeDashboardOpen ? ' is-home-dashboard-active' : ''}`}
+        }${isHomeDashboardOpen ? ' is-home-dashboard-active' : ''}${
+          isDueFlashcardsOpen ? ' is-due-flashcards-active' : ''
+        }`}
       >
         {isHomeDashboardOpen ? (
           <ChatHomeDashboard
@@ -1178,6 +1215,15 @@ export function ChatPage() {
             continuePath={homeDashboardContinuePath}
             allPaths={homeDashboardAllPaths}
             onOpenPath={(pathId) => openLearnWorkspace(pathId)}
+            dueFlashcardsCount={learningPathsSidebar.dueFlashcardsTotalCount}
+            onOpenDueFlashcards={openDueFlashcardsScreen}
+          />
+        ) : null}
+        {isDueFlashcardsOpen ? (
+          <ChatDueFlashcardsScreen
+            entries={learningPathsSidebar.dueFlashcardSets}
+            onBack={closeDueFlashcardsScreen}
+            onRateCard={learningPathsSidebar.rateDueFlashcard}
           />
         ) : null}
         {isLearnWorkspaceOpen ? (
@@ -1193,7 +1239,7 @@ export function ChatPage() {
             onPendingCreateLearningPathHandled={handlePendingCreateLearningPathHandled}
           />
         ) : null}
-        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen ? (
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen ? (
           <ChatFoldersMobilePanel
             folders={chatFolders.folders}
             threadsByFolderId={chatFolders.threadsByFolderId}
@@ -1275,10 +1321,10 @@ export function ChatPage() {
             onCancelRequest={friendsState.cancelRequest}
           />
         ) : null}
-        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen
+        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen
           ? mobileTopBar
           : null}
-        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen ? (
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
             participantsAnchorRef={collaboration.participantsAnchorRef}

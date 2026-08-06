@@ -55,7 +55,7 @@ function LearnFlashcardsMobileOverlay(props: LearnFlashcardsModalProps) {
   const sessionTotal = dueSessionTotal ?? deck.total
   const reviewedInSession =
     reviewMode === 'due' && sessionTotal > 0 ? Math.max(0, sessionTotal - deck.total) : 0
-  const nextReviewHint = deck.card ? formatNextReviewHint(deck.card.nextReviewAt) : null
+  const nextReviewHint = deck.card ? formatNextReviewHint(deck.card) : null
   const showRating = Boolean(deck.card && onRateCard && !isLoading && !error)
   const dueDone = reviewMode === 'due' && deck.total === 0 && !isLoading && !error
 
@@ -203,7 +203,7 @@ function LearnFlashcardsDesktopModal(props: LearnFlashcardsModalProps) {
   const sessionTotal = dueSessionTotal ?? deck.total
   const reviewedInSession =
     reviewMode === 'due' && sessionTotal > 0 ? Math.max(0, sessionTotal - deck.total) : 0
-  const nextReviewHint = deck.card ? formatNextReviewHint(deck.card.nextReviewAt) : null
+  const nextReviewHint = deck.card ? formatNextReviewHint(deck.card) : null
 
   function handleRate(rating: 'known' | 'unknown') {
     if (!deck.card || !onRateCard) {

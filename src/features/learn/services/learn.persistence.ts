@@ -72,6 +72,8 @@ export type LearnFlashcard = {
   /** ISO-Zeitpunkt: Karte ist fällig, wenn <= jetzt */
   nextReviewAt?: string
   lastReviewedAt?: string
+  /** 3x in Folge richtig beantwortet: gilt als gelernt, wird nie wieder eingeplant. */
+  mastered?: boolean
 }
 
 /** Ein erzeugter Stapel Lernkarten (ein API-Lauf / eine Session). */
@@ -229,6 +231,9 @@ export type TopicSubstep = {
   /** ID des zu diesem Zwischenschritt gehörenden `LearnFlashcardSet` (Übungskarten) — lazy generiert,
    *  sobald der feste Flow durchlaufen ist. Das Set lebt ganz normal in `learnFlashcardSets`. */
   practiceFlashcardSetId: string | null
+  /** Data-URL einer einzelnen, freigestellten KI-Illustration zu diesem Zwischenschritt — max. 1x
+   *  generiert (lazy, direkt nach dem Blueprint), während der Erklärschritte links angezeigt. */
+  illustrationImageUrl?: string
 }
 
 /** Pro-Thema-Fortschritt (Index == syllabus-Index). Alleiniges Fortschrittsmodell der Landkarte. */
@@ -889,6 +894,10 @@ function mapTopicSubstep(value: unknown, topicIndex: number, substepIndex: numbe
     typeof item.practiceFlashcardSetId === 'string' && item.practiceFlashcardSetId.trim()
       ? item.practiceFlashcardSetId.trim()
       : null
+  const illustrationImageUrl =
+    typeof item.illustrationImageUrl === 'string' && item.illustrationImageUrl.trim().startsWith('data:image/')
+      ? item.illustrationImageUrl.trim()
+      : undefined
   // Selbstheilung für Alt-Pfade: früher wurde bei KI-Fehler ein generischer Platzhalter mit
   // contentReady=true eingefroren. Solche Zwischenschritte erkennen wir am Fallback-Marker und setzen
   // contentReady=false zurück → beim nächsten Öffnen wird der Inhalt sauber neu generiert.
@@ -913,6 +922,7 @@ function mapTopicSubstep(value: unknown, topicIndex: number, substepIndex: numbe
     contentFailed: item.contentFailed === true,
     completed: item.completed === true,
     practiceFlashcardSetId,
+    ...(illustrationImageUrl ? { illustrationImageUrl } : {}),
   }
 }
 
@@ -1268,6 +1278,7 @@ function mapLearnFlashcardsFlat(value: unknown): LearnFlashcard[] {
         typeof o.lastReviewedAt === 'string' && o.lastReviewedAt.trim() ? o.lastReviewedAt.trim() : undefined
       const skillTag =
         typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
+      const mastered = o.mastered === true
       out.push(
         normalizeFlashcardSr({
           id,
@@ -1278,6 +1289,7 @@ function mapLearnFlashcardsFlat(value: unknown): LearnFlashcard[] {
           ...(srStage !== undefined ? { srStage } : {}),
           ...(nextReviewAt ? { nextReviewAt } : {}),
           ...(lastReviewedAt ? { lastReviewedAt } : {}),
+          ...(mastered ? { mastered } : {}),
         }),
       )
     }

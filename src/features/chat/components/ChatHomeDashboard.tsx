@@ -25,6 +25,9 @@ type ChatHomeDashboardProps = {
   continuePath: ChatHomeDashboardContinuePath | null
   allPaths: ChatHomeDashboardPathListItem[]
   onOpenPath: (pathId: string) => void
+  /** Anzahl über alle Lernpfade fälliger Lernkarten (Spaced Repetition). */
+  dueFlashcardsCount: number
+  onOpenDueFlashcards: () => void
 }
 
 export function ChatHomeDashboard({
@@ -33,6 +36,8 @@ export function ChatHomeDashboard({
   continuePath,
   allPaths,
   onOpenPath,
+  dueFlashcardsCount,
+  onOpenDueFlashcards,
 }: ChatHomeDashboardProps) {
   const greeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
   const subtitle = `${learningPathsCount} ${learningPathsCount === 1 ? 'Lernpfad' : 'Lernpfade'}`
@@ -59,6 +64,19 @@ export function ChatHomeDashboard({
             <LearningPathProgressRing percent={continuePath.percent} className="chat-home-continue-card-ring" />
             <span className="chat-home-continue-card-arrow" aria-hidden="true" />
           </span>
+        </button>
+      ) : null}
+      {dueFlashcardsCount > 0 ? (
+        <button
+          type="button"
+          className="chat-home-due-flashcards-hint"
+          onClick={onOpenDueFlashcards}
+        >
+          <span className="chat-home-due-flashcards-hint-icon" aria-hidden="true" />
+          <span className="chat-home-due-flashcards-hint-text">
+            {dueFlashcardsCount} Lernkarte{dueFlashcardsCount === 1 ? '' : 'n'} zum Wiederholen
+          </span>
+          <span className="chat-home-due-flashcards-hint-arrow" aria-hidden="true" />
         </button>
       ) : null}
       {allPaths.length > 0 ? (
