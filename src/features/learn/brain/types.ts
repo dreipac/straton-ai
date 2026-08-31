@@ -519,6 +519,7 @@ export type PathOrderEntry = {
  */
 export type BrainAgentRole =
   | 'kartograf'
+  | 'aufbereiter'
   | 'pruefer'
   | 'generator'
   | 'kontrolleur'

@@ -2024,3 +2024,129 @@
   line-height: 1.5;
   color: var(--color-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+ * Ergaenzter Lehrstoff (BrainDerivedMaterialPanel)
+ *
+ * Optisch bewusst als „nicht dein Material" gekennzeichnet: linke Akzentkante und getoente
+ * Flaeche, wie bei `.brain-sources-block--ai`. Wer den Text ueberfliegt, soll ohne Lesen sehen,
+ * dass er nicht aus den eigenen Unterlagen stammt.
+ * ------------------------------------------------------------------------- */
+
+.brain-derived {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.brain-derived-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.brain-derived-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.brain-derived-notice {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.brain-derived-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+}
+
+.brain-derived-summary-warn {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.brain-derived-label {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.brain-derived-text {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+
+.brain-derived-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brain-derived-error {
+  font-size: var(--fs-xs);
+  color: var(--color-danger, #d14343);
+}
+
+.brain-derived-details {
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+  font-size: var(--fs-sm);
+}
+
+.brain-derived-details > summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.brain-derived-items {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brain-derived-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.brain-derived-question {
+  font-size: var(--fs-sm);
+}
+
+.brain-derived-source {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}

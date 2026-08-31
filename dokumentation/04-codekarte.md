@@ -29,6 +29,9 @@ src/features/learn/brain/
 ├── production/                 Schicht 5 — Produktion
 │   ├── formats.ts              neun Formate, Tiefe und Gegenloesbarkeit (6.6)
 │   ├── quality.ts              Quellenabgleich, Gegenloesen, Torwaechter
+├── preparation/
+│   ├── derive.ts               Schicht 0: Arbeitsheft -> Lehrstoff (Aufbereiter)
+│   └── cartography.ts          Kartografenergebnis -> IngestedGraph
 │   ├── generateTask.ts         der EINE Weg zu einer freigegebenen Aufgabe (I5)
 │   ├── explanations.ts         die drei Erklaerstellen und ihre Freigabe (7.3)
 │   ├── reviewStock.ts          Vorratserzeugung — nur fuer den Stapel (7.1)
@@ -241,6 +244,10 @@ if (evaluateTrigger(state, nowIso).shouldRun) { /* Konsolidierer starten */ }
 | `planner/goal.test.ts` | Machbarkeit, ehrliche Aussage statt Zuspruch |
 | `planner/explanation.test.ts` | I8, kein Fachjargon, Glaettungsgrenzen |
 | `production/quality.test.ts` | Gegenloesen, Torwaechter, Antwortvergleich |
+| `preparation/derive.test.ts` | drei Arten im Arbeitsheft, Lehrtext, Recherchebedarf |
+| `preparation/cartography.test.ts` | Uebersetzung ins Konzeptnetz, Aufbereitungssperre |
+| `utils/ragLite.test.ts` | Beleg- gegen Antwort-Betriebsart der Materialsuche |
+| `utils/documentParser.test.ts` | was die Texterkennung ueber den Textlayer hinaus beitraegt |
 | `production/prefetch.test.ts` | ueberholte Vorproduktion wird verworfen |
 | `coldstart/frontSearch.test.ts` | Suchraumhalbierung **ohne** Lernerbild-Aenderung |
 | `consolidation/consolidation.test.ts` | Ausloeser, Wertregeln, Entdeckung, Protokoll |

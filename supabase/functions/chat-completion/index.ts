@@ -2168,6 +2168,61 @@ type AnthropicCallOptions = {
   model?: string
 }
 
+/**
+ * Ein Fehler eines Anbieteraufrufs, bei dem bereits feststeht, ob ein zweiter Versuch Sinn hat.
+ *
+ * Die Unterscheidung gehoert hierher und nicht zum Aufrufer: nur an der Aufrufstelle ist bekannt,
+ * ob die Gegenseite ueberlastet war (dieselbe Anfrage geht gleich darauf durch) oder ob sie ein
+ * Urteil ueber die Anfrage selbst gefaellt hat (ein zweiter Versuch hoert zweimal dasselbe). Wer
+ * den Fehler spaeter nur noch als Text sieht, muesste raten — und Raten an dieser Stelle heisst
+ * entweder, einen echten Aussetzer endgueltig zu nehmen, oder eine kaputte Anfrage zu wiederholen.
+ *
+ * `retryable` ist konservativ zu setzen: ein nicht klassifizierter Fehler gilt als endgueltig.
+ */
+class ProviderCallError extends Error {
+  readonly retryable: boolean
+
+  constructor(message: string, retryable: boolean) {
+    super(message)
+    this.name = 'ProviderCallError'
+    this.retryable = retryable
+  }
+}
+
+/**
+ * Anthropic hat mit 200 geantwortet, aber ohne verwertbaren Textblock.
+ *
+ * `stop_reason` steht in jeder Antwort und sagt, WELCHE der drei sehr verschiedenen Lagen vorliegt.
+ * Vorher fielen alle drei in den einen Satz „Anthropic hat keine Antwort geliefert" — und keine
+ * davon war anschliessend zu belegen. Dieselbe Sorte Blindheit wie beim nie befuellten
+ * `sourceIssues` (Eintrag 6 in `dokumentation/06-stand-und-offenes.md`), die den eigentlichen
+ * Befund damals fast unauffindbar gemacht hat.
+ *
+ * Wiederholbar ist nur der dritte Fall. Ein abgeschnittenes Budget ist eine Konfiguration und
+ * liefert beim zweiten Mal exakt dasselbe; eine Ablehnung ist ein Urteil ueber die Eingabe, und
+ * die Eingabe aendert sich beim Wiederholen nicht. Nur die leere Antwort bei regulaerem Ende ist
+ * ein echter Aussetzer.
+ */
+function anthropicEmptyAnswerError(stopReason: string | undefined, maxTokens: number): ProviderCallError {
+  if (stopReason === 'max_tokens') {
+    return new ProviderCallError(
+      `Anthropic hat die Antwort nach ${maxTokens} Token abgeschnitten, bevor Text entstand. ` +
+        'Das Ausgabebudget der Rolle ist zu klein (max_output_tokens in learn_brain_agent_models).',
+      false,
+    )
+  }
+  if (stopReason === 'refusal') {
+    return new ProviderCallError(
+      'Anthropic hat die Beantwortung abgelehnt (stop_reason "refusal") — die Anfrage selbst wurde zurueckgewiesen.',
+      false,
+    )
+  }
+  return new ProviderCallError(
+    `Anthropic hat einen leeren Textblock geliefert (stop_reason "${stopReason ?? 'unbekannt'}").`,
+    true,
+  )
+}
+
 async function callAnthropic(
   messages: InputMessage[],
   apiKey: string,
@@ -2242,41 +2297,63 @@ async function callAnthropic(
     }
   })
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      // Prompt-Caching (inkl. 1h-ttl) ist GA — der frühere Beta-Header ist laut Anthropic-Doku
-      // nicht mehr nötig (Stand 24.8.2026).
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens,
-      messages: anthropicMessages,
-      system,
-    }),
-  })
+  let response: Response
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        // Prompt-Caching (inkl. 1h-ttl) ist GA — der frühere Beta-Header ist laut Anthropic-Doku
+        // nicht mehr nötig (Stand 24.8.2026).
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens,
+        messages: anthropicMessages,
+        system,
+      }),
+    })
+  } catch (cause) {
+    // Die Verbindung kam nicht zustande. Immer vorübergehend — es liegt kein Urteil des Modells vor.
+    throw new ProviderCallError(
+      `Anthropic war nicht erreichbar: ${cause instanceof Error ? cause.message : String(cause)}`,
+      true,
+    )
+  }
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '')
     if (response.status === 429) {
-      throw new Error(
+      /*
+       * Bewusst NICHT als wiederholbar markiert: ein sofortiger zweiter Versuch verschärft ein
+       * Token-Limit, statt es zu entspannen. Die Meldung sagt der Person, was zu tun ist.
+       */
+      throw new ProviderCallError(
         'Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte Anfrage verkürzen oder kurz warten.',
+        false,
       )
     }
     const hint =
       response.status === 404
         ? ' (Modell-ID unbekannt/retired? Secret ANTHROPIC_MODEL prüfen oder Edge Function deployen.)'
         : ''
-    throw new Error(
+    /*
+     * 529 ist Anthropics eigener Überlastungsstatus, 5xx und 408 sind Aussetzer der Gegenseite:
+     * alles Lagen, in denen dieselbe Anfrage gleich darauf durchgeht. Ein 4xx ist dagegen ein
+     * Urteil über die Anfrage selbst — den wiederholt man nur, um zweimal dasselbe zu hören.
+     */
+    const retryable = response.status === 529 || response.status === 408 || response.status >= 500
+    throw new ProviderCallError(
       `Anthropic Anfrage fehlgeschlagen (${response.status}).${hint}${errBody ? ` ${errBody.slice(0, 400)}` : ''}`,
+      retryable,
     )
   }
 
   const data = (await response.json()) as {
     model?: string
+    stop_reason?: string
     content?: Array<{ type?: string; text?: string }>
     usage?: {
       input_tokens?: number
@@ -2287,7 +2364,7 @@ async function callAnthropic(
   }
   const content = data.content?.find((entry) => entry.type === 'text')?.text?.trim()
   if (!content) {
-    throw new Error('Anthropic hat keine Antwort geliefert.')
+    throw anthropicEmptyAnswerError(data.stop_reason, max_tokens)
   }
 
   const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
@@ -4047,8 +4124,14 @@ async function handleBrainAgent(
     return jsonResponse({ content: result.text, model: result.model, provider, escalated })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Rollenaufruf fehlgeschlagen.'
-    console.error(`[chat-completion] brain_agent ${role} failed`, message)
-    return jsonResponse({ error: message }, 502)
+    /*
+     * Die Einschaetzung des Anbieteraufrufs wird mitgegeben, statt sie den Client aus dem
+     * Fehlertext raten zu lassen. Ein nicht klassifizierter Fehler gilt als endgueltig — auch die
+     * Aufrufe an Gemini und OpenAI, solange sie `ProviderCallError` nicht ebenfalls benutzen.
+     */
+    const retryable = error instanceof ProviderCallError && error.retryable
+    console.error(`[chat-completion] brain_agent ${role} failed (retryable=${retryable})`, message)
+    return jsonResponse({ error: message, retryable }, 502)
   }
 }
 

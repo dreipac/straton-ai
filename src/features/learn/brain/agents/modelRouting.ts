@@ -75,6 +75,14 @@ export const FALLBACK_BINDINGS: Record<BrainAgentRole, BrainAgentModelBinding> =
     escalationModel: 'gpt-5.6-sol',
     maxOutputTokens: 16384,
   },
+  aufbereiter: {
+    role: 'aufbereiter',
+    provider: 'openai',
+    model: 'gpt-5.4',
+    escalationProvider: 'openai',
+    escalationModel: 'gpt-5.6-sol',
+    maxOutputTokens: 16384,
+  },
   pruefer: {
     role: 'pruefer',
     provider: 'openai',

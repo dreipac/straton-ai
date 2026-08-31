@@ -29,7 +29,33 @@ import { PROMPT_CACHE_KEYS } from './prompts'
  * dafuer keine Node-Typen.
  */
 import migrationSql from '../../../../../supabase/migrations/20260818123000_learn_brain_agent_models.sql?raw'
+/*
+ * Die Rollenliste steht nicht mehr nur in der Ursprungsmigration: der Aufbereiter kam spaeter
+ * dazu und hat die Pruefbedingung ersetzt. Verbindlich ist der Stand NACH allen Migrationen, also
+ * muessen beide Dateien gelesen werden. Kommt eine weitere Migration hinzu, die Rollen aendert,
+ * gehoert sie hier ebenfalls hinein — und dass dieser Test dann anschlaegt, ist die Erinnerung
+ * daran.
+ */
+import aufbereiterMigrationSql from '../../../../../supabase/migrations/20260831090000_learn_brain_aufbereiter_role.sql?raw'
 import edgeModule from '../../../../../supabase/functions/chat-completion/brainAgents.ts?raw'
+
+/** Alle Migrationen, die Rollen definieren oder aendern — in der Reihenfolge ihrer Anwendung. */
+const ROLE_MIGRATIONS = [migrationSql, aufbereiterMigrationSql]
+
+/**
+ * Die zuletzt gesetzte Rollen-Pruefbedingung. Spaetere Migrationen ersetzen fruehere, genau wie
+ * in der Datenbank.
+ */
+function effectiveRoleCheck(): string {
+  const pattern = /check \(role in \(([\s\S]*?)\)\)/g
+  let last: string | null = null
+  for (const sqlText of ROLE_MIGRATIONS) {
+    for (const match of sqlText.matchAll(pattern)) {
+      last = match[1]
+    }
+  }
+  return last ?? ''
+}
 
 /**
  * Die Modell-Liste eines Anbieters aus `learn_brain_model_is_allowed()` herausschneiden.
@@ -60,24 +86,25 @@ describe('Modell-Liste: TypeScript gegen Datenbank', () => {
 })
 
 describe('Rollen: TypeScript gegen Datenbank', () => {
-  const sql = migrationSql
-
   it('kennt beidseitig dieselben Rollen', () => {
-    const checkBlock = /role text primary key check \(role in \(([\s\S]*?)\)\)/.exec(sql)
-    expect(checkBlock).not.toBeNull()
-    const fromSql = [...(checkBlock?.[1] ?? '').matchAll(/'([a-z]+)'/g)].map((m) => m[1]).sort()
+    const fromSql = [...effectiveRoleCheck().matchAll(/'([a-z]+)'/g)].map((m) => m[1]).sort()
+    expect(fromSql.length, 'keine Rollen-Pruefbedingung in den Migrationen gefunden').toBeGreaterThan(0)
     expect([...ALL_ROLES].sort()).toEqual(fromSql)
   })
 
   it('legt fuer jede Rolle eine Seed-Zeile an', () => {
+    const allSql = ROLE_MIGRATIONS.join('\n')
     for (const role of ALL_ROLES) {
-      expect(sql, `Seed fuer ${role} fehlt`).toContain(`('${role}',`)
+      expect(allSql, `Seed fuer ${role} fehlt`).toContain(`('${role}',`)
     }
   })
 
+  /*
+   * Geprueft wird die Pruefbedingung, nicht der Fliesstext: die Migration ERKLAERT im Kommentar,
+   * warum der Planer keine Rolle ist, und dieser Satz soll dort stehen bleiben duerfen.
+   */
   it('nennt den Planer nirgends als Rolle (Invariante I11)', () => {
-    const checkBlock = /role text primary key check \(role in \(([\s\S]*?)\)\)/.exec(sql)
-    expect(checkBlock?.[1]).not.toMatch(/'planer'/)
+    expect(effectiveRoleCheck()).not.toMatch(/'planer'/)
   })
 })
 

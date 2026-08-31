@@ -442,8 +442,53 @@ export function composeMatchingAnswer(terms: string[], descriptions: string[], v
     .join('; ')
 }
 
-/** Ein Buchstabe-Ziffer-Paar wie "A-1", "A – 1", "A→1", "A zu 1". */
-const ASSIGNMENT_PAIR = /\b[A-E]\s*(?:[-–—]|→|zu)\s*[1-5]\b/g
+/**
+ * Ein Buchstabe-Ziffer-Paar wie "A-1", "A – 1", "A→1", "A zu 1".
+ *
+ * Als Quelltext statt als fertiger Ausdruck, weil zwei Stellen dasselbe Muster brauchen, aber
+ * keine sich eine gemeinsame `lastIndex` teilen darf: ein globaler Ausdruck merkt sich zwischen
+ * zwei Aufrufen die Position, und ein `matchAll` neben einem `match` auf demselben Objekt liest
+ * dann irgendwo mittendrin weiter. Jede Verwendung baut sich ihre eigene Instanz.
+ *
+ * Die Trennzeichen sind bewusst grosszuegig: welches Strich- oder Pfeilzeichen ein Modell
+ * zwischen Begriff und Beschreibung setzt, ist Satzkonvention und sagt nichts ueber die
+ * Zuordnung. Genau diese Grosszuegigkeit fehlte dem Antwortvergleich (`quality.ts`) und hat dort
+ * richtige Zuordnungen verworfen, weil die eine Seite einen Gedankenstrich und die andere einen
+ * Bindestrich benutzte.
+ */
+const ASSIGNMENT_PAIR_SOURCE = String.raw`\b([A-E])\s*(?:[-‐-―−]|→|->|=|:|zu)\s*([1-5])\b`
+
+const assignmentPairPattern = () => new RegExp(ASSIGNMENT_PAIR_SOURCE, 'gi')
+
+/**
+ * Eine Zuordnungsantwort ("A-1, B-2, C-3") in ihre Paare zerlegen — oder `null`, wenn der Text
+ * keine erkennbare Zuordnung ist.
+ *
+ * Wozu: eine Zuordnung ist eine MENGE von Paaren. Ihre Richtigkeit haengt nicht daran, in welcher
+ * Reihenfolge sie aufgeschrieben wird, mit welchem Zeichen die beiden Haelften verbunden sind oder
+ * wie die Aufzaehlung getrennt wird. Ein Zeichenkettenvergleich sieht genau diese Unterschiede und
+ * sonst nichts — dasselbe Missverhaeltnis, das bei Auswahlfragen schon einmal aufgefallen ist
+ * (siehe `resolveCounterSolveAnswer` in `quality.ts`) und dort ueber die Position geloest wurde.
+ *
+ * `null` bei weniger als zwei Paaren: ein einzelnes "A-1" irgendwo im Fliesstext ist keine
+ * Zuordnung, und wer es dafuer haelt, vergleicht anschliessend zwei Antworten anhand eines
+ * zufaelligen Fundes. Ebenso `null` bei einem Begriff, der zweimal mit verschiedenen
+ * Beschreibungen genannt wird — das ist ein widerspruechlicher Text, und Raten waere hier
+ * schlimmer als der Rueckfall auf den Zeichenkettenvergleich.
+ */
+export function parseAssignmentPairs(text: string): Map<string, string> | null {
+  const pairs = new Map<string, string>()
+  for (const match of text.matchAll(assignmentPairPattern())) {
+    const term = match[1].toUpperCase()
+    const description = match[2]
+    const seen = pairs.get(term)
+    if (seen !== undefined && seen !== description) {
+      return null
+    }
+    pairs.set(term, description)
+  }
+  return pairs.size >= 2 ? pairs : null
+}
 
 /**
  * Erkennt, ob Auswahlfrage-Optionen wie alternative Komplett-Zuordnungen aussehen (z. B.
@@ -457,7 +502,7 @@ const ASSIGNMENT_PAIR = /\b[A-E]\s*(?:[-–—]|→|zu)\s*[1-5]\b/g
  */
 export function optionsLookLikeFullAssignments(options: string[]): boolean {
   const assignmentLikeCount = options.filter((option) => {
-    const matches = option.match(ASSIGNMENT_PAIR)
+    const matches = option.match(assignmentPairPattern())
     return matches !== null && matches.length >= 2
   }).length
   return assignmentLikeCount >= 2

@@ -26,6 +26,7 @@ import {
   promptReferencesTheSource,
   requiresCounterSolve,
   selectFormat,
+  parseAssignmentPairs,
   DEPTH_EVIDENCE_STRENGTH,
   FORMAT_SPECS,
 } from './formats'
@@ -34,8 +35,10 @@ import {
   assertTaskCleared,
   buildControlVerdict,
   buildRejectionHint,
+  counterAnswersAgree,
   decideProduction,
   gatePlanFor,
+  matchingAnswersAgree,
   resolveCounterSolveAnswer,
   MAX_GENERATION_ATTEMPTS,
 } from './quality'
@@ -489,6 +492,115 @@ describe('Antwortvergleich', () => {
   it('streicht eine Antwort aus reiner Interpunktion nicht komplett weg', () => {
     expect(answersAgree('::', '::')).toBe(true)
     expect(answersAgree('::', ':: (die Unspecified-Adresse)')).toBe(true)
+  })
+})
+
+/*
+ * Befund aus dem Betrieb: „Zu ‚Minderjaehriges Steuerpflichtig' liess sich keine belegbare Aufgabe
+ * erzeugen: Unabhaengige Loesung weicht ab: ‚A–1, B–2, C–3, D–4' statt ‚A-1, B-2, C-3, D-4'."
+ * Zwei identische Zuordnungen, unterschieden allein durch Gedankenstrich gegen Bindestrich. Der
+ * Zahlenrueckfall rettete den Fall nicht, sondern verschaerfte ihn: er las die eine Seite als
+ * 1, 2, 3, 4 und die andere als minus 1, minus 2, minus 3, minus 4.
+ */
+describe('Antwortvergleich — Schreibweise gegen Sache', () => {
+  const expected = 'A-1, B-2, C-3, D-4'
+
+  it('haelt Gedankenstrich und Bindestrich fuer dasselbe Zeichen', () => {
+    expect(answersAgree('A–1, B–2, C–3, D–4', expected)).toBe(true)
+  })
+
+  it('liest einen Strich zwischen Buchstabe und Ziffer nicht als Vorzeichen', () => {
+    expect(answersAgree('A—1, B—2', 'A-1, B-2')).toBe(true)
+  })
+
+  it('behaelt ein echtes Vorzeichen', () => {
+    expect(answersAgree('x = -26', '26')).toBe(false)
+    expect(answersAgree('-26', '-26')).toBe(true)
+    expect(answersAgree('das Ergebnis ist −26', 'das Ergebnis ist -26')).toBe(true)
+  })
+
+  /*
+   * Gefaltet wird krumm auf gerade DERSELBEN Art. Ein einfaches auf ein doppeltes
+   * Anfuehrungszeichen abzubilden waere keine Typografie mehr, sondern ein Bedeutungsverlust —
+   * in Formeln und Masseinheiten stehen die beiden fuer Verschiedenes.
+   */
+  it('toleriert typografische Anfuehrungszeichen', () => {
+    expect(answersAgree('die „Vermoegenssteuer"', 'die "Vermoegenssteuer"')).toBe(true)
+    expect(answersAgree('das ‚Halten' + "'", "das 'Halten'")).toBe(true)
+  })
+
+  it('laesst eine tatsaechlich andere Zahl weiterhin durchfallen', () => {
+    expect(answersAgree('/24', '/26')).toBe(false)
+    expect(answersAgree('A-1, B-2', 'A-1, B-3')).toBe(false)
+  })
+})
+
+describe('Zuordnungen als Menge von Paaren vergleichen', () => {
+  const expected = 'A-1, B-2, C-3, D-4'
+
+  it('ist unabhaengig von der Reihenfolge', () => {
+    expect(matchingAnswersAgree('B-2, A-1, D-4, C-3', expected)).toBe(true)
+  })
+
+  it('ist unabhaengig vom Trennzeichen zwischen den Haelften', () => {
+    expect(matchingAnswersAgree('A → 1; B → 2; C → 3; D → 4', expected)).toBe(true)
+    expect(matchingAnswersAgree('A zu 1, B zu 2, C zu 3, D zu 4', expected)).toBe(true)
+    expect(matchingAnswersAgree('a: 1 / b: 2 / c: 3 / d: 4', expected)).toBe(true)
+  })
+
+  /*
+   * Die Grenze, an der die Toleranz aufhoert. Wird sie weicher, faengt das Gegenloesen genau die
+   * Fehlerart nicht mehr, gegen die es antritt — eine falsche Musterloesung.
+   */
+  it('erkennt eine tatsaechlich andere Zuordnung', () => {
+    expect(matchingAnswersAgree('A-2, B-1, C-3, D-4', expected)).toBe(false)
+  })
+
+  it('erkennt eine unvollstaendige Zuordnung', () => {
+    expect(matchingAnswersAgree('A-1, B-2, C-3', expected)).toBe(false)
+  })
+
+  it('faellt bei unlesbarer Form auf den gewoehnlichen Vergleich zurueck', () => {
+    expect(matchingAnswersAgree('kann ich nicht loesen', expected)).toBe(false)
+    expect(matchingAnswersAgree('A-1', 'A-1')).toBe(true)
+  })
+
+  it('raet nicht bei einem widerspruechlich doppelt genannten Begriff', () => {
+    expect(matchingAnswersAgree('A-1, A-2, B-2', 'A-1, A-2, B-2')).toBe(true)
+    expect(matchingAnswersAgree('A-1, A-2, B-2', expected)).toBe(false)
+  })
+
+  it('nimmt den Mengenvergleich nur fuer Zuordnungen', () => {
+    expect(counterAnswersAgree('matching', 'B-2, A-1', 'A-1, B-2')).toBe(true)
+    expect(counterAnswersAgree('calculation', 'B-2, A-1', 'A-1, B-2')).toBe(false)
+    expect(counterAnswersAgree('calculation', '/26', '26')).toBe(true)
+  })
+})
+
+describe('Zuordnungspaare aus einem Antworttext lesen', () => {
+  it('liest die Paare unabhaengig von Schreibweise', () => {
+    expect(parseAssignmentPairs('A-1, B-2, C-3')).toEqual(
+      new Map([
+        ['A', '1'],
+        ['B', '2'],
+        ['C', '3'],
+      ]),
+    )
+    expect(parseAssignmentPairs('b – 2 und a – 1')).toEqual(
+      new Map([
+        ['B', '2'],
+        ['A', '1'],
+      ]),
+    )
+  })
+
+  it('haelt einen einzelnen Fund im Fliesstext nicht fuer eine Zuordnung', () => {
+    expect(parseAssignmentPairs('siehe Aufgabe A-1 im Skript')).toBeNull()
+    expect(parseAssignmentPairs('keine Zuordnung erkennbar')).toBeNull()
+  })
+
+  it('verweigert die Auskunft bei einem widerspruechlichen Text', () => {
+    expect(parseAssignmentPairs('A-1, B-2, A-3')).toBeNull()
   })
 })
 

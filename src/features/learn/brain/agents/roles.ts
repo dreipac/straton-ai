@@ -47,6 +47,21 @@ export const ROLE_SPECS: readonly RoleSpec[] = [
     supportsEscalation: true,
   },
   {
+    role: 'aufbereiter',
+    label: 'Aufbereiter',
+    task: 'Ein Arbeitsheft in Lehrstoff verwandeln',
+    profile: 'Fachwissen und Urteil darueber, was eine Frage ueberhaupt ist',
+    separationReason:
+      'Ein Arbeitsheft ist Themenquelle, nicht Wahrheitsquelle: es stellt die Fragen, ohne sie zu ' +
+      'beantworten. Bis es diese Rolle gab, wurde diese Luecke bei JEDER Aufgabe einzeln und ' +
+      'unsichtbar gefuellt (`production/generateTask.ts`, Zweig `posesQuestionOnly`) — jedes Mal ' +
+      'neu, jedes Mal moeglicherweise anders, und nirgends stand hinterher, was das Modell als wahr ' +
+      'angenommen hatte. Der Aufbereiter tut dasselbe EINMAL, vorher, sichtbar und nachlesbar. ' +
+      'Danach gilt I5 wieder in voller Schaerfe, nur eben gegen den abgeleiteten Lehrtext.',
+    latencyCritical: false,
+    supportsEscalation: true,
+  },
+  {
     role: 'pruefer',
     label: 'Pruefer',
     task: 'Antworten bewerten, Ursache und Zuversicht liefern',

@@ -90,6 +90,9 @@ import { BrainNodeEditor } from '../features/learn/brain/components/BrainNodeEdi
 import { BrainExplanationDialog } from '../features/learn/brain/components/BrainExplanationDialog'
 import { BrainValueInfoDialog } from '../features/learn/brain/components/BrainValueInfoDialog'
 import { BrainSourcesSection } from '../features/learn/brain/components/BrainSourcesSection'
+import { BrainDerivedMaterialPanel } from '../features/learn/brain/components/BrainDerivedMaterialPanel'
+import { useMaterialPreparation } from '../features/learn/brain/hooks/useMaterialPreparation'
+import type { WorkbookItem } from '../features/learn/brain/agents/contracts'
 import { buildSessionSummary, buildSessionView } from '../features/learn/brain/ui/sessionView'
 import { buildPathHeader, type BrainValueTerm } from '../features/learn/brain/ui/pathView'
 import { buildReviewCompletion, buildReviewOverview } from '../features/learn/brain/ui/reviewView'
@@ -1694,7 +1697,12 @@ export function LearnPage({
       const materialContext = formatRelevantMaterialContext(
         [concept.name, concept.description].filter((part) => part.trim().length > 0).join(' '),
         materials,
-        { maxChunks: 6, maxChars: 4000, denseChunks: true },
+        /*
+         * `grounding`: Gegen diesen Auszug prueft der Kontrolleur (I5). Ohne diese Angabe fuellt
+         * die Suche freie Plaetze mit den ersten Absaetzen unbeteiligter Dateien auf und gewichtet
+         * den Dateinamen — beides gemessen schaedlich, sobald mehr als eine Datei im Pfad liegt.
+         */
+        { maxChunks: 6, maxChars: 4000, denseChunks: true, purpose: 'grounding' },
       )
 
       return [
@@ -1772,6 +1780,54 @@ export function LearnPage({
     subject: brainSubject,
     generationMode,
   })
+
+  /*
+   * Aufbereitung (Schicht 0): aus jedem hochgeladenen Arbeitsheft wird einmal Lehrstoff.
+   *
+   * Laeuft VOR der Konzeptbildung und vor jeder Aufgabe — siehe den Kopf von
+   * `brain/preparation/derive.ts`. Die erkannten Punkte werden im Zustand gehalten, damit die
+   * Anzeige die Herkunft je Antwort zeigen kann; der Lehrtext selbst haengt am Material.
+   */
+  const [derivedItems, setDerivedItems] = useState<Record<string, WorkbookItem[]>>({})
+
+  const materialPreparation = useMaterialPreparation({
+    pathId: activePathId || null,
+    isSetupComplete,
+    materials,
+    searchWeb: brainSearchWeb,
+    onItems: useCallback((materialId: string, items: WorkbookItem[]) => {
+      setDerivedItems((current) => ({ ...current, [materialId]: items }))
+    }, []),
+    onMaterialsChanged: useCallback((next: UploadedMaterial[]) => {
+      setMaterials(next)
+    }, []),
+  })
+
+  const derivedMaterials = useMemo(
+    () => materials.filter((material) => material.origin === 'derived' && material.excerpt.trim()),
+    [materials],
+  )
+
+  /**
+   * Eine Korrektur am abgeleiteten Lehrstoff speichern.
+   *
+   * Geht denselben Weg wie jede andere Materialaenderung: der Text steht im Material, und alles
+   * Weitere — Materialsuche, Kontrolleur, Generator — liest ihn von dort. Es gibt bewusst keinen
+   * zweiten Speicherort fuer „korrigierte" Fassungen; eine Korrektur IST der Lehrstoff.
+   */
+  const saveDerivedMaterial = useCallback(
+    async (materialId: string, text: string) => {
+      if (!activePathId) {
+        return
+      }
+      const next = materials.map((material) =>
+        material.id === materialId ? { ...material, excerpt: text, size: text.length } : material,
+      )
+      await updateLearningPathById(activePathId, { materials: next })
+      setMaterials(next)
+    },
+    [activePathId, materials],
+  )
 
   const brainSessionView = useMemo(
     () =>
@@ -4649,6 +4705,31 @@ export function LearnPage({
                       * Pfadebene — die Arbeitsblaetter darunter bleiben, was sie sind: ein Export.
                       */}
                     {brainPath.isAvailable ? <BrainSourcesSection sources={brainSources} /> : null}
+                    {/*
+                      * Der ergaenzte Lehrstoff steht direkt neben den Quellen, weil er dieselbe
+                      * Frage beantwortet: woher kommt, was ich hier lerne. Er ist als „nicht aus
+                      * deinen Unterlagen" gekennzeichnet und aenderbar — siehe den Kopf von
+                      * `BrainDerivedMaterialPanel`.
+                      */}
+                    {materialPreparation.phase === 'running' ? (
+                      <p className="brain-derived-notice">
+                        {materialPreparation.currentMaterial
+                          ? `Arbeitsheft wird aufbereitet: ${materialPreparation.currentMaterial} (${materialPreparation.done + 1}/${materialPreparation.total}) …`
+                          : 'Arbeitsheft wird aufbereitet …'}
+                      </p>
+                    ) : null}
+                    {materialPreparation.phase === 'failed' && materialPreparation.error ? (
+                      <p className="brain-derived-error">{materialPreparation.error}</p>
+                    ) : null}
+                    {derivedMaterials.map((material) => (
+                      <BrainDerivedMaterialPanel
+                        key={material.id}
+                        material={material}
+                        items={derivedItems[material.id] ?? []}
+                        summary={materialPreparation.summary}
+                        onSave={saveDerivedMaterial}
+                      />
+                    ))}
                     <div className="learn-next-step-actions learn-next-step-actions--worksheets">
                       <PrimaryButton
                         type="button"

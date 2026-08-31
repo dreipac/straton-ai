@@ -228,6 +228,202 @@ von `src/features/learn/brain/hooks/useBrainSession.ts`. Das urspruengliche, ver
 Staleness-Pruefung bleibt als eigenstaendiges, getestetes Modul in `production/prefetch.ts`
 erhalten — historisch markiert, nicht mehr eingebunden.
 
+### 8. Der Antwortvergleich verwarf richtige Zuordnungen wegen eines Strichs
+
+Gemeldet aus dem Betrieb, als einzige Meldung ohne begleitenden Quellenbefund:
+
+> Zu „Minderjaehriges Steuerpflichtig" liess sich keine belegbare Aufgabe erzeugen: Unabhaengige
+> Loesung weicht ab: „A–1, B–2, C–3, D–4" statt „A-1, B-2, C-3, D-4".
+
+Zwei identische Zuordnungen. Unterschieden allein durch Gedankenstrich gegen Bindestrich — reine
+Satzkonvention. Dass kein Quellenbefund danebenstand, war schon der halbe Befund: I5 war zufrieden,
+gescheitert ist nur das Gegenloesen, und zwar an einem Zeichen. Drei Schichten wirkten zusammen:
+
+1. **`answersAgree` kannte keine Strichvarianten.** Die Funktion faltet Grossschreibung,
+   Leerzeichen und Schluss-Interpunktion weg, weil sie „bewusst tolerant bei Schreibweise" sein
+   soll; beim Strich fehlte genau diese Toleranz. Das Wissen lag im Haus — `ASSIGNMENT_PAIR` in
+   `formats.ts` schrieb schon immer `[-–—]`, weil dort bekannt war, dass der Trennstrich variiert.
+   Es stand nur nicht dort, wo verglichen wird.
+2. **Der Zahlenrueckfall zog in dieselbe Richtung.** Bei ungleichen Zeichenketten vergleicht
+   `answersAgree` die enthaltenen Zahlen; das Muster `-?\d+` schluckte den Bindestrich in „A-1" und
+   las die Musterloesung als minus eins bis minus vier, die Gegenloesung mit Gedankenstrich als
+   plus eins bis vier. Das Auffangnetz erzeugte die Abweichung also selbst ein zweites Mal.
+3. **Zeichenkettenvergleich ist fuer Zuordnungen das falsche Instrument.** Eine Zuordnung ist eine
+   MENGE von Paaren; ihre Richtigkeit haengt nicht an Reihenfolge, Trennzeichen oder Strichform.
+   „B-2, A-1" scheiterte ebenso wie die Pfeilschreibweise — obwohl `composeMatchingAnswer` die
+   Antwort des Nutzers selbst als „Begriff → Beschreibung" aufschreibt, waehrend der Generator
+   „A-1, B-2" liefert. Zwei Schreibweisen desselben Sachverhalts, die der Vergleich nie zur
+   Deckung brachte.
+
+Wiederholen half nicht: nach I11 bleibt die Lage gleich, und der `rejectionHint` (Abschnitt zu I5
+in [02-invarianten.md](02-invarianten.md)) hielt dem Generator hier zwei Zeichenketten vor, die
+fuer ihn identisch aussahen. Alle `MAX_GENERATION_ATTEMPTS` verbrannten.
+
+**Entschieden:** alle drei Schichten, nicht nur die oberste — der Strich allein haette die anderen
+beiden Loecher nur seltener sichtbar gemacht.
+
+- `answersAgree` faltet Strich- und Anfuehrungsvarianten auf ASCII, bevor verglichen wird (krumm
+  auf gerade derselben Art; einfach und doppelt bleiben getrennt).
+- Ein Strich, der direkt an einem Wortzeichen klebt, zaehlt nicht mehr als Vorzeichen. „A-1" ist
+  ein Paar, „x = -26" bleibt minus 26.
+- Fuer `matching` vergleicht `matchingAnswersAgree` die Paare als Menge. `counterAnswersAgree`
+  verteilt je Format — die eine Stelle, an der sich ein kuenftiges Format mit eigener Antwortform
+  meldet.
+
+Das ist derselbe Gedanke wie in Eintrag 6, eine Ebene tiefer: **nicht vergleichen, was sich
+umformulieren laesst.** Bei Auswahlfragen ist das der Wortlaut der Option, bei Zuordnungen sind es
+Reihenfolge und Trennzeichen. Streng bleibt der Vergleich, wo es zaehlt — eine andere Zuordnung
+(„A-2, B-1") und eine unvollstaendige fallen weiterhin durch, sonst faengt das Gegenloesen die
+Fehlerart nicht mehr, gegen die es antritt.
+
+**Nebenwirkung auf die Formatwahl, bewusst in Kauf genommen:** `avoidFormat` speist sich aus
+`learn_task_log`, und protokolliert wird erst NACH dem Torwaechter (`useBrainSession.ts`). Eine am
+Vergleich gescheiterte Zuordnung wurde nie protokolliert — die Wiederholungssperre hatte fuer
+Zuordnungen faktisch nie etwas zu sperren. Seit dem Fix ueberleben sie, werden protokolliert, und
+Zuordnungen tauchen dort auf, wo sie vorher lautlos verschwanden. Das ist die Absicht des Planers,
+die endlich ausgefuehrt wird, keine Abweichung von ihr.
+
+### 9. „Es kam keine Antwort" war kein eigener Fall
+
+Gemeldet aus dem Betrieb, sporadisch:
+
+> Rolle „generator": Anthropic hat keine Antwort geliefert.
+
+Kein Netzwerkfehler und keine Ablehnung: HTTP 200, das Modell hat geantwortet, aber die Antwort
+enthielt keinen verwertbaren Textblock. Das passiert eine Schicht UNTER dem Torwaechter — der
+I5-Kreis mit `rejectionHint` und `MAX_GENERATION_ATTEMPTS` lief nie an, weil es nichts zu pruefen
+gab.
+
+**Der Mangel:** Das Gehirn unterscheidet sorgfaeltig zwischen „das Modell hat geantwortet, und die
+Antwort taugte nichts" — dafuer gibt es den Kontrolleur, den `rejectionHint` und drei informierte
+Versuche — und „es kam gar keine Antwort". Fuer den zweiten Fall gab es nichts. `callBrainAgent`
+warf, der Generatoraufruf in `generateTask.ts` steht ohne `try`/`catch`, und der Wurf ging
+ungebremst durch `produceSlot` auf den Bildschirm. Ein einzelner Aussetzer zerstoerte die Aufgabe
+endgueltig — obwohl die richtige Reaktion auf „es kam nichts an" schlicht ist, noch einmal zu
+fragen. Der teure, sorgfaeltige Wiederholungsweg schuetzte gegen schlechten INHALT, der billige
+und offensichtliche gegen KEINEN Inhalt fehlte.
+
+**Dazu Blindheit an der Fehlerstelle:** `stop_reason` wurde in den Edge Functions nirgends gelesen,
+obwohl Anthropic ihn in jeder Antwort mitschickt. Drei voellig verschiedene Lagen fielen in
+denselben Satz — abgeschnittenes Ausgabebudget, Ablehnung durch das Modell, wirklich leere
+Antwort —, und keine davon war anschliessend zu belegen. Dieselbe Sorte Blindheit wie beim nie
+befuellten `sourceIssues` in Eintrag 6.
+
+**Entschieden:**
+
+- `callAnthropic` liest `stop_reason` und benennt die drei Lagen getrennt. Ein abgeschnittenes
+  Budget nennt ausdruecklich `max_output_tokens in learn_brain_agent_models` — die Stelle, an der
+  es zu beheben ist.
+- Neu `ProviderCallError` mit einem Feld `retryable`: die Einschaetzung entsteht dort, wo sie
+  begruendbar ist (Ueberlastung gegen Urteil ueber die Anfrage), statt sie den Aufrufer aus einem
+  Fehlertext raten zu lassen. `handleBrainAgent` reicht sie an den Client durch. Ein nicht
+  klassifizierter Fehler gilt als endgueltig — auch die Aufrufe an Gemini und OpenAI, solange sie
+  die Klasse nicht ebenfalls benutzen.
+- 529 (Anthropics Ueberlastungsstatus), 5xx und 408 gelten als voruebergehend; ein nicht
+  zustandegekommener Verbindungsaufbau ebenfalls. 429 ausdruecklich NICHT: ein sofortiger zweiter
+  Versuch verschaerft ein Token-Limit, statt es zu entspannen.
+- `callBrainAgent` fasst bei einem voruebergehenden Fehler EINMAL nach
+  (`MAX_TRANSPORT_ATTEMPTS = 2`, 700 ms Wartezeit, ein Abbruch wird nicht verschlafen). Das gilt
+  fuer alle sechs Rollen, nicht nur den Generator. Ebenfalls wiederholt werden „leere Antwort" und
+  „kein gueltiges JSON": beides passiert VOR jeder Beurteilung, der Kontrolleur bekommt so eine
+  Antwort nie zu sehen, und beides faellt damit in die Klasse „nichts Verwertbares angekommen".
+
+`MAX_TRANSPORT_ATTEMPTS` und `MAX_GENERATION_ATTEMPTS` sind ausdruecklich zweierlei und duerfen
+nicht zusammengelegt werden: das eine wiederholt, weil nichts ankam, das andere, weil das
+Angekommene begruendet abgelehnt wurde und der naechste Versuch einen Hinweis mitbekommt.
+
+**Rueckfall ohne Deployment:** Der Client entscheidet anhand des Feldes `retryable`, wenn es
+vorliegt, und sonst anhand des Fehlertexts (`looksTransient`). Ohne diesen Rueckfall wuerde die
+Wiederholung erst mit dem Ausrollen der Edge Function wirksam, obwohl sie das nicht braucht.
+
+### 10. Ein Arbeitsheft ist kein Lehrbuch — die Aufbereitung als eigene Schicht
+
+Der Befund kam aus dem Betrieb („das Gehirn wird schlechter, je mehr es weiss") und liess sich am
+Material selbst nachmessen. Ein Schuldossier (21 Seiten, TBZ) ergab:
+
+| Messung | Ergebnis |
+|---|---|
+| Textdichte | 897 Zeichen je Seite — eine dicht bedruckte A4-Seite hat rund 3000 |
+| Zusammensetzung | ueberwiegend Arbeitsauftraege, Fragen und Lernziele; erklaerende Prosa mit Definitionen praktisch nicht vorhanden |
+| Verweise | „Lesen Sie im Lehrmittel «Gesellschaft_Ausgabe A» in Kapitel 9.2" — auf Material, das gar nicht hochgeladen ist |
+| Auszug bei 1 Datei | 1 von 1 Ausschnitten zum Thema |
+| Auszug bei 9 Dateien | **2 von 6** — vier Plaetze an die ersten Absaetze unbeteiligter Dateien |
+| Datei mit passendem NAMEN, themenfremdem Inhalt | **5 von 6 Plaetzen** |
+
+Daraus folgten fuenf Aenderungen. Sie haengen zusammen: die ersten beiden sind die Voraussetzung
+dafuer, dass die dritte auf festem Grund steht.
+
+**1. Die Materialsuche kennt jetzt zwei Betriebsarten** (`utils/ragLite.ts`, `RetrievalPurpose`).
+Beim BEANTWORTEN ist breite Abdeckung ein Vorteil — lieber ein Ausschnitt zu viel. Beim BELEGEN
+kehrt sich das um: der Kontrolleur soll beurteilen, ob eine Aussage gedeckt ist, und ein
+themenfremder Ausschnitt ist dann kein harmloser Beifang. In der Beleg-Betriebsart entfaellt das
+Auffuellen mit fremden Dateien und die Gewichtung des Dateinamens; findet sich nichts
+Einschlaegiges, ist die Antwort ein leerer Auszug. `generateTask.ts` behandelt den bereits mit
+benannter Begruendung — besser als drei Versuche gegen fremdes Material.
+
+**2. Die Texterkennung entscheidet jetzt je Seite** (`utils/documentParser.ts`). Die Schwelle
+(80 Zeichen je Seite) wurde ueber das ganze Dokument gemittelt. Ein Arbeitsheft mit rund 900
+Zeichen Aufgabentext je Seite lag weit darueber und loeste **nie** eine Erkennung aus — obwohl der
+eigentliche Lehrstoff darin als eingescanntes Bild steckte (Gesetzesauszuege, Tabellen,
+abfotografierte Buchseiten). Fuer das Gehirn existierte dieser Stoff nicht. Jetzt gilt: duenner
+Textlayer ODER Rasterbild auf der Seite → Erkennung, und das Ergebnis wird seitenweise
+eingefuegt, nicht als Block angehaengt. Was die Erkennung im Textlayer wiederfindet, faellt weg
+(`ocrLinesBeyondTextLayer`) — sonst stuende der halbe Auszug doppelt da, und die Materialsuche
+zaehlt Begriffe.
+
+**3. Neue Rolle: der Aufbereiter** (`brain/preparation/derive.ts`, siebte Rolle). Er zerlegt das
+Arbeitsheft in drei Arten und behandelt sie verschieden:
+
+| Art | Beispiel | Behandlung |
+|---|---|---|
+| `wissensfrage` | „Welche Folgen hat die Aufloesung einer Verlobung?" | beantworten → Lehrtext → Konzept → Aufgabe |
+| `arbeitsauftrag` | „Schauen Sie sich den Filmbeitrag an" | kein Wissen; das Thema wird recherchiert |
+| `reflexion` | „Wie sieht Ihre Traumfrau aus?" | **nie** Lehrstoff, **nie** eine Aufgabe |
+
+Die dritte Art war der teuerste bisherige Fehler: aus einer Reflexionsfrage entstand ein Konzept,
+zu dem der Generator eine pruefbare Frage bauen sollte — eine Aufgabe, auf die niemand richtig
+antworten kann.
+
+**Warum das I5 nicht schwaecht, sondern wiederherstellt:** Genau diese Ableitung geschah vorher
+schon, nur heimlich. Der Zweig `posesQuestionOnly` in `production/generateTask.ts` fuellte die
+Luecke bei JEDER Aufgabe einzeln, mit potenziell jedes Mal anderer Antwort, und nirgends stand
+hinterher, was das Modell als wahr angenommen hatte. Jetzt geschieht es einmal, im Voraus, und das
+Ergebnis ist ein gespeicherter Text. Ab da gilt I5 wieder in voller Schaerfe — gegen einen
+Lehrtext, der vorher da war, statt gegen etwas, das im Moment der Pruefung erfunden wurde. Der
+Zweig bleibt als Rueckfall fuer Luecken, die die Aufbereitung nicht geschlossen hat.
+
+Reihenfolge der Quellen: erst das Material selbst, dann Websuche, zuletzt das Fachwissen des
+Modells. Recherchiert wird nur, wo der Aufbereiter selbst Unsicherheit meldet oder ein Auftrag auf
+nicht vorliegendes Material verweist — was sicher im Dossier stand, bleibt unangetastet. Das
+Material der Person hat Vorrang: es ist das, woran sie geprueft wird.
+
+**4. Der Kartograf ist angeschlossen** (`brain/preparation/cartography.ts`). Die Rolle stand seit
+jeher im Register, galt dort als „die kritischste" und wurde nie aufgerufen; die Konzeptbildung
+lief ueber den allgemeinen Chatweg und umging damit die Vermittlungsschicht aus Kapitel 12 — ein
+Modellwechsel im Admin-Menue wirkte auf jede Rolle ausser ausgerechnet diese. Der Chatweg bleibt
+als Rueckfall, falls die Rolle serverseitig nicht aufloesbar ist; ohne ihn haette ein fehlendes
+Deployment einen Pfad ganz ohne Konzeptnetz zur Folge.
+
+**5. Der abgeleitete Lehrstoff ist sichtbar und aenderbar**
+(`brain/components/BrainDerivedMaterialPanel.tsx`). Das ist die Bedingung, unter der die
+Vorverlagerung ueberhaupt vertretbar ist: ein falscher abgeleiteter Satz vergiftet nicht mehr eine
+Aufgabe, sondern ein ganzes Konzept mitsamt allen Aufgaben daraus — dieselbe Fehlerfortpflanzung,
+gegen die I5 geschrieben wurde, nur eine Stufe frueher. „Fachlich richtig" und „was die Lehrperson
+erwartet" gehen bei Recht und Staatskunde regelmaessig auseinander (Kantonsunterschiede, aeltere
+Auflage, bewusste Vereinfachung im Unterricht). Die Korrektur geht denselben Weg wie jede andere
+Materialaenderung — es gibt bewusst keinen zweiten Speicherort fuer „korrigierte" Fassungen.
+
+Die Herkunft steht im NAMEN des abgeleiteten Materials, nicht im Text. Die Materialsuche schreibt
+den Namen in jeden Auszug („Quelle 1 (<name>): …") — damit reist die Angabe bis zum Generator und
+zum Kontrolleur mit, ohne dass ein Markierungssatz in den Lehrstoff muss, der dort mitgelernt und
+spaeter abgefragt wuerde.
+
+**Was offen bleibt:** Die Einordnung in die drei Arten kann nur ein Modell leisten — ein Parser
+sieht bei „Wie stellen Sie sich Ihr Zusammenleben vor?" dieselbe Zeichenkette wie bei einer
+Wissensfrage. `parseAufbereiterResult` prueft deshalb nur, dass eine Wissensfrage eine Antwort UND
+eine Herkunftsangabe hat, nicht ob die Einordnung stimmt. Diese Grenze zu kennen ist besser, als
+sie mit Stichwortlisten zu verwischen.
+
 ---
 
 ## Zwei Entscheidungen, die nicht einzeln geaendert werden duerfen

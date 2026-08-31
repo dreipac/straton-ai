@@ -182,6 +182,125 @@ export function parseCartographerResult(raw: unknown): CartographerResult {
 }
 
 // ---------------------------------------------------------------------------
+// Aufbereiter
+// ---------------------------------------------------------------------------
+
+/**
+ * Welche Art von Punkt im Arbeitsheft steht.
+ *
+ * Die Unterscheidung ist der ganze Zweck der Rolle. Ein Arbeitsheft mischt drei Dinge, die im
+ * Layout gleich aussehen und fuer das Lernen voellig Verschiedenes bedeuten — und bis es diese
+ * Rolle gab, wurden alle drei gleich behandelt. Daraus entstand unter anderem eine Zuordnung, die
+ * Personengruppen den OFFENEN FRAGEN des Dossiers zuordnete statt Definitionen: formal einwandfrei
+ * im Material verankert, inhaltlich wertlos.
+ */
+export type WorkbookItemKind = 'wissensfrage' | 'arbeitsauftrag' | 'reflexion'
+
+/** Woher die Antwort auf eine Wissensfrage stammt. Entspricht I4 auf der Ebene des Lehrstoffs. */
+export type DerivedAnswerSource = 'material' | 'web' | 'model'
+
+export type WorkbookItem = {
+  kind: WorkbookItemKind
+  /** Die Frage in der Formulierung des Aufbereiters, ohne Aufgabennummer. */
+  question: string
+  /** Nur bei `wissensfrage` belegt. */
+  answer: string
+  /** Nur bei `wissensfrage` belegt. */
+  answerSource: DerivedAnswerSource | null
+  /**
+   * Der Aufbereiter ist sich unsicher. Nicht dasselbe wie „falsch": Raten und Wissen sehen im
+   * fertigen Text gleich aus, und nur das Modell selbst kann den Unterschied melden. Steuert die
+   * Websuche und die Anzeige.
+   */
+  needsResearch: boolean
+  /** Bei `arbeitsauftrag`: das lernbare Thema dahinter, falls es eines gibt. */
+  topic: string
+  /** Woertliche Stelle im Abschnitt, hoechstens ein Satz. */
+  sourceQuote: string
+}
+
+export type AufbereiterRequest = {
+  /** Der Abschnitt aus dem Material. */
+  materialChunk: string
+  /** Name der Datei — hilft beim Landesbezug („Steuern_Schweiz.pdf"). */
+  materialName: string
+  /** Rechercheergebnisse, falls ein voriger Durchgang Unsicherheit gemeldet hat. */
+  webContext: string | null
+}
+
+export type AufbereiterResult = {
+  items: WorkbookItem[]
+}
+
+function parseWorkbookItemKind(value: unknown): WorkbookItemKind | null {
+  if (value === 'wissensfrage' || value === 'arbeitsauftrag' || value === 'reflexion') {
+    return value
+  }
+  return null
+}
+
+function parseDerivedAnswerSource(value: unknown): DerivedAnswerSource | null {
+  if (value === 'material' || value === 'web' || value === 'model') {
+    return value
+  }
+  return null
+}
+
+/**
+ * Aufbereiterausgabe pruefen.
+ *
+ * Zwei Verwerfungsgruende, beide unnachgiebig:
+ *
+ *  - Eine Wissensfrage OHNE Antwort ist keine. Sie wuerde als leeres Konzept weiterlaufen und
+ *    spaeter eine Aufgabe ohne Musterloesung erzeugen.
+ *  - Eine Wissensfrage ohne `answerSource` verletzt I4 auf der Ebene des Lehrstoffs. Die Person
+ *    wird an IHREM Material geprueft; ob ein Satz von dort stammt oder vom Modell ergaenzt wurde,
+ *    ist der Unterschied zwischen einer Lernhilfe und einer Behauptung. Ein unmarkierter Satz ist
+ *    schlimmer als ein fehlender, weil er sich nicht mehr als Ergaenzung zu erkennen gibt.
+ *
+ * Was NICHT geprueft wird: ob die Einordnung stimmt. Ob „Wie stellen Sie sich Ihr Zusammenleben
+ * vor?" wirklich eine Reflexion ist, kann nur ein Modell beurteilen — ein Parser sieht dieselbe
+ * Zeichenkette wie bei einer Wissensfrage. Diese Grenze zu kennen ist wichtiger, als sie mit
+ * Stichwortlisten zu verwischen.
+ */
+export function parseAufbereiterResult(raw: unknown): AufbereiterResult {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const rawItems = Array.isArray(source.items) ? source.items : []
+  const items: WorkbookItem[] = []
+
+  for (const entry of rawItems) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+    const item = entry as Record<string, unknown>
+    const kind = parseWorkbookItemKind(item.kind)
+    const question = asString(item.question, 400)
+    if (!kind || !question) {
+      continue
+    }
+
+    const answer = asString(item.answer, 2000)
+    const answerSource = parseDerivedAnswerSource(item.answerSource)
+
+    if (kind === 'wissensfrage' && (!answer || !answerSource)) {
+      continue
+    }
+
+    items.push({
+      kind,
+      question,
+      answer: kind === 'wissensfrage' ? answer : '',
+      answerSource: kind === 'wissensfrage' ? answerSource : null,
+      needsResearch: item.needsResearch === true,
+      topic: asString(item.topic, 200),
+      sourceQuote: asString(item.sourceQuote, 600),
+    })
+  }
+
+  return { items }
+}
+
+// ---------------------------------------------------------------------------
 // Pruefer
 // ---------------------------------------------------------------------------
 

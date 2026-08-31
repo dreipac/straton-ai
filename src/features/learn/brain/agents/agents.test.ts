@@ -32,6 +32,7 @@ import {
   validateRouting,
 } from './modelRouting'
 import { PROMPT_CACHE_KEYS, systemPromptFor } from './prompts'
+import { looksTransient } from './client'
 import {
   extractJson,
   parseCartographerResult,
@@ -51,8 +52,8 @@ function bindings(overrides: Partial<Record<BrainAgentRole, Partial<BrainAgentMo
 }
 
 describe('Rollenregister', () => {
-  it('fuehrt genau die sechs Rollen, die ein Modell brauchen', () => {
-    expect(ROLE_SPECS).toHaveLength(6)
+  it('fuehrt genau die sieben Rollen, die ein Modell brauchen', () => {
+    expect(ROLE_SPECS).toHaveLength(7)
   })
 
   it('kennt den Planer nicht — er ist deterministisch (Invariante I11)', () => {
@@ -209,6 +210,45 @@ describe('Systemanweisungen', () => {
 
   it('haelt dem Kontrolleur beim Gegenloesen die Musterloesung vor', () => {
     expect(systemPromptFor('kontrolleur')).toMatch(/OHNE Musterloesung|ohne Musterloesung/)
+  })
+})
+
+/*
+ * Gemeldet aus dem Betrieb: „Rolle ‚generator': Anthropic hat keine Antwort geliefert." — HTTP 200,
+ * aber kein Textblock. Ein einzelner Aussetzer der Gegenseite zerstoerte die Aufgabe endgueltig,
+ * weil das Gehirn nur den Fall „Antwort war mangelhaft" kannte und nicht den Fall „es kam keine".
+ *
+ * Geprueft wird hier der Rueckfall am Fehlertext. Er greift nur, solange die Edge Function ihre
+ * Einschaetzung (`retryable`) noch nicht mitschickt — also genau zwischen Client-Deployment und
+ * Function-Deployment.
+ */
+describe('Voruebergehender Fehler gegen endgueltigen', () => {
+  it('erkennt einen Aussetzer der Gegenseite', () => {
+    expect(looksTransient('Anthropic hat keine Antwort geliefert.')).toBe(true)
+    expect(looksTransient('Anthropic hat einen leeren Textblock geliefert (stop_reason "end_turn").')).toBe(true)
+    expect(looksTransient('Anthropic war nicht erreichbar: network error')).toBe(true)
+    expect(looksTransient('Anthropic Anfrage fehlgeschlagen (529). Overloaded')).toBe(true)
+    expect(looksTransient('Anthropic Anfrage fehlgeschlagen (503).')).toBe(true)
+  })
+
+  /*
+   * Die wichtigere Haelfte: was ein Urteil ueber die Anfrage selbst ist, darf NICHT wiederholt
+   * werden. Ein zweiter Versuch hoert dort zweimal dasselbe und kostet nur.
+   */
+  it('haelt ein Urteil ueber die Anfrage fuer endgueltig', () => {
+    expect(looksTransient('Anthropic Anfrage fehlgeschlagen (400). model: unknown')).toBe(false)
+    expect(
+      looksTransient('Anthropic hat die Antwort nach 512 Token abgeschnitten, bevor Text entstand.'),
+    ).toBe(false)
+    expect(looksTransient('Anthropic hat die Beantwortung abgelehnt (stop_reason "refusal").')).toBe(false)
+    expect(
+      looksTransient('Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte kurz warten.'),
+    ).toBe(false)
+    expect(looksTransient('Unbekannte Gehirn-Rolle.')).toBe(false)
+  })
+
+  it('urteilt unabhaengig von der Gross-/Kleinschreibung', () => {
+    expect(looksTransient('ANTHROPIC HAT KEINE ANTWORT GELIEFERT.')).toBe(true)
   })
 })
 

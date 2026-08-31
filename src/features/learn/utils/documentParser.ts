@@ -1,5 +1,11 @@
 import mammoth from 'mammoth'
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  OPS,
+  type PDFDocumentProxy,
+  type PDFPageProxy,
+} from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import * as XLSX from 'xlsx'
 
@@ -16,6 +22,32 @@ const PDF_OCR_MAX_PAGES = 30
 const PDF_OCR_RENDER_SCALE = 2
 /** Wie Chat documentExtract: dünn befüllter Textlayer → OCR auslösen. */
 const PDF_SPARSE_CHARS_PER_PAGE = 80
+
+/**
+ * Wie viele Seiten mit BILDINHALT zusätzlich durch die Texterkennung gehen.
+ *
+ * Getrennt von `PDF_OCR_MAX_PAGES`, weil es ein anderer Fall ist: dort geht es um ein Dokument
+ * ohne brauchbaren Textlayer (ein Scan), hier um einzelne Seiten eines sonst lesbaren Dokuments.
+ * Die Grenze schützt die Wartezeit beim Hochladen — jede Seite kostet ein bis drei Sekunden.
+ */
+const PDF_IMAGE_OCR_MAX_PAGES = 20
+
+/**
+ * Zeichenoperationen, die ein Rasterbild auf die Seite bringen.
+ *
+ * Vektorgrafik (Linien, Rahmen, Tabellenraster) steht bewusst nicht dabei: sie trägt keinen Text
+ * und würde jede zweite Seite unnötig durch die Texterkennung schicken.
+ */
+const IMAGE_PAINT_OPS = new Set<number>([
+  OPS.paintImageXObject,
+  OPS.paintImageXObjectRepeat,
+  OPS.paintInlineImageXObject,
+  OPS.paintImageMaskXObject,
+  OPS.paintImageMaskXObjectRepeat,
+])
+
+/** Kürzer als das ist kein Satz, sondern Erkennungsrauschen (Seitenzahlen, Striche, Artefakte). */
+const OCR_MIN_LINE_CHARS = 12
 
 /** Ergebnis von `file.text()` auf einer PDF — kein lesbarer Dokumenttext. */
 function looksLikeRawPdfPayload(text: string): boolean {
@@ -91,7 +123,14 @@ async function loadPdfFromFile(file: File): Promise<PDFDocumentProxy> {
   return getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise
 }
 
-async function extractPdfTextLayer(pdf: PDFDocumentProxy): Promise<string> {
+/**
+ * Den Textlayer SEITENWEISE holen.
+ *
+ * Seitenweise statt am Stück, weil die Entscheidung „braucht diese Seite Texterkennung?" pro Seite
+ * fällt und nicht fürs ganze Dokument. Ein Arbeitsheft hat beides nebeneinander: Seiten mit
+ * sauberem Textlayer und Seiten, deren eigentlicher Inhalt ein eingescanntes Bild ist.
+ */
+async function extractPdfTextLayerPages(pdf: PDFDocumentProxy): Promise<string[]> {
   const pages: string[] = []
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo)
@@ -101,21 +140,38 @@ async function extractPdfTextLayer(pdf: PDFDocumentProxy): Promise<string> {
       .filter((entry): entry is string => Boolean(entry))
     pages.push(chunks.join(' '))
   }
-  return pages.join('\n\n').trim()
+  return pages
 }
 
-async function ocrPdfPages(pdf: PDFDocumentProxy): Promise<string> {
-  if (typeof document === 'undefined') {
-    return ''
+/** Trägt diese Seite ein Rasterbild? */
+async function pageHasRasterImage(page: PDFPageProxy): Promise<boolean> {
+  try {
+    const operatorList = await page.getOperatorList()
+    return operatorList.fnArray.some((fn: number) => IMAGE_PAINT_OPS.has(fn))
+  } catch {
+    // Kann die Operatorliste nicht gelesen werden, gilt die Seite als bildfrei: lieber kein
+    // zusätzlicher Erkennungslauf als ein Absturz beim Hochladen.
+    return false
+  }
+}
+
+/**
+ * Texterkennung auf bestimmten Seiten.
+ *
+ * Gibt eine Zuordnung Seitennummer -> erkannter Text zurueck statt eines zusammengefuegten
+ * Textes: der Aufrufer muss das Ergebnis seitenweise mit dem Textlayer verrechnen koennen.
+ */
+async function ocrPdfPages(pdf: PDFDocumentProxy, pageNumbers: number[]): Promise<Map<number, string>> {
+  const result = new Map<number, string>()
+  if (typeof document === 'undefined' || pageNumbers.length === 0) {
+    return result
   }
 
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker(['deu', 'eng'], 1, {})
-  const pageTexts: string[] = []
-  const maxPages = Math.min(pdf.numPages, PDF_OCR_MAX_PAGES)
 
   try {
-    for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
+    for (const pageNo of pageNumbers) {
       const page = await pdf.getPage(pageNo)
       const viewport = page.getViewport({ scale: PDF_OCR_RENDER_SCALE })
       const canvas = document.createElement('canvas')
@@ -138,43 +194,145 @@ async function ocrPdfPages(pdf: PDFDocumentProxy): Promise<string> {
         data: { text },
       } = await worker.recognize(blob)
       const trimmed = typeof text === 'string' ? text.trim() : ''
-      if (trimmed) {
-        pageTexts.push(trimmed)
+      if (trimmed && !looksLikeRawPdfPayload(trimmed)) {
+        result.set(pageNo, trimmed)
       }
     }
   } finally {
     await worker.terminate()
   }
 
-  const joined = pageTexts.join('\n\n').trim()
-  if (!joined || looksLikeRawPdfPayload(joined)) {
-    return ''
+  return result
+}
+
+/** Vergleichsform fuer den Abgleich zwischen Textlayer und Erkennung: nur Buchstaben und Ziffern. */
+function comparableForm(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+/**
+ * Aus dem Erkennungsergebnis einer Seite das behalten, was im Textlayer NICHT vorkommt.
+ *
+ * Der Grund: Auf einer Seite mit Text und Bild erkennt die Texterkennung beides — den bereits
+ * vorhandenen Text noch einmal und zusaetzlich den Bildinhalt. Wuerde man alles anhaengen, stuende
+ * der halbe Auszug doppelt da; die Materialsuche zaehlt Begriffe, und Verdopplung verschiebt jede
+ * Gewichtung. Verglichen wird auf Buchstaben und Ziffern reduziert, weil die Erkennung bei
+ * Satzzeichen und Umbruechen zuverlaessig abweicht, ohne dass der Inhalt ein anderer waere.
+ */
+export function ocrLinesBeyondTextLayer(ocrText: string, textLayer: string): string {
+  const haystack = comparableForm(textLayer)
+  const kept: string[] = []
+  for (const rawLine of ocrText.split('\n')) {
+    const line = rawLine.trim()
+    if (line.length < OCR_MIN_LINE_CHARS) {
+      continue
+    }
+    const needle = comparableForm(line)
+    if (needle.length < OCR_MIN_LINE_CHARS || haystack.includes(needle)) {
+      continue
+    }
+    kept.push(line)
   }
-  return joined
+  return kept.join('\n')
+}
+
+/**
+ * Welche Seiten muessen durch die Texterkennung?
+ *
+ * Zwei verschiedene Gruende, die frueher zu einem verschmolzen waren:
+ *
+ *  1. Die Seite hat kaum Textlayer — ein Scan. Ohne Erkennung ist sie leer.
+ *  2. Die Seite hat einen brauchbaren Textlayer UND ein Rasterbild. Der Text kommt an, der
+ *     Bildinhalt nicht.
+ *
+ * Der zweite Fall war nicht abgedeckt, weil die Schwelle ueber das GANZE Dokument gemittelt wurde:
+ * ein Arbeitsheft mit rund 900 Zeichen Aufgabentext je Seite liegt weit ueber der Schwelle von 80
+ * und loeste nie eine Erkennung aus — obwohl der eigentliche Lehrstoff darin als eingescannter
+ * Text im Bild steckte (Gesetzesauszuege, Tabellen, abfotografierte Buchseiten). Fuer das Gehirn
+ * existierte dieser Stoff schlicht nicht, und der Generator bekam nur die Arbeitsauftraege
+ * ringsherum zu sehen.
+ */
+async function pagesNeedingOcr(
+  pdf: PDFDocumentProxy,
+  textLayerPages: string[],
+): Promise<{ sparse: number[]; withImages: number[] }> {
+  const sparse: number[] = []
+  const withImages: number[] = []
+
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const pageText = textLayerPages[pageNo - 1] ?? ''
+    const compact = pageText.replace(/\s+/g, '').length
+    if (compact < PDF_SPARSE_CHARS_PER_PAGE) {
+      sparse.push(pageNo)
+      continue
+    }
+    if (withImages.length >= PDF_IMAGE_OCR_MAX_PAGES) {
+      continue
+    }
+    const page = await pdf.getPage(pageNo)
+    if (await pageHasRasterImage(page)) {
+      withImages.push(pageNo)
+    }
+  }
+
+  return { sparse: sparse.slice(0, PDF_OCR_MAX_PAGES), withImages }
 }
 
 async function parsePdf(file: File): Promise<string> {
   const pdf = await loadPdfFromFile(file)
-  const textLayer = await extractPdfTextLayer(pdf)
-  const pageCount = pdf.numPages
-  const compactLen = textLayer.replace(/\s+/g, '').length
-  const charsPerPage = pageCount > 0 ? compactLen / pageCount : compactLen
-  const layerUsable = Boolean(textLayer.trim()) && !looksLikeRawPdfPayload(textLayer)
-  const needsOcr =
-    !layerUsable || charsPerPage < PDF_SPARSE_CHARS_PER_PAGE
+  const textLayerPages = await extractPdfTextLayerPages(pdf)
+  const textLayer = textLayerPages.join('\n\n').trim()
+  const layerUsable = Boolean(textLayer) && !looksLikeRawPdfPayload(textLayer)
 
-  if (!needsOcr) {
+  if (!layerUsable) {
+    // Kein brauchbarer Textlayer im ganzen Dokument: der klassische Scan-Fall.
+    const allPages = Array.from({ length: Math.min(pdf.numPages, PDF_OCR_MAX_PAGES) }, (_, i) => i + 1)
+    const recognised = await ocrPdfPages(pdf, allPages)
+    return [...recognised.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, text]) => text)
+      .join('\n\n')
+      .trim()
+  }
+
+  const { sparse, withImages } = await pagesNeedingOcr(pdf, textLayerPages)
+  const targets = [...new Set([...sparse, ...withImages])].sort((a, b) => a - b)
+  if (targets.length === 0) {
     return textLayer
   }
 
-  const ocrText = await ocrPdfPages(pdf)
-  if (!ocrText.trim()) {
-    return layerUsable ? textLayer : ''
+  const recognised = await ocrPdfPages(pdf, targets)
+  if (recognised.size === 0) {
+    return textLayer
   }
-  if (!layerUsable || charsPerPage < PDF_SPARSE_CHARS_PER_PAGE * 0.5) {
-    return ocrText
+
+  /*
+   * Seitenweise zusammensetzen statt einen Erkennungsblock anzuhaengen.
+   *
+   * Die Reihenfolge im Auszug ist die Reihenfolge im Dokument, und das ist keine Formsache: die
+   * Materialsuche schneidet den Text in ueberlappende Fenster. Stuende der Bildinhalt gesammelt am
+   * Ende, laege er im Fenster neben fremden Seiten statt neben seiner eigenen Aufgabe — und der
+   * Kontrolleur bekaeme Bildinhalt und Frage nie gemeinsam zu sehen.
+   */
+  const merged: string[] = []
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const layerText = (textLayerPages[pageNo - 1] ?? '').trim()
+    const ocrText = recognised.get(pageNo) ?? ''
+    if (!ocrText) {
+      if (layerText) {
+        merged.push(layerText)
+      }
+      continue
+    }
+    if (!layerText) {
+      merged.push(ocrText)
+      continue
+    }
+    const extra = ocrLinesBeyondTextLayer(ocrText, layerText)
+    merged.push(extra ? `${layerText}\n\n[Bildinhalt Seite ${pageNo}]\n${extra}` : layerText)
   }
-  return `${textLayer.trim()}\n\n[OCR-Ergänzung]\n${ocrText}`.trim()
+
+  return merged.join('\n\n').trim()
 }
 
 async function parseDocx(file: File): Promise<string> {

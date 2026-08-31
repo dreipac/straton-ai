@@ -1,5 +1,24 @@
 import type { UploadedMaterial } from '../services/learn.persistence'
 
+/**
+ * Wofür der Auszug gebraucht wird — die Betriebsart entscheidet über Auffüllen und Dateinamen.
+ *
+ * `answer` (Standard, bisheriges Verhalten): Es soll eine Frage beantwortet werden. Breite
+ * Abdeckung ist hier ein Vorteil — lieber ein Ausschnitt zu viel als eine Datei übersehen. Ein
+ * knapp danebenliegender Ausschnitt schadet nicht, das Modell ignoriert ihn einfach.
+ *
+ * `grounding`: Gegen diesen Auszug wird GEPRÜFT (Invariante I5). Hier kehrt sich alles um. Der
+ * Kontrolleur soll beurteilen, ob eine Aussage im Material gedeckt ist; ein themenfremder
+ * Ausschnitt ist dann kein harmloser Beifang, sondern Material, gegen das er fälschlich prüft.
+ *
+ * Gemessen an einem echten Schuldossier (9 Abschnitte als eigene Dateien, Anfrage „Verlöbnis
+ * Auflösung Rechtsfolgen"): bei einer Datei waren 1 von 1 Ausschnitten zum Thema, bei neun nur
+ * noch 2 von 6 — vier Plätze gingen an die ersten Absätze unbeteiligter Dateien. Und eine Datei,
+ * die bloss PASSEND HIESS, aber themenfremden Inhalt hatte, holte sich 5 von 6 Plätzen.
+ * Beides ist für eine Chat-Antwort verschmerzbar und für einen Beleg untragbar.
+ */
+export type RetrievalPurpose = 'answer' | 'grounding'
+
 type RetrievalOptions = {
   maxChunks?: number
   maxChars?: number
@@ -7,6 +26,8 @@ type RetrievalOptions = {
   denseChunks?: boolean
   /** Klarstellung für die KI: Inhalte aus den Dateien vor Generik bevorzugen. */
   emphasizePersonalSources?: boolean
+  /** Siehe `RetrievalPurpose`. Fehlt die Angabe, gilt `answer` — das bisherige Verhalten. */
+  purpose?: RetrievalPurpose
 }
 
 type MaterialChunk = {
@@ -293,13 +314,23 @@ function scoreAllChunks(
   bigramPhrases: string[],
   idf: Map<string, number>,
   avgdl: number,
+  purpose: RetrievalPurpose,
 ): ScoredChunk[] {
   const queryNorm = normalizeText(query)
   return chunks.map((chunk) => {
     const normalizedChunk = normalizeText(chunk.content)
     let score = bm25ScoreForChunk(queryTerms, normalizedChunk, idf, avgdl)
     score += phraseBonus(normalizedChunk, bigramPhrases, queryNorm)
-    score += filenameRelevanceScore(chunk.materialName, queryTermSet) * 4
+    /*
+     * Der Dateiname zählt nur beim Beantworten. Wer eine Datei „Steuern_Minderjaehrige.pdf" nennt,
+     * hat damit gesagt, worum es ihm geht — ein brauchbares Signal, solange nur eine Frage
+     * beantwortet wird. Als BELEG ist er wertlos: ein Name ist keine Aussage über den Inhalt, und
+     * mit Gewicht 4 schlägt er den Inhalt regelmässig (gemessen: 5 von 6 Plätzen an eine passend
+     * benannte, thematisch unbeteiligte Datei).
+     */
+    if (purpose === 'answer') {
+      score += filenameRelevanceScore(chunk.materialName, queryTermSet) * 4
+    }
 
     for (const phrase of bigramPhrases) {
       const c = termFrequencyInText(normalizedChunk, phrase)
@@ -361,16 +392,35 @@ export function formatRelevantMaterialContext(
     return ''
   }
 
+  const purpose: RetrievalPurpose = options?.purpose ?? 'answer'
   const { terms: queryTerms, bigramPhrases } = expandQueryTerms(query)
   const queryTermSet = new Set(queryTerms)
   const { idf, avgdl } = buildIdfIndex(chunks)
 
-  const ranked = scoreAllChunks(chunks, query, queryTerms, queryTermSet, bigramPhrases, idf, avgdl).sort(
-    (a, b) => b.score - a.score,
-  )
+  const ranked = scoreAllChunks(
+    chunks,
+    query,
+    queryTerms,
+    queryTermSet,
+    bigramPhrases,
+    idf,
+    avgdl,
+    purpose,
+  ).sort((a, b) => b.score - a.score)
 
   const positive = ranked.filter((e) => e.score > 0).map((e) => e.chunk)
   let selected = positive.slice(0, maxChunks)
+
+  if (purpose === 'grounding') {
+    /*
+     * Kein Auffüllen und kein Rückfall auf „irgendwas". Findet sich nichts Einschlägiges, ist die
+     * ehrliche Antwort ein leerer Auszug: der Aufrufer hat dann eine Lücke im Material vor sich
+     * und kann sie behandeln (`generateTask.ts` bricht mit einer benannten Begründung ab, statt
+     * drei Versuche gegen fremdes Material zu verbrennen). Ein aufgefüllter Auszug sähe dagegen
+     * vollständig aus und wäre irreführend.
+     */
+    return renderChunks(selected, maxChars, options)
+  }
 
   if (selected.length === 0) {
     selected = chunks.slice(0, maxChunks)
@@ -378,6 +428,15 @@ export function formatRelevantMaterialContext(
     selected = appendMissingMaterials(selected, chunks, maxChunks)
   }
 
+  return renderChunks(selected, maxChars, options)
+}
+
+/** Die gewaehlten Ausschnitte in den Text giessen, den das Modell zu sehen bekommt. */
+function renderChunks(
+  selected: MaterialChunk[],
+  maxChars: number,
+  options: RetrievalOptions | undefined,
+): string {
   const lines: string[] = []
   let totalChars = 0
   for (let index = 0; index < selected.length; index += 1) {

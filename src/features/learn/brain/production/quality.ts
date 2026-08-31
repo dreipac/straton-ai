@@ -22,9 +22,9 @@
  * Rein — kein DOM, kein I/O.
  */
 
-import type { ControlVerdict, GeneratedTask } from '../types'
+import type { ControlVerdict, GeneratedTask, TaskFormat } from '../types'
 import { InvariantViolation } from '../invariants'
-import { requiresCounterSolve } from './formats'
+import { parseAssignmentPairs, requiresCounterSolve } from './formats'
 
 /**
  * Welche Pruefungen eine Aufgabe durchlaufen muss.
@@ -55,6 +55,24 @@ export function answersAgree(a: string, b: string): boolean {
       // \u00a0 steht explizit dabei, obwohl \s es abdeckt: das geschuetzte Leerzeichen kommt in
       // Modellausgaben haeufig vor, und ohne diese Notiz sieht die Klasse nach einem Tippfehler aus.
       .replace(/[\s\u00a0]+/g, '')
+      /*
+       * Typografie auf ASCII zurueckfuehren, BEVOR verglichen wird. Ob ein Modell einen
+       * Bindestrich, einen Gedankenstrich oder ein Minuszeichen setzt und ob es gerade oder
+       * typografische Anfuehrungszeichen benutzt, ist Satzkonvention und kein Unterschied in der
+       * Sache — genau die Art Abweichung, die dieser Vergleich laut seiner eigenen Beschreibung
+       * schlucken soll. Ohne diese Zeilen scheiterte „A–1, B–2" gegen „A-1, B-2" an einem
+       * einzigen Zeichen, und weil die Lage nach I11 beim Wiederholen dieselbe bleibt, verbrannte
+       * das alle Erzeugungsversuche zu diesem Konzept.
+       *
+       * Gefaltet wird krumm auf gerade DERSELBEN Art. Einfache und doppelte Anfuehrungszeichen
+       * bleiben getrennt — in Formeln und Masseinheiten stehen sie fuer Verschiedenes.
+       *
+       * Vor der Interpunktionsbereinigung, damit deren Zeichenklasse die gefalteten geraden
+       * Anfuehrungszeichen sieht statt der typografischen.
+       */
+      .replace(/[\u2010-\u2015\u2212]/g, '-')
+      .replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+      .replace(/[\u201c\u201d\u201e\u201f\u00ab\u00bb]/g, '"')
       .trim()
     const stripped = collapsed.replace(/[.,;:!?"'`´()[\]]+$/g, '')
     /*
@@ -75,14 +93,74 @@ export function answersAgree(a: string, b: string): boolean {
   if (left === right) {
     return true
   }
-  // Zahlen aus beiden Antworten vergleichen — deckt „26" vs. „/26" und „x = 26" ab.
-  const numbersOf = (value: string) => (value.match(/-?\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'))
+  /*
+   * Zahlen aus beiden Antworten vergleichen — deckt „26" vs. „/26" und „x = 26" ab.
+   *
+   * Das Ersetzen davor trennt einen Strich ab, der direkt an einem Wortzeichen klebt: in „A-1" ist
+   * er ein PAARUNGSZEICHEN, kein Vorzeichen. Ohne diese Zeile liest `-?\d+` die Zuordnung
+   * „A-1, B-2" als minus eins und minus zwei — und ausgerechnet der Rueckfall, der einen
+   * gescheiterten Zeichenkettenvergleich auffangen soll, erzeugt die Abweichung dann selbst ein
+   * zweites Mal. Ein echtes Vorzeichen steht nie direkt hinter einem Wortzeichen; „x = -26"
+   * bleibt deshalb unberuehrt.
+   *
+   * Bewusst ohne Lookbehind geloest — das laeuft auch in aelteren Safari-Versionen.
+   */
+  const numbersOf = (value: string) =>
+    (value.replace(/(\w)-/g, '$1 ').match(/-?\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'))
   const leftNumbers = numbersOf(left)
   const rightNumbers = numbersOf(right)
   if (leftNumbers.length > 0 && leftNumbers.length === rightNumbers.length) {
     return leftNumbers.every((n, i) => Number(n) === Number(rightNumbers[i]))
   }
   return left.includes(right) || right.includes(left)
+}
+
+/**
+ * Zwei Zuordnungsantworten vergleichen — als MENGE von Paaren, nicht als Zeichenkette.
+ *
+ * Dieselbe Einsicht wie bei `resolveCounterSolveAnswer` eine Ebene tiefer: nicht vergleichen, was
+ * sich umformulieren laesst. Bei einer Auswahlfrage ist das der Wortlaut der Option, hier sind es
+ * Reihenfolge, Trennzeichen und Strichform. „B-2, A-1" ist dieselbe Zuordnung wie „A-1, B-2", und
+ * die App selbst schreibt die Antwort des Nutzers als „Begriff → Beschreibung" auf
+ * (`composeMatchingAnswer`), waehrend der Generator „A-1, B-2" liefert — zwei Schreibweisen
+ * desselben Sachverhalts, die ein Zeichenkettenvergleich nie zur Deckung bringt.
+ *
+ * Streng bleibt es dort, wo es zaehlt: eine andere ZUORDNUNG ist eine andere Antwort. „A-1, B-2"
+ * und „A-2, B-1" stimmen nicht ueberein, und eine Antwort mit mehr oder weniger Paaren ebenso
+ * wenig — sonst faengt das Gegenloesen genau die Fehlerart nicht mehr, gegen die es antritt.
+ *
+ * Laesst sich eine der beiden Seiten nicht als Zuordnung lesen (Fliesstext, ein einzelnes Paar,
+ * widerspruechliche Doppelnennung), gilt der gewoehnliche Vergleich. Fail-open ist hier richtig:
+ * eine unlesbare Form ist kein Beleg dafuer, dass die Antwort falsch ist.
+ */
+export function matchingAnswersAgree(a: string, b: string): boolean {
+  const left = parseAssignmentPairs(a)
+  const right = parseAssignmentPairs(b)
+  if (!left || !right) {
+    return answersAgree(a, b)
+  }
+  if (left.size !== right.size) {
+    return false
+  }
+  for (const [term, description] of left) {
+    if (right.get(term) !== description) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * Der Vergleich, den das Gegenloesen benutzt — je Format der passende.
+ *
+ * Die Verteilung sitzt bewusst hier und nicht in `buildControlVerdict`: dort geht es um das
+ * URTEIL, hier um das Messwerkzeug. Kommt ein weiteres Format mit eigener Antwortform dazu, ist
+ * diese Funktion die eine Stelle, an der es sich meldet.
+ */
+export function counterAnswersAgree(format: TaskFormat, counterAnswer: string, expectedAnswer: string): boolean {
+  return format === 'matching'
+    ? matchingAnswersAgree(counterAnswer, expectedAnswer)
+    : answersAgree(counterAnswer, expectedAnswer)
 }
 
 /**
@@ -189,7 +267,7 @@ export function buildControlVerdict(args: {
       counterSolved = false
       issues.push('Gegenloesen erforderlich, aber keine unabhaengige Antwort erhalten.')
     } else {
-      counterSolved = answersAgree(args.counterAnswer, args.task.expectedAnswer)
+      counterSolved = counterAnswersAgree(args.task.format, args.counterAnswer, args.task.expectedAnswer)
       if (!counterSolved) {
         issues.push(
           `Unabhaengige Loesung weicht ab: „${args.counterAnswer.trim().slice(0, 120)}" statt „${args.task.expectedAnswer.slice(0, 120)}".`,

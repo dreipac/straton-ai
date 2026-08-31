@@ -15,6 +15,7 @@ import {
   type IngestedGraph,
 } from '../utils/conceptIngestion'
 import { loadConceptGraph, saveConceptGraph } from '../services/learnConceptGraph.persistence'
+import { cartographSection } from '../brain/preparation/cartography'
 
 /** Map-Reduce-Parameter: pro Abschnitt eine KI-Anfrage, mit begrenzter Parallelitaet gegen Rate-Limits.
  *  Bewusst gedrosselt (Parallelitaet 2 + Batch-Pause), damit die Pfad-Erstellung keinen 429-Burst ausloest. */
@@ -107,9 +108,25 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
           maxSections: INGEST_MAX_SECTIONS,
         })
 
-        // Eine einzelne Ingestion-Anfrage (tolerantes Parsen; die Mindestmengen-Validierung greift erst
-        // nach dem Merge, da ein einzelner Abschnitt legitim wenige Konzepte liefern kann).
-        const ingestContext = async (materialContext: string): Promise<IngestedGraph | null> => {
+        /*
+         * Eine einzelne Ingestion-Anfrage.
+         *
+         * Erste Wahl ist der KARTOGRAF (`brain/preparation/cartography.ts`). Bis dahin lief die
+         * Konzeptbildung ueber den allgemeinen Chatweg und umging damit die Vermittlungsschicht
+         * aus Kapitel 12: ein Modellwechsel im Admin-Menue wirkte auf jede Rolle ausser
+         * ausgerechnet die, die im Register als „die kritischste" gefuehrt wird. Der Kartograf
+         * liefert ausserdem die Herkunftsmarkierung je Konzept mit (I4) — der Chatweg nur, soweit
+         * das Textformat sie durchreicht.
+         *
+         * Der Chatweg bleibt als Rueckfall bestehen, nicht aus Unentschlossenheit: er greift, wenn
+         * die Rolle serverseitig nicht aufloesbar ist (Edge Function noch nicht ausgerollt, Zeile
+         * in `learn_brain_agent_models` fehlt). Ohne ihn haette ein fehlendes Deployment zur Folge,
+         * dass ein neuer Pfad ganz ohne Konzeptnetz bleibt.
+         *
+         * Tolerantes Parsen; die Mindestmengen-Validierung greift erst nach dem Merge, da ein
+         * einzelner Abschnitt legitim wenige Konzepte liefern kann.
+         */
+        const ingestViaChat = async (materialContext: string): Promise<IngestedGraph | null> => {
           for (let attempt = 1; attempt <= CONCEPT_INGESTION_MAX_ATTEMPTS; attempt += 1) {
             if (cancelled) {
               return null
@@ -149,6 +166,21 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
           return null
         }
 
+        const ingestContext = async (
+          materialContext: string,
+          sectionLabel: string,
+        ): Promise<IngestedGraph | null> => {
+          const viaCartographer = await cartographSection({
+            materialChunk: materialContext,
+            sectionLabel,
+            topic: topicHint,
+          })
+          if (viaCartographer) {
+            return viaCartographer
+          }
+          return ingestViaChat(materialContext)
+        }
+
         if (sections.length === 0) {
           // Kein auswertbares Material: einmalig nur aus dem Thema ableiten (Legacy-Fallback).
           const ctx = formatRelevantMaterialContext(
@@ -156,13 +188,15 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
             args.materials,
             { maxChunks: 8, maxChars: 6000 },
           )
-          graph = await ingestContext(ctx)
+          graph = await ingestContext(ctx, topicHint || 'Material')
         } else {
           const graphs: IngestedGraph[] = []
           for (let i = 0; i < sections.length && !cancelled; i += INGEST_CONCURRENCY) {
             const batch = sections.slice(i, i + INGEST_CONCURRENCY)
             const results = await Promise.all(
-              batch.map((section) => ingestContext(`Materialabschnitt (${section.label}):\n${section.text}`)),
+              batch.map((section) =>
+                ingestContext(`Materialabschnitt (${section.label}):\n${section.text}`, section.label),
+              ),
             )
             for (const g of results) {
               if (g) {

@@ -48,21 +48,81 @@ export class BrainAgentError extends Error {
   }
 }
 
-async function readInvokeError(error: unknown, response: Response | undefined): Promise<string> {
+/**
+ * Wie oft ein Rollenaufruf angestossen wird, wenn GAR NICHTS Verwertbares zurueckkam.
+ *
+ * Nicht zu verwechseln mit `MAX_GENERATION_ATTEMPTS` (`production/quality.ts`). Das dort sind
+ * Versuche, eine BESSERE Aufgabe zu bekommen, nachdem der Kontrolleur die vorige begruendet
+ * abgelehnt hat — mit einem Hinweis, der die Lage veraendert. Hier gibt es keine Lage, die sich
+ * veraendern muesste: es kam keine Antwort an. Genau diese Unterscheidung fehlte, weshalb ein
+ * einzelner Aussetzer der Gegenseite eine Aufgabe endgueltig zerstoerte, obwohl die richtige
+ * Reaktion darauf ist, noch einmal zu fragen.
+ *
+ * Zwei, nicht mehr: ein Aussetzer ist damit abgedeckt, eine echte Stoerung wird nicht zu einer
+ * Kette teurer Aufrufe verlaengert. Dieselbe Zurueckhaltung wie bei der Eskalation weiter unten.
+ */
+const MAX_TRANSPORT_ATTEMPTS = 2
+
+/** Wartezeit vor dem zweiten Versuch. Kurz genug, dass die Vorproduktion nicht spuerbar stockt. */
+const TRANSPORT_RETRY_DELAY_MS = 700
+
+/**
+ * Meldungen, die einen voruebergehenden Fehler beschreiben, wenn der Server keine Einschaetzung
+ * mitschickt.
+ *
+ * Der Server sagt seit der Einfuehrung von `ProviderCallError` selbst, ob ein zweiter Versuch Sinn
+ * hat (Feld `retryable`). Diese Liste ist der Rueckfall fuer den Fall, dass die Edge Function noch
+ * nicht neu ausgerollt ist — ohne ihn wuerde die Wiederholung im Client erst mit dem Deployment
+ * wirksam, obwohl sie das gar nicht braucht.
+ *
+ * Bewusst kurz und auf das Beschriebene beschraenkt: was hier nicht steht, gilt als endgueltig.
+ * Eine zu grosszuegige Liste wiederholt kaputte Anfragen, und das ist teurer als ein Aussetzer.
+ */
+const TRANSIENT_FAILURE_HINTS = [
+  'keine antwort geliefert',
+  'leeren textblock',
+  'nicht erreichbar',
+  'overloaded',
+  '(529)',
+  '(500)',
+  '(502)',
+  '(503)',
+  '(504)',
+  '(408)',
+]
+
+/**
+ * Beschreibt diese Fehlermeldung einen voruebergehenden Fehler? Rein und damit pruefbar.
+ *
+ * Nur der Rueckfall — die Einschaetzung des Servers hat Vorrang, wo sie vorliegt.
+ */
+export function looksTransient(message: string): boolean {
+  const lower = message.toLowerCase()
+  return TRANSIENT_FAILURE_HINTS.some((hint) => lower.includes(hint))
+}
+
+type InvokeFailure = { message: string; retryable: boolean }
+
+async function readInvokeFailure(error: unknown, response: Response | undefined): Promise<InvokeFailure> {
   if (response) {
     try {
       const readable = typeof response.clone === 'function' ? response.clone() : response
       const text = (await readable.text()).trim()
       if (text) {
         try {
-          const parsed = JSON.parse(text) as { error?: unknown; message?: unknown }
+          const parsed = JSON.parse(text) as { error?: unknown; message?: unknown; retryable?: unknown }
           const detail = typeof parsed.error === 'string' ? parsed.error : parsed.message
           if (typeof detail === 'string' && detail.trim()) {
-            return detail.trim()
+            const message = detail.trim()
+            return {
+              message,
+              // Die Angabe des Servers gilt; fehlt sie, entscheidet der Rueckfall am Text.
+              retryable: typeof parsed.retryable === 'boolean' ? parsed.retryable : looksTransient(message),
+            }
           }
         } catch {
           if (text.length < 600) {
-            return text
+            return { message: text, retryable: looksTransient(text) }
           }
         }
       }
@@ -70,7 +130,27 @@ async function readInvokeError(error: unknown, response: Response | undefined): 
       // Body nicht lesbar — es bleibt die generische Meldung unten.
     }
   }
-  return error instanceof Error ? error.message : 'Der Aufruf ist fehlgeschlagen.'
+  const message = error instanceof Error ? error.message : 'Der Aufruf ist fehlgeschlagen.'
+  return { message, retryable: looksTransient(message) }
+}
+
+/** Warten, ohne einen Abbruch zu verschlafen. */
+function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Abgebrochen.'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      reject(signal?.reason instanceof Error ? signal.reason : new Error('Abgebrochen.'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /**
@@ -79,8 +159,19 @@ async function readInvokeError(error: unknown, response: Response | undefined): 
  * Das Parsen in den Rollenvertrag geschieht bewusst NICHT hier, sondern beim Aufrufer mit dem
  * passenden Parser aus `contracts.ts`. Diese Funktion kennt keine Rolle im Detail — sonst waere
  * sie eine zweite Stelle, an der Rollenwissen liegt.
+ *
+ * Kam gar nichts Verwertbares zurueck, wird EINMAL nachgefasst (`MAX_TRANSPORT_ATTEMPTS`). Das
+ * ist die Gegenseite zum Wiederholungskreis in `production/generateTask.ts`: dort wird eine
+ * beurteilte, aber mangelhafte Antwort mit einem Hinweis neu angefordert; hier gibt es keine
+ * Antwort, die man beurteilen koennte. Beides zu trennen ist der Punkt — sonst zerstoert ein
+ * Aussetzer der Gegenseite eine Aufgabe endgueltig, und ein inhaltlicher Mangel wird blind
+ * wiederholt.
  */
-export async function callBrainAgent(options: BrainAgentCallOptions): Promise<BrainAgentCallResult<unknown>> {
+type AttemptOutcome =
+  | { ok: true; result: BrainAgentCallResult<unknown> }
+  | { ok: false; error: BrainAgentError; retryable: boolean }
+
+async function attemptBrainAgentCall(options: BrainAgentCallOptions): Promise<AttemptOutcome> {
   const supabase = getSupabaseClient()
 
   const { data, error, response } = await supabase.functions.invoke('chat-completion', {
@@ -96,33 +187,71 @@ export async function callBrainAgent(options: BrainAgentCallOptions): Promise<Br
   })
 
   if (error) {
-    throw new BrainAgentError(options.role, await readInvokeError(error, response))
+    const failure = await readInvokeFailure(error, response)
+    return { ok: false, error: new BrainAgentError(options.role, failure.message), retryable: failure.retryable }
   }
 
   const payload = data as
-    | { content?: unknown; model?: unknown; provider?: unknown; escalated?: unknown; error?: unknown }
+    | { content?: unknown; model?: unknown; provider?: unknown; escalated?: unknown; error?: unknown; retryable?: unknown }
     | undefined
 
   if (payload && typeof payload.error === 'string' && payload.error.trim()) {
-    throw new BrainAgentError(options.role, payload.error.trim())
+    const message = payload.error.trim()
+    return {
+      ok: false,
+      error: new BrainAgentError(options.role, message),
+      retryable: typeof payload.retryable === 'boolean' ? payload.retryable : looksTransient(message),
+    }
   }
 
   const content = typeof payload?.content === 'string' ? payload.content : ''
   if (!content.trim()) {
-    throw new BrainAgentError(options.role, 'Leere Antwort erhalten.')
+    // Nichts angekommen — kein Urteil ueber den Inhalt, also einen zweiten Versuch wert.
+    return { ok: false, error: new BrainAgentError(options.role, 'Leere Antwort erhalten.'), retryable: true }
   }
 
   const parsed = extractJson(content)
   if (parsed == null) {
-    throw new BrainAgentError(options.role, 'Antwort war kein gueltiges JSON.')
+    /*
+     * Ebenfalls wiederholbar, obwohl hier Text ankam: das Parsen passiert VOR jeder Beurteilung,
+     * der Kontrolleur bekommt so eine Antwort nie zu sehen. Sie faellt damit in dieselbe Klasse
+     * wie die leere Antwort — nichts Verwertbares angekommen —, nicht in die des mangelhaften
+     * Inhalts, fuer die es den `rejectionHint` gibt.
+     */
+    return { ok: false, error: new BrainAgentError(options.role, 'Antwort war kein gueltiges JSON.'), retryable: true }
   }
 
   return {
-    data: parsed,
-    model: typeof payload?.model === 'string' ? payload.model : 'unbekannt',
-    provider: typeof payload?.provider === 'string' ? payload.provider : 'unbekannt',
-    escalated: payload?.escalated === true,
+    ok: true,
+    result: {
+      data: parsed,
+      model: typeof payload?.model === 'string' ? payload.model : 'unbekannt',
+      provider: typeof payload?.provider === 'string' ? payload.provider : 'unbekannt',
+      escalated: payload?.escalated === true,
+    },
   }
+}
+
+export async function callBrainAgent(options: BrainAgentCallOptions): Promise<BrainAgentCallResult<unknown>> {
+  let last: BrainAgentError | null = null
+
+  for (let attempt = 0; attempt < MAX_TRANSPORT_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await delay(TRANSPORT_RETRY_DELAY_MS * attempt, options.signal)
+    }
+
+    const outcome = await attemptBrainAgentCall(options)
+    if (outcome.ok) {
+      return outcome.result
+    }
+
+    last = outcome.error
+    if (!outcome.retryable) {
+      throw outcome.error
+    }
+  }
+
+  throw last ?? new BrainAgentError(options.role, 'Der Aufruf ist fehlgeschlagen.')
 }
 
 /**

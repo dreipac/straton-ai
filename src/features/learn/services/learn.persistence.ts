@@ -35,11 +35,28 @@ export type LearningPathSummary = {
   currentSubstepTitle?: string
 }
 
+/**
+ * Woher ein Lernmaterial stammt.
+ *
+ * `upload`  — die Person hat die Datei hochgeladen. Das ist der Stoff, an dem sie geprueft wird.
+ * `derived` — vom Aufbereiter aus einem Arbeitsheft gewonnener Lehrtext (`brain/preparation/`).
+ *             Fachlich geprueft, aber NICHT aus ihren Unterlagen. Die Unterscheidung muss bis zur
+ *             Oberflaeche durchhalten: fachlich richtig und „was die Lehrperson erwartet" sind
+ *             nicht dasselbe, und die Person muss wissen, welcher Satz woher kommt.
+ *
+ * Fehlt die Angabe (alle vor dieser Aenderung gespeicherten Pfade), gilt `upload` — das war
+ * bis dahin der einzige Fall.
+ */
+export type MaterialOrigin = 'upload' | 'derived'
+
 export type UploadedMaterial = {
   id: string
   name: string
   size: number
   excerpt: string
+  origin?: MaterialOrigin
+  /** Bei `derived`: die `id` des Materials, aus dem abgeleitet wurde. */
+  derivedFrom?: string
 }
 
 export type TutorChatEntry = {
@@ -380,12 +397,17 @@ function mapMaterials(value: unknown): UploadedMaterial[] {
       if (!id || !name || !Number.isFinite(size) || size < 0) {
         return null
       }
-      return {
+      const origin: MaterialOrigin = candidate.origin === 'derived' ? 'derived' : 'upload'
+      const derivedFrom = typeof candidate.derivedFrom === 'string' ? candidate.derivedFrom.trim() : ''
+      const material: UploadedMaterial = {
         id,
         name,
         size,
         excerpt,
+        origin,
+        ...(origin === 'derived' && derivedFrom ? { derivedFrom } : {}),
       }
+      return material
     })
     .filter((entry): entry is UploadedMaterial => entry !== null)
 }
