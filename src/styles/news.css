@@ -1,0 +1,198 @@
+.rename-bottom-sheet-root:has(.news-composer-sheet-panel) {
+  z-index: calc(var(--straton-profile-full-sheet-z) + 4);
+}
+
+.news-composer-sheet-panel {
+  max-height: min(92dvh, 920px);
+  min-height: min(72dvh, 560px);
+}
+
+.news-composer-sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.news-composer-sheet-body .news-composer-form {
+  padding-top: 0.35rem;
+}
+
+.news-composer-modal-wrap {
+  z-index: 96;
+}
+
+.news-composer-modal-header {
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background: var(--settings-modal-bg);
+}
+
+.news-composer-modal-header .settings-title-row {
+  margin: 0;
+}
+
+.news-composer-modal {
+  width: min(760px, 94vw);
+  padding: 0;
+  overflow: hidden;
+}
+
+.news-composer-form {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.news-composer-layout {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.news-composer-media {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.news-composer-file-input {
+  display: none;
+}
+
+.news-composer-media-button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 160px;
+  padding: 0;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-border, #cbd5e1);
+  background: var(--input-field-bg, #f8fafc);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.news-composer-media-button:hover:enabled {
+  border-color: var(--color-accent, #6366f1);
+}
+
+.news-composer-media-placeholder {
+  padding: 0.75rem;
+  text-align: center;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.news-composer-media-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  object-fit: cover;
+}
+
+.news-composer-media-remove {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #64748b);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.news-composer-fields {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.news-composer-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary, #475569);
+}
+
+.news-composer-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.news-composer-textarea {
+  min-height: 180px;
+}
+
+.news-composer-error {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--color-error, #ef4444);
+}
+
+.news-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+/* `position: relative` nur für den Badge unten (`.is-collapsed-badge`) — der `.is-active`-Look
+   selbst kommt bewusst ausschliesslich von der globalen `.chat-sidebar-footer-nav-button.is-active`
+   Regel (layout.css, transparent + Blur statt eigener Füllfläche, siehe CLAUDE.md). Eine frühere,
+   eigene Füllflächen-Regel hier machte den eingeklappten Updates-Button "aktiver"/bunter als
+   Einstellungen & Co., obwohl beide denselben Zustand meinen. */
+.chat-sidebar-nav-button--news {
+  position: relative;
+}
+
+.chat-sidebar-nav-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.chat-sidebar-news-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent, #6366f1);
+  color: var(--accent-fab-fg, #fff);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.chat-sidebar-nav-button--news.is-collapsed-badge {
+  position: relative;
+}
+
+.chat-sidebar-nav-button--news.is-collapsed-badge .chat-sidebar-news-badge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.2rem;
+  font-size: var(--fs-2xs);
+}
+
+:root[data-theme='dark'] .news-composer-modal-header {
+  background: var(--settings-modal-bg);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .news-composer-media-button {
+  background: var(--input-field-bg);
+  border-color: var(--color-border);
+}
+
+@media (max-width: 640px) {
+  .news-composer-layout {
+    grid-template-columns: 1fr;
+  }
+}

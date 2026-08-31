@@ -1,0 +1,685 @@
+import { getSupabaseClient } from '../../../integrations/supabase/client'
+import {
+  parseSubscriptionImageGenerationModelId,
+  type SubscriptionImageGenerationModelId,
+} from '../constants/subscriptionImageGenerationModels'
+
+export type AdminUser = {
+  id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  is_superadmin: boolean
+  created_at: string
+  subscription_plan_id: string | null
+  subscription_plan_name: string | null
+  /** false, wenn in auth.users vorhanden, aber noch keine Zeile in public.profiles */
+  has_profile: boolean
+  /** null = noch nie angemeldet; nach erster Anmeldung gesetzt */
+  last_sign_in_at: string | null
+  must_change_password_on_first_login: boolean
+}
+
+export type SubscriptionPlanRow = {
+  id: string
+  name: string
+  max_tokens: number | null
+  max_images: number | null
+  max_files: number | null
+  /** Fehlt lokal/remote vor Migration `20260430230000_subscription_plan_image_generation_model`. */
+  image_generation_model?: SubscriptionImageGenerationModelId | null
+  /** Vom Abo gesperrte Chat-Modelle; leer = alle Modelle wählbar. */
+  chat_blocked_model_ids?: string[] | null
+  chat_daily_tier1_openai_model_id?: string
+  chat_daily_tier1_token_budget?: number
+  chat_daily_tier2_openai_model_id?: string
+  /** Max. geschätzte Tokens für Hauptchat-Verlauf; NULL = unbegrenzt (Migration `20260504210000`). */
+  chat_context_max_tokens?: number | null
+  /** Täglich +N zum Websuche-Guthaben (UTC). */
+  web_search_daily_grant?: number | null
+  web_search_start_balance?: number | null
+  web_search_credit_max?: number | null
+  image_start_balance?: number | null
+  image_credit_max?: number | null
+  thinking_start_balance?: number | null
+  thinking_daily_grant?: number | null
+  thinking_credit_max?: number | null
+  thinking_tier1_openai_model_id?: string
+  thinking_tier1_token_budget?: number
+  thinking_tier2_openai_model_id?: string
+  /** Smart Instant: Start-Guthaben (token_balance bei Abo-Zuweisung). Historisch, nicht mehr im Admin-UI editierbar — siehe ai_credits_*. */
+  instant_token_start_balance?: number | null
+  /** Smart Instant: max. angespartes Token-Guthaben. Historisch, nicht mehr im Admin-UI editierbar — siehe ai_credits_*. */
+  instant_token_balance_max?: number | null
+  /** KI-Credits: tägliches Kontingent (Chat + Denken zusammen), kostenbasiert. NULL = unbegrenzt. */
+  ai_credits_daily_grant?: number | null
+  /** KI-Credits: Start-Guthaben bei Abo-Zuweisung. */
+  ai_credits_start_balance?: number | null
+  /** KI-Credits: maximal angespartes Guthaben (Übertrag/Carryover-Deckel). */
+  ai_credits_balance_max?: number | null
+  /** Max. neu erzeugte Lernpfade pro Kalendermonat (UTC), unabhängig vom KI-Credits-Tagesguthaben. NULL = unbegrenzt. */
+  learning_paths_monthly_limit?: number | null
+  created_at: string
+}
+
+export type SubscriptionAssignmentDraftRow = {
+  user_id: string
+  subscription_plan_id: string | null
+  subscription_plan_name: string | null
+  updated_at: string
+  updated_by: string
+}
+
+export type SubscriptionPlanShowcaseSlotRow = {
+  slot_index: 1 | 2 | 3
+  plan_id: string | null
+}
+
+export type AdminAiTokenUsageRow = {
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  gross_input_tokens: number
+  cached_input_tokens: number
+  /** Nur Anthropic: neu in den Cache geschriebene Tokens (teurer als ein normaler Token, siehe estimate_ai_cost_usd). */
+  cache_write_input_tokens: number
+  input_tokens: number
+  output_tokens: number
+}
+
+/** Neueste Zeile aus `ai_token_usage` pro Nutzer (exakter Modell-String der API). */
+export type AdminUserLastAiUsageRow = {
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  mode: string
+  gross_input_tokens: number
+  cached_input_tokens: number
+  /** Nur Anthropic: neu in den Cache geschriebene Tokens (teurer als ein normaler Token, siehe estimate_ai_cost_usd). */
+  cache_write_input_tokens: number
+  input_tokens: number
+  output_tokens: number
+  last_used_at: string
+}
+
+/** Einzelner protokollierter KI-Aufruf (Zeile in `ai_token_usage`). */
+export type AdminAiTokenUsageLogRow = {
+  id: string
+  user_id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  provider: string
+  model: string
+  mode: string
+  gross_input_tokens: number
+  cached_input_tokens: number
+  /** Nur Anthropic: neu in den Cache geschriebene Tokens (teurer als ein normaler Token, siehe estimate_ai_cost_usd). */
+  cache_write_input_tokens: number
+  input_tokens: number
+  output_tokens: number
+  estimated_cost_usd: number
+  created_at: string
+}
+
+export type AdminCreateUserPayload = {
+  email: string
+  temporaryPassword: string
+  firstName: string
+  lastName: string
+}
+
+export type AdminCreateUserResult = {
+  userId: string
+  email: string
+}
+
+function toSafeInt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value))
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+  }
+  return 0
+}
+
+function toSafeUsd(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, value)
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    return Number.isFinite(n) ? Math.max(0, n) : 0
+  }
+  return 0
+}
+
+export async function listAdminAiTokenUsageSummary(): Promise<AdminAiTokenUsageRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_summary')
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
+    cache_write_input_tokens: toSafeInt(row.cache_write_input_tokens),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+  }))
+}
+
+export async function listAdminUserLastAiUsage(): Promise<AdminUserLastAiUsageRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_user_last_ai_usage')
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
+    cache_write_input_tokens: toSafeInt(row.cache_write_input_tokens),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    last_used_at: typeof row.last_used_at === 'string' ? row.last_used_at : String(row.last_used_at ?? ''),
+  }))
+}
+
+/** Einzelaufrufe neueste zuerst; fest die letzten 500 (Server-Obergrenze 500). */
+export const ADMIN_AI_TOKEN_USAGE_LOG_LIMIT = 500
+
+/** Max. Zeilen pro Nutzer und UTC-Tag im Anfragen-Protokoll. */
+export const ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT = 10000
+
+export function utcTodayDateInputValue(now = new Date()): string {
+  return now.toISOString().slice(0, 10)
+}
+
+export async function listAdminAiTokenUsageLogForUserDay(
+  userId: string,
+  day: string,
+  limit = ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT,
+): Promise<AdminAiTokenUsageLogRow[]> {
+  const supabase = getSupabaseClient()
+  const trimmedDay = day.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedDay)) {
+    throw new Error('Ungültiges Datum (YYYY-MM-DD erwartet).')
+  }
+
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_log_for_user_day', {
+    p_user_id: userId,
+    p_day: trimmedDay,
+    p_limit: Math.min(ADMIN_AI_TOKEN_USAGE_LOG_DAY_LIMIT, Math.max(1, Math.floor(limit))),
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
+    cache_write_input_tokens: toSafeInt(row.cache_write_input_tokens),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    estimated_cost_usd: toSafeUsd(row.estimated_cost_usd),
+    created_at: typeof row.created_at === 'string' ? row.created_at : String(row.created_at ?? ''),
+  }))
+}
+
+export async function listAdminAiTokenUsageLog(
+  limit = ADMIN_AI_TOKEN_USAGE_LOG_LIMIT,
+): Promise<AdminAiTokenUsageLogRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_ai_token_usage_log', {
+    p_limit: Math.min(ADMIN_AI_TOKEN_USAGE_LOG_LIMIT, Math.max(1, Math.floor(limit))),
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    user_id: String(row.user_id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    provider: String(row.provider ?? ''),
+    model: String(row.model ?? ''),
+    mode: String(row.mode ?? ''),
+    gross_input_tokens: toSafeInt(row.gross_input_tokens),
+    cached_input_tokens: toSafeInt(row.cached_input_tokens),
+    cache_write_input_tokens: toSafeInt(row.cache_write_input_tokens),
+    input_tokens: toSafeInt(row.input_tokens),
+    output_tokens: toSafeInt(row.output_tokens),
+    estimated_cost_usd: toSafeUsd(row.estimated_cost_usd),
+    created_at: typeof row.created_at === 'string' ? row.created_at : String(row.created_at ?? ''),
+  }))
+}
+
+export async function listAdminUsers(): Promise<AdminUser[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('list_admin_profiles')
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    id: String(row.id ?? ''),
+    email: typeof row.email === 'string' ? row.email : null,
+    first_name: typeof row.first_name === 'string' ? row.first_name : null,
+    last_name: typeof row.last_name === 'string' ? row.last_name : null,
+    is_superadmin: Boolean(row.is_superadmin),
+    created_at: typeof row.created_at === 'string' ? row.created_at : '',
+    subscription_plan_id: typeof row.subscription_plan_id === 'string' ? row.subscription_plan_id : null,
+    subscription_plan_name: typeof row.subscription_plan_name === 'string' ? row.subscription_plan_name : null,
+    has_profile: row.has_profile !== false,
+    last_sign_in_at:
+      row.last_sign_in_at === null || row.last_sign_in_at === undefined
+        ? null
+        : String(row.last_sign_in_at),
+    must_change_password_on_first_login: row.must_change_password_on_first_login === true,
+  }))
+}
+
+export async function adminCreateUser(payload: AdminCreateUserPayload): Promise<AdminCreateUserResult> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    body: {
+      email: payload.email,
+      temporaryPassword: payload.temporaryPassword,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+    },
+  })
+  if (error) {
+    throw error
+  }
+  const result = data as { userId?: unknown; email?: unknown } | null
+  const userId = typeof result?.userId === 'string' ? result.userId : ''
+  const email = typeof result?.email === 'string' ? result.email : ''
+  if (!userId || !email) {
+    throw new Error('Nutzer konnte nicht erstellt werden.')
+  }
+  return { userId, email }
+}
+
+export async function adminSetMustChangePasswordOnFirstLogin(
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_must_change_password_on_first_login', {
+    p_user_id: userId,
+    p_enabled: enabled,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetUserProfileNames(
+  userId: string,
+  firstName: string,
+  lastName: string,
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_user_profile_names', {
+    p_user_id: userId,
+    p_first_name: firstName,
+    p_last_name: lastName,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminDeleteUser(userId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_delete_user', {
+    p_user_id: userId,
+  })
+  if (error) {
+    throw error
+  }
+}
+
+export async function listSubscriptionPlans(): Promise<SubscriptionPlanRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('subscription_plans')
+    .select(
+      'id, name, max_tokens, max_images, max_files, image_generation_model, chat_blocked_model_ids, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, ai_credits_daily_grant, ai_credits_start_balance, ai_credits_balance_max, learning_paths_monthly_limit, created_at',
+    )
+    .order('name', { ascending: true })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []) as SubscriptionPlanRow[]
+}
+
+function normalizePlanCreditField(raw: number | null | undefined, fallback: number): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return fallback
+  }
+  return Math.max(0, Math.min(10_000, Math.floor(raw)))
+}
+
+function normalizeAiCreditsBalanceField(raw: number | null | undefined, fallback: number): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return fallback
+  }
+  return Math.max(0, Math.min(10_000_000, Math.floor(raw)))
+}
+
+/** Feste OpenAI-Staffel (nicht mehr im Admin UI) — Smart Instant nutzt Gemini. */
+const LEGACY_PLAN_OPENAI_TIER_DEFAULTS = {
+  chat_daily_tier1_openai_model_id: 'gpt-5.4-mini',
+  chat_daily_tier1_token_budget: 50_000,
+  chat_daily_tier2_openai_model_id: 'gpt-5.4-mini',
+  thinking_tier1_openai_model_id: 'gpt-5.4-mini',
+  thinking_tier1_token_budget: 50_000,
+  thinking_tier2_openai_model_id: 'gpt-5.4-mini',
+} as const
+
+const SUBSCRIPTION_PLAN_SELECT_COLUMNS =
+  'id, name, max_tokens, max_images, max_files, image_generation_model, chat_blocked_model_ids, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, chat_context_max_tokens, web_search_daily_grant, web_search_start_balance, web_search_credit_max, image_start_balance, image_credit_max, thinking_start_balance, thinking_daily_grant, thinking_credit_max, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id, instant_token_start_balance, instant_token_balance_max, ai_credits_daily_grant, ai_credits_start_balance, ai_credits_balance_max, learning_paths_monthly_limit, created_at'
+
+export async function createSubscriptionPlan(params: {
+  name: string
+  maxImages: number | null
+  maxFiles: number | null
+  imageGenerationModel?: SubscriptionImageGenerationModelId
+  chatContextMaxTokens?: number | null
+  webSearchDailyGrant?: number | null
+  webSearchStartBalance?: number | null
+  webSearchCreditMax?: number | null
+  imageStartBalance?: number | null
+  imageCreditMax?: number | null
+  /** KI-Credits (Chat + Denken zusammen): tägliches Kontingent, kostenbasiert. NULL = unbegrenzt. */
+  aiCreditsDailyGrant?: number | null
+  aiCreditsStartBalance?: number | null
+  aiCreditsBalanceMax?: number | null
+  /** Max. neu erzeugte Lernpfade pro Kalendermonat (UTC), unabhängig von den KI-Credits. NULL = unbegrenzt. */
+  learningPathsMonthlyLimit?: number | null
+  chatBlockedModelIds?: string[]
+}): Promise<SubscriptionPlanRow> {
+  const supabase = getSupabaseClient()
+  const trimmed = params.name.trim()
+  if (!trimmed) {
+    throw new Error('Name darf nicht leer sein.')
+  }
+  const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel ?? null)
+  const { data, error } = await supabase
+    .from('subscription_plans')
+    .insert({
+      name: trimmed,
+      max_images: params.maxImages,
+      max_files: params.maxFiles,
+      image_generation_model: imageModel,
+      chat_blocked_model_ids: params.chatBlockedModelIds ?? [],
+      ...LEGACY_PLAN_OPENAI_TIER_DEFAULTS,
+      chat_context_max_tokens: params.chatContextMaxTokens ?? null,
+      web_search_daily_grant: params.webSearchDailyGrant ?? null,
+      web_search_start_balance: normalizePlanCreditField(params.webSearchStartBalance ?? null, 0),
+      web_search_credit_max: normalizePlanCreditField(
+        params.webSearchCreditMax ?? null,
+        50,
+      ),
+      image_start_balance: normalizePlanCreditField(params.imageStartBalance ?? null, 0),
+      image_credit_max: normalizePlanCreditField(params.imageCreditMax ?? null, 60),
+      ai_credits_daily_grant: params.aiCreditsDailyGrant ?? null,
+      ai_credits_start_balance: normalizeAiCreditsBalanceField(
+        params.aiCreditsStartBalance ?? null,
+        0,
+      ),
+      ai_credits_balance_max: normalizeAiCreditsBalanceField(
+        params.aiCreditsBalanceMax ?? null,
+        5_000,
+      ),
+      learning_paths_monthly_limit: params.learningPathsMonthlyLimit ?? null,
+    })
+    .select(SUBSCRIPTION_PLAN_SELECT_COLUMNS)
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data as SubscriptionPlanRow
+}
+
+export async function updateSubscriptionPlan(params: {
+  planId: string
+  name: string
+  maxImages: number | null
+  maxFiles: number | null
+  imageGenerationModel: SubscriptionImageGenerationModelId
+  chatContextMaxTokens?: number | null
+  webSearchDailyGrant?: number | null
+  webSearchStartBalance?: number | null
+  webSearchCreditMax?: number | null
+  imageStartBalance?: number | null
+  imageCreditMax?: number | null
+  aiCreditsDailyGrant?: number | null
+  aiCreditsStartBalance?: number | null
+  aiCreditsBalanceMax?: number | null
+  learningPathsMonthlyLimit?: number | null
+  chatBlockedModelIds?: string[]
+}): Promise<SubscriptionPlanRow> {
+  const supabase = getSupabaseClient()
+  const trimmed = params.name.trim()
+  if (!trimmed) {
+    throw new Error('Name darf nicht leer sein.')
+  }
+  const imageModel = parseSubscriptionImageGenerationModelId(params.imageGenerationModel)
+  const { data, error } = await supabase
+    .from('subscription_plans')
+    .update({
+      name: trimmed,
+      max_images: params.maxImages,
+      max_files: params.maxFiles,
+      image_generation_model: imageModel,
+      chat_blocked_model_ids: params.chatBlockedModelIds ?? [],
+      chat_context_max_tokens: params.chatContextMaxTokens ?? null,
+      web_search_daily_grant: params.webSearchDailyGrant ?? null,
+      web_search_start_balance: normalizePlanCreditField(params.webSearchStartBalance ?? null, 0),
+      web_search_credit_max: normalizePlanCreditField(
+        params.webSearchCreditMax ?? null,
+        50,
+      ),
+      image_start_balance: normalizePlanCreditField(params.imageStartBalance ?? null, 0),
+      image_credit_max: normalizePlanCreditField(params.imageCreditMax ?? null, 60),
+      ai_credits_daily_grant: params.aiCreditsDailyGrant ?? null,
+      ai_credits_start_balance: normalizeAiCreditsBalanceField(
+        params.aiCreditsStartBalance ?? null,
+        0,
+      ),
+      ai_credits_balance_max: normalizeAiCreditsBalanceField(
+        params.aiCreditsBalanceMax ?? null,
+        5_000,
+      ),
+      learning_paths_monthly_limit: params.learningPathsMonthlyLimit ?? null,
+    })
+    .eq('id', params.planId)
+    .select(SUBSCRIPTION_PLAN_SELECT_COLUMNS)
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data as SubscriptionPlanRow
+}
+
+export async function deleteSubscriptionPlan(planId: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('subscription_plans').delete().eq('id', planId)
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function adminSetUserSubscriptionPlan(userId: string, planId: string | null): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('admin_set_user_subscription_plan', {
+    p_user_id: userId,
+    p_plan_id: planId,
+  })
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function listSubscriptionAssignmentDrafts(): Promise<SubscriptionAssignmentDraftRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('subscription_assignment_drafts')
+    .select('user_id, subscription_plan_id, updated_at, updated_by, subscription_plans(name)')
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  const rows = (data ?? []) as Array<{
+    user_id: string
+    subscription_plan_id: string | null
+    updated_at: string
+    updated_by: string
+    subscription_plans: { name: string } | { name: string }[] | null
+  }>
+
+  return rows.map((row) => {
+    const relation = row.subscription_plans
+    const relationRow = Array.isArray(relation) ? relation[0] : relation
+    return {
+      user_id: row.user_id,
+      subscription_plan_id: row.subscription_plan_id,
+      subscription_plan_name: relationRow?.name ?? null,
+      updated_at: row.updated_at,
+      updated_by: row.updated_by,
+    }
+  })
+}
+
+export async function saveSubscriptionAssignmentDraft(userId: string, planId: string | null): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('subscription_assignment_drafts').upsert(
+    {
+      user_id: userId,
+      subscription_plan_id: planId,
+    },
+    { onConflict: 'user_id' },
+  )
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function deploySubscriptionAssignmentDrafts(): Promise<number> {
+  const supabase = getSupabaseClient()
+  const drafts = await listSubscriptionAssignmentDrafts()
+  if (drafts.length === 0) {
+    return 0
+  }
+
+  for (const draft of drafts) {
+    const { error } = await supabase.rpc('admin_set_user_subscription_plan', {
+      p_user_id: draft.user_id,
+      p_plan_id: draft.subscription_plan_id,
+    })
+    if (error) {
+      throw error
+    }
+  }
+
+  const userIds = drafts.map((draft) => draft.user_id)
+  const { error: deleteError } = await supabase
+    .from('subscription_assignment_drafts')
+    .delete()
+    .in('user_id', userIds)
+
+  if (deleteError) {
+    throw deleteError
+  }
+
+  return drafts.length
+}
+
+export async function listSubscriptionPlanShowcaseSlots(): Promise<SubscriptionPlanShowcaseSlotRow[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('subscription_plan_showcase_slots')
+    .select('slot_index, plan_id')
+    .order('slot_index', { ascending: true })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []) as SubscriptionPlanShowcaseSlotRow[]
+}
+
+export async function saveSubscriptionPlanShowcaseSlots(
+  slots: SubscriptionPlanShowcaseSlotRow[],
+): Promise<void> {
+  const supabase = getSupabaseClient()
+  const payload = slots.map((slot) => ({
+    slot_index: slot.slot_index,
+    plan_id: slot.plan_id,
+  }))
+
+  const { error } = await supabase.from('subscription_plan_showcase_slots').upsert(payload, {
+    onConflict: 'slot_index',
+  })
+
+  if (error) {
+    throw error
+  }
+}

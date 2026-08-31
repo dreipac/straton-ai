@@ -1,0 +1,356 @@
+import { useState, type DragEvent } from 'react'
+import deleteIcon from '../../../assets/icons/delete.svg'
+import fileIcon from '../../../assets/icons/file.svg'
+import setupPng from '../../../assets/png/setup.png'
+import starIcon from '../../../assets/icons/star.svg'
+import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
+import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
+import type { UploadedMaterial } from '../services/learn.persistence'
+import { getMaterialTypeBadge } from '../utils/learnPageHelpers'
+
+export type LearnSetupPanelProps = {
+  /**
+   * Vier Schritte: Datei hochladen, Thema bestaetigen, Ziel eingeben, Lernpfad wird vorbereitet.
+   * Der letzte Schritt ist keine Nutzereingabe mehr — er haelt die Oberflaeche an, waehrend
+   * Konzept-Netz und Curriculum im Hintergrund entstehen, damit hier keine leeren Tabs (Lernkarten,
+   * Lernblaetter, Statistiken) sichtbar werden, bevor ueberhaupt etwas drinsteht.
+   */
+  setupStep: 1 | 2 | 3 | 4
+  isAnalyzingSetupTopic: boolean
+  setupAnalysisPercentClamped: number
+  setupAnalysisArcRadius: number
+  setupAnalysisArcLength: number
+  setupAnalysisCircumference: number
+  setupAnalysisArcOffset: number
+  materials: UploadedMaterial[]
+  isUploading: boolean
+  effectiveTopic: string
+  onFilesChange: (files: FileList | null) => void
+  onRemoveMaterial: (materialId: string) => void
+  onContinueStepOne: () => void
+  /** Thema bestaetigt → weiter zum Ziel-Schritt (3). Schliesst die Einrichtung noch NICHT ab. */
+  onContinueStepTwo: () => void
+  /** Termin fuer das Ziel (Schritt 3), als `YYYY-MM-DD` oder leer, wenn kein Ziel gesetzt wird. */
+  goalDueAt: string
+  onGoalDueAtChange: (value: string) => void
+  /** Verfuegbare Minuten pro Tag (Schritt 3). */
+  goalMinutesPerDay: number
+  onGoalMinutesPerDayChange: (value: number) => void
+  /** Ziel-Schritt abschliessen (mit oder ohne ausgefuelltes Ziel) → startet die Erzeugung. */
+  onFinishSetup: () => void
+  onBackToStep1: () => void
+  onBackToStep2: () => void
+  /** Platzhalter-Modus (Admin-Test): Weiter ohne hochgeladene Dateien erlauben. */
+  allowContinueWithoutMaterials?: boolean
+}
+
+export function LearnSetupPanel(props: LearnSetupPanelProps) {
+  const {
+    setupStep,
+    isAnalyzingSetupTopic,
+    setupAnalysisPercentClamped,
+    setupAnalysisArcRadius,
+    setupAnalysisArcLength,
+    setupAnalysisCircumference,
+    setupAnalysisArcOffset,
+    materials,
+    isUploading,
+    effectiveTopic,
+    onFilesChange,
+    onRemoveMaterial,
+    onContinueStepOne,
+    onContinueStepTwo,
+    goalDueAt,
+    onGoalDueAtChange,
+    goalMinutesPerDay,
+    onGoalMinutesPerDayChange,
+    onFinishSetup,
+    onBackToStep1,
+    onBackToStep2,
+    allowContinueWithoutMaterials = false,
+  } = props
+
+  const [isFileDragOver, setIsFileDragOver] = useState(false)
+
+  function handleFileDragEnter(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer.types.includes('Files')) {
+      setIsFileDragOver(true)
+    }
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const related = event.relatedTarget as Node | null
+    if (!related || !event.currentTarget.contains(related)) {
+      setIsFileDragOver(false)
+    }
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer.types.includes('Files')) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsFileDragOver(false)
+    const { files } = event.dataTransfer
+    if (files?.length) {
+      onFilesChange(files)
+    }
+  }
+
+  return (
+    <section className="learn-setup-standalone">
+      <div className={`learn-setup-flow ${setupStep === 1 ? 'is-topic-step' : ''}`}>
+        <div className="learn-setup-heading">
+          <h3>Einrichtung</h3>
+        </div>
+        {setupStep === 1 ? (
+          <div className="learn-setup-step">
+            {isAnalyzingSetupTopic ? (
+              <section className="learn-setup-analysis" aria-live="polite" aria-label="Dateianalyse">
+                <div className="learn-setup-analysis-ring">
+                  <svg className="learn-setup-analysis-ring-svg" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true">
+                    <g transform="rotate(-130 52 52)">
+                      <circle
+                        className="learn-setup-analysis-ring-track"
+                        cx="52"
+                        cy="52"
+                        r={setupAnalysisArcRadius}
+                        fill="none"
+                        strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                      />
+                      <circle
+                        className="learn-setup-analysis-ring-progress"
+                        cx="52"
+                        cy="52"
+                        r={setupAnalysisArcRadius}
+                        fill="none"
+                        strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                        strokeDashoffset={setupAnalysisArcOffset}
+                      />
+                    </g>
+                  </svg>
+                  <span className="learn-setup-analysis-percent">{setupAnalysisPercentClamped}%</span>
+                </div>
+                <div className="learn-topic-suggestions-loader" role="status">
+                  <span className="learn-topic-loader-orbit" aria-hidden="true">
+                    <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                    <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                    <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+                  </span>
+                  <span className="learn-topic-loader-text">Dateien werden analysiert...</span>
+                </div>
+              </section>
+            ) : (
+              <>
+                <p className="learn-setup-info">
+                  Lade deine Unterlagen hoch. Die KI schlägt dir anschließend ein passendes Thema für deinen Lernpfad
+                  vor.
+                </p>
+                <div className="learn-file-upload-block">
+                  <input
+                    id="learn-files-input"
+                    type="file"
+                    multiple
+                    className="learn-file-upload-input-sr"
+                    onChange={(event) => {
+                      onFilesChange(event.target.files)
+                      event.currentTarget.value = ''
+                    }}
+                  />
+                  {materials.length === 0 ? (
+                    <div
+                      className={`learn-file-upload-drop-target${isFileDragOver ? ' is-drag-over' : ''}`}
+                      onDragEnter={handleFileDragEnter}
+                      onDragLeave={handleFileDragLeave}
+                      onDragOver={handleFileDragOver}
+                      onDrop={handleFileDrop}
+                    >
+                      <label htmlFor="learn-files-input" className="learn-file-upload-zone">
+                        <span className="learn-file-upload-zone-inner">
+                          <strong className="learn-file-upload-title">Unterlagen hochladen</strong>
+                          <span className="learn-file-upload-hint">
+                            Dateien auswählen oder per Drag-and-drop in dieses Feld ziehen (mehrere Dateien möglich)
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  ) : (
+                    <div
+                      className={`learn-file-upload-drop-target learn-file-upload-after-drop${isFileDragOver ? ' is-drag-over' : ''}`}
+                      onDragEnter={handleFileDragEnter}
+                      onDragLeave={handleFileDragLeave}
+                      onDragOver={handleFileDragOver}
+                      onDrop={handleFileDrop}
+                    >
+                      <div className="learn-file-upload-after-list">
+                        <div className="learn-materials-list">
+                          {materials.map((material) => {
+                            const typeBadge = getMaterialTypeBadge(material.name)
+                            return (
+                              <div key={material.id} className="learn-material-item">
+                                <div className="learn-material-main">
+                                  <img className="ui-icon learn-material-file-icon" src={fileIcon} alt="" aria-hidden="true" />
+                                  <div className="learn-material-copy">
+                                    <div className="learn-material-title-row">
+                                      <p className="learn-material-name">{material.name}</p>
+                                      <span className={`learn-material-type-badge learn-material-type-badge--${typeBadge.variant}`}>
+                                        {typeBadge.label}
+                                      </span>
+                                    </div>
+                                    <p className="learn-muted learn-material-meta">{Math.round(material.size / 1024)} KB</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="learn-material-remove-button"
+                                  onClick={() => onRemoveMaterial(material.id)}
+                                  aria-label={`${material.name} entfernen`}
+                                >
+                                  <img className="ui-icon learn-material-remove-icon" src={deleteIcon} alt="" aria-hidden="true" />
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <label htmlFor="learn-files-input" className="learn-file-upload-add-more">
+                          <span className="learn-file-upload-add-more-icon" aria-hidden="true" />
+                          <span className="learn-file-upload-add-more-label">Weitere Dateien hinzufügen</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {isUploading ? <p className="learn-muted">Dateien werden verarbeitet...</p> : null}
+                <div className="learn-setup-actions">
+                  <PrimaryButton
+                    type="button"
+                    onClick={onContinueStepOne}
+                    disabled={isUploading || (materials.length === 0 && !allowContinueWithoutMaterials)}
+                  >
+                    Dateien analysieren
+                  </PrimaryButton>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {setupStep === 2 ? (
+          <div className="learn-setup-step">
+            <label>Thema aus Datei erkannt</label>
+            <p className="learn-setup-info">
+              Die KI hat aus deinen Unterlagen folgendes Hauptthema erkannt. Danach analysiert sie das
+              Material vollständig und baut deinen Lernpfad.
+            </p>
+            <div className="learn-topic-suggestions-panel">
+              <p className="learn-topic-selection-info">
+                Erkanntes Thema: <strong>{effectiveTopic || '-'}</strong>
+              </p>
+            </div>
+            <div className="learn-setup-actions">
+              <SecondaryButton type="button" onClick={onBackToStep1}>
+                Zurück
+              </SecondaryButton>
+              <PrimaryButton type="button" onClick={onContinueStepTwo}>
+                Weiter
+              </PrimaryButton>
+            </div>
+          </div>
+        ) : null}
+
+        {setupStep === 3 ? (
+          <div className="learn-setup-step">
+            <label>Ziel</label>
+            <p className="learn-setup-info">
+              Optional: Bis wann, und wie viel Zeit pro Tag realistisch ist. Straton rechnet dir
+              dann ehrlich vor, ob sich das ausgeht — jederzeit später änderbar über den Ziel-Chip
+              im Lernpfad.
+            </p>
+            <div className="learn-setup-goal-fields">
+              <label className="learn-setup-goal-field">
+                <span className="learn-setup-goal-field-label">Termin</span>
+                <input
+                  type="date"
+                  value={goalDueAt}
+                  onChange={(event) => onGoalDueAtChange(event.target.value)}
+                />
+              </label>
+              <label className="learn-setup-goal-field">
+                <span className="learn-setup-goal-field-label">Minuten pro Tag</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={480}
+                  step={5}
+                  value={goalMinutesPerDay}
+                  onChange={(event) => onGoalMinutesPerDayChange(Math.max(0, Number(event.target.value) || 0))}
+                />
+              </label>
+            </div>
+            <div className="learn-setup-actions">
+              <SecondaryButton type="button" onClick={onBackToStep2}>
+                Zurück
+              </SecondaryButton>
+              {/* Das Ziel ist optional (Kapitel 7) — der Knopf schliesst auch ohne Eingabe ab. */}
+              <PrimaryButton type="button" onClick={onFinishSetup}>
+                Einrichtung abschließen
+              </PrimaryButton>
+            </div>
+          </div>
+        ) : null}
+
+        {setupStep === 4 ? (
+          <section className="learn-setup-analysis" aria-live="polite" aria-label="Lernpfad wird vorbereitet">
+            <div className="learn-setup-analysis-ring">
+              <svg className="learn-setup-analysis-ring-svg" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true">
+                <g transform="rotate(-130 52 52)">
+                  <circle
+                    className="learn-setup-analysis-ring-track"
+                    cx="52"
+                    cy="52"
+                    r={setupAnalysisArcRadius}
+                    fill="none"
+                    strokeDasharray={`${setupAnalysisArcLength} ${setupAnalysisCircumference}`}
+                  />
+                </g>
+              </svg>
+            </div>
+            <div className="learn-topic-suggestions-loader" role="status">
+              <span className="learn-topic-loader-orbit" aria-hidden="true">
+                <img className="ui-icon learn-topic-loader-star is-one" src={starIcon} alt="" />
+                <img className="ui-icon learn-topic-loader-star is-two" src={starIcon} alt="" />
+                <img className="ui-icon learn-topic-loader-star is-three" src={starIcon} alt="" />
+              </span>
+              <span className="learn-topic-loader-text">Dein Lernpfad wird vorbereitet …</span>
+            </div>
+          </section>
+        ) : null}
+
+        <div className="learn-setup-progress">
+          <div className={`learn-setup-progress-step ${setupStep >= 1 ? 'is-active' : ''}`}>1</div>
+          <div className={`learn-setup-progress-segment ${setupStep >= 2 ? 'is-active' : ''}`} />
+          <div className={`learn-setup-progress-step ${setupStep >= 2 ? 'is-active' : ''}`}>2</div>
+          <div className={`learn-setup-progress-segment ${setupStep >= 3 ? 'is-active' : ''}`} />
+          <div className={`learn-setup-progress-step ${setupStep >= 3 ? 'is-active' : ''}`}>3</div>
+          <div className={`learn-setup-progress-segment ${setupStep >= 4 ? 'is-active' : ''}`} />
+          <div className={`learn-setup-progress-step ${setupStep >= 4 ? 'is-active' : ''}`}>4</div>
+        </div>
+        {setupStep === 1 ? (
+          <div className="learn-setup-step-hint" aria-label="Aktueller Schritt: Datei hochladen">
+            <p className="learn-setup-step-hint-label">Datei hochladen</p>
+            <img className="ui-icon learn-setup-step-hint-icon" src={setupPng} alt="" aria-hidden="true" />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  )
+}

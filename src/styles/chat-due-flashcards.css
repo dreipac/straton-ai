@@ -1,0 +1,205 @@
+
+/* —— Sammel-Übersicht: fällige Lernkarten über alle Lernpfade hinweg —— */
+
+.chat-main.is-due-flashcards-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-due-flashcards-active .chat-main-toolbar {
+  display: none !important;
+}
+
+.chat-main.is-due-flashcards-active .chat-due-flashcards-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+}
+
+.chat-due-flashcards-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.chat-due-flashcards-inner {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 2vw + 1rem, 3rem) clamp(1.25rem, 2vw + 0.75rem, 2.5rem);
+  box-sizing: border-box;
+}
+
+.chat-due-flashcards-inner > * {
+  opacity: 0;
+  animation: chat-ui-enter-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-due-flashcards-inner > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.chat-due-flashcards-inner > *:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-due-flashcards-inner > * {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.chat-due-flashcards-header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 1.1rem;
+}
+
+.chat-due-flashcards-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-due-flashcards-back-btn:hover {
+  background: color-mix(in srgb, var(--color-text-primary, #fff) 8%, transparent);
+}
+
+.chat-due-flashcards-back-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #6366f1);
+  outline-offset: 2px;
+}
+
+.chat-due-flashcards-back-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: 0.88;
+}
+
+.chat-due-flashcards-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.chat-due-flashcards-title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: var(--color-text-app);
+}
+
+.chat-due-flashcards-subtitle {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-due-flashcards-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chat-due-flashcards-set-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-elevated, #ffffff);
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, filter 160ms ease;
+}
+
+/* Höhere Spezifität als `button:hover:enabled` in base.css nötig (deckender Hintergrund -> filter statt backdrop-filter). */
+button.chat-due-flashcards-set-row:hover:enabled {
+  background: var(--color-surface-elevated, #ffffff);
+  border-color: var(--color-border, #e2e8f0);
+  filter: brightness(0.94);
+}
+
+.chat-due-flashcards-set-row-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.chat-due-flashcards-set-row-count {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--color-text-app);
+}
+
+.chat-due-flashcards-set-row-meta {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-due-flashcards-set-row-arrow {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background: var(--color-text-muted, #64748b);
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transform: rotate(180deg);
+}
+
+.chat-due-flashcards-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 1.5rem 0;
+}
+
+.chat-due-flashcards-empty-icon {
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.55;
+  margin-bottom: 0.3rem;
+}
+
+.chat-due-flashcards-empty-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--color-text-app);
+}

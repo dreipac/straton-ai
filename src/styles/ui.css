@@ -1,0 +1,515 @@
+.panel {
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: var(--radius-xl);
+  padding: 1rem;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+.ui-icon {
+  --ui-icon-size: 16px;
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  object-fit: contain;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+/* Recolor monochrome SVG icons to match active theme. */
+.ui-icon:not(.chat-brand-logo):not(.chat-brand-logo-collapsed) {
+  filter: var(--icon-filter);
+  transition: filter 160ms ease;
+}
+
+/* Gegenstück zu `.ui-icon` für einfarbige Vorlagen (`MaskIcon`): das Bild dient als Maske, die
+   Fläche kommt aus `--mask-icon-color` — voreingestellt die Textfarbe des Umfelds. Anders als der
+   feste `--icon-filter` folgt das Zeichen damit auch Hover- und Auswahlzuständen. */
+.mask-icon {
+  --ui-icon-size: 16px;
+  display: inline-block;
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  flex-shrink: 0;
+  background: var(--mask-icon-color, currentColor);
+  -webkit-mask-image: var(--mask-icon-src);
+  mask-image: var(--mask-icon-src);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.ui-icon-xs {
+  --ui-icon-size: 12px;
+}
+
+.ui-icon-sm {
+  --ui-icon-size: 14px;
+}
+
+.ui-icon-md {
+  --ui-icon-size: 16px;
+}
+
+.ui-icon-lg {
+  --ui-icon-size: 18px;
+}
+
+.ui-icon-xl {
+  --ui-icon-size: 20px;
+}
+
+.ui-icon-2xl {
+  --ui-icon-size: 24px;
+}
+
+.ui-button {
+  border: 1px solid transparent;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+/*
+ * Primary/Secondary bewusst als zusammengesetzter Selektor (`.ui-button.ui-button-primary`, zwei
+ * Klassen) statt nur `.ui-button-primary` allein: `PrimaryButton`/`SecondaryButton` setzen beide
+ * Klassen immer gemeinsam, und die hoehere Spezifitaet gewinnt automatisch gegen pauschale
+ * Reset-Regeln wie `.chat-sidebar-top button` (eine Klasse + ein Element) — so kann derselbe
+ * globale Knopf-Look ueberall stehen, auch dort, wo ein Container generisch alle `<button>` auf
+ * einen eigenen Nav-Look zuruecksetzt, ohne dass diese Stelle eine eigene Farbkopie braucht.
+ *
+ * `padding`/`min-height` stehen deshalb hier im zusammengesetzten Selektor und NICHT (mehr) auf
+ * `.ui-button` allein: `.ui-button` hat nur eine Klasse (Spezifitaet 0,0,1,0) — das ist WENIGER
+ * spezifisch als so ein Reset mit Klasse+Element (0,0,1,1), verliert also genau wie oben
+ * beschrieben. `.ui-button.ui-button-primary`/`-secondary` (0,0,2,0) gewinnt zuverlaessig, auch
+ * gegen `.chat-sidebar-top button { padding: ...; min-height: 42px; }` — sonst blieben die
+ * Knoepfe dort optisch bei der alten Groesse, egal wie klein `padding` hier gesetzt wird.
+ *
+ * Gefuellte Akzentflaeche traegt die Betonung, kein Leuchten/Schatten und keine Verlauf-Animation
+ * beim Hover — nur ein Tick heller (siehe `::after`-Weissflaeche unten).
+ */
+.ui-button.ui-button-primary {
+  position: relative;
+  padding: 0.44rem 0.62rem;
+  min-height: 0;
+  border-radius: var(--radius-xs);
+  font-weight: 600;
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #f8fafc);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.ui-button.ui-button-secondary {
+  padding: 0.44rem 0.62rem;
+  min-height: 0;
+  border-radius: var(--radius-xs);
+  font-weight: 500;
+  background: var(--color-surface-soft, transparent);
+  color: var(--color-text-app);
+  border-color: var(--color-border-strong, var(--color-border));
+}
+
+@media (hover: hover) {
+  /*
+   * `background`/`color` hier nochmal explizit gesetzt, nicht nur zur Sicherheit: pauschale
+   * Reset-Regeln wie `.chat-sidebar-top button:hover:enabled` setzen im Hover-Zustand ebenfalls
+   * `background`/`color` (auf ein neutrales Grau) — ohne diese Wiederholung hier wuerde deren
+   * Hover-Regel gewinnen (ihre Basis-Regel ohne `:hover` ist nicht spezifisch genug, um das zu
+   * verhindern), und die weisse Aufhellflaeche unten laege dann auf dem falschen Untergrund.
+   *
+   * `filter: brightness()`/`saturate()` auf einem mehrfarbigen Verlauf verschiebt zudem den
+   * Farbeindruck insgesamt (jeder Stop reagiert anders) — am Ende sieht es nach einer ANDEREN
+   * Farbe aus, nicht nach dem gleichen Akzent, nur heller. Robuster: eine duenne weisse Flaeche
+   * gleichmaessig ueber den Verlauf legen — das hellt jeden Farbton gleich auf, ohne den
+   * Farbeindruck zu verschieben.
+   */
+  .ui-button.ui-button-primary:hover:enabled {
+    background: var(--accent-gradient);
+    color: var(--accent-fab-fg, #f8fafc);
+    border-color: transparent;
+  }
+
+  .ui-button.ui-button-primary:hover:enabled::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.16);
+    pointer-events: none;
+  }
+
+  .ui-button.ui-button-secondary:hover:enabled {
+    background: var(--interactive-hover-bg);
+    border-color: var(--interactive-hover-border);
+    color: var(--interactive-hover-text);
+  }
+}
+
+/* Globale mehrzeilige Texteingabe (TextArea-Komponente) — gleiche Underline-Logik wie native Inputs */
+textarea.ui-textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 90px;
+  margin: 0;
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-sm) var(--radius-sm);
+  background-color: var(--input-field-bg);
+  background-image: none;
+  color: var(--input-field-text);
+  padding: 0.72rem 0.95rem;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+  border-bottom: 1px solid var(--input-field-border-idle);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+textarea.ui-textarea::placeholder {
+  color: var(--input-field-placeholder);
+  opacity: 1;
+}
+
+textarea.ui-textarea:focus-visible {
+  outline: none;
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  border-bottom-color: transparent;
+  box-shadow: var(--input-field-shadow-focus);
+  caret-color: var(--input-field-text);
+}
+
+textarea.ui-textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  resize: none;
+}
+
+textarea.ui-textarea.ui-textarea--auto-grow {
+  min-height: 2.85rem;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+/*
+ * Tap-Feder: kurzer Tipp = ein Durchlauf (größer → kleiner + Aufhellen).
+ * Gedrückthalten (.is-tap-held) = Peak-Scale bis Loslassen.
+ */
+:root {
+  --tap-feedback-spring-duration: 500ms;
+  --tap-feedback-spring-ease: cubic-bezier(0.34, 1.22, 0.64, 1);
+  --tap-feedback-spring-scale-peak: 1.14;
+  --tap-feedback-spring-icon-peak: 1.1;
+  --tap-feedback-spring-hold-release-ms: 220ms;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --tap-feedback-spring-scale-peak: 1.2;
+    --tap-feedback-spring-icon-peak: 1.16;
+  }
+}
+
+@keyframes tap-feedback-spring-scale {
+  0% {
+    transform: scale(1);
+  }
+
+  34% {
+    transform: scale(var(--tap-feedback-spring-scale-peak));
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes tap-feedback-spring-glow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  34% {
+    opacity: 1;
+  }
+}
+
+@keyframes tap-feedback-spring-icon {
+  0% {
+    transform: scale(1);
+  }
+
+  34% {
+    transform: scale(var(--tap-feedback-spring-icon-peak));
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.tap-spring-surface.is-tap-spring,
+.glass-pill-touch.is-tap-spring:not(:disabled),
+.new-chat-touch-btn.is-tap-spring {
+  animation: tap-feedback-spring-scale var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.tap-spring-surface.is-tap-spring,
+.tap-spring-surface.is-tap-held {
+  --tap-feedback-spring-scale-peak: 1.06;
+}
+
+@media (pointer: coarse) {
+  .tap-spring-surface.is-tap-spring,
+  .tap-spring-surface.is-tap-held {
+    --tap-feedback-spring-scale-peak: 1.1;
+  }
+}
+
+.tap-spring-surface.is-tap-held,
+.glass-pill-touch.is-tap-held:not(:disabled),
+.new-chat-touch-btn.is-tap-held {
+  animation: none;
+  transform: scale(var(--tap-feedback-spring-scale-peak));
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tap-spring-surface.is-tap-held:not(.is-tap-spring) {
+  transition-duration: 0.1s;
+}
+
+.glass-pill-touch.is-tap-held:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-held::after {
+  animation: none;
+  opacity: 1;
+}
+
+.glass-pill-touch.is-tap-held:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-held .new-chat-touch-btn__icon {
+  animation: none;
+  transform: scale(var(--tap-feedback-spring-icon-peak));
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes tap-feedback-hold-release {
+  from {
+    transform: scale(var(--tap-feedback-spring-scale-peak));
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes tap-feedback-hold-release-icon {
+  from {
+    transform: scale(var(--tap-feedback-spring-icon-peak));
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+.tap-spring-surface.is-tap-held-release,
+.glass-pill-touch.is-tap-held-release:not(:disabled),
+.new-chat-touch-btn.is-tap-held-release {
+  animation: tap-feedback-hold-release var(--tap-feedback-spring-hold-release-ms) ease-out both;
+}
+
+.glass-pill-touch.is-tap-held-release:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-held-release .new-chat-touch-btn__icon {
+  animation: tap-feedback-hold-release-icon var(--tap-feedback-spring-hold-release-ms) ease-out both;
+}
+
+.glass-pill-touch.is-tap-held-release:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-held-release::after {
+  animation: tap-feedback-spring-glow var(--tap-feedback-spring-hold-release-ms) ease-out both;
+}
+
+.glass-pill-touch {
+  --glass-pill-touch-bg: var(--color-surface-elevated);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.glass-pill-touch::after,
+.new-chat-touch-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+:root[data-theme='dark'] .glass-pill-touch::after,
+:root[data-theme='dark'] .new-chat-touch-btn::after {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.glass-pill-touch.is-tap-spring:not(:disabled)::after,
+.new-chat-touch-btn.is-tap-spring::after {
+  animation: tap-feedback-spring-glow var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.glass-pill-touch.is-tap-spring:not(:disabled) .glass-pill-touch__icon,
+.new-chat-touch-btn.is-tap-spring .new-chat-touch-btn__icon {
+  animation: tap-feedback-spring-icon var(--tap-feedback-spring-duration) var(--tap-feedback-spring-ease) both;
+}
+
+.new-chat-touch-btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.new-chat-touch-btn.is-new-chat-pending {
+  pointer-events: none;
+}
+
+.new-chat-touch-btn__icon {
+  position: relative;
+  z-index: 2;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glass-pill-touch:not(.glass-pill-touch--composer-shell):active:not(:disabled):not(.is-tap-spring):not(
+      .is-tap-held
+    ) {
+    transform: scale(1.12);
+    filter: brightness(1.1) saturate(1.06);
+  }
+
+  .glass-pill-touch.glass-pill-touch--composer-shell:active:not(:disabled):not(.is-tap-spring):not(.is-tap-held) {
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tap-spring-surface.is-tap-spring,
+  .glass-pill-touch.is-tap-spring:not(:disabled),
+  .new-chat-touch-btn.is-tap-spring {
+    animation-duration: 180ms;
+  }
+
+  .glass-pill-touch.is-tap-spring:not(:disabled)::after,
+  .new-chat-touch-btn.is-tap-spring::after,
+  .glass-pill-touch.is-tap-spring:not(:disabled) .glass-pill-touch__icon,
+  .new-chat-touch-btn.is-tap-spring .new-chat-touch-btn__icon {
+    animation-duration: 180ms;
+  }
+
+  .tap-spring-surface.is-tap-held,
+  .glass-pill-touch.is-tap-held:not(:disabled),
+  .new-chat-touch-btn.is-tap-held {
+    transition-duration: 80ms;
+  }
+}
+
+/* Gemeinsame Basis für Dialog-/Karten-Boxen: Rahmen, Hintergrund, Schatten, Textfarbe. Vorher in
+   `.settings-modal`, `.rename-modal`, `.billing-manage-dialog` und `.security-password-done-dialog`
+   (alle in settings.css) vier Mal fast identisch dupliziert — nur Breite/Padding/Radius/Text-Align
+   unterschieden sich. Jetzt einmal hier; die vier Klassen setzen nur noch diese Modifier.
+   Für neue Dialoge: `.ui-dialog-card` einfach zusätzlich zur eigenen Klasse vergeben. */
+.ui-dialog-card,
+.settings-modal,
+.rename-modal,
+.billing-manage-dialog,
+.security-password-done-dialog {
+  border: 1px solid var(--color-border);
+  background: var(--settings-modal-bg);
+  box-shadow: 0 24px 60px var(--color-shadow-strong);
+  color: var(--color-text-app);
+}
+
+/* Anforderungs-Checkliste (`RequirementChecklist`-Komponente): dezenter Kreis pro Zeile, der von
+   rot/X auf grün/Haken wechselt (mit kurzem Pop) sobald erfüllt, Text von gedämpft auf normal.
+   Ursprünglich nur für den Passwort-Mindestlängen-Check gebaut (`SecuritySettingsSection`), aber
+   generisch genug für jede Art von Mindestanforderungen-Liste. */
+.requirement-checklist {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.requirement-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.requirement-checklist-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-circle);
+  flex-shrink: 0;
+  background: color-mix(in srgb, #dc2626 14%, transparent);
+  color: color-mix(in srgb, #dc2626 75%, transparent);
+  transition:
+    background 200ms ease,
+    color 200ms ease;
+}
+
+.requirement-checklist-item.is-met .requirement-checklist-mark {
+  background: color-mix(in srgb, #16a34a 16%, transparent);
+  color: color-mix(in srgb, #16a34a 78%, transparent);
+}
+
+.requirement-checklist-mark svg {
+  width: 8px;
+  height: 8px;
+  animation: requirement-checklist-pop 220ms ease;
+}
+
+@keyframes requirement-checklist-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.requirement-checklist-label {
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+  transition: color 200ms ease;
+}
+
+.requirement-checklist-item.is-met .requirement-checklist-label {
+  color: var(--color-text-app);
+}

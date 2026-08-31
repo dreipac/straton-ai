@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sv https://api.straton-ai.app/ -o /dev/null)",
+      "Bash(curl -skv https://api.straton-ai.app/ -o /dev/null)",
+      "Bash(command -v openssl)",
+      "Bash(openssl s_client -connect api.straton-ai.app:443 -servername api.straton-ai.app)",
+      "Bash(nslookup api.straton-ai.app)",
+      "Bash(nslookup straton-ai.app)"
+    ]
+  }
+}

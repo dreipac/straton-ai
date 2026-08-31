@@ -1,0 +1,412 @@
+.thread-menu-trigger {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  min-width: 26px;
+  border-radius: var(--radius-xs);
+  border-color: transparent;
+  background: transparent;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 200ms ease;
+}
+
+.thread-menu-icon {
+  --ui-icon-size: 20px;
+  display: inline-block;
+  background-color: #64748b;
+  mask-image: url('../assets/icons/menu.svg');
+  -webkit-mask-image: url('../assets/icons/menu.svg');
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+
+.thread-menu-trigger:hover:enabled {
+  background: var(--interactive-hover-bg);
+  border-color: var(--interactive-hover-border);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.thread-menu-trigger:hover:enabled .thread-menu-icon {
+  background-color: #475569;
+}
+
+.chat-thread-menu-anchor.is-open .thread-menu-trigger {
+  background: var(--interactive-hover-bg);
+  border-color: var(--interactive-hover-border);
+}
+
+.chat-thread-menu-anchor.is-open .thread-menu-icon {
+  background-color: #334155;
+}
+
+.thread-menu {
+  position: absolute;
+  right: 0;
+  top: 120%;
+  min-width: 102px;
+  border: 1px solid #dbe3ee;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
+  padding: 0.15rem;
+  z-index: 25;
+}
+
+/* Das eine Aufklappmenü der App (`PopoverMenu`): Rechtsklick-Menüs, die Dropdowns der
+   Composer-Leiste und die Auswahlfelder der Einstellungen teilen sich Hülle und Animation. Was sich
+   unterscheidet, steckt in den Modifikatoren — Platzierung, Richtung, Ausrichtung. */
+.thread-menu.popover-menu {
+  min-width: 11rem;
+  padding: 0.28rem;
+  border-radius: var(--radius-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Die Einzelposten bringen sonst eine eigene, gestaffelte Einblendung mit; im Popover blendet die
+   Hülle als Ganzes ein, sonst liefen zwei Animationen gegeneinander. */
+.thread-menu.popover-menu .thread-menu-item {
+  opacity: 1;
+  transform: none;
+  animation: none;
+  border-radius: var(--radius-sm);
+}
+
+/* Freie Bildschirmkoordinate — das Menü geht dort auf, wo geklickt wurde. */
+.thread-menu.popover-menu--fixed {
+  position: fixed;
+  right: auto;
+  top: auto;
+  z-index: 70;
+}
+
+/* Am Auslöser aufgehängt; der umgebende Knopf-Container muss `position: relative` tragen. */
+.thread-menu.popover-menu--anchored {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  bottom: auto;
+  z-index: 60;
+}
+
+.thread-menu.popover-menu--anchored.popover-menu--up {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
+}
+
+.thread-menu.popover-menu--start {
+  left: 0;
+  right: auto;
+}
+
+.thread-menu.popover-menu--end {
+  left: auto;
+  right: 0;
+}
+
+/* Aufklapprichtung bestimmt, aus welcher Ecke das Menü wächst. */
+.thread-menu.popover-menu--down {
+  transform-origin: left top;
+  transform: scale(0.94) translateY(4px);
+}
+
+.thread-menu.popover-menu--up {
+  transform-origin: left bottom;
+  transform: scale(0.94) translateY(-4px);
+}
+
+.thread-menu.popover-menu--end.popover-menu--down {
+  transform-origin: right top;
+}
+
+.thread-menu.popover-menu--end.popover-menu--up {
+  transform-origin: right bottom;
+}
+
+/* Muss nach den Richtungsregeln stehen — gleiche Gewichtung, die spätere Regel gewinnt. */
+.thread-menu.popover-menu.is-visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-menu.popover-menu {
+    transition: none;
+  }
+}
+
+/* Untermenü (`PopoverSubmenu`): klappt rechts neben der Zeile auf, allein per Hover/Fokus. */
+.popover-submenu-wrap {
+  position: relative;
+}
+
+/* Unsichtbare Brücke zum Untermenü — ohne sie reisst der Hover in der Lücke ab. */
+.popover-submenu-wrap::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 0;
+  width: 0.45rem;
+  height: 100%;
+}
+
+.popover-submenu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.popover-submenu-trigger-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.popover-submenu-trigger-value {
+  flex-shrink: 0;
+  font-size: 0.79rem;
+  opacity: 0.6;
+}
+
+.popover-submenu-chevron {
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  opacity: 0.62;
+  transition: transform 160ms ease;
+}
+
+.popover-submenu-wrap:hover .popover-submenu-chevron,
+.popover-submenu-wrap:focus-within .popover-submenu-chevron {
+  transform: translateX(1px);
+}
+
+.thread-menu.popover-submenu {
+  position: absolute;
+  left: calc(100% + 0.35rem);
+  top: 0;
+  right: auto;
+  min-width: 7.35rem;
+  padding: 0.28rem;
+  border-radius: var(--radius-lg);
+  transform-origin: left center;
+  z-index: 61;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.96) translateX(-4px);
+  transition:
+    opacity 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 150ms;
+}
+
+.popover-submenu-wrap:hover > .thread-menu.popover-submenu,
+.popover-submenu-wrap:focus-within > .thread-menu.popover-submenu {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: scale(1) translateX(0);
+  transition:
+    opacity 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
+/* Wie im Popover: die Hülle blendet ein, nicht die einzelnen Zeilen. */
+.thread-menu.popover-submenu .thread-menu-item {
+  opacity: 1;
+  transform: none;
+  animation: none;
+  border-radius: var(--radius-sm);
+  justify-content: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-menu.popover-submenu,
+  .popover-submenu-chevron {
+    transition: none;
+  }
+}
+
+/* Auswahlzeile (`MenuRadioItem`): Zeichen und Beschriftung links, der Haken rechts aussen. Die
+   Beschriftung dehnt sich dazwischen, drückt den Haken an den rechten Rand und hält die Zeilen
+   ohne Haken in derselben Flucht. */
+.thread-menu-item-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.thread-menu-item-check {
+  flex-shrink: 0;
+  width: 0.45rem;
+  height: 0.75rem;
+  /* Rechts etwas Luft: der gedrehte Haken ragt über seine Box hinaus. */
+  margin-right: 0.15rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(42deg) translateY(-1px);
+  opacity: 0.72;
+}
+
+/* Zeichen vor der Beschriftung (`MenuRadioItem`/`PopoverSubmenu`, Prop `iconSrc`). Form, Grösse und
+   Einfärbung kommen von `.mask-icon` in ui.css; hier steht nur die Zurückhaltung im Menü. */
+.thread-menu-item-mask-icon {
+  --ui-icon-size: 16px;
+  opacity: 0.82;
+}
+
+/* Die gewählte Zeile trägt das Zeichen etwas kräftiger, passend zum fetteren Text. */
+.thread-menu-item.is-selected .thread-menu-item-mask-icon {
+  opacity: 1;
+}
+
+.thread-menu-item:disabled .thread-menu-item-mask-icon {
+  opacity: 0.55;
+}
+
+.thread-menu-item.is-selected {
+  font-weight: 650;
+  background: #f1f5f9;
+}
+
+:root[data-theme='dark'] .thread-menu-item.is-selected {
+  background: #252b35;
+}
+
+.thread-menu-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2xs);
+  padding: 0.35rem 0.5rem;
+  font-size: var(--fs-md);
+  line-height: 1.15;
+  opacity: 0;
+  transform: translateY(-4px);
+  animation: threadMenuItemIn 170ms ease forwards;
+}
+
+.thread-menu-item:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.thread-menu-item:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.thread-menu-item:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.thread-menu-item:hover:enabled {
+  border-color: transparent;
+  background: #f8fafc;
+}
+
+.thread-menu-item.is-danger {
+  color: var(--color-danger-text);
+}
+
+.thread-menu-item.is-danger .thread-menu-item-icon {
+  filter: var(--color-danger-icon-filter);
+}
+
+.thread-menu-item.is-danger:hover:enabled {
+  background: var(--color-danger-bg-soft);
+  color: var(--color-danger-text);
+}
+
+.thread-menu-item-icon {
+  --ui-icon-size: 16px;
+}
+
+@keyframes threadMenuItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root[data-theme='dark'] .thread-menu {
+  border-color: #343b47;
+  background: #1a1f27;
+}
+
+:root[data-theme='dark'] .thread-menu-item {
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'] .thread-menu-item:hover:enabled {
+  background: #252b35;
+}
+
+:root[data-theme='dark'] .thread-menu-trigger:hover:enabled,
+:root[data-theme='dark'] .chat-thread-menu-anchor.is-open .thread-menu-trigger {
+  background: var(--interactive-hover-bg-dark);
+  border-color: var(--interactive-hover-border-dark);
+}
+
+:root[data-theme='dark'] .thread-menu-trigger:hover:enabled .thread-menu-icon,
+:root[data-theme='dark'] .chat-thread-menu-anchor.is-open .thread-menu-icon {
+  background-color: #e2e8f0;
+}
+
+:root[data-theme='dark'] .thread-menu-item.is-danger {
+  color: var(--color-danger-text);
+}
+
+:root[data-theme='dark'] .thread-menu-item.is-danger:hover:enabled {
+  background: var(--color-danger-bg-soft);
+  color: var(--color-danger-text);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .thread-menu {
+  background: rgba(58, 14, 34, 0.76);
+  border-color: rgba(253, 164, 175, 0.34);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8)) saturate(var(--glass-saturation));
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .thread-menu-trigger:hover:enabled,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-thread-menu-anchor.is-open .thread-menu-trigger {
+  background: rgba(244, 114, 182, 0.16);
+  border-color: rgba(249, 168, 212, 0.36);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .thread-menu-trigger:hover:enabled .thread-menu-icon,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-thread-menu-anchor.is-open .thread-menu-icon {
+  background-color: #ffd5f2;
+}
+
+:root[data-sidebar-scale='75'] .thread-menu-trigger {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+}
+
+:root[data-sidebar-scale='75'] .thread-menu-icon {
+  --ui-icon-size: 17px;
+}

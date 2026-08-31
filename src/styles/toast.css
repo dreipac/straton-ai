@@ -1,0 +1,400 @@
+.toast-stack {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  left: auto;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(420px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+/* Eigener, zentrierter Stapel oben — unabhängig von der `top-right`-Ecke der übrigen Toasts, für
+   seltene, wichtigere Hinweise (bislang nur die Feedback-Abschlussmeldung). Bewusst auf allen
+   Breiten zentriert oben, nicht nur mobil wie `.toast-stack`. */
+.toast-stack--top-center {
+  top: 1rem;
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.toast-item {
+  pointer-events: auto;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-3xl);
+  border: none;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-app);
+  box-shadow:
+    0 2px 10px var(--color-shadow-soft),
+    0 18px 44px var(--color-shadow-strong);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+
+/* Chat-Einladung: Kreis links (vertikal mittig), Titel + Untertitel, Button rechts */
+.toast-item--invite {
+  display: block;
+  padding: 0.8rem 0.9rem 0.8rem 0.8rem;
+}
+
+.toast-invite-visual-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.toast-invite-visual-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.toast-invite-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+
+.toast-invite-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--color-text-app);
+}
+
+.toast-invite-icon-wrap {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-circle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  box-shadow: none;
+  /* Nur Akzent-Hintergrund, ca. 30 % Deckkraft, ohne Rand */
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 30%, transparent);
+}
+
+.toast-invite-icon-svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%);
+  opacity: 0.92;
+}
+
+:root[data-theme='dark'] .toast-invite-icon-svg {
+  filter: brightness(0) invert(1);
+  opacity: 0.9;
+}
+
+.toast-invite-from {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+}
+
+.toast-invite-from strong {
+  font-weight: 600;
+  color: var(--color-text-app);
+  word-break: break-word;
+}
+
+/* Globales Primary-Button-Styling: `ui-button ui-button-primary` (ui.css) — schmal, rechts ausgerichtet */
+.toast-invite-accept.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  width: auto;
+  max-width: 11.5rem;
+  min-width: 0;
+  padding-inline: 0.5rem;
+}
+
+.toast-invite-accept.ui-button:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Hinweis-Toast (z. B. "Problem behoben"): Icon in offenem Ring links, Titel + dezenter Untertitel
+   rechts, dezentes Schliessen-Kreuz oben rechts. Eigener Rand zusätzlich zum geerbten Hintergrund/
+   Schatten von `.toast-item`, sonst unverändert. */
+.toast-item--notice {
+  position: relative;
+  padding: 0.85rem 1.85rem 0.85rem 0.85rem;
+  border: 1px solid var(--color-border);
+}
+
+.toast-notice-close {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-circle);
+  color: var(--color-text-muted);
+  opacity: 0.55;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    opacity 160ms ease,
+    background-color 160ms ease;
+}
+
+.toast-notice-close:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--color-text-app) 8%, transparent);
+}
+
+.toast-notice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Kreis um das Icon, bewusst nicht ganz geschlossen (eine Seite transparent, dann leicht rotiert) —
+   dezentes Grün, unabhängig vom Theme über `color-mix`. */
+.toast-notice-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-circle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast-notice-icon-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-circle);
+  border: 2px solid transparent;
+  transform: rotate(45deg);
+}
+
+/* Nur "success" (dezentes Grün) bislang unterstützt — weitere Töne bei Bedarf hier ergänzen. */
+.toast-notice-icon-wrap--success .toast-notice-icon-ring {
+  border-color: color-mix(in srgb, #16a34a 55%, transparent);
+  border-top-color: transparent;
+}
+
+.toast-notice-icon-svg {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+}
+
+/* `correct.svg` (schwarzer Pfad) auf dezentes Grün einfärben — gleiche Filterkette wie an anderen
+   Stellen im Projekt (z. B. `.security-password-check-img`). */
+.toast-notice-icon-wrap--success .toast-notice-icon-svg {
+  filter: brightness(0) saturate(100%) invert(52%) sepia(62%) saturate(602%) hue-rotate(93deg) brightness(96%)
+    contrast(89%);
+  opacity: 0.85;
+}
+
+.toast-notice-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-top: 0.1rem;
+}
+
+.toast-notice-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-text-app);
+}
+
+.toast-notice-subtitle {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+}
+
+/* Fade von/nach oben, auf allen Breiten (nicht nur mobil wie die übrigen Toast-Arten). */
+.toast-item--notice:not(.toast-item--exiting) {
+  animation: toast-notice-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast-item--notice.toast-item--exiting {
+  animation: toast-notice-out 320ms ease forwards;
+  pointer-events: none;
+}
+
+@keyframes toast-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-notice-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-item--notice:not(.toast-item--exiting),
+  .toast-item--notice.toast-item--exiting {
+    animation-duration: 1ms;
+    transform: none;
+  }
+}
+
+/* Mobil: kompakter, weniger Fläche */
+@media (max-width: 860px) {
+  .toast-item--invite {
+    gap: 0.55rem;
+    padding: 0.52rem 0.58rem 0.52rem 0.52rem;
+  }
+
+  .toast-invite-icon-wrap {
+    width: 56px;
+    height: 56px;
+  }
+
+  .toast-invite-icon-svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .toast-invite-copy {
+    gap: 0.12rem;
+  }
+
+  .toast-invite-title {
+    font-size: var(--fs-md);
+  }
+
+  .toast-invite-from {
+    font-size: var(--fs-xs);
+    line-height: 1.3;
+  }
+
+  .toast-invite-visual-row {
+    gap: 0.5rem 0.55rem;
+  }
+
+  .toast-invite-accept.ui-button {
+    font-size: var(--fs-sm);
+    padding: 0.38rem 0.49rem;
+    border-radius: var(--radius-md);
+    max-width: 9.75rem;
+  }
+}
+
+@media (max-width: 860px) {
+  /* `--top-center` bleibt auf allen Breiten oben zentriert (siehe dort) statt hier unten anzudocken. */
+  .toast-stack:not(.toast-stack--top-center) {
+    top: auto;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    right: 1rem;
+    left: 1rem;
+    max-width: none;
+  }
+
+  .toast-item:not(.toast-item--exiting):not(.toast-item--notice) {
+    animation: toast-mobile-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .toast-item.toast-item--exiting:not(.toast-item--notice) {
+    animation: toast-mobile-out 0.4s cubic-bezier(0.36, 0.66, 0.04, 1) forwards;
+    pointer-events: none;
+  }
+}
+
+@media (min-width: 861px) {
+  .toast-item.toast-item--exiting:not(.toast-item--notice) {
+    animation: toast-desktop-out 0.4s ease forwards;
+    pointer-events: none;
+  }
+}
+
+@keyframes toast-mobile-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(1.25rem + env(safe-area-inset-bottom, 0px)));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-mobile-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(1.25rem + env(safe-area-inset-bottom, 0px)));
+  }
+}
+
+@keyframes toast-desktop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}

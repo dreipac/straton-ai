@@ -1,0 +1,175 @@
+import type { User } from '@supabase/supabase-js'
+import type { UserProfile } from '../../auth/services/auth.service'
+import { getAvatarFallbackLetter, getUserDisplayName } from '../../auth/utils/userDisplay'
+import type { ChapterBlueprint, ChapterSession, ChapterStep } from '../services/learn.persistence'
+import { sanitizeChapterTitleForUi } from '../utils/learnPageHelpers'
+
+export type LearnWorkspaceDerivedArgs = {
+  user: User | null
+  profile: UserProfile | null
+  effectiveChapterBlueprints: ChapterBlueprint[]
+  chapterSession: ChapterSession
+  learningChapters: string[]
+  effectiveTopic: string
+  isChapterPreviewVisible: boolean
+}
+
+export type LearnWorkspaceDerived = {
+  safeChapterIndex: number
+  activeChapterBlueprint: ChapterBlueprint | null
+  safeChapterStepIndex: number
+  activeChapterStep: ChapterBlueprint['steps'][number] | null
+  currentChapterAnswer: string
+  currentChapterFeedback: string
+  currentChapterIsCorrect: boolean | undefined
+  hasCurrentChapterEvaluation: boolean
+  totalAnsweredChapterQuestions: number
+  totalCorrectChapterQuestions: number
+  totalWrongChapterQuestions: number
+  chapterAccuracyPercent: number
+  displayName: string
+  avatarFallback: string
+  /** Anzeigename des zugewiesenen Abos (Sidebar-Karte) */
+  subscriptionPlanName: string | null
+  previewChapterTitle: string
+  previewStepCount: number
+  previewQuestionCount: number
+  previewCompleted: boolean
+  previewStatusLabel: string
+  previewStatusText: string
+  previewRecommendation: string
+  currentChapterStepProgressPercent: number
+  isAllChaptersCompleted: boolean
+  previewGreetingText: string
+  hasStartedFirstChapter: boolean
+  showChapterPreview: boolean
+  previewEstimatedMinutes: number
+  previewChapterBullets: string[]
+}
+
+export function useLearnWorkspaceDerived(args: LearnWorkspaceDerivedArgs): LearnWorkspaceDerived {
+  const {
+    user,
+    profile,
+    effectiveChapterBlueprints,
+    chapterSession,
+    learningChapters,
+    effectiveTopic,
+    isChapterPreviewVisible,
+  } = args
+
+  const safeChapterIndex = Math.max(
+    0,
+    Math.min(chapterSession.chapterIndex, Math.max(0, effectiveChapterBlueprints.length - 1)),
+  )
+  const activeChapterBlueprint = effectiveChapterBlueprints[safeChapterIndex] ?? null
+  const safeChapterStepIndex = Math.max(
+    0,
+    Math.min(chapterSession.stepIndex, Math.max(0, (activeChapterBlueprint?.steps.length ?? 1) - 1)),
+  )
+  const activeChapterStep = activeChapterBlueprint?.steps[safeChapterStepIndex] ?? null
+  const currentChapterAnswer =
+    activeChapterStep?.type === 'question' ? (chapterSession.answersByStepId[activeChapterStep.id] ?? '') : ''
+  const currentChapterFeedback =
+    activeChapterStep?.type === 'question' ? (chapterSession.feedbackByStepId[activeChapterStep.id] ?? '') : ''
+  const currentChapterIsCorrect =
+    activeChapterStep?.type === 'question' ? chapterSession.correctnessByStepId[activeChapterStep.id] : undefined
+  const hasCurrentChapterEvaluation = typeof currentChapterIsCorrect === 'boolean'
+  const totalAnsweredChapterQuestions = Object.keys(chapterSession.correctnessByStepId).length
+  const totalCorrectChapterQuestions = Object.values(chapterSession.correctnessByStepId).filter(Boolean).length
+  const totalWrongChapterQuestions = Math.max(0, totalAnsweredChapterQuestions - totalCorrectChapterQuestions)
+  const chapterAccuracyPercent =
+    totalAnsweredChapterQuestions > 0
+      ? Math.round((totalCorrectChapterQuestions / totalAnsweredChapterQuestions) * 100)
+      : 0
+
+  const displayName = getUserDisplayName(user, profile)
+  const avatarFallback = getAvatarFallbackLetter(user, profile)
+  const subscriptionPlanName = profile?.subscription_plans?.name ?? null
+
+  const previewBlueprint = effectiveChapterBlueprints[0]
+  const rawPreviewChapterTitle =
+    previewBlueprint?.title ?? learningChapters[0] ?? `Grundlagen zu ${effectiveTopic || 'deinem Thema'}`
+  const previewChapterTitle = sanitizeChapterTitleForUi(rawPreviewChapterTitle, 0, effectiveTopic)
+  const previewExplanationStep =
+    previewBlueprint?.steps.find(
+      (step): step is Extract<ChapterStep, { type: 'explanation' }> => step.type === 'explanation',
+    ) ?? null
+  const previewStepCount = previewBlueprint?.steps.length ?? 0
+  const previewQuestionCount = previewBlueprint?.steps.filter((step) => step.type === 'question').length ?? 0
+  const previewCompleted = chapterSession.completedChapterIndexes.includes(safeChapterIndex)
+  const previewStatusLabel = previewCompleted
+    ? 'Abgeschlossen'
+    : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+      ? 'In Bearbeitung'
+      : 'Bereit'
+  const previewStatusText = previewCompleted
+    ? 'Du hast dieses Kapitel bereits abgeschlossen.'
+    : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+      ? `Du bist gerade in Schritt ${safeChapterStepIndex + 1}.`
+      : 'Dieses Kapitel ist bereit zum Start.'
+  const previewRecommendation =
+    totalWrongChapterQuestions > 0
+      ? `Fokus: ${totalWrongChapterQuestions} offene Schwachpunkte zuerst stabilisieren.`
+      : totalAnsweredChapterQuestions > 0
+        ? 'Stark! Weiter so, du kannst das Tempo leicht erhöhen. 😎'
+        : 'Startklar: Beginne mit den Kernkonzepten und teste direkt dein Verständnis.'
+  const currentChapterStepProgressPercent =
+    previewStepCount > 0 ? ((safeChapterStepIndex + 1) / previewStepCount) * 100 : 0
+  const isAllChaptersCompleted =
+    effectiveChapterBlueprints.length > 0 &&
+    chapterSession.completedChapterIndexes.length >= effectiveChapterBlueprints.length
+  const previewGreetingText = isAllChaptersCompleted
+    ? 'Stark gemacht. Alle Lernblöcke abgeschlossen - bis bald und weiter so. 😎'
+    : previewCompleted
+      ? 'Sehr gut, dieser Lernblock ist abgeschlossen. Du kannst direkt den nächsten starten. 😎'
+      : chapterSession.chapterIndex === safeChapterIndex && chapterSession.stepIndex > 0
+        ? `Willkommen zurück. Du bist bei Schritt ${safeChapterStepIndex + 1} und machst guten Fortschritt.`
+        : 'Willkommen. Dein Lernblock ist bereit - starte mit dem ersten Schritt.'
+  const hasStartedFirstChapter =
+    chapterSession.chapterIndex > 0 ||
+    chapterSession.stepIndex > 0 ||
+    chapterSession.completedChapterIndexes.length > 0 ||
+    totalAnsweredChapterQuestions > 0
+  const showChapterPreview = learningChapters.length > 0 || isChapterPreviewVisible
+  const previewEstimatedMinutes = Math.max(5, Math.round(previewStepCount * 1.2))
+  const previewChapterBullets =
+    previewExplanationStep?.bullets && previewExplanationStep.bullets.length > 0
+      ? previewExplanationStep.bullets
+      : [
+          `${previewChapterTitle} sicher verstehen`,
+          'Wichtige Kernkonzepte strukturiert aufbauen',
+          'Typische Fehlerquellen in der Praxis vermeiden',
+        ]
+  return {
+    safeChapterIndex,
+    activeChapterBlueprint,
+    safeChapterStepIndex,
+    activeChapterStep,
+    currentChapterAnswer,
+    currentChapterFeedback,
+    currentChapterIsCorrect,
+    hasCurrentChapterEvaluation,
+    totalAnsweredChapterQuestions,
+    totalCorrectChapterQuestions,
+    totalWrongChapterQuestions,
+    chapterAccuracyPercent,
+    displayName,
+    avatarFallback,
+    subscriptionPlanName,
+    previewChapterTitle,
+    previewStepCount,
+    previewQuestionCount,
+    previewCompleted,
+    previewStatusLabel,
+    previewStatusText,
+    previewRecommendation,
+    currentChapterStepProgressPercent,
+    isAllChaptersCompleted,
+    previewGreetingText,
+    hasStartedFirstChapter,
+    showChapterPreview,
+    previewEstimatedMinutes,
+    previewChapterBullets,
+  }
+}

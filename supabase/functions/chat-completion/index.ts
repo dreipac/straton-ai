@@ -1,0 +1,4821 @@
+// @ts-expect-error - Deno URL import is resolved at function runtime.
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
+// @ts-expect-error - Deno URL import is resolved at function runtime.
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8'
+import { handleDocumentExtract } from './documentExtractRoute.ts'
+import { buildThinkingAnalyzeSystemPromptBase } from './thinkingAnalyzePrompts.ts'
+import {
+  buildThinkingAnalyzeGeminiCachedSystemEdge,
+  buildThinkingDraftGeminiCachedSystemEdge,
+  buildThinkingReviewGeminiCachedSystemEdge,
+  resolveThinkingGeminiContextCacheKeyEdge,
+} from './thinkingGeminiPromptCache.ts'
+import {
+  buildThinkingRichOpenAiCachedKernelEdge,
+  buildThinkingRichOpenAiDraftStepPromptEdge,
+  buildThinkingRichOpenAiReviewStepPromptEdge,
+} from './thinkingOpenAiPromptCache.ts'
+import {
+  geminiChatCompletion,
+  GEMINI_CONTEXT_CACHE_INSTANT_REPLY,
+} from './geminiChat.ts'
+import { geminiGenerateText, isGeminiTransientFailure, type GeminiModelId } from './geminiClient.ts'
+import {
+  brainSystemPrompt,
+  brainUserMessage,
+  BRAIN_PROMPT_CACHE_KEYS,
+  fetchBrainAgentBinding,
+  isBrainRole,
+  modelForBrainCall,
+  type BrainRole,
+} from './brainAgents.ts'
+import {
+  GEMINI_CONTEXT_CACHE_INTENT,
+  GEMINI_CONTEXT_CACHE_THINKING_ANALYZE,
+  GEMINI_DEFAULT_CHAT_MODEL,
+  GEMINI_MODEL_FLASH,
+  GEMINI_MODEL_FLASH_LITE,
+  GEMINI_CONTEXT_CACHE_LEARN_SETUP_TOPIC,
+  GEMINI_CONTEXT_CACHE_LEARN_ENTRY_QUIZ,
+  GEMINI_CONTEXT_CACHE_LEARN_TUTOR,
+  GEMINI_CONTEXT_CACHE_LEARN_HELP,
+  resolveLearnGeminiContextCacheKey,
+  fetchGeminiInstantEnabled,
+  fetchActiveThinkingGeminiModels,
+  fetchActiveAnalyzeModels,
+  fetchActiveThinkingTaskTypeRoutingEdge,
+  isGeminiAnalyzeModelEdge,
+  isGeminiInstantEnabled,
+  resolveThinkingGeminiModelEdge,
+  sanitizeThinkingOutputTierEdge,
+  setRequestGeminiInstantEnabled,
+  ANALYZE_MODEL_DEFAULT,
+  type AnalyzeModelIdEdge,
+  type ThinkingGeminiModelsConfigEdge,
+  type ThinkingTaskTypeRoutingEdge,
+} from './geminiModels.ts'
+
+declare const Deno: {
+  env: {
+    get(name: string): string | undefined
+  }
+}
+
+type Provider = 'openai' | 'anthropic' | 'gemini'
+type LearnModelId =
+  | 'gpt-5.4'
+  | 'gpt-5.4-mini'
+  | 'gpt-5-mini'
+  | 'gpt-4o-mini'
+  | 'claude-sonnet-4-6'
+  | 'claude-3-5-haiku-latest'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3.1-flash-lite-preview'
+
+type InputMessage = {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+/** Gleicher Marker wie Client `wordExportPrompt.ts` — Word-Slash-Befehl. */
+const STRATON_WORD_EXPORT_COMMAND_MARKER = '[[STRATON_WORD_COMMAND]]'
+
+/** jsonb / OpenAI: NUL und Steuerzeichen entfernen (PDF/OCR-Anhänge). */
+function sanitizeChatTextForTransport(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+}
+
+function sanitizeInputMessages(messages: InputMessage[]): InputMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    content: sanitizeChatTextForTransport(m.content),
+  }))
+}
+
+/**
+ * Wenn der Nutzer /Word ausgelöst hat: Systemhinweis für die #### / ##### / ######-Konvention,
+ * damit die KI nicht nur «normales» Markdown (#–###) liefert.
+ */
+function prependBlockToLastUserMessage(messages: InputMessage[], block: string): InputMessage[] {
+  const extra = block.trim()
+  if (!extra) {
+    return messages
+  }
+  let lastUserIdx = -1
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      lastUserIdx = i
+      break
+    }
+  }
+  if (lastUserIdx < 0) {
+    return messages
+  }
+  const last = messages[lastUserIdx]!
+  const base = last.content.trim()
+  const content = base ? `${extra}\n\n---\n\n${base}` : extra
+  return messages.map((m, i) => (i === lastUserIdx ? { ...m, content } : m))
+}
+
+function injectWordExportMarkdownConventionSystemMessage(messages: InputMessage[]): InputMessage[] {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+  if (!lastUser?.content.includes(STRATON_WORD_EXPORT_COMMAND_MARKER)) {
+    return messages
+  }
+  const block = [
+    '## Word-Dokument (Straton)',
+    'Der Nutzer hat den Word-Export angefragt (Marker im User-Text). Der sichtbare Text ist die **Vorschau des späteren .docx** — schreibe ihn wie **fertigen Dokumentinhalt für Leser**, nicht wie Tutorial zum Ausfüllen.',
+    '**Streng verboten:** Einleitungen über «diese Vorlage» oder «empfohlene Kapitelstruktur»; Sätze wie «In diesem Kapitel beschreiben Sie…», «Hier wird erklärt…», «Dieser Abschnitt soll…», «Tragen Sie ein…»; reine Leitfragen ohne Antworttext (z. B. nur «Warum? Wer?»); Platzhalter-Unterkapitel («Schritt 1», «Schritt 2» ohne Beschreibung); zusätzliche Blöcke «Direkt nutzbare Vorlage» oder ähnliche Meta-Bereiche.',
+    '**Stattdessen:** Unter jeder Überschrift steht **konkreter Fließtext** (vollständige Sätze), der zum Nutzerthema passt — Anleitungsschritte, Definitionen, Hinweise als **ausformulierte** Absätze.',
+    '**Dokumenttitel + Untertitel (verbindlich):** Beginne mit **genau einer** Titelzeile `# Dokumenttitel` (einfaches `#` + Leerzeichen) als allererste Zeile — das ist der **Titel des gesamten Dokuments** fürs Titelblatt und die Kopfzeile, KEIN Kapitel. Der Titel ist kurz und enthält **keine Bindestriche/Gedankenstriche** (kein «Thema – Zusatz»). Direkt darunter **eine Untertitelzeile** `## Untertitel` (genau zwei `#`) mit einer knappen Präzisierung des Themas. Beide kurz und aussagekräftig (das Thema, nicht «Kapitel 1»). Danach folgt der Körper.',
+    '**Trennung vom normalen Chat:** Üblicher Chat nutzt `#` bis `###`. **Hier** strukturierst du den Körper nur mit:',
+    '- `#### ` = Absatz/Fliesstext',
+    '- `##### ` = Überschrift 1 (Hauptkapitel)',
+    '- `###### ` = Überschrift 2 (Unterabschnitt innerhalb eines Kapitels)',
+    '`**fett**` ist **erlaubt und erwünscht** für Schlüsselbegriffe und Lead-ins («**Definition:** …», «**Wichtig:** …»), aber sparsam. Keine manuellen Schriftgrössen. «Kapitel 1: …» immer als `#####`-Zeile.',
+    'Jeder Block beginnt mit einer dieser Zeilen; Folgezeilen ohne Präfix gehören zum letzten `####`-Absatz.',
+    '**Professioneller Inhalt — kein Bullet-Wust (verbindlich):**',
+    '- **Fliesstext zuerst:** Jedes Kapitel/Unterabschnitt beginnt mit 2–4 ausformulierten Sätzen echter Prosa, nicht mit Stichpunkten.',
+    '- **Echte Aufzählungen** als **aufeinanderfolgende `- `-Zeilen** (Bindestrich + Leerzeichen, direkt untereinander) — werden zu Word-Listen mit Aufzählungszeichen und Einzug. Mind. 2 Punkte, knapp formuliert. Auch Schritt-für-Schritt als `- `-Liste, **nicht** «1.»/«2.».',
+    '- **Verboten:** ganze Kapitel als Bullet-Wand, jeden Satz als eigener Bullet, «Label:»-Zeilen als Pseudo-Überschrift (stattdessen `######`).',
+    '- **Tabellen** für vergleichbare Daten (≥2 Zeilen, ≥2 Spalten: Werte, Vergleiche, Glossar) statt langer Stichpunktlisten: GFM-Pipe (`| Spalte |` + `| --- |`) unter einem Absatz.',
+    'Optional zusätzlich gültiges WordOutline-JSON in ```json … ``` (`version`: 1, `blocks`: heading, paragraph, list, table).',
+    'Keine langen Meta-Vorreden — nach der Titelzeile `# …` direkt mit der ersten Überschrift oder dem ersten Absatz des Dokuments beginnen.',
+    'Die .docx erzeugt die App erst nach Bestätigung in der UI; du lieferst nur Text/JSON für die Vorschau.',
+  ].join('\n')
+  return prependBlockToLastUserMessage(messages, block)
+}
+
+/** Schweizer Orthografie — kein ß, immer ss (sichtbarer Text + deutsche JSON-Strings). */
+const SWISS_GERMAN_ORTHOGRAPHY_RULE = [
+  'Rechtschreibung — Schweizer Hochdeutsch (verbindlich):',
+  'Niemals «ß» (Eszett) — immer «ss» (z. B. Strasse, Grösse, ausser, gross).',
+  'Gilt auch für deutsche Texte in JSON-Feldern.',
+].join('\n')
+
+const SECRET_SAFETY_RULE = [
+  'Sicherheit — Geheimnisse im Output (höchste Priorität, strikt verbindlich):',
+  'Niemals echte Passwörter, API-Keys, Tokens, Private Keys oder Connection Strings im Klartext — auch nicht in Audits/Dokumentation/Code/JSON.',
+  'Secrets aus Nutzereingaben nie wiederholen; immer Platzhalter wie ********, [REDACTED] oder <API_KEY>.',
+  'Sichere Praktiken erklären ist erlaubt, konkrete Werte aus Eingabe/Kontext nie ausgeben.',
+].join('\n')
+
+const STANDARD_SYSTEM_SUFFIX = `${SWISS_GERMAN_ORTHOGRAPHY_RULE}\n\n${SECRET_SAFETY_RULE}`
+
+function withSwissOrthography(system: string): string {
+  const t = system.trim()
+  return t ? `${t}\n\n${STANDARD_SYSTEM_SUFFIX}` : STANDARD_SYSTEM_SUFFIX
+}
+
+/** OpenAI Prompt Caching (Routing + ggf. 24h-Retention auf unterstützten Modellen). */
+type OpenAiPromptCacheOptions = {
+  key: string
+  retention?: 'in_memory' | '24h'
+}
+
+/** Gleicher Default wie Client `chat.service.ts` (`OPENAI_PROMPT_CACHE_KEY_MAIN`). */
+const OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY = 'straton-main-v6'
+
+function sanitizePromptCacheKey(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const t = value.trim()
+  if (t.length === 0 || t.length > 64) {
+    return null
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(t)) {
+    return null
+  }
+  return t
+}
+
+function sanitizePromptCacheRetention(value: unknown): 'in_memory' | '24h' | null {
+  if (value === '24h' || value === 'in_memory') {
+    return value
+  }
+  return null
+}
+
+/** Extended retention laut OpenAI-Doku u. a. für GPT-5.x, GPT-4.1, Codex. */
+function openAiSupportsExtendedPromptCache(modelId: string): boolean {
+  const m = modelId.toLowerCase()
+  return m.includes('gpt-5') || m.includes('gpt-4.1') || m.includes('codex')
+}
+
+function resolveOpenAiPromptCacheForRequest(
+  mode: string,
+  clientKey: string | null,
+  clientRetention: 'in_memory' | '24h' | null,
+): OpenAiPromptCacheOptions | undefined {
+  const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
+    evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
+    generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
+    instant_analyze: { key: 'straton-instant-analyze-v9', retention: '24h' },
+    thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
+    thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
+    thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
+    generate_topic_suggestions: { key: 'straton-topic-suggest-v1', retention: '24h' },
+    generate_flashcards: { key: 'straton-flashcards-v1', retention: '24h' },
+    generate_worksheet: { key: 'straton-worksheet-v1', retention: '24h' },
+  }
+  if (mode === 'chat') {
+    const key = clientKey ?? OPENAI_PROMPT_CACHE_DEFAULT_CHAT_KEY
+    return {
+      key,
+      retention: clientRetention ?? undefined,
+    }
+  }
+  if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor' || mode === 'learn_syllabus') {
+    const key = clientKey ?? 'straton-learn-openai-v1'
+    return { key, retention: clientRetention ?? '24h' }
+  }
+  const def = defaults[mode]
+  if (!def && !clientKey) {
+    return undefined
+  }
+  return {
+    key: clientKey ?? def!.key,
+    retention: clientRetention ?? def?.retention ?? '24h',
+  }
+}
+
+/** Hängt das tatsächlich verwendete Modell an den Cache-Key — saubere Trennung pro Modell, kein Cross-Model-Hit. */
+function withModelPromptCacheSuffix(
+  options: OpenAiPromptCacheOptions | undefined,
+  modelId: string,
+): OpenAiPromptCacheOptions | undefined {
+  if (!options) {
+    return options
+  }
+  return { ...options, key: `${options.key}-${modelId.replace(/[^a-z0-9]/gi, '')}` }
+}
+
+type OpenAiVisionContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
+
+const OPENAI_VISION_MIME_RE = /^image\/(jpeg|png|gif|webp)$/i
+
+/** Entfernt Zeilenumbrüche in Base64 (iOS) und normalisiert MIME — sonst «invalid base64 image url». */
+function normalizeVisionDataUrl(dataUrl: string): string {
+  let t = dataUrl.trim().replace(/^data:image\/jpg;/i, 'data:image/jpeg;')
+  const marker = 'base64,'
+  const idx = t.indexOf(marker)
+  if (idx === -1) {
+    return t
+  }
+  return t.slice(0, idx + marker.length) + t.slice(idx + marker.length).replace(/\s+/g, '')
+}
+
+function isLikelyValidBase64Payload(payload: string): boolean {
+  if (payload.length < 32) {
+    return false
+  }
+  for (let i = 0; i < payload.length; i += 1) {
+    const ch = payload[i]!
+    if (
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '+' ||
+      ch === '/' ||
+      ch === '='
+    ) {
+      continue
+    }
+    return false
+  }
+  return true
+}
+
+/** Streng; bei langen JPEG-Data-URLs kann Vollstring-Regex sonst fehlschlagen. */
+function sanitizeOpenAiVisionDataUrl(dataUrl: string): string | null {
+  const n = normalizeVisionDataUrl(dataUrl)
+  const headerMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/i.exec(n)
+  if (!headerMatch?.[1]) {
+    return null
+  }
+  let media = (headerMatch[1] ?? '').toLowerCase()
+  if (media === 'image/jpg') {
+    media = 'image/jpeg'
+  }
+  if (!OPENAI_VISION_MIME_RE.test(media)) {
+    return null
+  }
+  const marker = 'base64,'
+  const idx = n.indexOf(marker)
+  if (idx === -1) {
+    return null
+  }
+  let payload = n.slice(idx + marker.length).replace(/\s+/g, '')
+  if (!isLikelyValidBase64Payload(payload)) {
+    payload = stripToBase64Payload(payload)
+    if (payload.length < 64) {
+      return null
+    }
+  }
+  return `data:${media};base64,${payload}`
+}
+
+function stripToBase64Payload(payload: string): string {
+  let out = ''
+  for (let i = 0; i < payload.length; i += 1) {
+    const ch = payload[i]!
+    if (
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '+' ||
+      ch === '/' ||
+      ch === '='
+    ) {
+      out += ch
+    }
+  }
+  return out
+}
+
+/** Client-`visionInlineDataUrl` und `[BildData]`-Blöcke → OpenAI-taugliche Data-URL. */
+function resolveVisionUrlFromBody(raw: string): string | null {
+  const t = raw.trim()
+  if (!t.startsWith('data:image/')) {
+    return null
+  }
+  return coerceOpenAiVisionDataUrl(t)
+}
+
+/** Client-Override: normalisieren, Sanitize optional nachziehen. */
+function coerceOpenAiVisionDataUrl(dataUrl: string): string | null {
+  const n = normalizeVisionDataUrl(dataUrl.trim())
+  if (!n.startsWith('data:image/')) {
+    return null
+  }
+  const strict = sanitizeOpenAiVisionDataUrl(n)
+  if (strict) {
+    return strict
+  }
+  const marker = 'base64,'
+  const idx = n.indexOf(marker)
+  if (idx === -1 || n.length < idx + marker.length + 32) {
+    return null
+  }
+  const headerMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/i.exec(n)
+  let media = (headerMatch?.[1] ?? 'image/jpeg').toLowerCase()
+  if (media === 'image/jpg') {
+    media = 'image/jpeg'
+  }
+  if (!OPENAI_VISION_MIME_RE.test(media)) {
+    return null
+  }
+  let payload = n.slice(idx + marker.length).replace(/\s+/g, '')
+  if (!isLikelyValidBase64Payload(payload)) {
+    payload = stripToBase64Payload(payload)
+    if (payload.length < 64) {
+      return null
+    }
+  }
+  return `data:${media};base64,${payload}`
+}
+
+/** `[BildData]`-Blöcke per indexOf — Regex auf 100k+ Base64 bricht sonst in Deno/Edge. */
+function stripBildDataBlocksFromContent(content: string): string {
+  let result = ''
+  let cursor = 0
+  const closeTag = '[/BildData]'
+  while (true) {
+    const openIdx = content.indexOf('[BildData:', cursor)
+    if (openIdx === -1) {
+      result += content.slice(cursor)
+      break
+    }
+    result += content.slice(cursor, openIdx)
+    const closeIdx = content.indexOf(closeTag, openIdx)
+    if (closeIdx === -1) {
+      result += content.slice(openIdx)
+      break
+    }
+    cursor = closeIdx + closeTag.length
+  }
+  return result.replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '').trim()
+}
+
+function extractUserVisionFromContent(content: string): { text: string; imageDataUrls: string[] } {
+  const imageDataUrls: string[] = []
+  let searchFrom = 0
+  const closeTag = '[/BildData]'
+  while (imageDataUrls.length < 1) {
+    const openIdx = content.indexOf('[BildData:', searchFrom)
+    if (openIdx === -1) {
+      break
+    }
+    const closeIdx = content.indexOf(closeTag, openIdx)
+    if (closeIdx === -1) {
+      break
+    }
+    const headerEnd = content.indexOf(']', openIdx)
+    if (headerEnd === -1 || headerEnd > closeIdx) {
+      searchFrom = openIdx + 1
+      continue
+    }
+    const inner = content.slice(headerEnd + 1, closeIdx).trim()
+    if (inner.startsWith('data:image/')) {
+      const safe = resolveVisionUrlFromBody(inner)
+      if (safe) {
+        imageDataUrls.push(safe)
+      }
+    } else {
+      const dataIdx = inner.indexOf('data:image/')
+      if (dataIdx >= 0) {
+        const safe = resolveVisionUrlFromBody(inner.slice(dataIdx))
+        if (safe) {
+          imageDataUrls.push(safe)
+        }
+      }
+    }
+    searchFrom = closeIdx + closeTag.length
+  }
+  return { text: stripBildDataBlocksFromContent(content), imageDataUrls: imageDataUrls.slice(0, 1) }
+}
+
+/** Entfernt nur Bild-Marker; `[Datei:…]`-Text bleibt für PDF/Word-Anhänge erhalten. */
+function stripVisionAttachmentsFromContent(content: string): string {
+  return content
+    .replace(/\[BildData:[^\]]*\][\s\S]*?\[\/BildData\]/g, '[Bild im Chatverlauf]')
+    .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s_-]+/gi, '[Bild im Chatverlauf]')
+    .replace(/\[Bild:[^\]]*\][\s\S]*?\[\/Bild\]/g, '[Bild im Chatverlauf]')
+    .trim()
+}
+
+function findLastUserMessageIndex(messages: InputMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      return i
+    }
+  }
+  return -1
+}
+
+function messageContentHasVisionPayload(content: string): boolean {
+  return content.includes('[BildData:') || content.includes('@chat-media:')
+}
+
+function findLastUserMessageWithVisionIndex(messages: InputMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role === 'user' && messageContentHasVisionPayload(m.content)) {
+      return i
+    }
+  }
+  return -1
+}
+
+const CHAT_VISION_CONTEXT_LIMIT = 2
+
+/** Bis zu zwei neueste User-Nachrichten mit Bild für Vision (Rest → Platzhalter). */
+function findOpenAiVisionUserIndices(
+  messages: InputMessage[],
+  visionOverrideUrl?: string | null,
+): number[] {
+  const override =
+    typeof visionOverrideUrl === 'string' && visionOverrideUrl.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(visionOverrideUrl.trim())
+      : null
+  const indices: number[] = []
+  const lastUser = findLastUserMessageIndex(messages)
+  if (lastUser >= 0 && override) {
+    indices.push(lastUser)
+  }
+  for (let i = messages.length - 1; i >= 0 && indices.length < CHAT_VISION_CONTEXT_LIMIT; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'user') {
+      continue
+    }
+    if (!messageContentHasVisionPayload(m.content)) {
+      continue
+    }
+    const parsed = extractUserVisionFromContent(m.content)
+    if (parsed.imageDataUrls.length > 0 || (override && i === lastUser)) {
+      if (!indices.includes(i)) {
+        indices.push(i)
+      }
+    }
+  }
+  if (indices.length === 0 && override && lastUser >= 0) {
+    indices.push(lastUser)
+  }
+  indices.sort((a, b) => a - b)
+  return indices
+}
+
+const CHAT_VISION_MEDIA_BUCKET = 'chat-media'
+const CHAT_MEDIA_REF_LINE = /@chat-media:([^\n]+)/
+const GENERATED_IMAGE_PATH_SEGMENT = '/gen-'
+
+function findLastGeneratedImagePathInMessages(messages: InputMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'assistant') {
+      continue
+    }
+    const content = typeof m.content === 'string' ? m.content : ''
+    if (!content.includes('@chat-media:') && !/\[Generiertes Bild\]/i.test(content)) {
+      continue
+    }
+    const ref =
+      CHAT_MEDIA_REF_LINE.exec(content) ?? content.match(/@chat-media:([^\s)\]]+)/i)
+    const path = ref?.[1]?.trim()
+    if (!path) {
+      continue
+    }
+    if (path.includes(GENERATED_IMAGE_PATH_SEGMENT) || /\[Generiertes Bild\]/i.test(content)) {
+      return path
+    }
+  }
+  return null
+}
+
+function userAsksAboutPriorImage(content: string): boolean {
+  const t = content.replace(/\s+/g, ' ').trim()
+  if (!t || t.length > 480) {
+    return false
+  }
+  if (
+    /^(?:was|welche[rs]?)\s+(?:steht|stehen|ist|sind|siehst\s+du|steht\s+da|zeigt|zeigen)/i.test(t) &&
+    /\b(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/^beschreib(?:e)?\s+(?:mir\s+)?(?:das\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/^(?:was|welcher)\s+text\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /^(?:kannst|könntest)\s+du\s+(?:das\s+)?(?:bild|foto)\s+(?:lesen|sehen|erkennen|analysieren)/i.test(t)
+  ) {
+    return true
+  }
+  if (/^lies\s+(?:mir\s+)?(?:den\s+)?text\s+(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/^(?:sieh|sieht)\s+du\s+(?:etwas\s+)?(?:auf\s+)?(?:dem\s+)?(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:mein(?:e)?|hochgeladene[ns]?)\s+(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:das|dem)\s+foto\b/i.test(t)) {
+    return true
+  }
+  if (/(?:nochmal|erneut|wieder)\s+(?:das\s+)?(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /\b(wer|was|welche[rs]?|welchen)\s+(?:ist|sind|zeigt|steht|stehen)\b/i.test(t) &&
+    /\b(?:bild|foto|bilder)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\bwer\s+ist\s+(?:das|der|die|es)\b/i.test(t) && /\b(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (
+    /^(?:ja|okay|ok|genau)[,!\s]+/i.test(t) &&
+    /\b(wer|was)\b/i.test(t) &&
+    /\b(?:bild|foto)\b/i.test(t)
+  ) {
+    return true
+  }
+  if (/\b(?:generiert(?:es)?|erstellt(?:es)?|vorherig(?:es)?|letzt(?:es)?)\s+(?:bild|foto)\b/i.test(t)) {
+    return true
+  }
+  if (/\bwho\s+is\s+(?:that|this)\b/i.test(t) && /\b(?:picture|image|photo)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(?:das|dem|dein(?:em)?)\s+(?:foto|bild)\b/i.test(t)) {
+    return true
+  }
+  return false
+}
+
+function findLastUserUploadedImagePathInMessages(messages: InputMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'user') {
+      continue
+    }
+    const content = typeof m.content === 'string' ? m.content : ''
+    if (!content.includes('[BildData:') && !content.includes('@chat-media:')) {
+      continue
+    }
+    const ref =
+      CHAT_MEDIA_REF_LINE.exec(content) ?? content.match(/@chat-media:([^\s)\]]+)/i)
+    const path = ref?.[1]?.trim()
+    if (path && !path.includes(GENERATED_IMAGE_PATH_SEGMENT)) {
+      return path
+    }
+  }
+  return null
+}
+
+function resolveReferencedImagePathInMessages(messages: InputMessage[]): string | null {
+  const gen = findLastGeneratedImagePathInMessages(messages)
+  const user = findLastUserUploadedImagePathInMessages(messages)
+  if (gen && !user) {
+    return gen
+  }
+  if (user && !gen) {
+    return user
+  }
+  if (gen && user) {
+    let genIdx = -1
+    let userIdx = -1
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i]
+      if (genIdx < 0 && m?.role === 'assistant') {
+        const c = typeof m.content === 'string' ? m.content : ''
+        if (c.includes('@chat-media:') && c.includes(GENERATED_IMAGE_PATH_SEGMENT)) {
+          genIdx = i
+        }
+      }
+      if (userIdx < 0 && m?.role === 'user') {
+        const c = typeof m.content === 'string' ? m.content : ''
+        if (c.includes('[BildData:') || c.includes('@chat-media:')) {
+          userIdx = i
+        }
+      }
+      if (genIdx >= 0 && userIdx >= 0) {
+        break
+      }
+    }
+    return genIdx > userIdx ? gen : user
+  }
+  return null
+}
+
+async function downloadChatMediaAsDataUrl(
+  userClient: SupabaseClient,
+  path: string,
+  adminClient?: SupabaseClient | null,
+): Promise<string | null> {
+  const objectPath = path.trim()
+  if (!objectPath) {
+    return null
+  }
+  const clients = [userClient, adminClient].filter((c): c is SupabaseClient => Boolean(c))
+  for (const client of clients) {
+    const { data, error } = await client.storage.from(CHAT_VISION_MEDIA_BUCKET).download(objectPath)
+    if (error || !data) {
+      continue
+    }
+    const bytes = new Uint8Array(await data.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    const dataUrl = coerceOpenAiVisionDataUrl(`data:image/jpeg;base64,${btoa(binary)}`)
+    if (dataUrl) {
+      return dataUrl
+    }
+  }
+  console.error('[chat-completion] vision storage download failed', objectPath)
+  return null
+}
+
+async function resolveVisionDataUrlsForUserContent(
+  content: string,
+  userClient: SupabaseClient,
+  adminClient?: SupabaseClient | null,
+): Promise<string[]> {
+  const inline = extractUserVisionFromContent(content).imageDataUrls
+  if (inline.length > 0) {
+    return inline
+  }
+  const pathMatch = CHAT_MEDIA_REF_LINE.exec(content)
+  if (!pathMatch?.[1]) {
+    return []
+  }
+  const dataUrl = await downloadChatMediaAsDataUrl(userClient, pathMatch[1], adminClient)
+  return dataUrl ? [dataUrl] : []
+}
+
+/** Storage-Referenzen → inline Data-URL; optional Client-Override (iOS, zuverlässig). */
+async function resolveChatMessagesVisionForOpenAi(
+  messages: InputMessage[],
+  userClient: SupabaseClient,
+  inlineOverride?: string | null,
+  adminClient?: SupabaseClient | null,
+): Promise<InputMessage[]> {
+  let working = messages
+  const resolvedUrl =
+    typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(inlineOverride.trim())
+      : null
+
+  const lastUserIdxEarly = findLastUserMessageIndex(working)
+  if (
+    lastUserIdxEarly >= 0 &&
+    !resolvedUrl &&
+    typeof working[lastUserIdxEarly]?.content === 'string' &&
+    !messageContentHasVisionPayload(working[lastUserIdxEarly]!.content) &&
+    userAsksAboutPriorImage(working[lastUserIdxEarly]!.content)
+  ) {
+    const refPath = resolveReferencedImagePathInMessages(working)
+    if (refPath) {
+      const dataUrl = await downloadChatMediaAsDataUrl(userClient, refPath, adminClient)
+      if (dataUrl) {
+        const msg = working[lastUserIdxEarly]!
+        const text = stripVisionAttachmentsFromContent(msg.content).trim()
+        const block = `[BildData:referenced]\n${dataUrl}\n[/BildData]`
+        working = working.map((m, i) =>
+          i === lastUserIdxEarly
+            ? { ...m, content: text ? `${text}\n\n${block}` : block }
+            : m,
+        )
+        console.log('[chat-completion] vision: re-attached referenced image from storage')
+      }
+    }
+  }
+
+  let forcedVisionIdx = -1
+  if (resolvedUrl) {
+    const idx = findLastUserMessageIndex(working)
+    if (idx >= 0) {
+      const msg = working[idx]!
+      const text = extractUserVisionFromContent(msg.content).text.trim()
+      const idMatch = msg.content.match(/\[BildData:([^\]]+)\]/)
+      const id = idMatch?.[1] ?? 'vision'
+      const block = `[BildData:${id}]\n${resolvedUrl}\n[/BildData]`
+      working = working.map((m, i) =>
+        i === idx ? { ...m, content: text ? `${text}\n\n${block}` : block } : m,
+      )
+      forcedVisionIdx = idx
+    }
+  } else if (typeof inlineOverride === 'string' && inlineOverride.trim().startsWith('data:image/')) {
+    console.warn('[chat-completion] visionInlineDataUrl rejected (strict+lenient)', inlineOverride.trim().length)
+  }
+
+  const visionIndices = new Set<number>()
+  if (forcedVisionIdx >= 0) {
+    /** Aktuelles Foto (`visionInlineDataUrl`): nur letzter User-Turn — nicht ältere Kontext-Bilder. */
+    visionIndices.add(forcedVisionIdx)
+  } else {
+    for (const idx of findOpenAiVisionUserIndices(working, resolvedUrl)) {
+      if (visionIndices.size >= CHAT_VISION_CONTEXT_LIMIT) {
+        break
+      }
+      visionIndices.add(idx)
+    }
+  }
+  if (visionIndices.size === 0) {
+    return working
+  }
+
+  const out: InputMessage[] = []
+  for (let i = 0; i < working.length; i += 1) {
+    const message = working[i]!
+    if (message.role !== 'user') {
+      out.push(message)
+      continue
+    }
+    if (!visionIndices.has(i)) {
+      out.push({
+        role: 'user',
+        content: stripVisionAttachmentsFromContent(message.content) || message.content,
+      })
+      continue
+    }
+    const urls =
+      resolvedUrl && i === forcedVisionIdx
+        ? [resolvedUrl]
+        : await resolveVisionDataUrlsForUserContent(message.content, userClient, adminClient)
+    if (urls.length === 0) {
+      console.warn('[chat-completion] vision resolve: no image URL for user turn', i)
+      out.push({
+        role: 'user',
+        content:
+          stripVisionAttachmentsFromContent(message.content) ||
+          'Der Nutzer hat ein Bild gesendet, aber es konnte nicht geladen werden.',
+      })
+      continue
+    }
+    console.log('[chat-completion] vision resolve: image attached for OpenAI/Anthropic', { index: i })
+    const idMatch = message.content.match(/\[BildData:([^\]]+)\]/)
+    const id = idMatch?.[1] ?? 'vision'
+    const text = extractUserVisionFromContent(message.content).text
+    const block = `[BildData:${id}]\n${urls[0]}\n[/BildData]`
+    out.push({
+      role: 'user',
+      content: text ? `${text}\n\n${block}` : block,
+    })
+  }
+  return out
+}
+
+type AnthropicImageBlock = {
+  type: 'image'
+  source: { type: 'base64'; media_type: string; data: string }
+}
+
+type AnthropicUserContentPart =
+  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+  | AnthropicImageBlock
+
+function dataUrlToAnthropicImageBlock(dataUrl: string): AnthropicImageBlock | null {
+  const safe = resolveVisionUrlFromBody(dataUrl) ?? coerceOpenAiVisionDataUrl(dataUrl)
+  if (!safe) {
+    return null
+  }
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(safe)
+  if (!m) {
+    return null
+  }
+  let media_type = (m[1] ?? 'image/jpeg').toLowerCase()
+  if (media_type === 'image/jpg') {
+    media_type = 'image/jpeg'
+  }
+  const data = (m[2] ?? '').replace(/\s+/g, '')
+  if (!data) {
+    return null
+  }
+  return {
+    type: 'image',
+    source: { type: 'base64', media_type, data },
+  }
+}
+
+/** Claude: Bilder als strukturierte Blöcke, nicht als Rohstring mit Base64. */
+function buildAnthropicUserMessageContent(raw: string, allowVision: boolean): string | AnthropicUserContentPart[] {
+  if (!allowVision) {
+    return stripVisionAttachmentsFromContent(raw) || raw
+  }
+  const { text, imageDataUrls } = extractUserVisionFromContent(raw)
+  if (imageDataUrls.length === 0) {
+    return raw
+  }
+  const blocks: AnthropicUserContentPart[] = []
+  blocks.push({ type: 'text', text: text || 'Bitte analysiere dieses Bild.' })
+  let anyImage = false
+  for (const url of imageDataUrls) {
+    const img = dataUrlToAnthropicImageBlock(url)
+    if (img) {
+      blocks.push(img)
+      anyImage = true
+    }
+  }
+  if (!anyImage) {
+    return raw
+  }
+  return blocks
+}
+
+type QuizEvaluationPayload = {
+  question: string
+  expectedAnswer: string
+  acceptableAnswers?: string[]
+  userAnswer: string
+}
+
+type QuizEvaluationResult = {
+  isCorrect: boolean
+  feedback: string
+}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+/** Primärmodell für Chat; Fallbacks bei 404 oder „unknown model“. */
+const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+
+/** Nach Erreichen des Kosten-Budgets: günstigeres Modell zuerst (ohne gpt-5.4-mini). */
+const ECONOMY_OPENAI_CHAT_MODELS: string[] = ['gpt-5-mini', 'gpt-4o-mini']
+
+type ChatDailyTierOpenAiModelId = 'gpt-5.4' | 'gpt-5.4-mini' | 'gpt-5-mini' | 'gpt-4o' | 'gpt-4o-mini'
+
+type PlanDailyOpenAiTierEdge = {
+  tier1ModelId: ChatDailyTierOpenAiModelId
+  tier1TokenBudget: number
+  tier2ModelId: ChatDailyTierOpenAiModelId
+}
+
+const DEFAULT_PLAN_DAILY_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
+  tier1ModelId: 'gpt-5.4',
+  tier1TokenBudget: 50_000,
+  tier2ModelId: 'gpt-5.4-mini',
+}
+
+const DEFAULT_PLAN_THINKING_OPENAI_TIER: PlanDailyOpenAiTierEdge = {
+  ...DEFAULT_PLAN_DAILY_OPENAI_TIER,
+}
+
+function parseTierOpenAiModelId(raw: unknown): ChatDailyTierOpenAiModelId {
+  if (
+    raw === 'gpt-5.4' ||
+    raw === 'gpt-5.4-mini' ||
+    raw === 'gpt-5-mini' ||
+    raw === 'gpt-4o' ||
+    raw === 'gpt-4o-mini'
+  ) {
+    return raw
+  }
+  return 'gpt-5.4'
+}
+
+function openAiChainForTierModelId(id: ChatDailyTierOpenAiModelId): string[] {
+  switch (id) {
+    case 'gpt-4o':
+      return ['gpt-4o', 'gpt-4o-mini']
+    case 'gpt-4o-mini':
+      return ['gpt-4o-mini', 'gpt-5-mini']
+    case 'gpt-5-mini':
+      return ['gpt-5-mini', 'gpt-4o-mini']
+    case 'gpt-5.4-mini':
+      return ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+    default:
+      return ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
+  }
+}
+
+function mainChatOpenAiModelsForPlanDailyUsage(
+  usedTokensToday: number,
+  tier: PlanDailyOpenAiTierEdge,
+): string[] {
+  const u = Number.isFinite(usedTokensToday) && usedTokensToday >= 0 ? usedTokensToday : 0
+  const threshold = Math.max(0, tier.tier1TokenBudget)
+  if (u >= threshold) {
+    return openAiChainForTierModelId(tier.tier2ModelId)
+  }
+  return openAiChainForTierModelId(tier.tier1ModelId)
+}
+
+async function fetchSubscriptionUsedTokensToday(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<number | null> {
+  if (!admin) {
+    return null
+  }
+  const { data, error } = await admin
+    .from('subscription_usages')
+    .select('used_tokens')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) {
+    console.error('[chat-completion] subscription_usages used_tokens', error.message)
+    return null
+  }
+  const raw = data?.used_tokens
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(0, Math.floor(raw))
+  }
+  return 0
+}
+
+/**
+ * Modell-Preistabelle liegt zentral in der DB (`public.ai_model_pricing`), nicht mehr hier hart codiert
+ * (war zuvor dreifach dupliziert, siehe credits-system-plan.md 2.6). `estimate_ai_cost_usd`/
+ * `estimate_ai_credits` sind SQL-Funktionen, per RPC über den Service-Role-Client aufgerufen.
+ */
+
+/**
+ * Modes, die nicht gegen das (Chat-)KI-Credits-Tagesguthaben gebucht/geprüft werden:
+ *  - `generate_title`, `merge_ai_chat_memory`: kein eigener Nutzer-Turn, interne Hintergrund-Calls.
+ *  - `learn_setup_topic`/`learn_entry_quiz`/`learn_tutor`/`learn_syllabus`/`generate_topic_suggestions`/
+ *    `generate_flashcards`/`generate_worksheet`/`brain_agent`: Lernpfad-Erzeugung/-Nutzung — läuft
+ *    stattdessen gegen das separate monatliche Lernpfad-Kontingent des Abos (siehe
+ *    `check_learning_path_creation_allowed`, aufgerufen vom Client vor `learn_setup_topic`). Diese
+ *    Modes sind alle ausschliesslich vom Lernbereich erreichbar (nicht vom Hauptchat geteilt) —
+ *    im Unterschied z. B. zu `evaluate_quiz` oder `document_extract`, die auch im Hauptchat laufen
+ *    und deshalb bewusst NICHT hier stehen.
+ */
+const AI_CREDITS_EXCLUDED_MODES = new Set([
+  'generate_title',
+  'merge_ai_chat_memory',
+  'learn_setup_topic',
+  'learn_entry_quiz',
+  'learn_tutor',
+  'learn_syllabus',
+  'generate_topic_suggestions',
+  'generate_flashcards',
+  'generate_worksheet',
+  'brain_agent',
+])
+
+/**
+ * Grobe Token-Zahl des Anfrage-Inhalts (Zeichen ÷ 4, dieselbe Faustformel wie
+ * `public.estimate_tokens_from_text`). Gezählt wird hier statt in der Datenbank, damit der Text
+ * nicht mehr über die RPC-Grenze muss — und bewusst ohne die frühere 40.000-Zeichen-Kappung, die
+ * die Schätzung bei rund 10k Tokens einfrieren liess, obwohl ein Turn im 1M-Kontextfenster ein
+ * Vielfaches davon kostet.
+ */
+function estimateReservationInputTokens(body: { messages?: unknown; payload?: unknown }): number {
+  let chars = 0
+  try {
+    chars = JSON.stringify({ messages: body.messages ?? null, payload: body.payload ?? null }).length
+  } catch {
+    chars = 0
+  }
+  return Math.max(1, Math.ceil(chars / 4))
+}
+
+/**
+ * Angenommene Antwortlänge fürs Vorab-Veto. `null` heisst: die Anfrage nennt kein eigenes Limit,
+ * dann setzt `public.reservation_output_token_allowance()` einen Standardwert ein — der steht
+ * bewusst nur dort, nicht zusätzlich hier.
+ */
+function reservationOutputTokensFromBody(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 64) {
+    return Math.min(16384, Math.floor(raw))
+  }
+  return null
+}
+
+/**
+ * Das Modell, mit dem die Vorab-Schätzung rechnet — dasselbe, das die Anfrage gleich bekommt.
+ *
+ * Bei OpenAI ist das der Kopf der Fallback-Kette. Springt die Kette weiter, ist das Ersatzmodell
+ * günstiger als der Kopf, die Schätzung liegt also auf der sicheren Seite. Dasselbe gilt, wenn
+ * Smart Instant intern Gemini nutzt, während `provider` noch 'openai' ist: Gemini ist billiger,
+ * die Schätzung fällt dann eher zu hoch als zu niedrig aus.
+ */
+function reservationModelForRequest(
+  provider: Provider,
+  openAiModels: string[],
+  anthropicModelChat: string | null,
+  body: { geminiModel?: unknown },
+): string {
+  if (provider === 'anthropic') {
+    return anthropicModelChat ?? anthropicLearnModel()
+  }
+  if (provider === 'gemini') {
+    return sanitizeGeminiModelOverride(body.geminiModel)
+  }
+  return openAiModels[0] ?? DEFAULT_OPENAI_CHAT_MODELS[0] ?? ''
+}
+
+/**
+ * Schwelle in USD: ab dieser kumulierten geschätzten Kosten wird `ECONOMY_OPENAI_CHAT_MODELS` genutzt.
+ * Optional: `AI_OPENAI_COST_DOWNGRADE_THRESHOLD_USD` setzen (überschreibt CHF).
+ * Sonst: `AI_OPENAI_PREMIUM_MODEL_MAX_CHF` (Default 2) × `AI_USD_PER_CHF` (Default 1.14, USD je 1 CHF).
+ */
+function getPremiumBudgetThresholdUsd(): number {
+  const direct = Deno.env.get('AI_OPENAI_COST_DOWNGRADE_THRESHOLD_USD')?.trim()
+  if (direct) {
+    const n = Number(direct)
+    if (Number.isFinite(n) && n > 0) {
+      return n
+    }
+  }
+  const maxChf = Number(Deno.env.get('AI_OPENAI_PREMIUM_MODEL_MAX_CHF') ?? '2')
+  const usdPerChf = Number(Deno.env.get('AI_USD_PER_CHF') ?? '1.14')
+  const mc = Number.isFinite(maxChf) && maxChf > 0 ? maxChf : 2
+  const fx = Number.isFinite(usdPerChf) && usdPerChf > 0 ? usdPerChf : 1.14
+  return mc * fx
+}
+
+function openAiChatModelsForCumulativeCost(cumulativeUsd: number): string[] {
+  if (cumulativeUsd >= getPremiumBudgetThresholdUsd()) {
+    return [...ECONOMY_OPENAI_CHAT_MODELS]
+  }
+  return [...DEFAULT_OPENAI_CHAT_MODELS]
+}
+
+async function getUserCumulativeEstimatedCostUsd(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<number> {
+  if (!admin) {
+    return 0
+  }
+  const { data, error } = await admin.rpc('sum_user_ai_estimated_cost_usd', { p_user_id: userId })
+  if (error) {
+    console.error('[chat-completion] sum_user_ai_estimated_cost_usd failed', error.message)
+    return 0
+  }
+  const n = typeof data === 'number' ? data : Number(data)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+type PlanChatFields = {
+  /** Vom Abo gesperrte Composer-Modelle; leer = alle wählbar. */
+  chat_blocked_model_ids: string[]
+  dailyOpenAiTier: PlanDailyOpenAiTierEdge
+  thinkingOpenAiTier: PlanDailyOpenAiTierEdge
+}
+
+async function fetchSubscriptionPlanChatFields(
+  admin: SupabaseClient | null,
+  userId: string,
+): Promise<PlanChatFields | null> {
+  if (!admin) {
+    return null
+  }
+  const { data, error } = await admin
+    .from('profiles')
+    .select(
+      'subscription_plans ( chat_blocked_model_ids, chat_daily_tier1_openai_model_id, chat_daily_tier1_token_budget, chat_daily_tier2_openai_model_id, thinking_tier1_openai_model_id, thinking_tier1_token_budget, thinking_tier2_openai_model_id )',
+    )
+    .eq('id', userId)
+    .maybeSingle()
+  if (error) {
+    console.error('[chat-completion] subscription plan read failed', error.message)
+    return null
+  }
+  const rel = (data as { subscription_plans?: unknown } | null)?.subscription_plans
+  const plan = Array.isArray(rel) ? rel[0] : rel
+  if (!plan || typeof plan !== 'object') {
+    return null
+  }
+  const p = plan as Record<string, unknown>
+  const budgetRaw = p.chat_daily_tier1_token_budget
+  const budget =
+    typeof budgetRaw === 'number' && Number.isFinite(budgetRaw)
+      ? Math.max(0, Math.floor(budgetRaw))
+      : DEFAULT_PLAN_DAILY_OPENAI_TIER.tier1TokenBudget
+  const thinkingBudgetRaw = p.thinking_tier1_token_budget
+  const thinkingBudget =
+    typeof thinkingBudgetRaw === 'number' && Number.isFinite(thinkingBudgetRaw)
+      ? Math.max(0, Math.floor(thinkingBudgetRaw))
+      : DEFAULT_PLAN_THINKING_OPENAI_TIER.tier1TokenBudget
+  return {
+    chat_blocked_model_ids: Array.isArray(p.chat_blocked_model_ids)
+      ? p.chat_blocked_model_ids.filter((id): id is string => typeof id === 'string')
+      : [],
+    dailyOpenAiTier: {
+      tier1ModelId: parseTierOpenAiModelId(p.chat_daily_tier1_openai_model_id),
+      tier1TokenBudget: budget,
+      tier2ModelId: parseTierOpenAiModelId(p.chat_daily_tier2_openai_model_id),
+    },
+    thinkingOpenAiTier: {
+      tier1ModelId: parseTierOpenAiModelId(p.thinking_tier1_openai_model_id),
+      tier1TokenBudget: thinkingBudget,
+      tier2ModelId: parseTierOpenAiModelId(p.thinking_tier2_openai_model_id),
+    },
+  }
+}
+
+const LEARN_AI_DEFAULT_OPENAI_MODEL: LearnModelId = 'gpt-5-mini'
+
+function sanitizeLearnModelId(raw: unknown): LearnModelId {
+  if (
+    raw === 'gpt-5.4' ||
+    raw === 'gpt-5.4-mini' ||
+    raw === 'gpt-5-mini' ||
+    raw === 'gpt-4o-mini' ||
+    raw === 'claude-sonnet-4-6' ||
+    raw === 'claude-3-5-haiku-latest' ||
+    raw === 'gemini-3.1-flash-lite' ||
+    raw === 'gemini-3.1-flash-lite-preview'
+  ) {
+    return raw
+  }
+  return LEARN_AI_DEFAULT_OPENAI_MODEL
+}
+
+function learnModelIdToGeminiModel(model: LearnModelId): GeminiModelId {
+  if (model === 'gemini-3.1-flash-lite-preview') {
+    return GEMINI_MODEL_FLASH_LITE
+  }
+  if (model === 'gemini-3.1-flash-lite') {
+    return GEMINI_MODEL_FLASH_LITE
+  }
+  return GEMINI_DEFAULT_CHAT_MODEL
+}
+
+type LearnAiConfig = { provider: Provider; model: LearnModelId }
+
+function normalizeLearnModelForProvider(provider: Provider, model: LearnModelId): LearnModelId {
+  const isOpenAiModel =
+    model === 'gpt-5.4' || model === 'gpt-5.4-mini' || model === 'gpt-5-mini' || model === 'gpt-4o-mini'
+  const isGeminiModel = model === 'gemini-3.1-flash-lite' || model === 'gemini-3.1-flash-lite-preview'
+  if (provider === 'gemini') {
+    return isGeminiModel ? model : 'gemini-3.1-flash-lite'
+  }
+  if (provider === 'openai') {
+    return isOpenAiModel ? model : LEARN_AI_DEFAULT_OPENAI_MODEL
+  }
+  return isOpenAiModel || isGeminiModel ? 'claude-sonnet-4-6' : model
+}
+
+async function fetchActiveLearnAiConfig(admin: SupabaseClient | null): Promise<LearnAiConfig> {
+  if (!admin) {
+    return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
+  }
+  try {
+    const { data, error } = await admin
+      .from('app_feature_flags')
+      .select('learn_ai_provider_active, learn_ai_model_active')
+      .eq('id', 1)
+      .maybeSingle()
+    if (error) {
+      return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
+    }
+    const rawProvider =
+      typeof (data as { learn_ai_provider_active?: unknown } | null)?.learn_ai_provider_active === 'string'
+        ? String((data as { learn_ai_provider_active?: string }).learn_ai_provider_active).trim().toLowerCase()
+        : ''
+    const provider: Provider =
+      rawProvider === 'anthropic' ? 'anthropic' : rawProvider === 'gemini' ? 'gemini' : 'openai'
+    const model = sanitizeLearnModelId(
+      (data as { learn_ai_model_active?: unknown } | null)?.learn_ai_model_active,
+    )
+    return { provider, model: normalizeLearnModelForProvider(provider, model) }
+  } catch {
+    return { provider: 'openai', model: LEARN_AI_DEFAULT_OPENAI_MODEL }
+  }
+}
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
+  })
+}
+
+function normalizeProvider(value: unknown): Provider {
+  if (value === 'anthropic') {
+    return 'anthropic'
+  }
+  if (value === 'gemini') {
+    return 'gemini'
+  }
+  return 'openai'
+}
+
+/** Optional: Modellreihenfolge für OpenAI-Chat (Client sendet für Lernpfad z. B. `gpt-5.4` zuerst). */
+function sanitizeOpenAiModelsOverride(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue
+    }
+    const t = item.trim()
+    if (t.length > 0 && t.length <= 120 && out.length < 12) {
+      out.push(t)
+    }
+  }
+  return out.length > 0 ? out : null
+}
+
+/** Einzelnes Claude-Modell (Chat); z. B. aus Composer-Auswahl. */
+function sanitizeAnthropicModelOverride(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const t = value.trim()
+  if (t.length === 0 || t.length > 120) {
+    return null
+  }
+  if (!/^claude-[a-z0-9._-]+$/i.test(t)) {
+    return null
+  }
+  return t
+}
+
+function normalizeMode(
+  value: unknown,
+):
+  | 'chat'
+  | 'learn_setup_topic'
+  | 'learn_entry_quiz'
+  | 'learn_tutor'
+  | 'learn_syllabus'
+  | 'evaluate_quiz'
+  | 'generate_title'
+  | 'document_extract'
+  | 'instant_analyze'
+  | 'thinking_analyze'
+  | 'thinking_draft'
+  | 'thinking_review'
+  | 'generate_topic_suggestions'
+  | 'generate_flashcards'
+  | 'generate_worksheet'
+  | 'merge_ai_chat_memory'
+  | 'brain_agent' {
+  const v = typeof value === 'string' ? value.trim() : value
+  if (v === 'brain_agent') {
+    return 'brain_agent'
+  }
+  if (v === 'learn_setup_topic') {
+    return 'learn_setup_topic'
+  }
+  if (v === 'learn_entry_quiz') {
+    return 'learn_entry_quiz'
+  }
+  if (v === 'learn_tutor') {
+    return 'learn_tutor'
+  }
+  if (v === 'learn_syllabus') {
+    return 'learn_syllabus'
+  }
+  if (v === 'merge_ai_chat_memory') {
+    return 'merge_ai_chat_memory'
+  }
+  if (v === 'evaluate_quiz') {
+    return 'evaluate_quiz'
+  }
+  if (v === 'generate_title') {
+    return 'generate_title'
+  }
+  if (v === 'document_extract') {
+    return 'document_extract'
+  }
+  if (v === 'instant_analyze') {
+    return 'instant_analyze'
+  }
+  if (v === 'thinking_analyze') {
+    return 'thinking_analyze'
+  }
+  if (v === 'thinking_draft') {
+    return 'thinking_draft'
+  }
+  if (v === 'thinking_review') {
+    return 'thinking_review'
+  }
+  if (v === 'generate_topic_suggestions') {
+    return 'generate_topic_suggestions'
+  }
+  if (v === 'generate_flashcards') {
+    return 'generate_flashcards'
+  }
+  if (v === 'generate_worksheet') {
+    return 'generate_worksheet'
+  }
+  return 'chat'
+}
+
+function chapterOutlineFromBody(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+  const o = payload as { chapterOutline?: unknown }
+  return typeof o.chapterOutline === 'string' ? o.chapterOutline.trim() : ''
+}
+
+function sanitizeQuizEvaluationPayload(value: unknown): QuizEvaluationPayload | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const payload = value as Record<string, unknown>
+  const question = typeof payload.question === 'string' ? payload.question.trim() : ''
+  const expectedAnswer = typeof payload.expectedAnswer === 'string' ? payload.expectedAnswer.trim() : ''
+  const userAnswer = typeof payload.userAnswer === 'string' ? payload.userAnswer.trim() : ''
+  const acceptableAnswers = Array.isArray(payload.acceptableAnswers)
+    ? payload.acceptableAnswers
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : undefined
+
+  if (!question || !expectedAnswer || !userAnswer) {
+    return null
+  }
+
+  return {
+    question,
+    expectedAnswer,
+    acceptableAnswers,
+    userAnswer,
+  }
+}
+
+function parseQuizEvaluationResult(raw: string): QuizEvaluationResult {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('KI Bewertung konnte nicht als JSON gelesen werden.')
+  }
+
+  const jsonChunk = trimmed.slice(start, end + 1)
+  const parsed = JSON.parse(jsonChunk) as { isCorrect?: unknown; feedback?: unknown }
+  const isCorrect = parsed.isCorrect === true
+  const feedback =
+    typeof parsed.feedback === 'string' && parsed.feedback.trim()
+      ? parsed.feedback.trim()
+      : isCorrect
+        ? 'Richtig.'
+        : 'Nicht ganz korrekt.'
+
+  return { isCorrect, feedback }
+}
+
+async function getProviderApiKey(
+  provider: Provider,
+): Promise<string> {
+  const envKeyName =
+    provider === 'anthropic'
+      ? 'ANTHROPIC_API_KEY'
+      : provider === 'gemini'
+        ? 'GEMINI_API_KEY'
+        : 'OPENAI_API_KEY'
+  const apiKey = String(Deno.env.get(envKeyName) ?? '').trim()
+  if (!apiKey) {
+    throw new Error(`API Key für Provider "${provider}" ist nicht als Supabase Secret gesetzt.`)
+  }
+
+  return apiKey
+}
+
+type AiCallResult = {
+  text: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  /** Cache-Treffer (OpenAI/Anthropic), die nicht erneut verrechnet werden. */
+  cachedPromptTokens?: number
+  /** Nur Anthropic: neu in den Cache geschriebene Tokens dieser Anfrage (teurer als ein Treffer,
+   *  aber Voraussetzung für einen Treffer beim nächsten Turn). Diagnosewert für Befund 3/4. */
+  cacheWriteTokens?: number
+}
+
+async function tryLogTokenUsage(
+  admin: SupabaseClient | null,
+  userId: string,
+  provider: Provider,
+  mode: string,
+  result: AiCallResult,
+) {
+  if (!admin) {
+    return
+  }
+  const cachedInputTokens = Math.max(0, Math.floor(Number(result.cachedPromptTokens ?? 0)))
+  const cacheWriteTokens = Math.max(0, Math.floor(Number(result.cacheWriteTokens ?? 0)))
+  /*
+   * Anthropic vs. OpenAI/Gemini haben unterschiedliche `usage`-Semantik. Anthropic liefert
+   * `input_tokens` bereits NETTO — schliesst cache_read/cache_creation explizit aus (geprüft gegen
+   * die aktuelle Anthropic-Doku, 24.8.2026). OpenAI/Gemini liefern einen GESAMTWERT, der die
+   * gecachten Tokens einschliesst. Nur im zweiten Fall darf man sie abziehen — bei Anthropic würde
+   * das den Netto-Wert ein zweites Mal reduzieren und (weil `cachedPromptTokens` meist grösser als
+   * der ohnehin schon kleine Netto-Rest ist) auf 0 klemmen. Das war der Fehler hinter „100% gecacht,
+   * nur noch Output verrechnet" (straton-caching-fix-plan.md, Befund 3/4 Nachtrag).
+   */
+  const billableInputTokens =
+    provider === 'anthropic' ? result.inputTokens : Math.max(0, result.inputTokens - cachedInputTokens)
+  const modelForBilling = result.model.slice(0, 160)
+
+  const { data: costData, error: costErr } = await admin.rpc('estimate_ai_cost_usd', {
+    p_provider: provider,
+    p_model: modelForBilling,
+    p_input_tokens: billableInputTokens,
+    p_output_tokens: result.outputTokens,
+    p_cache_read_tokens: cachedInputTokens,
+    p_cache_write_tokens: cacheWriteTokens,
+  })
+  if (costErr) {
+    console.error('[chat-completion] estimate_ai_cost_usd failed', costErr.message)
+  }
+  const estimated_cost_usd = typeof costData === 'number' ? costData : 0
+
+  const { error } = await admin.from('ai_token_usage').insert({
+    user_id: userId,
+    provider,
+    model: modelForBilling,
+    mode: mode.slice(0, 64),
+    input_tokens: billableInputTokens,
+    cached_input_tokens: cachedInputTokens,
+    cache_write_input_tokens: cacheWriteTokens,
+    output_tokens: result.outputTokens,
+    estimated_cost_usd,
+  })
+  if (error) {
+    console.error('[chat-completion] ai_token_usage insert failed', error.message)
+  }
+  if (cachedInputTokens > 0 || cacheWriteTokens > 0) {
+    console.log(
+      `[chat-completion] ${provider} context cache: read=${cachedInputTokens} write=${cacheWriteTokens} billable_input=${billableInputTokens} (${mode})`,
+    )
+  }
+
+  if (!AI_CREDITS_EXCLUDED_MODES.has(mode)) {
+    const { data: creditsCharged, error: chargeErr } = await admin.rpc('charge_ai_credits_usage', {
+      p_user_id: userId,
+      p_provider: provider,
+      p_model: modelForBilling,
+      p_input_tokens: billableInputTokens,
+      p_output_tokens: result.outputTokens,
+      p_cache_read_tokens: cachedInputTokens,
+      p_cache_write_tokens: cacheWriteTokens,
+    })
+    if (chargeErr) {
+      console.error('[chat-completion] charge_ai_credits_usage failed', chargeErr.message)
+    } else {
+      console.log(`[chat-completion] ai credits charged: ${creditsCharged} (${mode})`)
+    }
+  }
+}
+
+/** GPT-5 / o-series: Chat Completions erlauben oft nur die Default-Temperatur — feste Werte wie 0.7 → HTTP 400. */
+function openAiUsesDefaultTemperatureOnly(modelId: string): boolean {
+  const m = modelId.toLowerCase()
+  if (m.startsWith('gpt-5')) {
+    return true
+  }
+  if (m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Chat Completions: `reasoning` akzeptieren nicht alle GPT-5-IDs — u. a.
+ * `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.4-…` → HTTP 400 «Unknown parameter: 'reasoning'.»
+ * (`mini`/`nano` separat, da andere Namensmuster möglich sind.)
+ */
+function openAiChatModelSupportsReasoningEffortParam(modelId: string): boolean {
+  const m = modelId.toLowerCase()
+  if (!m.startsWith('gpt-5')) {
+    return false
+  }
+  if (m.includes('-mini') || m.includes('mini-')) {
+    return false
+  }
+  if (m.includes('-nano') || m.includes('nano-')) {
+    return false
+  }
+  /* Normales gpt-5.4 (ohne «mini») — gleicher 400er wie bei Mini. */
+  if (/^gpt-5\.4(?:-|$)/.test(m)) {
+    return false
+  }
+  return true
+}
+
+function attachOpenAiMaxOutputTokens(body: Record<string, unknown>, model: string, maxOut: number): void {
+  const n = Math.min(32768, Math.max(16, Math.floor(maxOut)))
+  const m = model.toLowerCase()
+  if (m.includes('gpt-5') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) {
+    body.max_completion_tokens = n
+  } else {
+    body.max_tokens = n
+  }
+}
+
+function countOpenAiVisionImageParts(body: Record<string, unknown>): number {
+  const msgs = body.messages
+  if (!Array.isArray(msgs)) {
+    return 0
+  }
+  let n = 0
+  for (const msg of msgs) {
+    const content = (msg as { content?: unknown })?.content
+    if (!Array.isArray(content)) {
+      continue
+    }
+    for (const part of content) {
+      if (part && typeof part === 'object' && (part as { type?: string }).type === 'image_url') {
+        n += 1
+      }
+    }
+  }
+  return n
+}
+
+function openAiChatRequestBody(
+  model: string,
+  messages: InputMessage[],
+  options?: {
+    includeReasoningLow?: boolean
+    promptCache?: OpenAiPromptCacheOptions
+    /** Completion-Obergrenze (Chat Completions: je nach Modell max_completion_tokens oder max_tokens). */
+    maxOutputTokens?: number
+    /** Client-Feld `visionInlineDataUrl` — Fallback wenn `[BildData]`-Parsing fehlschlägt. */
+    visionOverrideUrl?: string | null
+    /** JSON-only-Antwort (Thinking-Review). */
+    jsonObjectResponse?: boolean
+  },
+): Record<string, unknown> {
+  const visionOverride =
+    typeof options?.visionOverrideUrl === 'string' &&
+    options.visionOverrideUrl.trim().startsWith('data:image/')
+      ? resolveVisionUrlFromBody(options.visionOverrideUrl.trim())
+      : null
+  const lastUserIdx = findLastUserMessageIndex(messages)
+  const visionIndices = new Set(findOpenAiVisionUserIndices(messages, visionOverride))
+  if (visionOverride && lastUserIdx >= 0) {
+    visionIndices.add(lastUserIdx)
+  }
+  let visionPartsAttached = 0
+  const body: Record<string, unknown> = {
+    model,
+    messages: messages.map((message, idx) => {
+      if (message.role !== 'user') {
+        return {
+          role: message.role,
+          content: message.content,
+        }
+      }
+      if (visionIndices.size > 0 && !visionIndices.has(idx)) {
+        const stripped = stripVisionAttachmentsFromContent(message.content)
+        return {
+          role: message.role,
+          content: stripped || message.content,
+        }
+      }
+      if (!visionIndices.has(idx)) {
+        return {
+          role: message.role,
+          content: message.content,
+        }
+      }
+      const parsed = extractUserVisionFromContent(message.content)
+      const imageUrl =
+        visionOverride && idx === lastUserIdx
+          ? visionOverride
+          : parsed.imageDataUrls[0] ?? null
+      if (!imageUrl) {
+        console.warn('[chat-completion] openAiChatRequestBody: no vision URL for user turn', idx)
+        const stripped = stripVisionAttachmentsFromContent(message.content)
+        return {
+          role: message.role,
+          content: stripped || 'Der Nutzer hat ein Bild gesendet, aber es konnte nicht geladen werden.',
+        }
+      }
+      visionPartsAttached += 1
+      const parts: OpenAiVisionContentPart[] = [
+        {
+          type: 'text',
+          text: parsed.text.trim() || 'Bitte analysiere dieses Bild.',
+        },
+        {
+          type: 'image_url',
+          image_url: { url: imageUrl, detail: 'low' as const },
+        },
+      ]
+      return {
+        role: message.role,
+        content: parts,
+      }
+    }),
+  }
+  if (visionOverride && visionPartsAttached === 0 && lastUserIdx >= 0) {
+    const parsed = extractUserVisionFromContent(messages[lastUserIdx]!.content)
+    const parts: OpenAiVisionContentPart[] = [
+      {
+        type: 'text',
+        text: parsed.text.trim() || 'Bitte analysiere dieses Bild.',
+      },
+      {
+        type: 'image_url',
+        image_url: { url: visionOverride, detail: 'low' },
+      },
+    ]
+    const msgs = body.messages as Array<{ role: string; content: unknown }>
+    msgs[lastUserIdx] = { role: 'user', content: parts }
+    visionPartsAttached = 1
+    console.warn('[chat-completion] openAiChatRequestBody: visionOverride force-attached at', lastUserIdx)
+  }
+  if (!openAiUsesDefaultTemperatureOnly(model)) {
+    body.temperature = 0.7
+  }
+  /** GPT-5 Standard ist «medium» — weniger Reasoning = schnellere Antworten bei Chat Completions. */
+  if (options?.includeReasoningLow && openAiChatModelSupportsReasoningEffortParam(model)) {
+    body.reasoning = { effort: 'low' }
+  }
+  const pc = options?.promptCache
+  if (pc?.key) {
+    body.prompt_cache_key = pc.key
+    if (pc.retention === 'in_memory') {
+      body.prompt_cache_retention = 'in_memory'
+    } else if (pc.retention === '24h' && openAiSupportsExtendedPromptCache(model)) {
+      body.prompt_cache_retention = '24h'
+    }
+  }
+  if (typeof options?.maxOutputTokens === 'number' && Number.isFinite(options.maxOutputTokens)) {
+    attachOpenAiMaxOutputTokens(body, model, options.maxOutputTokens)
+  }
+  if (options?.jsonObjectResponse === true) {
+    body.response_format = { type: 'json_object' }
+  }
+  return body
+}
+
+function parseOpenAiErrorMessage(errorText: string): string {
+  try {
+    const parsed = JSON.parse(errorText) as { error?: { message?: string } | string }
+    if (typeof parsed.error === 'string') {
+      return parsed.error.trim()
+    }
+    if (typeof parsed.error?.message === 'string') {
+      return parsed.error.message.trim()
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+function formatOpenAiHttpError(status: number, errorText: string): string {
+  const apiMsg = parseOpenAiErrorMessage(errorText)
+  const lower = `${apiMsg} ${errorText}`.toLowerCase()
+
+  if (status === 429) {
+    if (
+      lower.includes('insufficient_quota') ||
+      lower.includes('billing') ||
+      lower.includes('exceeded your current quota')
+    ) {
+      return (
+        'OpenAI-Kontingent aufgebraucht (429). Bitte Guthaben/Billing im OpenAI-Dashboard prüfen oder später erneut versuchen.' +
+        (apiMsg ? ` (${apiMsg})` : '')
+      )
+    }
+    return apiMsg
+      ? `OpenAI ist gerade überlastet (429): ${apiMsg} Bitte 30–60 Sekunden warten und erneut senden.`
+      : 'OpenAI ist gerade überlastet (zu viele Anfragen). Bitte 30–60 Sekunden warten und erneut senden.'
+  }
+
+  if (status === 402 || lower.includes('insufficient_quota')) {
+    return (
+      'OpenAI-Guthaben reicht nicht aus. Bitte Billing im OpenAI-Dashboard prüfen.' +
+      (apiMsg ? ` (${apiMsg})` : '')
+    )
+  }
+
+  if (apiMsg) {
+    return `OpenAI Anfrage fehlgeschlagen (${status}): ${apiMsg}`
+  }
+  return `OpenAI Anfrage fehlgeschlagen (${status}).`
+}
+
+function isOpenAiPromptCacheRejection(status: number, errorText: string): boolean {
+  if (status !== 400) {
+    return false
+  }
+  const e = errorText.toLowerCase()
+  return e.includes('prompt_cache') || e.includes('prompt cache')
+}
+
+async function callOpenAi(
+  messages: InputMessage[],
+  apiKey: string,
+  models?: string[],
+  promptCache?: OpenAiPromptCacheOptions,
+  maxOutputTokens?: number,
+  visionOverrideUrl?: string | null,
+  jsonObjectResponse?: boolean,
+): Promise<AiCallResult> {
+  const modelsToTry =
+    Array.isArray(models) && models.length > 0 ? models : DEFAULT_OPENAI_CHAT_MODELS
+
+  for (const model of modelsToTry) {
+    const reasoningSteps = openAiChatModelSupportsReasoningEffortParam(model)
+      ? ([true, false] as const)
+      : ([false] as const)
+
+    for (const includeReasoningLow of reasoningSteps) {
+      let activePromptCache: OpenAiPromptCacheOptions | undefined = promptCache
+      let strippedPromptCache = false
+
+      while (true) {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(
+            openAiChatRequestBody(model, messages, {
+              includeReasoningLow,
+              promptCache: activePromptCache,
+              maxOutputTokens,
+              visionOverrideUrl,
+              jsonObjectResponse,
+            }),
+          ),
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('[chat-completion] OpenAI HTTP error', response.status, errorText.slice(0, 800))
+          const errLower = errorText.toLowerCase()
+
+          if (!strippedPromptCache && activePromptCache && isOpenAiPromptCacheRejection(response.status, errorText)) {
+            activePromptCache = undefined
+            strippedPromptCache = true
+            continue
+          }
+
+          const reasoningRejected =
+            includeReasoningLow &&
+            response.status === 400 &&
+            (errLower.includes("unknown parameter: 'reasoning'") ||
+              errLower.includes('unknown parameter: "reasoning"') ||
+              (errLower.includes('reasoning') && errLower.includes('unknown parameter')))
+
+          if (reasoningRejected) {
+            break
+          }
+
+          const modelUnavailable =
+          response.status === 400 &&
+          (errorText.includes('model') || errorText.includes('does not exist') || errorText.includes('not found'))
+
+          if (modelUnavailable && model !== modelsToTry[modelsToTry.length - 1]) {
+            break
+          }
+
+          throw new Error(formatOpenAiHttpError(response.status, errorText))
+        }
+
+        const data = (await response.json()) as {
+        model?: string
+        choices?: Array<{ message?: { content?: string } }>
+        usage?: {
+          prompt_tokens?: number
+          completion_tokens?: number
+          prompt_tokens_details?: { cached_tokens?: number }
+        }
+      }
+      const content = data.choices?.[0]?.message?.content?.trim()
+        if (content) {
+          const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
+          const inputTokens = Math.max(0, Math.floor(Number(data.usage?.prompt_tokens ?? 0)))
+          const outputTokens = Math.max(0, Math.floor(Number(data.usage?.completion_tokens ?? 0)))
+          const cachedPromptTokens = Math.max(
+            0,
+            Math.floor(Number(data.usage?.prompt_tokens_details?.cached_tokens ?? 0)),
+          )
+          return {
+            text: content,
+            model: usedModel,
+            inputTokens,
+            outputTokens,
+            ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+          }
+        }
+        console.warn(
+          '[chat-completion] OpenAI leere Antwort (kein content) — naechstes Modell in der Kette',
+          { model, includeReasoningLow, finishReason: data.choices?.[0]?.message ? 'empty_content' : 'no_choices' },
+        )
+        break
+      }
+    }
+  }
+
+  throw new Error('OpenAI hat keine Antwort geliefert.')
+}
+
+async function* iterateOpenAiSseBytes(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<{
+  delta?: string
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
+  }
+  model?: string
+}> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let carry = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      carry += decoder.decode(value, { stream: true })
+      while (true) {
+        const sep = carry.indexOf('\n\n')
+        if (sep === -1) {
+          break
+        }
+        const block = carry.slice(0, sep)
+        carry = carry.slice(sep + 2)
+        for (const line of block.split('\n')) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('data:')) {
+            continue
+          }
+          const data = trimmed.slice(5).trim()
+          if (data === '[DONE]') {
+            return
+          }
+          try {
+            const json = JSON.parse(data) as Record<string, unknown>
+            const model = typeof json.model === 'string' ? json.model : undefined
+            const usage = json.usage as
+              | {
+                  prompt_tokens?: number
+                  completion_tokens?: number
+                  prompt_tokens_details?: { cached_tokens?: number }
+                }
+              | undefined
+            const choices = json.choices as Array<Record<string, unknown>> | undefined
+            const delta = choices?.[0]?.delta as Record<string, unknown> | undefined
+            const content = delta?.content
+            const deltaText = typeof content === 'string' && content.length > 0 ? content : undefined
+            if (model || deltaText || usage) {
+              yield { delta: deltaText, usage, model }
+            }
+          } catch {
+            /* unparseable line */
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+/** SSE an den Browser: `data: {"type":"delta","t":"..."}\n\n` und abschließend `done` oder `error`. */
+async function handleOpenAiChatStream(
+  userId: string,
+  admin: SupabaseClient | null,
+  messages: InputMessage[],
+  apiKey: string,
+  openAiModels: string[],
+  promptCache?: OpenAiPromptCacheOptions,
+  maxOutputTokens?: number,
+  visionOverrideUrl?: string | null,
+): Promise<Response> {
+  const encoder = new TextEncoder()
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+
+  const writeSse = async (obj: unknown) => {
+    await writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
+  }
+
+  ;(async () => {
+    let closed = false
+    try {
+      const modelsToTry: string[] = [...openAiModels]
+
+      outer: for (const model of modelsToTry) {
+        const reasoningSteps = openAiChatModelSupportsReasoningEffortParam(model)
+          ? ([true, false] as const)
+          : ([false] as const)
+        let visionImageParts = 0
+
+        inner: for (const includeReasoningLow of reasoningSteps) {
+          let includeUsageFlag = true
+          let activePromptCache: OpenAiPromptCacheOptions | undefined = promptCache
+          let strippedPromptCache = false
+
+          while (true) {
+            const reqBody: Record<string, unknown> = {
+              ...openAiChatRequestBody(model, messages, {
+                includeReasoningLow,
+                promptCache: activePromptCache,
+                maxOutputTokens,
+                visionOverrideUrl,
+              }),
+              stream: true,
+            }
+            if (includeUsageFlag) {
+              reqBody.stream_options = { include_usage: true }
+            }
+            visionImageParts = countOpenAiVisionImageParts(reqBody)
+            if (visionImageParts > 0) {
+              console.log('[chat-completion] openAi vision request', {
+                model,
+                imageParts: visionImageParts,
+                lastUserIdx: findLastUserMessageIndex(messages),
+              })
+            } else if (visionOverrideUrl) {
+              console.warn('[chat-completion] openAi vision request without image_url parts', {
+                model,
+                overrideLen:
+                  typeof visionOverrideUrl === 'string' ? visionOverrideUrl.trim().length : 0,
+              })
+            }
+
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(reqBody),
+            })
+
+            if (!res.ok) {
+              const errorText = await res.text()
+              console.error('[chat-completion] OpenAI stream HTTP error', res.status, errorText.slice(0, 600))
+              const errLower = errorText.toLowerCase()
+
+              if (
+                includeUsageFlag &&
+                res.status === 400 &&
+                (errLower.includes('stream_options') ||
+                  errLower.includes('include_usage'))
+              ) {
+                includeUsageFlag = false
+                continue
+              }
+
+              if (!strippedPromptCache && activePromptCache && isOpenAiPromptCacheRejection(res.status, errorText)) {
+                activePromptCache = undefined
+                strippedPromptCache = true
+                continue
+              }
+
+              const reasoningRejected =
+                includeReasoningLow &&
+                res.status === 400 &&
+                (errLower.includes("unknown parameter: 'reasoning'") ||
+                  errLower.includes('unknown parameter: "reasoning"') ||
+                  (errLower.includes('reasoning') && errLower.includes('unknown parameter')))
+
+              if (reasoningRejected) {
+                continue inner
+              }
+
+              const modelUnavailable =
+                res.status === 400 &&
+                (errorText.includes('model') ||
+                  errorText.includes('does not exist') ||
+                  errorText.includes('not found'))
+
+              if (modelUnavailable && model !== modelsToTry[modelsToTry.length - 1]) {
+                continue outer
+              }
+
+              await writeSse({
+                type: 'error',
+                message: formatOpenAiHttpError(res.status, errorText),
+              })
+              closed = true
+              break outer
+            }
+
+            if (!res.body) {
+              continue inner
+            }
+
+            let fullText = ''
+            let usedModel = model
+            let inputTokens = 0
+            let outputTokens = 0
+            let cachedPromptTokens = 0
+
+            try {
+              for await (const chunk of iterateOpenAiSseBytes(res.body)) {
+                if (chunk.model) {
+                  usedModel = chunk.model
+                }
+                if (chunk.delta) {
+                  fullText += chunk.delta
+                  await writeSse({ type: 'delta', t: chunk.delta })
+                }
+                if (chunk.usage) {
+                  const pt = Math.max(0, Math.floor(Number(chunk.usage.prompt_tokens ?? 0)))
+                  const ct = Math.max(0, Math.floor(Number(chunk.usage.completion_tokens ?? 0)))
+                  inputTokens = Math.max(inputTokens, pt)
+                  outputTokens = Math.max(outputTokens, ct)
+                  const cachedThisChunk = Math.max(
+                    0,
+                    Math.floor(Number(chunk.usage.prompt_tokens_details?.cached_tokens ?? 0)),
+                  )
+                  /* Mehrere Stream-Chunks können `usage` liefern; fehlt `cached_tokens` in einem späteren Chunk, darf der Hit nicht auf 0 zurückfallen. */
+                  cachedPromptTokens = Math.max(cachedPromptTokens, cachedThisChunk)
+                }
+              }
+            } catch (readErr) {
+              console.error('[chat-completion] OpenAI stream read error', readErr)
+              await writeSse({
+                type: 'error',
+                message: readErr instanceof Error ? readErr.message : 'Stream Lesefehler',
+              })
+              closed = true
+              break outer
+            }
+
+            const trimmed = fullText.trim()
+            if (!trimmed) {
+              continue inner
+            }
+
+            await tryLogTokenUsage(admin, userId, 'openai', 'chat', {
+              text: trimmed,
+              model: usedModel,
+              inputTokens,
+              outputTokens,
+              ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+            })
+            await writeSse({
+              type: 'done',
+              model: usedModel,
+              inputTokens,
+              outputTokens,
+              visionDebug: {
+                imageParts: visionImageParts,
+                overrideLen:
+                  typeof visionOverrideUrl === 'string' ? visionOverrideUrl.trim().length : 0,
+                overrideResolved: Boolean(
+                  typeof visionOverrideUrl === 'string' &&
+                    resolveVisionUrlFromBody(visionOverrideUrl.trim()),
+                ),
+              },
+            })
+            closed = true
+            break outer
+          }
+        }
+      }
+
+      if (!closed) {
+        await writeSse({ type: 'error', message: 'OpenAI Streaming lieferte keinen Text.' })
+      }
+    } catch (e) {
+      await writeSse({
+        type: 'error',
+        message: e instanceof Error ? e.message : 'Unbekannter Streamfehler',
+      })
+    } finally {
+      await writer.close().catch(() => {})
+    }
+  })()
+
+  return new Response(readable, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  })
+}
+
+/**
+ * Anthropic-Calls (wenn `provider: anthropic`): Sonnet (per Secret ANTHROPIC_MODEL überschreibbar).
+ * Lernpfad nutzt im Client jetzt `provider: openai` + GPT-5 mini; dieser Pfad bleibt für explizite Claude-Requests.
+ */
+function anthropicLearnModel(): string {
+  const fromEnv = Deno.env.get('ANTHROPIC_MODEL')?.trim()
+  return fromEnv || 'claude-sonnet-4-6'
+}
+
+type AnthropicCallOptions = {
+  maxTokens?: number
+  model?: string
+}
+
+async function callAnthropic(
+  messages: InputMessage[],
+  apiKey: string,
+  options?: AnthropicCallOptions,
+): Promise<AiCallResult> {
+  const model = options?.model ?? anthropicLearnModel()
+  const max_tokens = options?.maxTokens ?? 4096
+  const systemRaw =
+    messages.find((message) => message.role === 'system')?.content?.trim() ??
+    withSwissOrthography('Du bist ein hilfreicher Assistent.')
+  // Aggressiv: System-Prompt immer als cachebarer Block markieren.
+  // ttl: '1h' statt Standard (5 Minuten) — bei normalem Chattempo (Lesen/Nachdenken zwischen Turns)
+  // verfiel der 5-Minuten-Cache regelmässig, bevor der nächste Turn kam, und wurde dann neu
+  // geschrieben statt gelesen (Befund 3, straton-caching-fix-plan.md). 1h ist GA, kein Beta-Header
+  // nötig; Schreiben kostet 2x statt 1.25x, amortisiert sich sobald der Eintrag einmal gelesen wird.
+  const system: Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral'; ttl: '1h' } }> = [
+    { type: 'text', text: systemRaw, cache_control: { type: 'ephemeral', ttl: '1h' } },
+  ]
+  const dialog = messages.filter((message) => message.role === 'user' || message.role === 'assistant')
+  const lastDynamicStart = Math.max(0, dialog.length - 2)
+  let lastUserDialogIdx = -1
+  for (let i = dialog.length - 1; i >= 0; i -= 1) {
+    if (dialog[i]?.role === 'user') {
+      lastUserDialogIdx = i
+      break
+    }
+  }
+  /*
+   * Anthropic erlaubt höchstens vier `cache_control`-Blöcke je Anfrage. Sie markieren auch nicht
+   * einzelne Nachrichten als cachebar, sondern setzen Bruchstellen: zwischengespeichert wird der
+   * gesamte Verlauf VOR der Marke. Eine Marke an der letzten stabilen Nachricht deckt damit den
+   * ganzen Verlauf davor ab — zusammen mit dem System-Prompt sind das zwei Blöcke, unabhängig von
+   * der Länge des Chats.
+   *
+   * Vorher trug jede Nachricht ausser den letzten beiden eine eigene Marke. Ab dem vierten Turn
+   * sprengte das die Grenze (HTTP 400, «A maximum of 4 blocks with cache_control may be provided»).
+   * Aufgefallen ist es erst, seit die Claude-Modelle im Composer frei wählbar sind und damit lange
+   * Hauptchat-Verläufe über diesen Pfad laufen.
+   */
+  const cacheBreakpointIdx = lastDynamicStart - 1
+  const anthropicMessages = dialog.map((message, index) => {
+    const shouldCache = index === cacheBreakpointIdx
+    if (message.role === 'assistant') {
+      if (shouldCache) {
+        return {
+          role: message.role,
+          content: [
+            { type: 'text', text: message.content, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } },
+          ],
+        }
+      }
+      return {
+        role: message.role,
+        content: message.content,
+      }
+    }
+    const userContent = buildAnthropicUserMessageContent(
+      message.content,
+      index === lastUserDialogIdx,
+    )
+    if (shouldCache && typeof userContent === 'string') {
+      return {
+        role: message.role,
+        content: [
+          { type: 'text', text: userContent, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } },
+        ],
+      }
+    }
+    return {
+      role: message.role,
+      content: userContent,
+    }
+  })
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      // Prompt-Caching (inkl. 1h-ttl) ist GA — der frühere Beta-Header ist laut Anthropic-Doku
+      // nicht mehr nötig (Stand 24.8.2026).
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens,
+      messages: anthropicMessages,
+      system,
+    }),
+  })
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '')
+    if (response.status === 429) {
+      throw new Error(
+        'Claude Rate-Limit erreicht (zu viele Tokens pro Minute). Bitte Anfrage verkürzen oder kurz warten.',
+      )
+    }
+    const hint =
+      response.status === 404
+        ? ' (Modell-ID unbekannt/retired? Secret ANTHROPIC_MODEL prüfen oder Edge Function deployen.)'
+        : ''
+    throw new Error(
+      `Anthropic Anfrage fehlgeschlagen (${response.status}).${hint}${errBody ? ` ${errBody.slice(0, 400)}` : ''}`,
+    )
+  }
+
+  const data = (await response.json()) as {
+    model?: string
+    content?: Array<{ type?: string; text?: string }>
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
+  }
+  const content = data.content?.find((entry) => entry.type === 'text')?.text?.trim()
+  if (!content) {
+    throw new Error('Anthropic hat keine Antwort geliefert.')
+  }
+
+  const usedModel = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : model
+  const inputTokens = Math.max(0, Math.floor(Number(data.usage?.input_tokens ?? 0)))
+  const outputTokens = Math.max(0, Math.floor(Number(data.usage?.output_tokens ?? 0)))
+  const cachedPromptTokens = Math.max(0, Math.floor(Number(data.usage?.cache_read_input_tokens ?? 0)))
+  const cacheWriteTokens = Math.max(0, Math.floor(Number(data.usage?.cache_creation_input_tokens ?? 0)))
+  if (cachedPromptTokens > 0 || cacheWriteTokens > 0) {
+    // Diagnose für Befund 3/4 (straton-caching-fix-plan.md): read = billig wiederverwendet,
+    // write = teurer neu angelegt. Read sollte turn-über-turn wachsen, nicht write dominieren.
+    console.log(
+      `[chat-completion] anthropic cache: read=${cachedPromptTokens} write=${cacheWriteTokens} input=${inputTokens}`,
+    )
+  }
+  return {
+    text: content,
+    model: usedModel,
+    inputTokens,
+    outputTokens,
+    ...(cachedPromptTokens > 0 ? { cachedPromptTokens } : {}),
+    ...(cacheWriteTokens > 0 ? { cacheWriteTokens } : {}),
+  }
+}
+
+function uniqueAnthropicModelIds(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of ids) {
+    const t = raw.trim()
+    if (!t || seen.has(t)) {
+      continue
+    }
+    seen.add(t)
+    out.push(t)
+  }
+  return out
+}
+
+/** Reihenfolge für Chat: gewünschtes Modell, dann Opus-Fallback, dann ANTHROPIC_MODEL / Sonnet. */
+function buildAnthropicChatModelChain(override: string | null): string[] {
+  const fallback = anthropicLearnModel()
+  const raw = typeof override === 'string' ? override.trim() : ''
+  if (!raw) {
+    return [fallback]
+  }
+  const chain: string[] = [raw]
+  const lower = raw.toLowerCase()
+  if (lower.includes('opus')) {
+    chain.push('claude-opus-4-6')
+  }
+  chain.push(fallback)
+  return uniqueAnthropicModelIds(chain)
+}
+
+function isRetryableAnthropicChatModelError(message: string): boolean {
+  const m = message.toLowerCase()
+  if (m.includes('rate-limit') || m.includes('429') || m.includes('zu viele tokens')) {
+    return false
+  }
+  return (
+    m.includes('404') ||
+    m.includes('not_found') ||
+    m.includes('does not exist') ||
+    m.includes('invalid model') ||
+    m.includes('model_id') ||
+    (m.includes('400') && m.includes('model'))
+  )
+}
+
+async function callAnthropicFirstSuccessful(
+  messages: InputMessage[],
+  apiKey: string,
+  modelsToTry: string[],
+  maxTokens: number,
+): Promise<AiCallResult> {
+  const chain = uniqueAnthropicModelIds(modelsToTry.length > 0 ? modelsToTry : [anthropicLearnModel()])
+  let lastErr: Error | null = null
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i]!
+    try {
+      return await callAnthropic(messages, apiKey, { model, maxTokens })
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      const last = i === chain.length - 1
+      if (last || !isRetryableAnthropicChatModelError(lastErr.message)) {
+        throw lastErr
+      }
+    }
+  }
+  throw lastErr ?? new Error('Anthropic: Modellkette fehlgeschlagen.')
+}
+
+async function evaluateQuizWithAi(
+  provider: Provider,
+  payload: QuizEvaluationPayload,
+  apiKey: string,
+  openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ evaluation: QuizEvaluationResult; usage: AiCallResult }> {
+  const acceptableAnswers = payload.acceptableAnswers?.length
+    ? payload.acceptableAnswers.join(' | ')
+    : '(keine)'
+
+  const evaluationMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Du bist ein strenger, aber fairer Prüfungs-Korrektor.',
+          'Bewerte semantisch, nicht nur exakt wortgleich.',
+          'Antworte ausschließlich als JSON Objekt ohne weiteren Text.',
+          'Schema: {"isCorrect": boolean, "feedback": string}',
+          'feedback kurz halten (max 220 Zeichen), auf Deutsch.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: [
+        `Frage: ${payload.question}`,
+        `Erwartete Antwort: ${payload.expectedAnswer}`,
+        `Alternative Antworten: ${acceptableAnswers}`,
+        `Antwort vom Nutzer: ${payload.userAnswer}`,
+      ].join('\n'),
+    },
+  ]
+
+  const usage =
+    provider === 'anthropic'
+      ? await callAnthropic(evaluationMessages, apiKey, { maxTokens: 512 })
+      : await callOpenAi(evaluationMessages, apiKey, openAiModels, openAiPromptCache)
+
+  return { evaluation: parseQuizEvaluationResult(usage.text), usage }
+}
+
+function sanitizeGeneratedTitle(raw: string): string {
+  const compact = raw
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact) {
+    return ''
+  }
+  return compact.length > 42 ? compact.slice(0, 42).trim() : compact
+}
+
+/** Titel: kurze Ausgabe — Output-Tokens begrenzen (Kosten). */
+const GENERATE_TITLE_MAX_OUTPUT_TOKENS = 100
+/** Chat-Titel (Instant + Thinking): günstig, kein GPT-5.4-mini aus der Hauptchat-Staffel. */
+const GENERATE_TITLE_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-4o'] as const
+
+/** Smart Instant — Einordnung (JSON, schlankes Schema): Gemini Flash Lite liefert ~60–100 Token. */
+const INSTANT_ANALYZE_GEMINI_MAX_OUTPUT_TOKENS = 250
+/** OpenAI-Pfad: gpt-5-Modelle verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens (sonst leerer content) — daher höheres Limit als beim Gemini-Pfad. */
+const INSTANT_ANALYZE_OPENAI_MAX_OUTPUT_TOKENS = 1000
+/** Fallback-Kette, wenn kein OpenAI-Analyze-Modell konfiguriert ist (z. B. Gemini-Analyze nicht verfuegbar) — gpt-5-mini zuerst, nicht gpt-4o-mini. */
+const INSTANT_ANALYZE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini', 'gpt-4o'] as const
+
+/**
+ * Gemeinsamer Systemprompt für die Instant-Einordnung (Gemini- und OpenAI-Pfad — eine Quelle,
+ * kein Drift). Schlankes Schema: Felder, die client-seitig deterministisch ableitbar sind
+ * (reply_mode, clarity, missing, explanation_depth, escalate_*, document_coverage_topics,
+ * use_folder_sources), liefert das Modell nicht mehr — `sanitizeInstantAnalyzePayload` und die
+ * Client-Heuristiken füllen sie. Regex-Routing im Client überstimmt die Einordnung ohnehin bei
+ * eindeutigen Mustern; hier stehen nur Entscheidungen, die Kontextverständnis brauchen.
+ */
+const INSTANT_ANALYZE_SYSTEM_PROMPT = [
+  'Du ordnest eine Nutzeranfrage für den Straton-Hauptchat ein. Antworte nur mit einem JSON-Objekt, ohne Text davor oder danach.',
+  '',
+  'Felder:',
+  '- category: "chat" | "image" | "document" | "chart" | "diagram"',
+  '- action: chat→answer|short_answer|clarify|one_step; image→generate|describe|search|reference; document→word_generate|pdf_generate|excel_generate|pptx_generate; chart→chart_generate; diagram→diagram_generate',
+  '- task_type: "mc_solve" | "quiz_generate" | "explanation" | "summary"',
+  '- intent: Nutzerabsicht, max. 80 Zeichen, Deutsch (ss statt ß)',
+  '- needs_live_web: boolean; web_query: optimierte Suchanfrage, max. 120 Zeichen (nur wenn needs_live_web true, sonst "")',
+  '',
+  'Routing:',
+  '- Standard: chat.answer — auch vage Anfragen mit sinnvoller Annahme lösen; clarify nur, wenn ohne Rückfrage gar nicht lösbar.',
+  '- chat.short_answer: Auswahlfrage mit Optionen (auch nackte Kandidatenzeilen wie IPs unter einer Frage), «nur die richtige Antwort», kurze Folgenachricht zum Verlauf. Hinweis [Struktur erkannt: Auswahlfrage] → immer short_answer, task_type mc_solve.',
+  '- document.*: nur bei explizitem Export-Wunsch (Word/PDF/Excel/PowerPoint/Präsentation erstellen). [Datei:…]-Anhang nur lesen/zusammenfassen → chat, nicht document.',
+  '- chart: Diagramm mit Zahlen/Prozenten/Statistik (Balken, Kreis, Linie). diagram: Struktur (Stammbaum, Ablauf, Prozess, Workflow, Mindmap, Organigramm) — auch generisches «erstelle ein Diagramm» ohne Zahlen.',
+  '- image.search: Foto/Bild von realer Person/Sache zeigen/suchen — bei Folgen («von ihm», «ich meine den Schauspieler») intent = konkreter Name aus dem Verlauf, nie Pronomen. image.generate: Bild erstellen/zeichnen/malen. image.describe: neuer Bild-Anhang + «was siehst du». image.reference: Frage zu einem früheren Bild im Verlauf ohne neuen Anhang.',
+  '- «Wer hat das Bild gemacht?» nach Straton-Generierung → chat.short_answer (Straton/KI in diesem Chat), nicht image.',
+  '- Früher generierte Dokumente/Charts/Diagramme im Verlauf sind KEIN Grund für document/chart/diagram — nur wenn die aktuelle Nachricht selbst einen neuen Export oder eine Änderung verlangt.',
+  '',
+  'task_type:',
+  '- mc_solve: gepostete Auswahlfrage lösen. quiz_generate: Quiz/Fragen erzeugen («mach ein Quiz»).',
+  '- summary: expliziter Zusammenfassungswunsch («fasse zusammen», «Zusammenfassung», «Überblick über das Dokument»). «Siehst du den Inhalt?» / «über was geht es?» → explanation, nicht summary.',
+  '- explanation: alles andere (Erklären, Vergleiche, How-to, Aufgaben lösen).',
+  '',
+  'needs_live_web:',
+  '- true bei veränderlichen Fakten: Preise, Kurse/Ticker, News, Gesetzeslage, Produkt-/Modell-Daten (auch ohne «aktuell» — z. B. «Wie viele Kameras hat das iPhone 17?»), Versionen, Verfügbarkeit, Termine. Im Zweifel bei konkretem Produkt/Modell: true.',
+  '- false bei Lehrbuchwissen, Mathe, Coding-Konzepten, Definitionen, subjektiven/persönlichen Fragen — und immer bei category document/chart/diagram/image sowie chat.clarify.',
+  '',
+  'Beispiele (Nachricht → Einordnung):',
+  '- «Wie berechne ich den Deckungsbeitrag?» → chat.answer, task_type explanation, needs_live_web false.',
+  '- «A) TCP B) UDP C) ICMP D) ARP — welches Protokoll ist verbindungslos?» → chat.short_answer, task_type mc_solve, needs_live_web false.',
+  '- «Erstelle mir ein Word-Dokument mit einer Zusammenfassung des Kapitels» → document.word_generate, needs_live_web false.',
+  '- Nutzer hängt ein PDF an und schreibt nur «schau dir das an» → chat.answer (Anhang lesen), nicht document — kein expliziter Exportwunsch.',
+  '- «Zeig mir als Diagramm, wie eine Bestellung durch die Abteilungen läuft» → diagram.diagram_generate, needs_live_web false.',
+  '- «Mach mir ein Balkendiagramm mit den Umsätzen der letzten vier Quartale» → chart.chart_generate, needs_live_web false.',
+  '- «Zeichne mir ein Bild von einem Server-Rack» → image.generate.',
+  '- «Zeig mir ein Foto von Bill Gates» → image.search, intent = Bill Gates (konkreter Name, kein Pronomen).',
+  '- Nutzer hängt ein Foto einer Rechnung an und fragt «was steht da drin?» → image.describe.',
+  '- Frage zu einem drei Nachrichten zuvor gesendeten Bild, kein neuer Anhang → image.reference.',
+  '- «Wie viel kostet die PS6 aktuell?» → chat.answer, needs_live_web true (veränderlicher Preis).',
+  '- «Löse: 3x + 5 = 20» → chat.answer, task_type explanation, needs_live_web false (Lehrbuchwissen).',
+  '- «Fasse das hochgeladene Dokument zusammen» → chat.answer, task_type summary, needs_live_web false.',
+  '- «Worum geht es in dem Dokument?» → chat.answer, task_type explanation, NICHT summary.',
+  '- Straton hat im Chat gerade ein Bild erzeugt, Nutzer fragt «wer hat das gemacht?» → chat.short_answer, nicht image.',
+  '- Im Verlauf steht bereits ein erzeugtes Chart, Nutzer fragt nur «und im März?» ohne neuen Diagrammwunsch → chat.answer, nicht chart.',
+].join('\n')
+
+function buildInstantAnalyzeUserParts(userMessage: string, contextBlock: string): string {
+  return [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ]
+    .join('')
+    .trim()
+}
+
+type InstantAnalyzeCategoryEdge = 'chat' | 'image' | 'document' | 'chart' | 'diagram'
+type InstantAnalyzeActionEdge =
+  | 'answer'
+  | 'short_answer'
+  | 'clarify'
+  | 'one_step'
+  | 'generate'
+  | 'describe'
+  | 'search'
+  | 'reference'
+  | 'word_generate'
+  | 'pdf_generate'
+  | 'excel_generate'
+  | 'pptx_generate'
+  | 'chart_generate'
+  | 'diagram_generate'
+
+const INSTANT_ANALYZE_ACTIONS_BY_CATEGORY: Record<
+  InstantAnalyzeCategoryEdge,
+  readonly InstantAnalyzeActionEdge[]
+> = {
+  chat: ['answer', 'short_answer', 'clarify', 'one_step'],
+  image: ['generate', 'describe', 'search', 'reference'],
+  document: ['word_generate', 'pdf_generate', 'excel_generate', 'pptx_generate'],
+  chart: ['chart_generate'],
+  diagram: ['diagram_generate'],
+}
+
+function isAllowedInstantCategoryAction(
+  category: string,
+  action: string,
+): category is InstantAnalyzeCategoryEdge {
+  if (
+    category !== 'chat' &&
+    category !== 'image' &&
+    category !== 'document' &&
+    category !== 'chart' &&
+    category !== 'diagram'
+  ) {
+    return false
+  }
+  return (INSTANT_ANALYZE_ACTIONS_BY_CATEGORY[category] as readonly string[]).includes(action)
+}
+
+function replyModeFromInstantRoute(
+  category: InstantAnalyzeCategoryEdge,
+  action: InstantAnalyzeActionEdge,
+): 'ask_only' | 'one_step' | 'short_answer' | 'normal' {
+  if (category === 'chat') {
+    if (action === 'clarify') return 'ask_only'
+    if (action === 'short_answer') return 'short_answer'
+    if (action === 'one_step') return 'one_step'
+    return 'normal'
+  }
+  return 'normal'
+}
+
+function routeFromReplyModeEdge(
+  reply_mode: 'ask_only' | 'one_step' | 'short_answer' | 'normal',
+): { category: InstantAnalyzeCategoryEdge; action: InstantAnalyzeActionEdge } {
+  switch (reply_mode) {
+    case 'ask_only':
+      return { category: 'chat', action: 'clarify' }
+    case 'short_answer':
+      return { category: 'chat', action: 'short_answer' }
+    case 'one_step':
+      return { category: 'chat', action: 'one_step' }
+    default:
+      return { category: 'chat', action: 'answer' }
+  }
+}
+
+type InstantAnalyzePayloadEdge = {
+  category: InstantAnalyzeCategoryEdge
+  action: InstantAnalyzeActionEdge
+  clarity: 'clear' | 'partial' | 'vague'
+  intent: string
+  missing: string[]
+  reply_mode: 'ask_only' | 'one_step' | 'short_answer' | 'normal'
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
+  task_type: 'mc_solve' | 'quiz_generate' | 'explanation' | 'summary'
+  explanation_depth: 'brief' | 'standard' | 'detailed'
+  escalate_model?: boolean
+  escalate_reason?: string
+}
+
+function clipInstantAnalyzeText(value: unknown, max: number): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const t = value.trim()
+  if (!t) {
+    return ''
+  }
+  return t.length > max ? t.slice(0, max).trim() : t
+}
+
+function sanitizeInstantAnalyzePayload(raw: unknown): InstantAnalyzePayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const clarityRaw = typeof o.clarity === 'string' ? o.clarity.trim() : ''
+  const clarity =
+    clarityRaw === 'clear' || clarityRaw === 'partial' || clarityRaw === 'vague' ? clarityRaw : 'partial'
+  const replyRaw = typeof o.reply_mode === 'string' ? o.reply_mode.trim() : ''
+  let reply_mode:
+    | 'ask_only'
+    | 'one_step'
+    | 'short_answer'
+    | 'normal' =
+    replyRaw === 'ask_only' ||
+    replyRaw === 'one_step' ||
+    replyRaw === 'short_answer' ||
+    replyRaw === 'normal'
+      ? replyRaw
+      : 'normal'
+  const intent = clipInstantAnalyzeText(o.intent, 120) || 'Allgemeine Anfrage'
+  const missing = Array.isArray(o.missing)
+    ? o.missing
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => clipInstantAnalyzeText(entry, 80))
+        .filter(Boolean)
+        .slice(0, 3)
+    : []
+  let needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  const web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (reply_mode === 'ask_only') {
+    needs_live_web = false
+    web_query = ''
+  }
+  if (!needs_live_web) {
+    web_query = ''
+  } else if (!web_query) {
+    web_query = intent
+  }
+  if (clarity === 'vague' && reply_mode === 'ask_only') {
+    reply_mode = 'normal'
+    needs_live_web = false
+    web_query = ''
+  }
+  const categoryRaw = typeof o.category === 'string' ? o.category.trim() : ''
+  const actionRaw = typeof o.action === 'string' ? o.action.trim() : ''
+  let category: InstantAnalyzeCategoryEdge
+  let action: InstantAnalyzeActionEdge
+  if (isAllowedInstantCategoryAction(categoryRaw, actionRaw)) {
+    category = categoryRaw
+    action = actionRaw
+  } else {
+    const route = routeFromReplyModeEdge(reply_mode)
+    category = route.category
+    action = route.action
+  }
+  reply_mode = replyModeFromInstantRoute(category, action)
+  if (category !== 'chat' || action === 'clarify') {
+    needs_live_web = false
+    web_query = ''
+  }
+  if (reply_mode === 'ask_only') {
+    needs_live_web = false
+    web_query = ''
+  }
+  let escalate_model = o.escalate_model === true
+  let escalate_reason = clipInstantAnalyzeText(o.escalate_reason, 80)
+  if (escalate_model && !/\b(multi|mehrere|vergleich|quervergleich|sheets?|tabellen|merge|zwei\s+pdf|2\s+pdf)\b/i.test(escalate_reason)) {
+    escalate_model = false
+    escalate_reason = ''
+  }
+  if (!escalate_model) {
+    escalate_reason = ''
+  }
+  const taskRaw = typeof o.task_type === 'string' ? o.task_type.trim() : ''
+  const task_type =
+    taskRaw === 'mc_solve' ||
+    taskRaw === 'quiz_generate' ||
+    taskRaw === 'explanation' ||
+    taskRaw === 'summary'
+      ? taskRaw
+      : 'explanation'
+  const depthRaw = typeof o.explanation_depth === 'string' ? o.explanation_depth.trim() : ''
+  const explanation_depth =
+    task_type === 'explanation' &&
+    (depthRaw === 'brief' || depthRaw === 'standard' || depthRaw === 'detailed')
+      ? depthRaw
+      : 'standard'
+  return {
+    category,
+    action,
+    clarity,
+    intent,
+    missing,
+    reply_mode,
+    needs_live_web,
+    web_query,
+    web_reason,
+    task_type,
+    explanation_depth,
+    ...(escalate_model ? { escalate_model: true, escalate_reason } : {}),
+  }
+}
+
+function parseInstantAnalyzeResult(raw: string): InstantAnalyzePayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Instant-Einordnung konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeInstantAnalyzePayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Instant-Einordnung enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+function sanitizeInstantAnalyzeRequestPayload(value: unknown): { userMessage: string; contextBlock: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  if (!userMessage) {
+    return null
+  }
+  const contextBlock =
+    typeof payload.contextBlock === 'string' ? payload.contextBlock.trim().slice(0, 4000) : ''
+  return { userMessage: userMessage.slice(0, 8000), contextBlock }
+}
+
+/** Thinking — Aufgabenanalyse (JSON). Hoch genug fuer gpt-5-Modelle (verbrauchen unsichtbare Reasoning-Tokens aus max_completion_tokens, sonst leerer content). */
+const THINKING_ANALYZE_MAX_OUTPUT_TOKENS = 900
+const THINKING_DRAFT_MAX_OUTPUT_TOKENS = 7200
+const THINKING_REVIEW_MAX_OUTPUT_TOKENS = 420
+const THINKING_REVIEW_RICH_MAX_OUTPUT_TOKENS = 2048
+const THINKING_RICH_OPENAI_MODELS = ['gpt-5-mini'] as const
+const THINKING_PIPELINE_OPENAI_MODELS = ['gpt-5-mini', 'gpt-4o-mini'] as const
+
+function resolveThinkingOpenAiModelsForRequest(
+  outputTier: 'standard' | 'rich',
+  clientModels: string[] | null,
+): string[] {
+  if (outputTier === 'rich') {
+    return clientModels?.length ? clientModels : [...THINKING_RICH_OPENAI_MODELS]
+  }
+  return [...THINKING_PIPELINE_OPENAI_MODELS]
+}
+
+function resolveThinkingReviewMaxOutputTokens(outputTier: 'standard' | 'rich'): number {
+  return outputTier === 'rich' ? THINKING_REVIEW_RICH_MAX_OUTPUT_TOKENS : THINKING_REVIEW_MAX_OUTPUT_TOKENS
+}
+
+function buildThinkingRichOpenAiSystemMessages(
+  stepPrompt: string,
+): InputMessage[] {
+  return [
+    { role: 'system', content: buildThinkingRichOpenAiCachedKernelEdge() },
+    { role: 'system', content: stepPrompt },
+  ]
+}
+
+type ThinkingAnalyzePayloadEdge = {
+  task_type:
+    | 'server_setup'
+    | 'software_setup'
+    | 'troubleshooting'
+    | 'document_summary'
+    | 'process_howto'
+    | 'decision_planning'
+    | 'general_howto'
+    | 'other'
+  complexity: 'low' | 'medium' | 'high'
+  output_tier: 'standard' | 'rich'
+  layout_hint: 'cards' | 'stepwise' | 'tabular' | 'narrative'
+  intent: string
+  assumptions: string[]
+  risks: string[]
+  missing_dimensions: Array<{ id: string; label: string; question_hint: string }>
+  needs_clarification: boolean
+  clarify_rounds_planned: number
+  analysis_summary: string
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
+}
+
+type ThinkingReviewPayloadEdge = {
+  fits_intent: boolean
+  gaps: string[]
+  rewrite_hints: string
+  summary: string
+  needs_live_web: boolean
+  web_query: string
+  web_reason: string
+}
+
+function sanitizeThinkingAnalyzePayload(raw: unknown): ThinkingAnalyzePayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const taskRaw = typeof o.task_type === 'string' ? o.task_type.trim() : ''
+  const task_type =
+    taskRaw === 'server_setup' ||
+    taskRaw === 'software_setup' ||
+    taskRaw === 'troubleshooting' ||
+    taskRaw === 'document_summary' ||
+    taskRaw === 'process_howto' ||
+    taskRaw === 'decision_planning' ||
+    taskRaw === 'general_howto' ||
+    taskRaw === 'other'
+      ? taskRaw
+      : 'other'
+  const complexityRaw = typeof o.complexity === 'string' ? o.complexity.trim() : ''
+  const complexity =
+    complexityRaw === 'low' || complexityRaw === 'medium' || complexityRaw === 'high'
+      ? complexityRaw
+      : 'medium'
+  const intent = clipInstantAnalyzeText(o.intent, 160) || 'Aufgabe bearbeiten'
+  const assumptions = Array.isArray(o.assumptions)
+    ? o.assumptions
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 100))
+        .filter(Boolean)
+        .slice(0, 4)
+    : []
+  const risks = Array.isArray(o.risks)
+    ? o.risks
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 100))
+        .filter(Boolean)
+        .slice(0, 5)
+    : []
+  const missing_dimensions = Array.isArray(o.missing_dimensions)
+    ? o.missing_dimensions
+        .filter((e): e is Record<string, unknown> => Boolean(e && typeof e === 'object'))
+        .map((e) => ({
+          id: clipInstantAnalyzeText(e.id, 40),
+          label: clipInstantAnalyzeText(e.label, 80),
+          question_hint: clipInstantAnalyzeText(e.question_hint, 120),
+        }))
+        .filter((e) => e.id && e.label)
+        .slice(0, 6)
+    : []
+  let needs_clarification = o.needs_clarification === true
+  let clarify_rounds_planned =
+    typeof o.clarify_rounds_planned === 'number' && Number.isFinite(o.clarify_rounds_planned)
+      ? Math.round(o.clarify_rounds_planned)
+      : needs_clarification
+        ? 1
+        : 0
+  clarify_rounds_planned = Math.min(1, Math.max(0, clarify_rounds_planned))
+  const analysis_summary =
+    clipInstantAnalyzeText(
+      o.analysis_summary,
+      task_type === 'document_summary' ? 420 : 280,
+    ) || intent
+  let needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  let web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  }
+  let dims = missing_dimensions
+  if (!needs_clarification) {
+    dims = []
+    clarify_rounds_planned = 0
+  } else {
+    dims = dims.slice(0, 1)
+    clarify_rounds_planned = 1
+  }
+  let output_tier = sanitizeThinkingOutputTierEdge(o.output_tier)
+  if (task_type === 'document_summary' || complexity === 'high') {
+    output_tier = 'rich'
+  }
+  const layoutRaw = typeof o.layout_hint === 'string' ? o.layout_hint.trim() : ''
+  const layout_hint =
+    layoutRaw === 'cards' ||
+    layoutRaw === 'stepwise' ||
+    layoutRaw === 'tabular' ||
+    layoutRaw === 'narrative'
+      ? layoutRaw
+      : task_type === 'document_summary'
+        ? 'cards'
+        : 'narrative'
+  return {
+    task_type,
+    complexity,
+    output_tier,
+    layout_hint,
+    intent,
+    assumptions,
+    risks,
+    missing_dimensions: dims,
+    needs_clarification,
+    clarify_rounds_planned,
+    analysis_summary,
+    needs_live_web,
+    web_query,
+    web_reason,
+  }
+}
+
+/**
+ * Tier (standard/rich) + Modell-Override fuer Draft+Reply kommen jetzt einheitlich aus der
+ * admin-konfigurierbaren `thinking_task_type_model_routing`-Tabelle, nicht mehr aus der
+ * frueheren task_type+complexity-Mischung. Review bleibt unberuehrt (eigene Standard/Rich-Dropdowns),
+ * bekommt aber denselben Tier-Wert fuer die Prompt-Variantenwahl.
+ */
+function resolveThinkingTaskTypeRoutingEdge(
+  thinkingTaskType: unknown,
+  routing: ThinkingTaskTypeRoutingEdge,
+): { tier: 'standard' | 'rich'; provider: 'gemini' | 'openai'; model: AnalyzeModelIdEdge } | null {
+  const taskType = typeof thinkingTaskType === 'string' ? thinkingTaskType.trim() : ''
+  const row = routing[taskType]
+  if (!row) {
+    return null
+  }
+  return {
+    tier: row.tier,
+    provider: isGeminiAnalyzeModelEdge(row.model) ? 'gemini' : 'openai',
+    model: row.model,
+  }
+}
+
+function sanitizeThinkingReviewPayload(raw: unknown): ThinkingReviewPayloadEdge | null {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const o = raw as Record<string, unknown>
+  const fits_intent = o.fits_intent === true
+  const gaps = Array.isArray(o.gaps)
+    ? o.gaps
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => clipInstantAnalyzeText(e, 160))
+        .filter(Boolean)
+        .slice(0, 6)
+    : []
+  const rewrite_hints = clipInstantAnalyzeText(o.rewrite_hints, 600)
+  const summary =
+    clipInstantAnalyzeText(o.summary, 280) ||
+    (fits_intent ? 'Entwurf passt zur Anfrage.' : 'Entwurf braucht Nachbesserung.')
+  const needs_live_web = o.needs_live_web === true
+  let web_query = clipInstantAnalyzeText(o.web_query, 120)
+  let web_reason = clipInstantAnalyzeText(o.web_reason, 80)
+  if (!needs_live_web) {
+    web_query = ''
+    web_reason = ''
+  } else if (!web_query) {
+    web_query = summary
+  }
+  return { fits_intent, gaps, rewrite_hints, summary, needs_live_web, web_query, web_reason }
+}
+
+function sanitizeThinkingDraftRequestPayload(
+  value: unknown,
+): { userMessage: string; contextBlock: string; analyzeBriefing: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  if (!userMessage) {
+    return null
+  }
+  const contextBlock =
+    typeof payload.contextBlock === 'string' ? payload.contextBlock.trim().slice(0, 4000) : ''
+  const analyzeBriefing =
+    typeof payload.analyzeBriefing === 'string' ? payload.analyzeBriefing.trim().slice(0, 3000) : ''
+  return { userMessage: userMessage.slice(0, 8000), contextBlock, analyzeBriefing }
+}
+
+function sanitizeThinkingReviewRequestPayload(
+  value: unknown,
+): { userMessage: string; analyzeBriefing: string; draftText: string } | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const payload = value as Record<string, unknown>
+  const userMessage = typeof payload.userMessage === 'string' ? payload.userMessage.trim() : ''
+  const draftText = typeof payload.draftText === 'string' ? payload.draftText.trim() : ''
+  if (!userMessage || !draftText) {
+    return null
+  }
+  const analyzeBriefing =
+    typeof payload.analyzeBriefing === 'string' ? payload.analyzeBriefing.trim().slice(0, 3000) : ''
+  return {
+    userMessage: userMessage.slice(0, 8000),
+    analyzeBriefing,
+    draftText: draftText.slice(0, 16_000),
+  }
+}
+
+function parseThinkingAnalyzeResult(raw: string): ThinkingAnalyzePayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Thinking-Analyse konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeThinkingAnalyzePayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Thinking-Analyse enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+async function thinkingAnalyzeWithGemini(
+  userMessage: string,
+  contextBlock: string,
+  model: GeminiModelId,
+): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
+  const system = buildThinkingAnalyzeGeminiCachedSystemEdge()
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey: resolveThinkingGeminiContextCacheKeyEdge('analyze'),
+    maxOutputTokens: THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
+    temperature: 0.15,
+  })
+  const analyze = parseThinkingAnalyzeResult(text)
+  return {
+    analyze,
+    usage: {
+      text,
+      model: usedModel,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function thinkingDraftWithGemini(
+  userMessage: string,
+  contextBlock: string,
+  analyzeBriefing: string,
+  model: GeminiModelId,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientCacheKey?: string,
+): Promise<{ draft: string; usage: AiCallResult }> {
+  const system = buildThinkingDraftGeminiCachedSystemEdge(outputTier)
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const contextCacheKey =
+    typeof clientCacheKey === 'string' && clientCacheKey.trim()
+      ? clientCacheKey.trim()
+      : resolveThinkingGeminiContextCacheKeyEdge('draft', outputTier)
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey,
+    maxOutputTokens: THINKING_DRAFT_MAX_OUTPUT_TOKENS,
+    temperature: 0.35,
+  })
+  return {
+    draft: text.trim(),
+    usage: {
+      text,
+      model: usedModel,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function thinkingReviewWithGemini(
+  userMessage: string,
+  analyzeBriefing: string,
+  draftText: string,
+  model: GeminiModelId,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientCacheKey?: string,
+): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
+  const system = buildThinkingReviewGeminiCachedSystemEdge(outputTier)
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    `Nutzeranfrage:\n${userMessage}\n\n`,
+    `Entwurf:\n${draftText}`,
+  ].join('')
+  const contextCacheKey =
+    typeof clientCacheKey === 'string' && clientCacheKey.trim()
+      ? clientCacheKey.trim()
+      : resolveThinkingGeminiContextCacheKeyEdge('review', outputTier)
+  const { text, usage, model: usedModel } = await geminiGenerateText(userParts.trim(), {
+    model,
+    systemInstruction: withSwissOrthography(system),
+    contextCacheKey,
+    maxOutputTokens: THINKING_REVIEW_MAX_OUTPUT_TOKENS,
+    temperature: 0.15,
+  })
+  const review = parseThinkingReviewResult(text)
+  return {
+    review,
+    usage: {
+      text,
+      model: usedModel,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function thinkingAnalyzeWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+  configuredModel: AnalyzeModelIdEdge = ANALYZE_MODEL_DEFAULT,
+): Promise<{ analyze: ThinkingAnalyzePayloadEdge; usage: AiCallResult }> {
+  if (isGeminiAnalyzeModelEdge(configuredModel) && isGeminiInstantEnabled()) {
+    try {
+      return await thinkingAnalyzeWithGemini(userMessage, contextBlock, configuredModel)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_analyze gemini unavailable, fallback openai', geminiErr)
+    }
+  }
+  const system = buildThinkingAnalyzeSystemPromptBase('gpt-5-mini')
+  const userParts = [
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const messages: InputMessage[] = [
+    { role: 'system', content: withSwissOrthography(system) },
+    { role: 'user', content: userParts.trim() },
+  ]
+  const openAiModelChain = isGeminiAnalyzeModelEdge(configuredModel)
+    ? [...THINKING_PIPELINE_OPENAI_MODELS]
+    : [configuredModel, ...THINKING_PIPELINE_OPENAI_MODELS.filter((m) => m !== configuredModel)]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    openAiModelChain,
+    openAiPromptCache,
+    THINKING_ANALYZE_MAX_OUTPUT_TOKENS,
+  )
+  const analyze = parseThinkingAnalyzeResult(usage.text)
+  return { analyze, usage }
+}
+
+async function thinkingDraftWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  analyzeBriefing: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+  thinkingModels?: ThinkingGeminiModelsConfigEdge,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientGeminiModel?: unknown,
+  clientGeminiCacheKey?: unknown,
+  openAiModels?: string[],
+  taskTypeOverride?: { tier: 'standard' | 'rich'; provider: 'gemini' | 'openai'; model: AnalyzeModelIdEdge } | null,
+): Promise<{ draft: string; usage: AiCallResult }> {
+  /** Pro task_type admin-konfiguriert: Gemini darf jetzt auch bei Rich-Tier laufen, wenn so eingestellt. */
+  const wantsGemini = taskTypeOverride ? taskTypeOverride.provider === 'gemini' : outputTier !== 'rich'
+  if (wantsGemini && isGeminiInstantEnabled()) {
+    try {
+      const model = resolveThinkingGeminiModelEdge(
+        outputTier,
+        thinkingModels,
+        taskTypeOverride?.provider === 'gemini' ? taskTypeOverride.model : clientGeminiModel,
+      )
+      const cacheKey =
+        typeof clientGeminiCacheKey === 'string' ? clientGeminiCacheKey : undefined
+      return await thinkingDraftWithGemini(
+        userMessage,
+        contextBlock,
+        analyzeBriefing,
+        model,
+        outputTier,
+        cacheKey,
+      )
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_draft gemini unavailable, fallback openai', geminiErr)
+    }
+  }
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    contextBlock ? `Bisheriger Verlauf (Auszug):\n${contextBlock}\n\n` : '',
+    `Aktuelle Nutzeranfrage:\n${userMessage}`,
+  ].join('')
+  const messages: InputMessage[] =
+    outputTier === 'rich'
+      ? [
+          ...buildThinkingRichOpenAiSystemMessages(buildThinkingRichOpenAiDraftStepPromptEdge()),
+          { role: 'user', content: userParts.trim() },
+        ]
+      : [
+          {
+            role: 'system',
+            content: withSwissOrthography(
+              [
+                'Du erstellst einen INTERNEN ausführlichen Entwurf für Straton-Thinking.',
+                'Vollständige inhaltliche Lösung passend zur Aufgabenanalyse; grob ##-Kapitel und `---` zwischen Hauptteilen.',
+                'Bei [Datei:…]-Anhang: **Inhalt** aus dem Dateiblock (Fakten, Ziele, Aufgaben, Begriffe) — nicht nur aufzählen, was das Dokument «deckt».',
+                'VERBOTEN: «Das Dossier/Material thematisiert/deckt…» ohne inhaltliche Ausarbeitung.',
+                'Kein Clarify-Block, keine Anpassungsfrage. Nur Entwurf-Markdown.',
+              ].join('\n'),
+            ),
+          },
+          { role: 'user', content: userParts.trim() },
+        ]
+  const draftBaseChain = resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null)
+  const draftOpenAiChain =
+    taskTypeOverride?.provider === 'openai'
+      ? [taskTypeOverride.model, ...draftBaseChain.filter((m) => m !== taskTypeOverride.model)]
+      : draftBaseChain
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    draftOpenAiChain,
+    openAiPromptCache,
+    THINKING_DRAFT_MAX_OUTPUT_TOKENS,
+  )
+  return { draft: usage.text.trim(), usage }
+}
+
+function parseThinkingReviewResult(raw: string): ThinkingReviewPayloadEdge {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('Thinking-Review konnte nicht als JSON gelesen werden.')
+  }
+  const parsed = sanitizeThinkingReviewPayload(JSON.parse(trimmed.slice(start, end + 1)))
+  if (!parsed) {
+    throw new Error('Thinking-Review enthielt kein gültiges JSON.')
+  }
+  return parsed
+}
+
+async function thinkingReviewWithAi(
+  apiKey: string,
+  userMessage: string,
+  analyzeBriefing: string,
+  draftText: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+  thinkingModels?: ThinkingGeminiModelsConfigEdge,
+  outputTier: 'standard' | 'rich' = 'standard',
+  clientGeminiModel?: unknown,
+  clientGeminiCacheKey?: unknown,
+  openAiModels?: string[],
+): Promise<{ review: ThinkingReviewPayloadEdge; usage: AiCallResult }> {
+  if (outputTier !== 'rich' && isGeminiInstantEnabled()) {
+    try {
+      const model = resolveThinkingGeminiModelEdge(outputTier, thinkingModels, clientGeminiModel)
+      const cacheKey =
+        typeof clientGeminiCacheKey === 'string' ? clientGeminiCacheKey : undefined
+      return await thinkingReviewWithGemini(
+        userMessage,
+        analyzeBriefing,
+        draftText,
+        model,
+        outputTier,
+        cacheKey,
+      )
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] thinking_review gemini unavailable, fallback openai', geminiErr)
+    }
+  }
+  const userParts = [
+    analyzeBriefing ? `${analyzeBriefing}\n\n` : '',
+    `Nutzeranfrage:\n${userMessage}\n\n`,
+    `Entwurf:\n${draftText}`,
+  ].join('')
+  const messages: InputMessage[] =
+    outputTier === 'rich'
+      ? [
+          ...buildThinkingRichOpenAiSystemMessages(buildThinkingRichOpenAiReviewStepPromptEdge()),
+          { role: 'user', content: userParts.trim() },
+        ]
+      : [
+          {
+            role: 'system',
+            content: withSwissOrthography(
+              [
+                'Du prüfst einen internen Thinking-Entwurf gegen Nutzeranfrage und Analyse.',
+                'Antworte ausschließlich mit JSON: fits_intent (boolean), gaps (string[]), rewrite_hints (string), summary (string), needs_live_web (boolean), web_query (string, max 120, nur wenn needs_live_web), web_reason (string, max 80, nur wenn needs_live_web).',
+                'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+                'Bei Zusammenfassung mit [Datei:…]: fits_intent false, wenn nur Meta («deckt/thematisiert») statt Inhalts-Fakten aus dem Anhang.',
+                'needs_live_web true, wenn der Entwurf auf Fakten beruht, die sich ändern können (Preise, Kurse, News, Versionen, Verfügbarkeit, konkrete Produkte/Modelle) und du dir nicht sicher bist, ob dein Wissen aktuell/korrekt ist — auch wenn die Aufgabenanalyse das nicht erkannt hat.',
+              ].join('\n'),
+            ),
+          },
+          { role: 'user', content: userParts.trim() },
+        ]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    resolveThinkingOpenAiModelsForRequest(outputTier, openAiModels ?? null),
+    openAiPromptCache,
+    resolveThinkingReviewMaxOutputTokens(outputTier),
+    null,
+    outputTier === 'rich',
+  )
+  const review = parseThinkingReviewResult(usage.text)
+  return { review, usage }
+}
+
+function sanitizeGeminiModelOverride(value: unknown): GeminiModelId {
+  return resolveThinkingGeminiModelEdge('standard', null, value)
+}
+
+async function instantAnalyzeWithGemini(
+  userMessage: string,
+  contextBlock: string,
+  model: GeminiModelId = GEMINI_MODEL_FLASH_LITE,
+): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  const { text, usage, model: usedModel } = await geminiGenerateText(
+    buildInstantAnalyzeUserParts(userMessage, contextBlock),
+    {
+      model,
+      systemInstruction: INSTANT_ANALYZE_SYSTEM_PROMPT,
+      contextCacheKey: GEMINI_CONTEXT_CACHE_INTENT,
+      maxOutputTokens: INSTANT_ANALYZE_GEMINI_MAX_OUTPUT_TOKENS,
+      temperature: 0.15,
+      responseMimeType: 'application/json',
+    },
+  )
+  const analyze = parseInstantAnalyzeResult(text)
+  return {
+    analyze,
+    usage: {
+      text,
+      model: usedModel,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens != null && usage.cachedInputTokens > 0
+        ? { cachedPromptTokens: usage.cachedInputTokens }
+        : {}),
+    },
+  }
+}
+
+async function instantAnalyzeWithAi(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+  configuredModel: AnalyzeModelIdEdge = ANALYZE_MODEL_DEFAULT,
+): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  if (isGeminiAnalyzeModelEdge(configuredModel) && isGeminiInstantEnabled()) {
+    try {
+      return await instantAnalyzeWithGemini(userMessage, contextBlock, configuredModel)
+    } catch (geminiErr) {
+      if (!isGeminiTransientFailure(geminiErr)) {
+        throw geminiErr
+      }
+      console.warn('[chat-completion] instant_analyze gemini unavailable, fallback openai', geminiErr)
+    }
+  }
+  const messages: InputMessage[] = [
+    { role: 'system', content: INSTANT_ANALYZE_SYSTEM_PROMPT },
+    { role: 'user', content: buildInstantAnalyzeUserParts(userMessage, contextBlock) },
+  ]
+  const openAiModelChain = isGeminiAnalyzeModelEdge(configuredModel)
+    ? [...INSTANT_ANALYZE_OPENAI_MODELS]
+    : [configuredModel, ...INSTANT_ANALYZE_OPENAI_MODELS.filter((m) => m !== configuredModel)]
+  const usage = await callOpenAi(
+    messages,
+    apiKey,
+    openAiModelChain,
+    openAiPromptCache,
+    INSTANT_ANALYZE_OPENAI_MAX_OUTPUT_TOKENS,
+    null,
+    true,
+  )
+  const analyze = parseInstantAnalyzeResult(usage.text)
+  return { analyze, usage }
+}
+
+/** Günstiges Anthropic-Modell für die Instant-Einordnung bei explizit gewähltem Claude-Chat — hält den
+ *  Analyzer auf demselben Anbieter statt bei jedem Turn zusätzlich Gemini/OpenAI anzusprechen (M4). */
+const INSTANT_ANALYZE_ANTHROPIC_MODEL = 'claude-3-5-haiku-latest'
+
+async function instantAnalyzeWithAnthropic(
+  apiKey: string,
+  userMessage: string,
+  contextBlock: string,
+): Promise<{ analyze: InstantAnalyzePayloadEdge; usage: AiCallResult }> {
+  const messages: InputMessage[] = [
+    { role: 'system', content: INSTANT_ANALYZE_SYSTEM_PROMPT },
+    { role: 'user', content: buildInstantAnalyzeUserParts(userMessage, contextBlock) },
+  ]
+  const usage = await callAnthropic(messages, apiKey, {
+    model: INSTANT_ANALYZE_ANTHROPIC_MODEL,
+    maxTokens: INSTANT_ANALYZE_OPENAI_MAX_OUTPUT_TOKENS,
+  })
+  const analyze = parseInstantAnalyzeResult(usage.text)
+  return { analyze, usage }
+}
+
+async function generateTitleWithAi(
+  provider: Provider,
+  sourceMessages: InputMessage[],
+  apiKey: string,
+  openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ title: string; usage: AiCallResult }> {
+  const transcript = sourceMessages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-8)
+    .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+    .join('\n')
+
+  const titleMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Erzeuge einen kurzen Chat-Titel auf Deutsch.',
+          'Maximal 6 Wörter und maximal 42 Zeichen.',
+          'Nur den Titel ausgeben, ohne Anführungszeichen und ohne Satzzeichen am Ende.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: transcript || 'Allgemeiner Chat',
+    },
+  ]
+
+  const usage =
+    provider === 'anthropic'
+      ? await callAnthropic(titleMessages, apiKey, { maxTokens: GENERATE_TITLE_MAX_OUTPUT_TOKENS })
+      : await callOpenAi(
+          titleMessages,
+          apiKey,
+          [...GENERATE_TITLE_OPENAI_MODELS],
+          openAiPromptCache,
+          GENERATE_TITLE_MAX_OUTPUT_TOKENS,
+        )
+
+  const cleaned = sanitizeGeneratedTitle(usage.text)
+  if (!cleaned) {
+    throw new Error('Titel konnte nicht generiert werden.')
+  }
+  return { title: cleaned, usage }
+}
+
+function sanitizeTopicSuggestions(raw: string): string[] {
+  const start = raw.indexOf('[')
+  const end = raw.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 5)
+  } catch {
+    return []
+  }
+}
+
+type FlashcardPayload = {
+  question: string
+  answer: string
+  skillTag?: string
+}
+
+type WorksheetItemPayload = {
+  id?: string
+  prompt: string
+  questionType?: 'mcq' | 'text' | 'match' | 'true_false' | 'categorize'
+  options?: string[]
+  matchLeft?: string[]
+  matchRight?: string[]
+  categories?: string[]
+  items?: string[]
+  expectedAnswer?: string
+  acceptableAnswers?: string[]
+  hint?: string
+  explanation?: string
+  evaluation?: 'exact' | 'contains'
+  skillTag?: string
+}
+
+const WORKSHEET_OUTLINE_MAX_CHARS = 8000
+
+function worksheetUserPromptFromBody(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+  const o = payload as { userPrompt?: unknown }
+  return typeof o.userPrompt === 'string' ? o.userPrompt.trim() : ''
+}
+
+function stripLeadingMarkdownCodeFence(raw: string): string {
+  let t = raw.trim()
+  if (t.startsWith('```')) {
+    const firstNl = t.indexOf('\n')
+    if (firstNl !== -1) {
+      t = t.slice(firstNl + 1)
+    }
+    const fence = t.lastIndexOf('```')
+    if (fence !== -1) {
+      t = t.slice(0, fence).trim()
+    }
+  }
+  return t
+}
+
+function worksheetPromptFromEntry(o: Record<string, unknown>): string {
+  const keys = ['prompt', 'question', 'task', 'text', 'aufgabe', 'content', 'title'] as const
+  for (const key of keys) {
+    const v = o[key]
+    if (typeof v === 'string' && v.trim()) {
+      return v.trim()
+    }
+  }
+  return ''
+}
+
+function parseStringArrayEdge(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function sanitizeWorksheetItemFromEntry(entry: unknown, index: number): WorksheetItemPayload | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+  const o = entry as Record<string, unknown>
+  const prompt = worksheetPromptFromEntry(o)
+  if (!prompt) {
+    return null
+  }
+
+  const rawType = o.questionType ?? o.type
+  const questionType =
+    rawType === 'mcq' ||
+    rawType === 'text' ||
+    rawType === 'match' ||
+    rawType === 'true_false' ||
+    rawType === 'categorize'
+      ? rawType
+      : undefined
+  const expectedAnswer =
+    typeof o.expectedAnswer === 'string' && o.expectedAnswer.trim() ? o.expectedAnswer.trim() : undefined
+  const hint = typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim() : undefined
+  const explanation =
+    typeof o.explanation === 'string' && o.explanation.trim() ? o.explanation.trim() : undefined
+  const evaluation = o.evaluation === 'contains' ? 'contains' : o.evaluation === 'exact' ? 'exact' : undefined
+  const acceptableAnswers = parseStringArrayEdge(o.acceptableAnswers)
+  const options = parseStringArrayEdge(o.options)
+  const matchLeft = parseStringArrayEdge(o.matchLeft)
+  const matchRight = parseStringArrayEdge(o.matchRight)
+  const categories = parseStringArrayEdge(o.categories)
+  const items = parseStringArrayEdge(o.items)
+  const skillTag =
+    typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
+  const id =
+    typeof o.id === 'string' && o.id.trim() ? o.id.trim() : `ws${index + 1}`
+
+  if (questionType || expectedAnswer) {
+    return {
+      id,
+      prompt,
+      ...(questionType ? { questionType } : {}),
+      ...(options.length > 0 ? { options } : {}),
+      ...(categories.length > 0 ? { categories } : {}),
+      ...(items.length > 0 ? { items } : {}),
+      ...(matchLeft.length > 0 ? { matchLeft } : {}),
+      ...(matchRight.length > 0 ? { matchRight } : {}),
+      ...(expectedAnswer ? { expectedAnswer } : {}),
+      ...(acceptableAnswers.length > 0 ? { acceptableAnswers } : {}),
+      ...(hint ? { hint } : {}),
+      ...(explanation ? { explanation } : {}),
+      ...(evaluation ? { evaluation } : {}),
+      ...(skillTag ? { skillTag } : {}),
+    }
+  }
+
+  return { id, prompt, questionType: 'text', ...(skillTag ? { skillTag } : {}) }
+}
+
+function parseWorksheetItemsFromRaw(raw: string): WorksheetItemPayload[] {
+  const trimmed = stripLeadingMarkdownCodeFence(raw.trim())
+  const start = trimmed.indexOf('[')
+  const end = trimmed.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const out: WorksheetItemPayload[] = []
+    for (let index = 0; index < parsed.length; index += 1) {
+      const item = sanitizeWorksheetItemFromEntry(parsed[index], index)
+      if (item) {
+        out.push(item)
+      }
+    }
+    return out.slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
+function parseFlashcardsFromRaw(raw: string): FlashcardPayload[] {
+  const trimmed = raw.trim()
+  const start = trimmed.indexOf('[')
+  const end = trimmed.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const out: FlashcardPayload[] = []
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+      const o = entry as Record<string, unknown>
+      const question = typeof o.question === 'string' ? o.question.trim() : ''
+      const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+      const skillTag =
+        typeof o.skillTag === 'string' && o.skillTag.trim() ? o.skillTag.trim().slice(0, 80) : undefined
+      if (question && answer) {
+        out.push({ question, answer, ...(skillTag ? { skillTag } : {}) })
+      }
+    }
+    return out.slice(0, 16)
+  } catch {
+    return []
+  }
+}
+
+async function generateFlashcardsWithAi(
+  provider: Provider,
+  chapterOutline: string,
+  apiKey: string,
+  openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ flashcards: FlashcardPayload[]; usage: AiCallResult }> {
+  const outline = chapterOutline.trim()
+  if (!outline) {
+    throw new Error('Keine Kapiteldaten für Lernkarten.')
+  }
+
+  const flashcardMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Du erstellst Lernkarten (Karteikarten) für Berufsfachschule EFZ — kaufmännischer Bereich (KV-Lehre).',
+          'Nutze NUR den mitgelieferten Kapiteltext — erfinde keine neuen Themen.',
+          'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+          'Schema: [{"question":"kurze Frage (1 Satz)","answer":"kurze Antwort (1 kurzer Satz)","skillTag":"konzept-slug"}]',
+          'LÄNGE: Frage UND Antwort je HÖCHSTENS EIN kurzer Satz (Richtwert max. ~120 Zeichen). KEINE langen Textblöcke, KEINE Aufzählungen, KEINE Mehrsatz-Erklärungen.',
+          'Pflicht je Karte: "skillTag" = kurzer Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"); gleiche Teilkompetenz immer derselbe skillTag.',
+          'Lege die Anzahl der Karten selbst fest (mindestens 6, höchstens 16) — nur zu den Schwachstellen/Lernlücken im Text, nicht den ganzen Stoff breit wiederholen.',
+          'KRITISCH — "question" darf "answer" nie vorwegnehmen: die Frage muss lösbar sein, ohne dass die Antwort schon im Fragetext steht. Verboten: den gesuchten Begriff in der Frage selbst erklären oder umschreiben (z. B. "Was versteht man unter X, also Y?").',
+          'Auf Deutsch, fachlich korrekt.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: `Gespeicherte Kapitelinhalte (Auszug):\n\n${outline.slice(0, 28000)}`,
+    },
+  ]
+
+  const usage =
+    provider === 'anthropic'
+      ? await callAnthropic(flashcardMessages, apiKey, { maxTokens: 4096 })
+      : await callOpenAi(flashcardMessages, apiKey, openAiModels, openAiPromptCache)
+
+  const cards = parseFlashcardsFromRaw(usage.text)
+  if (cards.length === 0) {
+    throw new Error('Lernkarten konnten nicht aus der KI-Antwort gelesen werden.')
+  }
+  return { flashcards: cards, usage }
+}
+
+async function generateWorksheetWithAi(
+  provider: Provider,
+  chapterOutline: string,
+  apiKey: string,
+  openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+  userPromptOverride?: string,
+): Promise<{ items: WorksheetItemPayload[]; usage: AiCallResult }> {
+  const outline = chapterOutline.trim().slice(0, WORKSHEET_OUTLINE_MAX_CHARS)
+  if (!outline) {
+    throw new Error('Keine Kapiteldaten für Arbeitsblatt.')
+  }
+
+  const worksheetMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Du erstellst ein digitales Lernblatt mit strukturierten Übungsaufgaben für Berufsfachschule EFZ (KV-Lehre).',
+          'Nutze NUR den mitgelieferten Kontext — erfinde keine neuen Themen.',
+          'Antworte ausschließlich mit einem JSON-Array, kein Text davor oder danach.',
+          'Schema pro Aufgabe: {"id":"ws1","prompt":"…","questionType":"mcq|text|match|true_false|categorize","options":[…],"matchLeft":[…],"matchRight":[…],"categories":[…],"items":[…],"expectedAnswer":"…","acceptableAnswers":[],"evaluation":"exact|contains","hint":"…","explanation":"…","skillTag":"konzept-slug"}',
+          'categorize (Begriffe in Kategorien einsortieren, mehrere pro Kategorie erlaubt): Felder "categories" (2–4 Kategorien) und "items" (3–8 Begriffe); "expectedAnswer" = pro Begriff der Kategorie-Index, in der Reihenfolge von items, komma-getrennt (z. B. "0,1,0,1"). KEINE options bei categorize.',
+          'NUTZE categorize statt einer mcq mit kombinierten Paar-Optionen, wenn Begriffe Klassen/Kategorien zugeordnet werden sollen (z. B. direkte vs. indirekte Steuer, Aktivkonto vs. Passivkonto).',
+          'Erzeuge genau 6–8 Aufgaben.',
+          'KOMPAKT: prompt max. 2 kurze Sätze (~280 Zeichen), genau EIN Lernziel pro Aufgabe — keine Sammel-/Glossar-Listen.',
+          'Mix: mindestens 2× mcq, 1× text (kurze Antwort), 1× match, categorize oder true_false.',
+          'MCQ: 3–5 Optionen. Jede Aufgabe braucht expectedAnswer und hint.',
+          'KRITISCH — prompt darf expectedAnswer nie vorwegnehmen: die Aufgabe muss lösbar sein, ohne dass die Lösung schon im prompt-Text steht. Verboten: den gesuchten Begriff im prompt selbst erklären oder umschreiben; bei mcq/match/categorize dürfen options/items die Lösung ebenfalls nicht vorab verraten.',
+          'Pflicht je Aufgabe: "skillTag" = kurzer Konzept-Slug in Kleinbuchstaben mit Bindestrichen (z. B. "mwst-berechnung"); gleiche Teilkompetenz immer derselbe skillTag wie in Kapiteln/Lernkarten.',
+          'Bei Übungsinhalten im Kontext: konkrete Zahlen/Szenarien spiegeln, nicht nur Definitionen abfragen.',
+          'Auf Deutsch, fachlich korrekt.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content:
+        userPromptOverride?.trim() ||
+        `Erstelle ein Lernblatt als JSON-Array (6–8 Aufgaben).\n\nKontext:\n\n${outline}`,
+    },
+  ]
+
+  const usage =
+    provider === 'anthropic'
+      ? await callAnthropic(worksheetMessages, apiKey, { maxTokens: 4096 })
+      : await callOpenAi(worksheetMessages, apiKey, openAiModels, openAiPromptCache)
+
+  const items = parseWorksheetItemsFromRaw(usage.text)
+  if (items.length === 0) {
+    throw new Error('Arbeitsblatt konnte nicht aus der KI-Antwort gelesen werden.')
+  }
+  return { items, usage }
+}
+
+async function generateTopicSuggestionsWithAi(
+  provider: Provider,
+  topic: string,
+  apiKey: string,
+  openAiModels: string[],
+  openAiPromptCache?: OpenAiPromptCacheOptions,
+): Promise<{ suggestions: string[]; usage: AiCallResult }> {
+  const suggestionMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Du erstellst konkrete Unterthemen für Lernen.',
+          'Antworte nur als JSON-Array mit Strings.',
+          'Liefere maximal 5 kurze, konkrete Unterthemen auf Deutsch.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: `Thema: ${topic}`,
+    },
+  ]
+
+  const usage =
+    provider === 'anthropic'
+      ? await callAnthropic(suggestionMessages, apiKey, { maxTokens: 1024 })
+      : await callOpenAi(suggestionMessages, apiKey, openAiModels, openAiPromptCache)
+
+  const suggestions = sanitizeTopicSuggestions(usage.text)
+  if (suggestions.length === 0) {
+    throw new Error('Unterthemen konnten nicht generiert werden.')
+  }
+  return { suggestions, usage }
+}
+
+/** Mit `src/features/chat/constants/aiChatMemory.ts` (AI_CHAT_MEMORY_MAX_TOKENS) übereinstimmen. */
+const MAX_AI_CHAT_MEMORY_TOKENS = 1000
+
+function estimateAiChatMemoryTokensFromLength(length: number): number {
+  return Math.max(1, Math.ceil(length / 4))
+}
+
+function clipAiChatMemoryText(raw: string): string {
+  const t = raw.trim()
+  if (t.length === 0) {
+    return t
+  }
+  if (estimateAiChatMemoryTokensFromLength(t.length) <= MAX_AI_CHAT_MEMORY_TOKENS) {
+    return t
+  }
+  let lo = 0
+  let hi = t.length
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2)
+    if (estimateAiChatMemoryTokensFromLength(mid) <= MAX_AI_CHAT_MEMORY_TOKENS) {
+      lo = mid
+    } else {
+      hi = mid - 1
+    }
+  }
+  return t.slice(0, lo)
+}
+
+function stripOuterMarkdownFence(raw: string): string {
+  let t = raw.trim()
+  if (t.startsWith('```')) {
+    const firstNl = t.indexOf('\n')
+    if (firstNl !== -1) {
+      t = t.slice(firstNl + 1)
+    }
+    const lastFence = t.lastIndexOf('```')
+    if (lastFence !== -1) {
+      t = t.slice(0, lastFence)
+    }
+  }
+  return t.trim()
+}
+
+function injectAiChatMemoryIntoMessages(messages: InputMessage[], memoryText: string): InputMessage[] {
+  const block = [
+    '## Kontext für diese Anfrage (Langzeit-Memory, nicht vom Nutzer geschrieben)',
+    'Langfristiger Nutzerkontext (über Chats gespeichert; vertraulich behandeln):',
+    memoryText,
+    'Nutze diese Angaben nur, wenn sie zur aktuellen Frage passen; wiederhole sie nicht in jeder Antwort wortwörtlich.',
+  ].join('\n\n')
+  return prependBlockToLastUserMessage(messages, block)
+}
+
+async function handleMergeAiChatMemory(
+  userClient: SupabaseClient,
+  admin: SupabaseClient | null,
+  userId: string,
+  body: unknown,
+  apiKey: string,
+): Promise<Response> {
+  const payload =
+    body && typeof body === 'object'
+      ? (body as { payload?: unknown }).payload
+      : undefined
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+  const userMessage = typeof p?.userMessage === 'string' ? p.userMessage.trim().slice(0, 12000) : ''
+  const assistantMessage =
+    typeof p?.assistantMessage === 'string' ? p.assistantMessage.trim().slice(0, 48000) : ''
+
+  if (!userMessage || !assistantMessage) {
+    return jsonResponse({ error: 'Ungültige Daten für Speicher-Merge.' }, 400)
+  }
+
+  const { data: row, error: rowErr } = await userClient
+    .from('profiles')
+    .select('ai_chat_memory, ai_chat_memory_enabled')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (rowErr) {
+    console.error('[chat-completion] merge memory profile read', rowErr.message)
+    return jsonResponse({ error: 'Profil konnte nicht gelesen werden.' }, 500)
+  }
+  if (!row) {
+    return jsonResponse({ error: 'Profil nicht gefunden.' }, 404)
+  }
+  if (row.ai_chat_memory_enabled === false) {
+    const stored = typeof row.ai_chat_memory === 'string' ? row.ai_chat_memory : ''
+    return jsonResponse({
+      skipped: true,
+      ai_chat_memory: clipAiChatMemoryText(stored),
+    })
+  }
+
+  const previousFull = typeof row.ai_chat_memory === 'string' ? row.ai_chat_memory.trim() : ''
+  const previous = clipAiChatMemoryText(previousFull)
+
+  const mergeMessages: InputMessage[] = [
+    {
+      role: 'system',
+      content: withSwissOrthography(
+        [
+          'Du pflegst eine kurze Merkliste über den Nutzer für einen persönlichen Chat-Assistenten.',
+          'Regeln:',
+          '- Ausgabe NUR als Stichpunkte auf Deutsch, Zeilen mit «- ».',
+          `- Die gesamte Merkliste darf höchstens etwa ${MAX_AI_CHAT_MEMORY_TOKENS} Tokens haben (Schätzung: etwa 4 Zeichen pro Token).`,
+          '- Wenn das Limit erreicht wäre: zusammenfassen, Dubletten entfernen, weniger Relevantes / Altes streichen; wichtige und aktuelle Punkte behalten.',
+          '- KEINE Passwörter, API-Schlüssel, vollständigen Adressen oder sensible Gesundheitsdetails.',
+          '- Nur zuverlässige Infos aus dem Gespräch; nichts erfinden.',
+          '- Wenn nichts Neues hinzukommt, gib die bisherigen Notizen fast unverändert zurück.',
+        ].join('\n'),
+      ),
+    },
+    {
+      role: 'user',
+      content: [
+        previous ? `Bisherige Notizen:\n${previous}` : 'Bisherige Notizen: (leer)',
+        '',
+        'Neueste Nutzernachricht:',
+        userMessage,
+        '',
+        'Neueste Assistentenantwort:',
+        assistantMessage,
+      ].join('\n'),
+    },
+  ]
+
+  const usage = await callOpenAi(mergeMessages, apiKey, ['gpt-5-mini', 'gpt-4o-mini'], undefined)
+  await tryLogTokenUsage(admin, userId, 'openai', 'merge_ai_chat_memory', usage)
+
+  const nextMemory = clipAiChatMemoryText(stripOuterMarkdownFence(usage.text))
+
+  const { error: upErr } = await userClient.from('profiles').update({ ai_chat_memory: nextMemory }).eq('id', userId)
+
+  if (upErr) {
+    console.error('[chat-completion] merge memory profile write', upErr.message)
+    return jsonResponse({ error: 'Speicher konnte nicht gespeichert werden.' }, 500)
+  }
+
+  return jsonResponse({ ai_chat_memory: nextMemory })
+}
+
+/**
+ * Straton Gehirn — ein Rollenaufruf (Kapitel 12).
+ *
+ * Der Client sendet nur die Rolle. Die Aufloesung Rolle -> Provider/Modell geschieht hier gegen
+ * `learn_brain_agent_models`, damit ein manipulierter Client sich kein teureres Modell
+ * erschleichen kann und ein Modellwechsel im Admin-Menue ohne Frontend-Deployment wirkt.
+ *
+ * Alle Rollen antworten in JSON; das Parsen in den jeweiligen Rollenvertrag passiert im Client
+ * (`src/features/learn/brain/agents/contracts.ts`). Diese Funktion reicht den Rohtext durch —
+ * sie kennt bewusst keine einzelne Rolle im Detail.
+ */
+async function handleBrainAgent(
+  admin: SupabaseClient | null,
+  userId: string,
+  payload: unknown,
+): Promise<Response> {
+  const input = (payload && typeof payload === 'object' ? payload : {}) as {
+    role?: unknown
+    escalate?: unknown
+    input?: unknown
+  }
+
+  if (!isBrainRole(input.role)) {
+    return jsonResponse({ error: 'Unbekannte Gehirn-Rolle.' }, 400)
+  }
+  const role: BrainRole = input.role
+
+  const binding = await fetchBrainAgentBinding(admin, role)
+  const { provider, model, escalated } = modelForBrainCall(binding, input.escalate === true)
+
+  const systemPrompt = brainSystemPrompt(role)
+  const userPrompt = brainUserMessage(role, input.input ?? {})
+
+  try {
+    if (provider === 'gemini') {
+      const result = await geminiGenerateText(userPrompt, {
+        model: model as GeminiModelId,
+        systemInstruction: systemPrompt,
+        contextCacheKey: BRAIN_PROMPT_CACHE_KEYS[role],
+        maxOutputTokens: binding.maxOutputTokens,
+        // Erzwingt JSON statt Prosa-Drift — die Rollenvertraege sind alle strukturiert.
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+      })
+      await tryLogTokenUsage(admin, userId, 'gemini', `brain_${role}`, {
+        text: result.text,
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        ...(result.usage.cachedInputTokens != null && result.usage.cachedInputTokens > 0
+          ? { cachedPromptTokens: result.usage.cachedInputTokens }
+          : {}),
+      })
+      return jsonResponse({ content: result.text, model: result.model, provider, escalated })
+    }
+
+    const messages: InputMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ]
+
+    if (provider === 'anthropic') {
+      const apiKey = await getProviderApiKey('anthropic')
+      const result = await callAnthropic(messages, apiKey, {
+        model,
+        maxTokens: binding.maxOutputTokens,
+      })
+      await tryLogTokenUsage(admin, userId, 'anthropic', `brain_${role}`, result)
+      return jsonResponse({ content: result.text, model: result.model, provider, escalated })
+    }
+
+    const apiKey = await getProviderApiKey('openai')
+    const result = await callOpenAi(
+      messages,
+      apiKey,
+      [model],
+      { key: BRAIN_PROMPT_CACHE_KEYS[role], retention: '24h' },
+      binding.maxOutputTokens,
+      null,
+      true,
+    )
+    await tryLogTokenUsage(admin, userId, 'openai', `brain_${role}`, result)
+    return jsonResponse({ content: result.text, model: result.model, provider, escalated })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Rollenaufruf fehlgeschlagen.'
+    console.error(`[chat-completion] brain_agent ${role} failed`, message)
+    return jsonResponse({ error: message }, 502)
+  }
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405)
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+  const authHeader = req.headers.get('Authorization')
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return jsonResponse({ error: 'Supabase Umgebungsvariablen fehlen.' }, 500)
+  }
+
+  if (!authHeader) {
+    return jsonResponse({ error: 'Nicht authentifiziert.' }, 401)
+  }
+
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  })
+  const {
+    data: { user },
+    error: authError,
+  } = await userClient.auth.getUser()
+  if (authError || !user) {
+    return jsonResponse({ error: 'Session ist ungültig.' }, 401)
+  }
+
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  const admin: SupabaseClient | null = serviceKey
+    ? createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
+    : null
+
+  const cumulativeUsd = await getUserCumulativeEstimatedCostUsd(admin, user.id)
+  const openAiModelsFromCost = openAiChatModelsForCumulativeCost(cumulativeUsd)
+  const planChatFields = await fetchSubscriptionPlanChatFields(admin, user.id)
+
+  try {
+    const geminiInstantOn = await fetchGeminiInstantEnabled(admin)
+    setRequestGeminiInstantEnabled(geminiInstantOn)
+
+    const body = (await req.json()) as {
+      mode?: unknown
+      provider?: unknown
+      messages?: unknown
+      payload?: { messages?: unknown; topic?: unknown } | unknown
+      /** Optional: max. Ausgabe-Tokens (v. a. Anthropic Chat / Excel-Spec). */
+      maxTokens?: unknown
+      /** `true`: nur OpenAI-Hauptchat — SSE (`text/event-stream`) statt JSON. */
+      stream?: unknown
+      /** Optional: OpenAI-Modellreihenfolge (Chat); sonst Budget-basierte Liste. */
+      openAiModels?: unknown
+      /** Optional: Claude-Modell-ID für Chat (Composer). */
+      anthropicModel?: unknown
+      /** OpenAI Prompt Caching: stabiler Key pro Prompt-Prefix (Chat: vom Client). */
+      promptCacheKey?: unknown
+      /** Optional: `24h` nur wenn das gewählte OpenAI-Modell extended caching unterstützt. */
+      promptCacheRetention?: unknown
+      /** Nur bei `true`: gespeicherten Nutzer-Kontext für den Hauptchat einfügen (nicht Excel/Lernpfad). */
+      includeProfileMemory?: unknown
+      /** Thinking-Modus-Flag (Modellwahl); Budget läuft über den allgemeinen KI-Credits-Vorab-Check. */
+      billingConsumeThinkingCredit?: unknown
+      /** Client: Foto-Data-URL für Vision (nicht in DB; iOS-Pfad). */
+      visionInlineDataUrl?: unknown
+      /** Gemini Instant: `gemini-3.1-flash-lite` oder `gemini-2.5-flash`. */
+      geminiModel?: unknown
+      geminiPromptCacheKey?: unknown
+      /** Client: Instant-Aufgabentyp — `summary` erzwingt OpenAI statt Gemini. */
+      instantTaskType?: unknown
+      /** Composer: bewusst gewähltes Chat-Modell; hier gegen die Sperrliste des Abos geprüft. */
+      chatModelId?: unknown
+      /** `instant_analyze`: Nutzer hat explizit ein Anthropic-Modell gewählt — Einordnung auf Claude
+       *  Haiku statt Gemini/OpenAI, kein Fremdanbieter-Aufruf pro Turn (M4). */
+      preferAnthropicAnalyze?: unknown
+    }
+    const openAiModelsOverride = sanitizeOpenAiModelsOverride(body.openAiModels)
+    let openAiModels = openAiModelsOverride ?? openAiModelsFromCost
+    let anthropicModelChat = sanitizeAnthropicModelOverride(body.anthropicModel)
+    let mode = normalizeMode(body.mode)
+    const outlinePreview = chapterOutlineFromBody(body.payload)
+    // Ohne gültigen mode landet ein Lernkarten-Request sonst im Chat-Zweig (leere messages → 400).
+    if (mode === 'chat' && outlinePreview) {
+      mode = 'generate_flashcards'
+    }
+
+    if (mode === 'merge_ai_chat_memory') {
+      const apiKeyMerge = await getProviderApiKey('openai')
+      return await handleMergeAiChatMemory(userClient, admin, user.id, body, apiKeyMerge)
+    }
+
+    /* Gehirn-Rollen: eigener Zweig VOR der Provider-Aufloesung des Chats. Die Rolle bestimmt
+       Provider und Modell selbst (Kapitel 12) — die Chat-Logik darunter wuerde sie ueberschreiben. */
+    if (mode === 'brain_agent') {
+      return await handleBrainAgent(admin, user.id, body.payload)
+    }
+
+    let provider = normalizeProvider(body.provider)
+    let activeLearnAiConfig: LearnAiConfig | null = null
+    if (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor' || mode === 'learn_syllabus') {
+      activeLearnAiConfig = await fetchActiveLearnAiConfig(admin)
+      provider = activeLearnAiConfig.provider
+      if (provider === 'openai') {
+        openAiModels = [activeLearnAiConfig.model, ...DEFAULT_OPENAI_CHAT_MODELS]
+      } else if (provider === 'anthropic') {
+        anthropicModelChat = activeLearnAiConfig.model
+      }
+    }
+
+    /* Hat die Person im Composer ein Modell gewählt, gilt es — aber nur, wenn das Abo es nicht
+       sperrt. Der Client graut gesperrte Modelle bereits aus; verlassen kann man sich darauf nicht,
+       deshalb hier noch einmal prüfen. Ein gesperrtes Modell fällt auf die automatische Kette
+       zurück, statt die Anfrage abzuweisen — die Antwort kommt dann eben ohne Wunschmodell. */
+    const requestedChatModelId =
+      typeof body.chatModelId === 'string' && body.chatModelId.trim() ? body.chatModelId.trim() : null
+    const chatModelIsBlocked =
+      requestedChatModelId !== null &&
+      (planChatFields?.chat_blocked_model_ids ?? []).includes(requestedChatModelId)
+    if (mode === 'chat' && chatModelIsBlocked) {
+      console.warn('[chat-completion] blockiertes Chat-Modell angefordert', requestedChatModelId)
+      provider = 'openai'
+      anthropicModelChat = null
+      openAiModels = [...DEFAULT_OPENAI_CHAT_MODELS]
+    }
+
+    /* Die Tages-Staffelung greift nur, solange Smart Instant das Modell selbst wählt. Eine gültige
+       Modellwahl setzt sie ausser Kraft — wer ein Modell wählt, bekommt dieses Modell. */
+    const chatModelChosen = requestedChatModelId !== null && !chatModelIsBlocked
+    if (
+      mode === 'chat' &&
+      provider === 'openai' &&
+      body.instantTaskType !== 'summary' &&
+      body.includeProfileMemory === true &&
+      !chatModelChosen &&
+      admin
+    ) {
+      const usedToday = await fetchSubscriptionUsedTokensToday(admin, user.id)
+      if (usedToday !== null) {
+        const tier = planChatFields?.dailyOpenAiTier ?? DEFAULT_PLAN_DAILY_OPENAI_TIER
+        openAiModels = mainChatOpenAiModelsForPlanDailyUsage(usedToday, tier)
+      }
+    }
+
+    const thinkingTaskTypeRoutingForChat =
+      mode === 'chat' && body.billingConsumeThinkingCredit === true
+        ? await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+        : null
+    const taskTypeOverrideForChat = thinkingTaskTypeRoutingForChat
+      ? resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRoutingForChat)
+      : null
+
+    if (mode === 'chat' && provider === 'openai' && body.billingConsumeThinkingCredit === true) {
+      const thinkingTierForModels = taskTypeOverrideForChat?.tier ?? 'standard'
+      const thinkingRichChat =
+        body.thinkingRichOpenAi === true || thinkingTierForModels === 'rich'
+      if (thinkingRichChat) {
+        const richChain = resolveThinkingOpenAiModelsForRequest('rich', openAiModelsOverride)
+        openAiModels =
+          taskTypeOverrideForChat?.provider === 'openai'
+            ? [taskTypeOverrideForChat.model, ...richChain.filter((m) => m !== taskTypeOverrideForChat.model)]
+            : richChain
+      } else if (!isGeminiInstantEnabled()) {
+        openAiModels =
+          taskTypeOverrideForChat?.provider === 'openai'
+            ? [
+                taskTypeOverrideForChat.model,
+                ...THINKING_PIPELINE_OPENAI_MODELS.filter((m) => m !== taskTypeOverrideForChat.model),
+              ]
+            : [...THINKING_PIPELINE_OPENAI_MODELS]
+      }
+    }
+
+    /*
+     * KI-Credits-Vorab-Veto, BEVOR ein kostenpflichtiger Aufruf rausgeht. Steht bewusst erst hier:
+     * weiter oben sind `provider`, `openAiModels` und `anthropicModelChat` noch nicht endgültig —
+     * Lern-KI-Konfiguration, Abo-Sperrliste, Tages-Staffelung und Denk-Routing können sie noch
+     * ändern. Zwischen der alten Position und dieser passiert kein bezahlter KI-Aufruf, nur
+     * Datenbank-Leserei. Nutzt jetzt dieselbe `AI_CREDITS_EXCLUDED_MODES`-Liste wie die eigentliche
+     * Abbuchung weiter oben (vorher stand hier nur `mode !== 'generate_title'` — die Lernpfad-Modes
+     * liefen dadurch trotz eigenem Kontingent zusätzlich gegen das Chat-Tagesguthaben).
+     *
+     * Geschätzt wird zum Tarif des Modells, das die Anfrage tatsächlich bekommt. Vorher lief jede
+     * Schätzung über den teuersten Tarif der Preistabelle, was günstige Modelle massiv benachteiligt
+     * hat (bis zu 1200 Credits veranschlagt für einen Turn, der 9 kostet).
+     */
+    if (admin && !AI_CREDITS_EXCLUDED_MODES.has(mode)) {
+      const reservationInputTokens = estimateReservationInputTokens(body)
+      const reservationOutputTokens = reservationOutputTokensFromBody(body.maxTokens)
+      const reservationModel = reservationModelForRequest(provider, openAiModels, anthropicModelChat, body)
+      const { data: canAfford, error: creditsCheckErr } = await admin.rpc(
+        'check_ai_credits_available_for_request',
+        {
+          p_user_id: user.id,
+          p_input_tokens: reservationInputTokens,
+          p_output_tokens: reservationOutputTokens,
+          p_provider: provider,
+          p_model: reservationModel,
+        },
+      )
+      if (creditsCheckErr) {
+        console.error('[chat-completion] check_ai_credits_available_for_request failed', creditsCheckErr.message)
+      } else if (canAfford === false) {
+        console.log(
+          `[chat-completion] ai credits veto: ${provider}/${reservationModel}, ~${reservationInputTokens} in / ${reservationOutputTokens} out`,
+        )
+        return jsonResponse(
+          {
+            error: 'AI_CREDITS_LIMIT',
+            message:
+              'Dein KI-Credits-Guthaben ist aufgebraucht. Es wird täglich (UTC) entsprechend deinem Abo wieder aufgeladen.',
+          },
+          402,
+        )
+      }
+    }
+
+    let apiKey = await getProviderApiKey(provider)
+    const clientPromptCacheKey = sanitizePromptCacheKey(body.promptCacheKey)
+    const clientPromptCacheRetention = sanitizePromptCacheRetention(body.promptCacheRetention)
+
+    if (mode === 'evaluate_quiz') {
+      const payload = sanitizeQuizEvaluationPayload(body.payload)
+      if (!payload) {
+        return jsonResponse({ error: 'Ungültige Bewertungsdaten übermittelt.' }, 400)
+      }
+
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { evaluation, usage } = await evaluateQuizWithAi(
+        provider,
+        payload,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, provider, mode, usage)
+      return jsonResponse({ evaluation })
+    }
+
+    if (mode === 'generate_topic_suggestions') {
+      const topic = typeof (body.payload as { topic?: unknown } | undefined)?.topic === 'string'
+        ? String((body.payload as { topic?: unknown }).topic).trim()
+        : ''
+      if (!topic) {
+        return jsonResponse({ error: 'Kein gültiges Thema übermittelt.' }, 400)
+      }
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { suggestions, usage } = await generateTopicSuggestionsWithAi(
+        provider,
+        topic,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, provider, mode, usage)
+      return jsonResponse({ suggestions })
+    }
+
+    if (mode === 'generate_flashcards') {
+      const outline = outlinePreview
+      if (!outline) {
+        return jsonResponse({ error: 'Kein Kapitelkontext für Lernkarten übermittelt.' }, 400)
+      }
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { flashcards, usage } = await generateFlashcardsWithAi(
+        provider,
+        outline,
+        apiKey,
+        openAiModels,
+        openAiPc,
+      )
+      await tryLogTokenUsage(admin, user.id, provider, mode, usage)
+      return jsonResponse({ flashcards })
+    }
+
+    if (mode === 'generate_worksheet') {
+      const outline = outlinePreview
+      if (!outline) {
+        return jsonResponse({ error: 'Kein Kapitelkontext für Arbeitsblatt übermittelt.' }, 400)
+      }
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const userPromptOverride = worksheetUserPromptFromBody(body.payload)
+      const { items, usage } = await generateWorksheetWithAi(
+        provider,
+        outline,
+        apiKey,
+        openAiModels,
+        openAiPc,
+        userPromptOverride,
+      )
+      await tryLogTokenUsage(admin, user.id, provider, mode, usage)
+      return jsonResponse({ worksheetItems: items })
+    }
+
+    /** Payload-only — kein `body.messages` (z. B. Dokument-Extraktion vor dem Chat-Send). */
+    if (mode === 'document_extract') {
+      try {
+        const { documents, fileBlocks } = await handleDocumentExtract(
+          userClient,
+          user.id,
+          body.payload,
+        )
+        if (admin) {
+          const totalChars = documents.reduce((sum, d) => sum + d.charCount, 0)
+          console.info('[chat-completion] document_extract', {
+            userId: user.id,
+            files: documents.length,
+            totalChars,
+            methods: documents.map((d) => d.extractionMethod),
+            geminiInstantEnabled: isGeminiInstantEnabled(),
+          })
+        }
+        return jsonResponse({ documents, fileBlocks })
+      } catch (extractErr) {
+        const msg = extractErr instanceof Error ? extractErr.message : String(extractErr)
+        return jsonResponse({ error: msg }, 400)
+      }
+    }
+
+    if (mode === 'instant_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Instant-Einordnung.' }, 400)
+      }
+      if (body.preferAnthropicAnalyze === true) {
+        const anthropicKey = await getProviderApiKey('anthropic')
+        const { analyze, usage } = await instantAnalyzeWithAnthropic(
+          anthropicKey,
+          analyzePayload.userMessage,
+          analyzePayload.contextBlock,
+        )
+        await tryLogTokenUsage(admin, user.id, 'anthropic', mode, usage)
+        return jsonResponse({ analyze })
+      }
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'instant_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const analyzeModels = await fetchActiveAnalyzeModels(admin)
+      const openAiKey = await getProviderApiKey('openai')
+      const { analyze, usage } = await instantAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        withModelPromptCacheSuffix(openAiPc, analyzeModels.instant),
+        analyzeModels.instant,
+      )
+      const loggedProvider = usage.model.includes('gemini') ? 'gemini' : 'openai'
+      await tryLogTokenUsage(admin, user.id, loggedProvider, mode, usage)
+      return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_analyze') {
+      const analyzePayload = sanitizeInstantAnalyzeRequestPayload(body.payload)
+      if (!analyzePayload) {
+        return jsonResponse({ error: 'Keine gültige Nutzeranfrage für Thinking-Analyse.' }, 400)
+      }
+      const analyzeModels = await fetchActiveAnalyzeModels(admin)
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_analyze',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const { analyze, usage } = await thinkingAnalyzeWithAi(
+        openAiKey,
+        analyzePayload.userMessage,
+        analyzePayload.contextBlock,
+        withModelPromptCacheSuffix(openAiPc, analyzeModels.thinking),
+        analyzeModels.thinking,
+      )
+      const loggedProvider = usage.model.includes('gemini') ? 'gemini' : 'openai'
+      await tryLogTokenUsage(admin, user.id, loggedProvider, mode, usage)
+      return jsonResponse({ analyze })
+    }
+
+    if (mode === 'thinking_draft') {
+      const draftPayload = sanitizeThinkingDraftRequestPayload(body.payload)
+      if (!draftPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Entwurf.' }, 400)
+      }
+      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
+      const thinkingTaskTypeRouting = await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+      const taskTypeOverride = resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRouting)
+      const thinkingOutputTier = taskTypeOverride?.tier ?? 'standard'
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = withModelPromptCacheSuffix(
+        resolveOpenAiPromptCacheForRequest('thinking_draft', clientPromptCacheKey, clientPromptCacheRetention),
+        taskTypeOverride?.provider === 'openai' ? taskTypeOverride.model : 'gpt-5-mini',
+      )
+      const thinkingRichModels = sanitizeOpenAiModelsOverride(body.openAiModels)
+      const { draft, usage } = await thinkingDraftWithAi(
+        openAiKey,
+        draftPayload.userMessage,
+        draftPayload.contextBlock,
+        draftPayload.analyzeBriefing,
+        openAiPc,
+        thinkingGeminiModels,
+        thinkingOutputTier,
+        body.geminiModel,
+        body.geminiPromptCacheKey,
+        thinkingRichModels ?? undefined,
+        taskTypeOverride,
+      )
+      await tryLogTokenUsage(
+        admin,
+        user.id,
+        taskTypeOverride?.provider ?? (isGeminiInstantEnabled() ? 'gemini' : 'openai'),
+        mode,
+        usage,
+      )
+      return jsonResponse({ draft })
+    }
+
+    if (mode === 'thinking_review') {
+      const reviewPayload = sanitizeThinkingReviewRequestPayload(body.payload)
+      if (!reviewPayload) {
+        return jsonResponse({ error: 'Keine gültigen Daten für Thinking-Review.' }, 400)
+      }
+      const thinkingGeminiModels = await fetchActiveThinkingGeminiModels(admin)
+      const thinkingTaskTypeRoutingForReview = await fetchActiveThinkingTaskTypeRoutingEdge(admin)
+      const thinkingOutputTier =
+        resolveThinkingTaskTypeRoutingEdge(body.thinkingTaskType, thinkingTaskTypeRoutingForReview)?.tier ??
+        'standard'
+      const openAiKey = await getProviderApiKey('openai')
+      const openAiPc = resolveOpenAiPromptCacheForRequest(
+        'thinking_review',
+        clientPromptCacheKey,
+        clientPromptCacheRetention,
+      )
+      const thinkingRichModels = sanitizeOpenAiModelsOverride(body.openAiModels)
+      const { review, usage } = await thinkingReviewWithAi(
+        openAiKey,
+        reviewPayload.userMessage,
+        reviewPayload.analyzeBriefing,
+        reviewPayload.draftText,
+        openAiPc,
+        thinkingGeminiModels,
+        thinkingOutputTier,
+        body.geminiModel,
+        body.geminiPromptCacheKey,
+        thinkingRichModels ?? undefined,
+      )
+      await tryLogTokenUsage(
+        admin,
+        user.id,
+        thinkingOutputTier === 'rich' ? 'openai' : isGeminiInstantEnabled() ? 'gemini' : 'openai',
+        mode,
+        usage,
+      )
+      return jsonResponse({ review })
+    }
+
+    const inputMessages =
+      mode === 'generate_title'
+        ? Array.isArray((body.payload as { messages?: unknown } | undefined)?.messages)
+          ? ((body.payload as { messages?: unknown }).messages as unknown[])
+          : []
+        : Array.isArray(body.messages)
+          ? body.messages
+          : []
+
+    const messages: InputMessage[] = inputMessages
+      .map((message) => {
+        const role = typeof message?.role === 'string' ? message.role : 'user'
+        const content = typeof message?.content === 'string' ? message.content.trim() : ''
+        if (!content) {
+          return null
+        }
+        if (role !== 'user' && role !== 'assistant' && role !== 'system') {
+          return null
+        }
+        return {
+          role,
+          content,
+        } as InputMessage
+      })
+      .filter((entry): entry is InputMessage => entry !== null)
+
+    if (messages.length === 0) {
+      return jsonResponse({ error: 'Keine gültigen Nachrichten übermittelt.' }, 400)
+    }
+
+    if (mode === 'generate_title') {
+      if (provider === 'openai') {
+        openAiModels = [...GENERATE_TITLE_OPENAI_MODELS]
+      }
+      const openAiPc = provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+      const { title, usage } = await generateTitleWithAi(provider, messages, apiKey, openAiModels, openAiPc)
+      await tryLogTokenUsage(admin, user.id, provider, mode, usage)
+      return jsonResponse({ title })
+    }
+
+    const includeProfileMemory = body.includeProfileMemory === true
+    let chatMessages = messages
+    if (mode === 'chat' && includeProfileMemory) {
+      const { data: memRow } = await userClient
+        .from('profiles')
+        .select('ai_chat_memory, ai_chat_memory_enabled')
+        .eq('id', user.id)
+        .maybeSingle()
+      const enabled = memRow && memRow.ai_chat_memory_enabled !== false
+      const memRaw = typeof memRow?.ai_chat_memory === 'string' ? memRow.ai_chat_memory.trim() : ''
+      const memText = clipAiChatMemoryText(memRaw)
+      if (enabled && memText.length > 0) {
+        chatMessages = injectAiChatMemoryIntoMessages(messages, memText)
+      }
+    }
+
+    if (mode === 'chat') {
+      chatMessages = sanitizeInputMessages(
+        injectWordExportMarkdownConventionSystemMessage(chatMessages),
+      )
+    } else {
+      chatMessages = sanitizeInputMessages(chatMessages)
+    }
+
+    // Denken zieht seit dem Credits-System aus demselben KI-Credits-Pool wie der reguläre Chat —
+    // das Vorab-Veto weiter oben (check_ai_credits_available_for_request) deckt das bereits ab,
+    // eine separate Thinking-Guthaben-Prüfung (vormals `consume_one_thinking_credit`) entfällt.
+
+    const rawMax = body.maxTokens
+    const chatMaxTokens =
+      typeof rawMax === 'number' && Number.isFinite(rawMax) && rawMax >= 64
+        ? Math.min(16384, Math.floor(rawMax))
+        : undefined
+
+    const visionInlineRaw =
+      typeof body.visionInlineDataUrl === 'string' ? body.visionInlineDataUrl.trim() : ''
+    const resolvedVisionUrl =
+      visionInlineRaw.startsWith('data:image/') ? resolveVisionUrlFromBody(visionInlineRaw) : null
+    if (visionInlineRaw.startsWith('data:image/')) {
+      console.log('[chat-completion] vision body', {
+        rawLen: visionInlineRaw.length,
+        resolved: Boolean(resolvedVisionUrl),
+        resolvedLen: resolvedVisionUrl?.length ?? 0,
+      })
+    }
+    const chatHasVision =
+      mode === 'chat' &&
+      (chatMessages.some((m) => m.role === 'user' && messageContentHasVisionPayload(m.content)) ||
+        Boolean(resolvedVisionUrl))
+    if (chatHasVision) {
+      chatMessages = await resolveChatMessagesVisionForOpenAi(
+        chatMessages,
+        userClient,
+        resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
+        admin,
+      )
+      const useGeminiForVision = isGeminiInstantEnabled() || provider === 'gemini'
+      if (provider === 'openai' && !useGeminiForVision) {
+        /** Nur ohne Smart Instant Gemini — sonst Vision über Gemini 3.1 Flash Lite. */
+        openAiModels = ['gpt-4o', 'gpt-4o-mini']
+      }
+    }
+
+    const thinkingGeminiModelsForChat =
+      mode === 'chat' && body.billingConsumeThinkingCredit === true
+        ? await fetchActiveThinkingGeminiModels(admin)
+        : null
+    const thinkingOutputTierForChat = taskTypeOverrideForChat?.tier ?? 'standard'
+    const geminiModelOverride =
+      mode === 'chat' &&
+      body.billingConsumeThinkingCredit === true &&
+      isGeminiInstantEnabled()
+        ? resolveThinkingGeminiModelEdge(
+            thinkingOutputTierForChat,
+            thinkingGeminiModelsForChat,
+            taskTypeOverrideForChat?.provider === 'gemini' ? taskTypeOverrideForChat.model : body.geminiModel,
+          )
+        : sanitizeGeminiModelOverride(body.geminiModel)
+    const geminiPromptCacheKey = sanitizePromptCacheKey(body.geminiPromptCacheKey)
+    const thinkingRichOpenAi =
+      body.billingConsumeThinkingCredit === true &&
+      (body.thinkingRichOpenAi === true || thinkingOutputTierForChat === 'rich')
+    const useGeminiThinkingChat =
+      mode === 'chat' &&
+      body.billingConsumeThinkingCredit === true &&
+      isGeminiInstantEnabled() &&
+      provider !== 'anthropic' &&
+      (!thinkingRichOpenAi || taskTypeOverrideForChat?.provider === 'gemini')
+
+    if (useGeminiThinkingChat) {
+      await getProviderApiKey('gemini')
+      const thinkingCacheKey =
+        geminiPromptCacheKey ??
+        resolveThinkingGeminiContextCacheKeyEdge('reply', thinkingOutputTierForChat)
+      try {
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: geminiModelOverride,
+          maxOutputTokens: chatMaxTokens,
+          contextCacheKey: thinkingCacheKey,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] thinking chat gemini unavailable, fallback openai', geminiErr)
+      }
+    }
+
+    const useGeminiMainChat =
+      mode === 'chat' &&
+      body.billingConsumeThinkingCredit !== true &&
+      body.instantTaskType !== 'summary' &&
+      provider !== 'anthropic' &&
+      (provider === 'gemini' || (isGeminiInstantEnabled() && provider === 'openai'))
+
+    if (useGeminiMainChat) {
+      await getProviderApiKey('gemini')
+      try {
+        const mainChatCacheKey =
+          geminiPromptCacheKey === GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            ? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+            : geminiPromptCacheKey ?? GEMINI_CONTEXT_CACHE_INSTANT_REPLY
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: geminiModelOverride,
+          maxOutputTokens: chatMaxTokens,
+          contextCacheKey: mainChatCacheKey,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] main chat gemini unavailable, fallback openai', geminiErr)
+      }
+    }
+
+    if (body.stream === true && mode === 'chat' && provider === 'openai') {
+      const openAiPc = resolveOpenAiPromptCacheForRequest('chat', clientPromptCacheKey, clientPromptCacheRetention)
+      return await handleOpenAiChatStream(
+        user.id,
+        admin,
+        chatMessages,
+        apiKey,
+        openAiModels,
+        openAiPc,
+        chatMaxTokens,
+        resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
+      )
+    }
+
+    const openAiChatPc =
+      provider === 'openai'
+        ? resolveOpenAiPromptCacheForRequest(mode, clientPromptCacheKey, clientPromptCacheRetention)
+        : undefined
+
+    const isLearnGeminiMode =
+      (mode === 'learn_setup_topic' || mode === 'learn_entry_quiz' || mode === 'learn_tutor') &&
+      provider === 'gemini'
+
+    if (isLearnGeminiMode && activeLearnAiConfig) {
+      await getProviderApiKey('gemini')
+      const learnGeminiModel = learnModelIdToGeminiModel(activeLearnAiConfig.model)
+      const learnCacheKey = resolveLearnGeminiContextCacheKey(
+        mode,
+        typeof body.geminiPromptCacheKey === 'string' ? body.geminiPromptCacheKey : undefined,
+      )
+      try {
+        const geminiResult = await geminiChatCompletion(chatMessages, {
+          model: learnGeminiModel,
+          maxOutputTokens: chatMaxTokens ?? 12288,
+          contextCacheKey: learnCacheKey,
+        })
+        await tryLogTokenUsage(admin, user.id, 'gemini', mode, {
+          text: geminiResult.text,
+          model: geminiResult.model,
+          inputTokens: geminiResult.inputTokens,
+          outputTokens: geminiResult.outputTokens,
+          ...(geminiResult.cachedInputTokens != null && geminiResult.cachedInputTokens > 0
+            ? { cachedPromptTokens: geminiResult.cachedInputTokens }
+            : {}),
+        })
+        return jsonResponse({
+          assistantMessage: {
+            role: 'assistant',
+            content: geminiResult.text,
+          },
+        })
+      } catch (geminiErr) {
+        if (!isGeminiTransientFailure(geminiErr)) {
+          throw geminiErr
+        }
+        console.warn('[chat-completion] learn gemini unavailable, fallback openai', geminiErr)
+        provider = 'openai'
+        openAiModels = [LEARN_AI_DEFAULT_OPENAI_MODEL, ...DEFAULT_OPENAI_CHAT_MODELS]
+        apiKey = await getProviderApiKey('openai')
+      }
+    }
+
+    const chatUsage =
+      provider === 'anthropic'
+        ? await callAnthropicFirstSuccessful(
+            chatMessages,
+            apiKey,
+            buildAnthropicChatModelChain(anthropicModelChat),
+            chatMaxTokens ?? 8192,
+          )
+        : await callOpenAi(
+            chatMessages,
+            apiKey,
+            openAiModels,
+            openAiChatPc,
+            chatMaxTokens,
+            resolvedVisionUrl ?? (visionInlineRaw.startsWith('data:image/') ? visionInlineRaw : null),
+          )
+
+    await tryLogTokenUsage(admin, user.id, provider, mode, chatUsage)
+
+    return jsonResponse({
+      assistantMessage: {
+        role: 'assistant',
+        content: chatUsage.text,
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unbekannter Serverfehler.'
+    return jsonResponse({ error: message }, 500)
+  }
+})

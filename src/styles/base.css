@@ -1,0 +1,236 @@
+:root {
+  /* Browser-Tab: dynamische Viewport-Höhe. PWA-Override steht unten (100lvh), damit es nicht überschrieben wird. */
+  --straton-app-height: 100vh;
+  --straton-app-height: 100dvh;
+  --font-weight-body: 500;
+  --font-weight-medium: 600;
+  font-family:
+    'Inter Variable',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-optical-sizing: auto;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--color-text-app);
+  background-color: var(--color-bg-app);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #14b8a6 52%, #0ea5e9 100%);
+  /* Primary-Buttons: dunkles Navy → helles Ozeanblau (Verlauf nach rechts) */
+  --primary-button-gradient: linear-gradient(
+    90deg,
+    #0f172a 0%,
+    #1d4ed8 38%,
+    #38bdf8 72%,
+    #bae6fd 100%
+  );
+  --accent-gradient-line: linear-gradient(
+    90deg,
+    rgba(37, 99, 235, 0),
+    #2563eb 18%,
+    #14b8a6 58%,
+    rgba(14, 165, 233, 0)
+  );
+  /* Mobile FAB «Chat»: Vordergrund auf Akzentfläche (wird von applyAccentPalette gesetzt) */
+  --accent-fab-fg: #ffffff;
+  /* Senden-Icon auf Akzent-Kreis (Monochrom-SVG → wird von applyAccentPalette gesetzt) */
+  --composer-send-icon-filter: brightness(0) invert(1);
+}
+
+/* Inter Variable (200–800): Fliesstext eine Stufe kräftiger; Fallback bleibt 400. */
+@supports (font-variation-settings: normal) {
+  :root {
+    font-weight: var(--font-weight-body);
+  }
+}
+
+/*
+ * Installierte PWA / Vollbild: 100dvh/100svh sind hier oft niedriger als der sichtbare Bereich — Lücke unten.
+ * 100lvh = «large» Viewport (ohne Browser-Chrome) ≈ volle nutzbare Fläche inkl. Home-Indicator-Zone.
+ */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --straton-app-height: 100vh;
+    --straton-app-height: 100lvh;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Volle Safe Area: gleicher Hintergrund wie die App bis ganz oben (verhindert weisse/flackernde Notch-Zone) */
+html {
+  margin: 0;
+  min-height: var(--straton-app-height);
+  background: var(--app-background);
+  background-attachment: fixed;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: var(--straton-app-height);
+  background: var(--app-background);
+  background-attachment: fixed;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: var(--radius-full);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-link-hover);
+}
+
+#root {
+  min-height: var(--straton-app-height);
+  height: var(--straton-app-height);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobil: Safe-Bottom liegt in den Screens (z. B. chat-panel); hier kein zusätzlicher Abstand — sonst wirkt die Fläche «zu kurz» */
+@media (max-width: 860px) {
+  #root {
+    padding-bottom: 0;
+  }
+}
+
+button {
+  font: inherit;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  padding: 0.65rem 0.8rem;
+  background: var(--color-surface);
+  color: var(--color-text-app);
+  cursor: pointer;
+}
+
+/* Text-Inputs: nur Bodenlinie; Akzent bei :focus-visible über Verlauf (siehe --accent-gradient-line in :root) */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search) {
+  font: inherit;
+  width: 100%;
+  margin: 0;
+  padding: 0.72rem 0.95rem;
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-sm) var(--radius-sm);
+  background-color: var(--input-field-bg);
+  background-image: none;
+  background-size: auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  color: var(--input-field-text);
+  border-bottom: 1px solid var(--input-field-border-idle);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search)::placeholder {
+  color: var(--input-field-placeholder);
+  opacity: 1;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus-visible {
+  outline: none;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):focus-visible {
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  border-bottom-color: transparent;
+  box-shadow: var(--input-field-shadow-focus);
+  caret-color: var(--input-field-text);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']):not(
+    [type='submit']
+  ):not([type='button']):not([type='reset']):not([type='image']):not([type='color']):not(
+    .chat-input
+  ):not(.interactive-quiz-answer-input):not(.chat-email-draft-subject-input):not(.settings-menu-search):disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) {
+  button:hover:enabled {
+    border-color: var(--interactive-hover-border);
+    background: var(--interactive-hover-bg);
+  }
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error-text {
+  color: var(--color-error);
+  margin: 0;
+}

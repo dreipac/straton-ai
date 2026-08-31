@@ -1,0 +1,1788 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { type ContentBottomSheetHandle } from '../components/ui/bottom-sheet/ContentBottomSheet'
+import { useAuth } from '../features/auth/context/useAuth'
+import {
+  getAvatarFallbackLetter,
+  getGreetingFirstName,
+  getUserDisplayName,
+} from '../features/auth/utils/userDisplay'
+import {
+  parseChatDailyTierConfigFromPlan,
+  parseThinkingTierConfigFromPlan,
+} from '../features/chat/constants/chatDailyOpenAiTier'
+import { resolveChatProfileIdentity } from '../features/chat/constants/chatProfileIdentityContext'
+import { resolveChatUserIntroduction } from '../features/chat/constants/chatUserIntroductionContext'
+import { resolveChatSubscriptionUsageContext } from '../features/chat/constants/chatSubscriptionUsageContext'
+import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
+import { getBlockedChatModelIds } from '../features/chat/constants/chatComposerModels'
+import { ChatOnboardingTour } from '../features/chat/components/ChatOnboardingTour'
+import { ChatEndSharingDialogs } from '../features/chat/components/chat-page/ChatEndSharingDialogs'
+import { ChatLearningPathDraftSidebar } from '../features/chat/components/chat-page/ChatLearningPathDraftSidebar'
+import { ChatMainCollaborationToolbar } from '../features/chat/components/chat-page/ChatMainCollaborationToolbar'
+import { ChatPageGuestView } from '../features/chat/components/chat-page/ChatPageGuestView'
+import { ChatPageMobileBottomDock } from '../features/chat/components/chat-page/ChatPageMobileBottomDock'
+import { ChatPageMobileTopBar } from '../features/chat/components/chat-page/ChatPageMobileTopBar'
+import { ChatPageOverlays } from '../features/chat/components/chat-page/ChatPageOverlays'
+import { ChatPageSidebar } from '../features/chat/components/chat-page/ChatPageSidebar'
+import { CHAT_PAGE_MODAL_ANIMATION_MS } from '../features/chat/components/chat-page/chatPageConstants'
+import { ChatFoldersMobilePanel } from '../features/chat/components/ChatFoldersMobilePanel'
+import { ChatFolderOverview } from '../features/chat/components/ChatFolderOverview'
+import { ChatFriendsOverview } from '../features/friends/components/ChatFriendsOverview'
+import { useFriends } from '../features/friends/hooks/useFriends'
+import type { ChatFriendsOverviewTab } from '../features/friends/types'
+import { ChatNewsOverview } from '../features/news/components/ChatNewsOverview'
+import { ChatSidebarThreadRow } from '../features/chat/components/ChatSidebarThreadRow'
+import { ChatWindow } from '../features/chat/components/ChatWindow'
+import { ChatHomeDashboard } from '../features/chat/components/ChatHomeDashboard'
+import { ChatDueFlashcardsScreen } from '../features/chat/components/ChatDueFlashcardsScreen'
+import { InviteToChatModal } from '../features/chat/components/InviteToChatModal'
+import { useChat } from '../features/chat/hooks/useChat'
+import { useChatFolders } from '../features/chat/hooks/useChatFolders'
+import { useChatFolderFiles } from '../features/chat/hooks/useChatFolderFiles'
+import { useChatPageCollaboration } from '../features/chat/hooks/useChatPageCollaboration'
+import { useChatPageFeatureFlags } from '../features/chat/hooks/useChatPageFeatureFlags'
+import { useChatLearningPathDraft } from '../features/chat/hooks/useChatLearningPathDraft'
+import { useChatPageMenus } from '../features/chat/hooks/useChatPageMenus'
+import { useChatPageMobileShell } from '../features/chat/hooks/useChatPageMobileShell'
+import { useChatPageModals } from '../features/chat/hooks/useChatPageModals'
+import { useChatPageOverlayDismiss } from '../features/chat/hooks/useChatPageOverlayDismiss'
+import { useGuestChatComposerPrefs } from '../features/chat/hooks/useGuestChatComposerPrefs'
+import { getChatPageTokenLimitReached } from '../features/chat/utils/chatPageSubscriptionDisplay'
+import { useChatPageEnter, useChatThreadListSkeletonVisibility } from '../features/chat/hooks/useChatPageEnter'
+import type { ChatFolderOverviewTab, ChatThread } from '../features/chat/types'
+import { createChatFolderFileSignedUrl, listChatFolderFiles } from '../features/chat/services/chat.folderFiles'
+import { hapticLightImpact } from '../utils/haptics'
+import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
+import { useChatToolbarMobileViewport } from '../hooks/useChatToolbarMobileViewport'
+import { useMobileSidebarEdgeSwipe } from '../hooks/useMobileSidebarEdgeSwipe'
+import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
+import { useToast } from '../components/toast/ToastProvider'
+import { useNewsUnreadCount } from '../features/news/hooks/useNewsUnreadCount'
+import { AuthSessionBootstrap } from '../features/auth/components/AuthSessionBootstrap'
+import { LearnPage } from './LearnPage'
+import { AdministratorModal } from './AdminPage'
+import { SettingsModal, SETTINGS_SECTION_IDS, type SettingsSectionId } from './SettingsPage'
+import { useLearningPathsSidebar } from '../features/learn/hooks/useLearningPathsSidebar'
+import { useLearningPathSidebarMenus } from '../features/learn/hooks/useLearningPathSidebarMenus'
+export function ChatPage() {
+  const { user, profile, logout, isLoading, completeChatOnboarding, markBetaNoticeSeen, updateUserIntroduction, refreshProfile } = useAuth()
+  const { push: pushToast } = useToast()
+  const { unreadCount: newsUnreadCount } = useNewsUnreadCount(Boolean(user))
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const threadIdFromUrl = searchParams.get('thread')
+  /** Breakpoint wie `mobile.ts` — Modale vs. Bottom Sheets (Freigabe, Beta, …). */
+  const isNarrowViewport = useIsMobileViewport()
+  /** Wie Freigabe-Leiste: max-width 860px — Comfort/Strict nativ in der Oberleiste. */
+  const isChatToolbarMobile = useChatToolbarMobileViewport()
+  /** Alle Modelle stehen offen; ein Abo kann einzelne sperren. */
+  const blockedModelIds = useMemo(
+    () => (user ? getBlockedChatModelIds(profile?.subscription_plans ?? null) : []),
+    [user, profile?.subscription_plans],
+  )
+  /* Die Tages-Staffelung greift nur noch, wenn Smart Instant das Modell selbst wählt — eine bewusste
+     Modellwahl setzt sie ausser Kraft (siehe `chat.service.ts`, `pickedMainChatModel`). */
+  const mainChatDailyTierConfig = useMemo(
+    () => (user ? parseChatDailyTierConfigFromPlan(profile?.subscription_plans ?? null) : undefined),
+    [user, profile?.subscription_plans],
+  )
+  const mainChatThinkingTierConfig = useMemo(
+    () => parseThinkingTierConfigFromPlan(profile?.subscription_plans ?? null),
+    [profile?.subscription_plans],
+  )
+  const mainChatContextMaxTokens = useMemo((): number | null => {
+    if (!profile?.subscription_plans) {
+      return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+    }
+    const v = profile.subscription_plans.chat_context_max_tokens
+    if (v === null) {
+      return null
+    }
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      return v
+    }
+    return DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS
+  }, [profile?.subscription_plans])
+
+  const chatProfileIdentity = useMemo(
+    () => resolveChatProfileIdentity(user, profile),
+    [user, profile?.first_name, profile?.last_name, user?.email, user?.user_metadata],
+  )
+
+  const chatUserIntroduction = useMemo(
+    () => resolveChatUserIntroduction(profile),
+    [
+      profile?.introduction_completed,
+      profile?.introduction_mode,
+      profile?.introduction_text,
+      profile?.introduction_answers,
+      profile?.introduction_updated_at,
+    ],
+  )
+
+  const chatSubscriptionUsage = useMemo(
+    () => (user ? resolveChatSubscriptionUsageContext(profile) : null),
+    [user, profile?.subscription_plans, profile?.subscription_usages],
+  )
+
+  const featureFlags = useChatPageFeatureFlags({ user, profile, isLoading })
+  const {
+    instantAnalyzeDebugEnabled,
+    chatFoldersFeatureEnabled,
+    friendsFeatureEnabled,
+    showBetaNoticeOnFirstLogin,
+    isAdmin,
+    isLearnPathsButtonDisabled,
+    isLearnPathCreateButtonDisabled,
+    chatTourEligible,
+  } = featureFlags
+
+  const chatFoldersRef = useRef<{
+    folders: { id: string; name: string }[]
+    getThreadFolderId: (threadId: string) => string | null
+  } | null>(null)
+  const resolveThreadFolderContext = useCallback(
+    async (threadId: string) => {
+      const foldersState = chatFoldersRef.current
+      if (!user?.id || !foldersState) {
+        return null
+      }
+      const folderId = foldersState.getThreadFolderId(threadId)
+      if (!folderId) {
+        return null
+      }
+      const folder = foldersState.folders.find((item) => item.id === folderId)
+      if (!folder) {
+        return null
+      }
+      const files = await listChatFolderFiles(user.id, folderId)
+      return {
+        folderId,
+        folderName: folder.name,
+        files,
+      }
+    },
+    [user?.id],
+  )
+
+  const {
+    threads,
+    activeThreadId,
+    messages,
+    isSending,
+    sendPhase,
+    isBootstrapping,
+    error,
+    submitMessage,
+    submitPptxEditMessage,
+    applyPptxPresetSwitch,
+    cancelSend,
+    finalizeWordDocumentExport,
+    wordFinalizeBusy,
+    finalizePdfDocumentExport,
+    pdfFinalizeBusy,
+    finalizeExcelDocumentExport,
+    excelFinalizeBusy,
+    finalizePptxDocumentExport,
+    pptxFinalizeBusy,
+    createNewChat,
+    renameChat,
+    archiveChat,
+    deleteChat,
+    leaveSharedChatAsMember,
+    selectChat,
+    clearActiveThread,
+    composerSelection,
+    setComposerSelection,
+    chatReplyMode,
+    setChatReplyMode,
+    chatWebSearchMode,
+    setChatWebSearchMode,
+    thinkingClarifyDialog,
+    dismissThinkingClarify,
+    thinkingCreditsRemaining,
+    thinkingCreditsBlocked,
+    liveInstantAnalyzeDebug,
+    liveThinkingAnalyzeDebug,
+  } = useChat(user?.id, profile?.auto_remove_empty_chats ?? true, blockedModelIds, {
+    persistAiChatMemory: false,
+    mainChatUsedTokensToday: user ? (profile?.subscription_usages?.used_tokens ?? 0) : undefined,
+    mainChatDailyTierConfig: user ? mainChatDailyTierConfig : undefined,
+    mainChatThinkingTierConfig: user ? mainChatThinkingTierConfig : undefined,
+    mainChatContextMaxTokens: user ? mainChatContextMaxTokens : DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS,
+    webSearchCreditBalance: profile?.subscription_usages?.web_search_credit_balance ?? 0,
+    isSuperadmin: profile?.is_superadmin === true,
+    instantAnalyzeDebugEnabled: profile?.is_superadmin === true && instantAnalyzeDebugEnabled,
+    onWebSearchCreditsConsumed: refreshProfile,
+    // Denken zieht seit dem Credits-System aus dem gemeinsamen KI-Credits-Pool (Chat + Denken),
+    // nicht mehr aus einem eigenen Thinking-Guthaben — siehe credits-system-plan.md.
+    thinkingCreditBalance: profile?.subscription_usages?.ai_credits_balance ?? 0,
+    onAiCreditsConsumed: refreshProfile,
+    profileIdentity: chatProfileIdentity,
+    userIntroduction: chatUserIntroduction,
+    subscriptionUsage: chatSubscriptionUsage,
+    resolveThreadFolderContext,
+    initialThreadId: threadIdFromUrl,
+  })
+  const chatFolders = useChatFolders(user?.id, threads)
+  chatFoldersRef.current = chatFolders
+  const folderIdFromUrl = searchParams.get('folder')
+  const folderTabFromUrl: ChatFolderOverviewTab = searchParams.get('tab') === 'files' ? 'files' : 'chats'
+  const isFriendsOverviewFromUrl = searchParams.get('friends') === '1'
+  const learnPathIdFromUrl = searchParams.get('learnPath')
+  const isLearnWorkspaceOpen = Boolean(
+    user && !isLearnPathsButtonDisabled && (searchParams.get('learn') === '1' || Boolean(learnPathIdFromUrl)),
+  )
+  const pendingCreateLearningPath = searchParams.get('learnCreate') === '1'
+  /** Platzhalter-Modus (Admin-Test): gewählter Erstellmodus reist über die URL zum eingebetteten LearnPage. */
+  const pendingCreateLearningPathMode =
+    searchParams.get('learnCreateMode') === 'placeholder' ? ('placeholder' as const) : ('ai' as const)
+  const friendsTabParam = searchParams.get('friendsTab')
+  const friendsTabFromUrl: ChatFriendsOverviewTab =
+    friendsTabParam === 'pending' || friendsTabParam === 'invitations' ? friendsTabParam : 'friends'
+  const activeOverviewFolder = useMemo(() => {
+    if (!folderIdFromUrl) {
+      return null
+    }
+    return chatFolders.folders.find((folder) => folder.id === folderIdFromUrl) ?? null
+  }, [chatFolders.folders, folderIdFromUrl])
+  const isFolderOverviewOpen = Boolean(
+    activeOverviewFolder && chatFoldersFeatureEnabled && !isFriendsOverviewFromUrl && !isLearnWorkspaceOpen,
+  )
+  const isFriendsOverviewOpen = Boolean(user && isFriendsOverviewFromUrl && !isLearnWorkspaceOpen)
+  const isNewsOverviewFromUrl = searchParams.get('news') === '1'
+  const isNewsOverviewOpen = Boolean(user && isNewsOverviewFromUrl && !isLearnWorkspaceOpen)
+  const isDueFlashcardsFromUrl = searchParams.get('dueCards') === '1'
+  const isDueFlashcardsOpen = Boolean(user && isDueFlashcardsFromUrl && !isLearnWorkspaceOpen)
+  const isSettingsFromUrl = searchParams.get('settings') === '1'
+  /* Gegen bekannte Sektionen prüfen statt blind zu casten: alte Links (z. B. auf die entfernten
+     Sektionen «Einladungen»/«Archiv») würden sonst eine leere Inhaltsfläche zeigen. */
+  const settingsSectionFromUrl = SETTINGS_SECTION_IDS.includes(
+    searchParams.get('settingsSection') as SettingsSectionId,
+  )
+    ? (searchParams.get('settingsSection') as SettingsSectionId)
+    : 'general'
+  const isSettingsWorkspaceOpen = Boolean(user && isSettingsFromUrl && !isLearnWorkspaceOpen)
+  /* Fade-Animation beim Öffnen/Schliessen (gleiches Zwei-Schritt-Muster wie Admin/News in
+     `useChatPageModals.ts`): "mounted" hält die Fläche beim Schliessen noch für die Dauer der
+     Ausblend-Animation im DOM, statt abrupt zu verschwinden; "visible" wird beim Öffnen erst einen
+     Frame *nach* dem Mounten gesetzt, sonst gäbe es keinen Übergang zum Animieren (das Element stünde
+     von Anfang an im End-Zustand). Initial synchron auf `isSettingsWorkspaceOpen` — ein Reload direkt
+     auf `?settings=1` soll sofort erscheinen, nicht erst einblenden. Nur diese beiden States (nicht
+     `isSettingsWorkspaceOpen` selbst) steuern `.chat-main`-Klasse und Mount-Bedingung unten; alle
+     anderen `isSettingsWorkspaceOpen`-Stellen (Thread-Sync-Guard, Home-Dashboard, Mobile-Panels)
+     bleiben bewusst beim sofortigen Wert, damit z. B. `?thread=` nicht während der Animation blockiert
+     wird. */
+  const [isSettingsWorkspaceMounted, setIsSettingsWorkspaceMounted] = useState(isSettingsWorkspaceOpen)
+  const [isSettingsWorkspaceVisible, setIsSettingsWorkspaceVisible] = useState(isSettingsWorkspaceOpen)
+  const settingsWorkspaceCloseTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (isSettingsWorkspaceOpen) {
+      if (settingsWorkspaceCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsWorkspaceCloseTimerRef.current)
+        settingsWorkspaceCloseTimerRef.current = null
+      }
+      setIsSettingsWorkspaceMounted(true)
+      const raf = window.requestAnimationFrame(() => {
+        setIsSettingsWorkspaceVisible(true)
+      })
+      return () => window.cancelAnimationFrame(raf)
+    }
+    setIsSettingsWorkspaceVisible(false)
+    settingsWorkspaceCloseTimerRef.current = window.setTimeout(() => {
+      setIsSettingsWorkspaceMounted(false)
+      settingsWorkspaceCloseTimerRef.current = null
+    }, CHAT_PAGE_MODAL_ANIMATION_MS)
+    return () => {
+      if (settingsWorkspaceCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsWorkspaceCloseTimerRef.current)
+        settingsWorkspaceCloseTimerRef.current = null
+      }
+    }
+  }, [isSettingsWorkspaceOpen])
+  const friendsState = useFriends(user?.id)
+  const learningPathsSidebar = useLearningPathsSidebar(user?.id)
+  /** Home-Dashboard: kein Chat aktiv, keine andere Ansicht offen, aber es gibt bereits Lernpfade. */
+  const isHomeDashboardOpen = Boolean(
+    user &&
+      !activeThreadId &&
+      !isLearnWorkspaceOpen &&
+      !isFolderOverviewOpen &&
+      !isFriendsOverviewOpen &&
+      !isNewsOverviewOpen &&
+      !isDueFlashcardsOpen &&
+      !isSettingsWorkspaceOpen &&
+      !learningPathsSidebar.isLoading &&
+      learningPathsSidebar.learningPaths.length > 0,
+  )
+  const homeDashboardSortedPaths = useMemo(() => {
+    if (!isHomeDashboardOpen) {
+      return []
+    }
+    return [...learningPathsSidebar.learningPaths].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }, [isHomeDashboardOpen, learningPathsSidebar.learningPaths])
+  const homeDashboardContinuePath = useMemo(() => {
+    const mostRecent = homeDashboardSortedPaths[0]
+    if (!mostRecent) {
+      return null
+    }
+    const total = mostRecent.totalTopicsCount ?? 0
+    const mastered = mostRecent.masteredTopicsCount ?? 0
+    return {
+      id: mostRecent.id,
+      title: mostRecent.title.trim() || 'Neuer Lernpfad',
+      currentTopicTitle: mostRecent.currentTopicTitle ?? '',
+      currentSubstepTitle: mostRecent.currentSubstepTitle ?? '',
+      percent: total > 0 ? (mastered / total) * 100 : 0,
+    }
+  }, [homeDashboardSortedPaths])
+  const homeDashboardAllPaths = useMemo(
+    () =>
+      homeDashboardSortedPaths.map((path) => {
+        const total = path.totalTopicsCount ?? 0
+        const mastered = path.masteredTopicsCount ?? 0
+        return {
+          id: path.id,
+          title: path.title.trim() || 'Neuer Lernpfad',
+          masteredCount: mastered,
+          totalCount: total,
+          percent: total > 0 ? (mastered / total) * 100 : 0,
+        }
+      }),
+    [homeDashboardSortedPaths],
+  )
+  const folderOverviewThreads = useMemo(() => {
+    if (!activeOverviewFolder) {
+      return []
+    }
+    return chatFolders.threadsByFolderId.get(activeOverviewFolder.id) ?? []
+  }, [activeOverviewFolder, chatFolders.threadsByFolderId])
+  const folderFilesState = useChatFolderFiles({
+    userId: user?.id,
+    folderId: isFolderOverviewOpen ? activeOverviewFolder?.id ?? null : null,
+    maxFiles: profile?.subscription_plans?.max_files ?? null,
+    usedFiles: profile?.subscription_usages?.used_files ?? 0,
+  })
+  const isPageEnter = useChatPageEnter()
+  const {
+    threadSkeletonMounted,
+    threadSkeletonExiting,
+    handleThreadSkeletonTransitionEnd,
+  } = useChatThreadListSkeletonVisibility(isBootstrapping)
+
+  const pageEnterShellClass = isPageEnter ? ' is-page-enter' : ''
+  const activeThread = useMemo(
+    () => threads.find((t) => t.id === activeThreadId),
+    [threads, activeThreadId],
+  )
+  const mobileToolbarChatTitle = useMemo(() => {
+    const title = activeThread?.title?.trim()
+    return title || 'Neuer Chat'
+  }, [activeThread?.title])
+
+  const [isNewChatPending, setIsNewChatPending] = useState(false)
+  const endSharingSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+
+  const mobileShell = useChatPageMobileShell({
+    chatTourEligible,
+    chatFoldersFeatureEnabled,
+  })
+
+  const pageModals = useChatPageModals({
+    user,
+    profile,
+    isCompactMobileSidebarLayout: mobileShell.isCompactMobileSidebarLayout,
+    isNarrowViewport,
+    showBetaNoticeOnFirstLogin,
+    markBetaNoticeSeen,
+    updateUserIntroduction,
+    refreshProfile,
+    setIsMobileSidebarOpen: mobileShell.setIsMobileSidebarOpen,
+  })
+
+  const pageMenus = useChatPageMenus({
+    user,
+    threads,
+    chatFolders,
+    chatFoldersFeatureEnabled,
+    isCompactMobileSidebarLayout: mobileShell.isCompactMobileSidebarLayout,
+    renameChat,
+    pushToast,
+  })
+
+  const collaboration = useChatPageCollaboration({
+    user,
+    activeThread,
+    isNarrowViewport,
+    isChatToolbarMobile,
+    pushToast,
+    endSharingSheetRef,
+  })
+
+  const learnDraft = useChatLearningPathDraft({
+    activeThreadId,
+    messages,
+    isLearnPathCreateButtonDisabled,
+    pushToast,
+  })
+
+  const guestPrefs = useGuestChatComposerPrefs()
+
+  const {
+    isSidebarCollapsed,
+    setIsSidebarCollapsed,
+    isMobileSidebarOpen,
+    setIsMobileSidebarOpen,
+    isMobileFoldersOpen,
+    setIsMobileFoldersOpen,
+    isCompactMobileSidebarLayout,
+    chatTourOverlayActive,
+    isMobileFoldersTabDisabled,
+    swipeOpenThreadId,
+    setSwipeOpenThreadId,
+    mobileBottomNavTabIndex,
+    guestMobileBottomNavTabIndex,
+    mobileChatBottomTabActive,
+    mobileFoldersBottomTabActive,
+    pillAccentPulseActive,
+    guestPillAccentPulseActive,
+    mobileBottomNavSpring,
+    mobileNewChatTouch,
+    sidebarNewChatTouch,
+    mobileTopBarModeTouch,
+    mobileTopBarTitleTouch,
+    mobileTopBarMenuTouch,
+    startPillAccentPulse,
+    setOptimisticPillTabIndex,
+    setGuestOptimisticPillTabIndex,
+  } = mobileShell
+
+  const sidebarThreadList = threads
+
+  const profileMenuRef = useRef<HTMLDivElement | null>(null)
+
+  const sidebarEdgeSwipe = useMobileSidebarEdgeSwipe({
+    enabled: isCompactMobileSidebarLayout,
+    isOpen: isMobileSidebarOpen,
+    swipeOpenBlocked: chatTourEligible || pageModals.mobileSheetMode !== 'closed',
+    swipeCloseBlocked: chatTourEligible,
+    onOpen: () => {
+      setIsMobileFoldersOpen(false)
+      setIsSidebarCollapsed(false)
+      setIsMobileSidebarOpen(true)
+      hapticLightImpact()
+    },
+    onClose: () => {
+      setIsMobileSidebarOpen(false)
+    },
+  })
+
+  useChatPageOverlayDismiss({
+    isCompactMobileSidebarLayout,
+    mobileSheetMode: pageModals.mobileSheetMode,
+    openMenuThreadId: pageMenus.openMenuThreadId,
+    openFolderMenuId: pageMenus.openFolderMenuId,
+    folderMoveThreadId: pageMenus.folderMoveThreadId,
+    chatTourEligible,
+    menuWrapperRef: pageMenus.menuWrapperRef,
+    threadSheetRef: pageMenus.threadSheetRef,
+    folderMenuWrapperRef: pageMenus.folderMenuWrapperRef,
+    folderSheetRef: pageMenus.folderSheetRef,
+    profileMenuRef,
+    profileFullSheetRef: pageModals.profileFullSheetRef,
+    closeThreadActionMenu: pageMenus.closeThreadActionMenu,
+    closeFolderActionMenu: pageMenus.closeFolderActionMenu,
+    closeFolderMoveDialog: pageMenus.closeFolderMoveDialog,
+    setIsMobileSidebarOpen,
+    setIsMobileFoldersOpen,
+  })
+
+  const newChatTourRef = useRef<HTMLButtonElement | null>(null)
+  const learnTourRef = useRef<HTMLDivElement | null>(null)
+  const hasHandledInitialLearnLandingRef = useRef(false)
+
+  useEffect(() => {
+    if (!chatFoldersFeatureEnabled) {
+      setIsMobileFoldersOpen(false)
+      pageMenus.closeFolderActionMenu()
+      pageMenus.closeFolderMoveDialog()
+      pageMenus.closeFolderNameSheet()
+      if (folderIdFromUrl) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev)
+            next.delete('folder')
+            next.delete('tab')
+            return next
+          },
+          { replace: true },
+        )
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable menu closers from useChatPageMenus
+  }, [chatFoldersFeatureEnabled, folderIdFromUrl])
+
+  useEffect(() => {
+    if (!folderIdFromUrl || !chatFoldersFeatureEnabled || chatFolders.isLoading) {
+      return
+    }
+    if (!chatFolders.folders.some((folder) => folder.id === folderIdFromUrl)) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('folder')
+          next.delete('tab')
+          return next
+        },
+        { replace: true },
+      )
+    }
+  }, [chatFolders.folders, chatFolders.isLoading, chatFoldersFeatureEnabled, folderIdFromUrl, setSearchParams])
+
+  useEffect(() => {
+    if (!isFriendsOverviewFromUrl) {
+      return
+    }
+    if (!user) {
+      closeFriendsOverview()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeFriendsOverview is stable URL helper
+  }, [isFriendsOverviewFromUrl, user])
+
+  useEffect(() => {
+    if (!isNewsOverviewFromUrl) {
+      return
+    }
+    if (!user) {
+      closeNewsOverview()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeNewsOverview is stable URL helper
+  }, [isNewsOverviewFromUrl, user])
+
+  /**
+   * Lern- und Chatbereich sind vereint: beim erstmaligen Landen (kein expliziter Deep-Link, z. B.
+   * kein `?thread=`) soll jemand ohne Lernpfade zuerst den "Ersten Lernpfad erstellen"-Bereich
+   * sehen statt automatisch im letzten Chat zu landen (dieser bleibt dann auch in der Sidebar
+   * unmarkiert, da `activeThreadId` in diesem Fall bewusst nicht gesetzt wird). Gibt es bereits
+   * Lernpfade, wird stattdessen der zuletzt bearbeitete Chat aktiviert. Feuert nur einmal pro
+   * Sitzung (Ref-Guard), damit spätere Navigation (z. B. bewusst zu einem Chat wechseln) nicht
+   * wieder zurück in den Lernbereich zwingt.
+   */
+  useEffect(() => {
+    if (hasHandledInitialLearnLandingRef.current) {
+      return
+    }
+    if (!user || isLearnPathsButtonDisabled || learningPathsSidebar.isLoading || isBootstrapping) {
+      return
+    }
+    hasHandledInitialLearnLandingRef.current = true
+    if (
+      folderIdFromUrl ||
+      isFriendsOverviewFromUrl ||
+      isNewsOverviewFromUrl ||
+      isDueFlashcardsFromUrl ||
+      isSettingsFromUrl ||
+      learnPathIdFromUrl ||
+      pendingCreateLearningPath ||
+      threadIdFromUrl ||
+      searchParams.get('learn') === '1'
+    ) {
+      return
+    }
+    goToStartPage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- goToStartPage ist eine stabile, in der Komponente definierte Handler-Funktion
+  }, [
+    user,
+    isLearnPathsButtonDisabled,
+    learningPathsSidebar.isLoading,
+    learningPathsSidebar.learningPaths.length,
+    isBootstrapping,
+    threadIdFromUrl,
+    folderIdFromUrl,
+    isFriendsOverviewFromUrl,
+    isNewsOverviewFromUrl,
+    isDueFlashcardsFromUrl,
+    isSettingsFromUrl,
+    learnPathIdFromUrl,
+    pendingCreateLearningPath,
+    searchParams,
+    setSearchParams,
+    clearActiveThread,
+  ])
+
+  /**
+   * Hält den `?thread=`-Link mit dem aktiven Chat synchron (eigener Link pro Chat, Reload landet
+   * wieder im selben Chat) — außer gerade ein anderer Bereich (Lernpfad/Ordner/Freunde/Einstellungen)
+   * offen ist, dessen eigene Deep-Link-Parameter Vorrang haben. `isSettingsWorkspaceOpen` gehörte
+   * ursprünglich nicht zu dieser Liste: lief dieser Effekt trotz offener Einstellungen mit, konnte er
+   * mit einem veralteten URL-Stand "settings=1" versehentlich wieder mit reinschreiben, obwohl
+   * `handleSidebarThreadSelect` es im selben Zug schon entfernt hatte — die URL zeigte dann `thread=`
+   * UND `settings=1` gleichzeitig, und die Einstellungen blieben sichtbar.
+   */
+  useEffect(() => {
+    if (
+      isLearnWorkspaceOpen ||
+      isFolderOverviewOpen ||
+      isFriendsOverviewOpen ||
+      isNewsOverviewOpen ||
+      isSettingsWorkspaceOpen
+    ) {
+      return
+    }
+    const currentThreadParam = searchParams.get('thread')
+    if (activeThreadId === currentThreadParam) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (activeThreadId) {
+          next.set('thread', activeThreadId)
+        } else {
+          next.delete('thread')
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }, [
+    activeThreadId,
+    isLearnWorkspaceOpen,
+    isFolderOverviewOpen,
+    isFriendsOverviewOpen,
+    isNewsOverviewOpen,
+    isSettingsWorkspaceOpen,
+    searchParams,
+    setSearchParams,
+  ])
+
+  function clearOverlaySearchParams(params: URLSearchParams) {
+    params.delete('folder')
+    params.delete('tab')
+    params.delete('friends')
+    params.delete('friendsTab')
+    params.delete('news')
+    params.delete('learnPath')
+    params.delete('learn')
+    params.delete('learnCreate')
+    params.delete('learnCreateMode')
+    params.delete('dueCards')
+    params.delete('settings')
+    params.delete('settingsSection')
+  }
+
+  /**
+   * Einstellungen im rechten Chat-Hauptbereich (Desktop, URL-gesteuert wie Ordner/Freunde/Fällig)
+   * statt als Modal. Auf schmalen Layouts bleibt der bisherige ProfileFullSheet-Pfad bestehen.
+   */
+  function openSettingsWorkspace(section: SettingsSectionId = 'general') {
+    if (isCompactMobileSidebarLayout) {
+      pageModals.openSettingsModal(section)
+      return
+    }
+    if (!user) {
+      return
+    }
+    void refreshProfile().catch(() => {
+      // Falls Refresh fehlschlägt, öffnen wir trotzdem die Settings mit dem zuletzt geladenen Profil.
+    })
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('settings', '1')
+        if (section !== 'general') {
+          next.set('settingsSection', section)
+        } else {
+          next.delete('settingsSection')
+        }
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+  }
+
+  function closeSettingsWorkspace() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('settings')
+        next.delete('settingsSection')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  /** Für den Einstellungen-Knopf in der Sidebar: erneutes Klicken bei bereits geöffneten
+      Einstellungen schliesst sie wieder, statt sie auf "general" zurückzusetzen. */
+  function toggleSettingsWorkspace() {
+    if (isCompactMobileSidebarLayout) {
+      if (pageModals.mobileSheetMode === 'settings') {
+        pageModals.closeSettingsModal()
+      } else {
+        pageModals.openSettingsModal()
+      }
+      return
+    }
+    if (isSettingsWorkspaceOpen) {
+      closeSettingsWorkspace()
+    } else {
+      openSettingsWorkspace()
+    }
+  }
+
+  function openDueFlashcardsScreen() {
+    if (!user) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('dueCards', '1')
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+  }
+
+  function closeDueFlashcardsScreen() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('dueCards')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function dismissMainOverlays() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  /**
+   * "Startseite": alle Deep-Links (Ordner/Freunde/Lernpfad/Chat) verwerfen und neu entscheiden —
+   * ohne Lernpfade landet man im leeren Lernbereich (kein Chat in der Sidebar markiert), sonst auf
+   * dem Home-Dashboard (Begrüssung + "Weitermachen"-Karte zum letzten Lernpfad), ebenfalls ohne
+   * markierten Chat. Gleiche Logik wie beim erstmaligen Landen, hier aber jederzeit erneut
+   * auslösbar (Klick auf das Straton-Logo).
+   */
+  function goToStartPage() {
+    const shouldShowLearnLanding = learningPathsSidebar.learningPaths.length === 0 && !isLearnPathsButtonDisabled
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.delete('thread')
+        if (shouldShowLearnLanding) {
+          next.set('learn', '1')
+        }
+        return next
+      },
+      { replace: true },
+    )
+    clearActiveThread()
+    setIsMobileSidebarOpen(false)
+  }
+
+  function closeFolderOverview() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('folder')
+        next.delete('tab')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function closeLearnWorkspace() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('learnPath')
+        next.delete('learn')
+        next.delete('learnCreate')
+        next.delete('learnCreateMode')
+        return next
+      },
+      { replace: true },
+    )
+    // Im Lernbereich bewertete Lernkarten (Spaced Repetition) sollen auf der Startseite sofort
+    // aktuell sein, nicht erst nach einem Reload.
+    void learningPathsSidebar.refreshLearningPaths()
+  }
+
+  function openLearnWorkspace(
+    pathId?: string,
+    options?: { create?: boolean; createMode?: 'ai' | 'placeholder' },
+  ) {
+    if (!user || isLearnPathsButtonDisabled) {
+      learnDraft.showLearnFeatureUnavailableInfo()
+      return
+    }
+    if (options?.create && searchParams.get('learnCreate') === '1') {
+      return
+    }
+    if (
+      options?.create &&
+      learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
+    ) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        if (pathId) {
+          next.set('learnPath', pathId)
+        } else {
+          next.set('learn', '1')
+        }
+        if (options?.create) {
+          next.set('learnCreate', '1')
+          if (options.createMode === 'placeholder') {
+            next.set('learnCreateMode', 'placeholder')
+          } else {
+            next.delete('learnCreateMode')
+          }
+        }
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  const learningPathMenus = useLearningPathSidebarMenus({
+    learningPaths: learningPathsSidebar.learningPaths,
+    setLearningPaths: learningPathsSidebar.setLearningPaths,
+    activeLearnPathId: learnPathIdFromUrl,
+    onDeletedActivePath: (nextPathId) => {
+      if (nextPathId) {
+        openLearnWorkspace(nextPathId)
+        return
+      }
+      closeLearnWorkspace()
+    },
+    pushToast,
+  })
+
+  const handleLearnControlledPathIdChange = useCallback(
+    (pathId: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('learnPath', pathId)
+          next.delete('learn')
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const handlePendingCreateLearningPathHandled = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('learnCreate')
+        next.delete('learnCreateMode')
+        return next
+      },
+      { replace: true },
+    )
+  }, [setSearchParams])
+
+  function closeFriendsOverview() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('friends')
+        next.delete('friendsTab')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openFriendsOverview(tab: ChatFriendsOverviewTab = 'friends') {
+    if (!user) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('friends', '1')
+        next.set('friendsTab', tab)
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  /**
+   * Updates & Neuigkeiten im rechten Chat-Hauptbereich (Desktop wie Mobile, URL-gesteuert wie
+   * Ordner/Freunde) statt als Modal/Bottom-Sheet.
+   */
+  function openNewsOverview() {
+    if (!user) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('news', '1')
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  function closeNewsOverview() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('news')
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function setFriendsOverviewTab(tab: ChatFriendsOverviewTab) {
+    if (!isFriendsOverviewOpen) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('friends', '1')
+        next.set('friendsTab', tab)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function openFolderOverview(folderId: string, tab: ChatFolderOverviewTab = 'chats') {
+    if (!chatFoldersFeatureEnabled) {
+      return
+    }
+    if (folderIdFromUrl === folderId) {
+      closeFolderOverview()
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('folder', folderId)
+        next.set('tab', tab)
+        return next
+      },
+      { replace: false },
+    )
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+    pageModals.profileFullSheetRef.current?.requestClose()
+  }
+
+  function setFolderOverviewTab(tab: ChatFolderOverviewTab) {
+    if (!activeOverviewFolder) {
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('folder', activeOverviewFolder.id)
+        next.set('tab', tab)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  async function deleteThreadFromSwipe(threadId: string) {
+    try {
+      await deleteChat(threadId, { animateRemoval: false, optimisticListRemoval: true })
+    } catch {
+      /* Fehleranzeige in useChat */
+    }
+  }
+
+  async function handleLogout() {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
+  function selectMobileBottomNavTab(index: 0 | 1 | 2) {
+    if (index === 2 && !chatFoldersFeatureEnabled) {
+      return
+    }
+    setOptimisticPillTabIndex(index)
+    startPillAccentPulse('main')
+    if (index === 0) {
+      setIsMobileFoldersOpen(false)
+      setIsSidebarCollapsed(false)
+      setIsMobileSidebarOpen(true)
+      return
+    }
+    if (index === 1) {
+      setIsMobileFoldersOpen(false)
+      setIsMobileSidebarOpen(false)
+      dismissMainOverlays()
+      pageModals.profileFullSheetRef.current?.requestClose()
+      pageMenus.closeThreadActionMenu()
+      pageMenus.closeFolderActionMenu()
+      return
+    }
+    setIsMobileFoldersOpen(true)
+    setIsMobileSidebarOpen(false)
+    pageModals.profileFullSheetRef.current?.requestClose()
+    pageMenus.closeThreadActionMenu()
+    pageMenus.closeFolderActionMenu()
+  }
+
+  function selectGuestMobileBottomNavTab(index: 0 | 1) {
+    setGuestOptimisticPillTabIndex(index)
+    startPillAccentPulse('guest')
+  }
+
+  function toggleMobileSidebarFromBottomNav() {
+    if (chatTourEligible) {
+      return
+    }
+    const nextSidebarOpen = !isMobileSidebarOpen
+    if (user) {
+      if (nextSidebarOpen) {
+        hapticLightImpact()
+      }
+      selectMobileBottomNavTab(nextSidebarOpen ? 0 : 1)
+      return
+    }
+    const nextPillIndex = nextSidebarOpen ? 0 : 1
+    selectGuestMobileBottomNavTab(nextPillIndex as 0 | 1)
+    setIsSidebarCollapsed(false)
+    setIsMobileSidebarOpen((prev) => {
+      const next = !prev
+      if (!prev && next) {
+        hapticLightImpact()
+      }
+      return next
+    })
+  }
+
+  async function handleCreateNewChat() {
+    setIsNewChatPending(true)
+    try {
+      dismissMainOverlays()
+      await createNewChat()
+      pageMenus.closeThreadActionMenu()
+      if (isCompactMobileSidebarLayout) {
+        pageModals.profileFullSheetRef.current?.requestClose()
+      }
+      setIsMobileSidebarOpen(false)
+    } finally {
+      setIsNewChatPending(false)
+    }
+  }
+
+  async function handleCreateNewChatInFolder(folderId: string) {
+    setIsNewChatPending(true)
+    try {
+      const threadId = await createNewChat({ folderId })
+      if (threadId) {
+        await chatFolders.moveThreadToFolder(threadId, folderId)
+      }
+      dismissMainOverlays()
+      pageMenus.closeThreadActionMenu()
+      setIsMobileSidebarOpen(false)
+      setIsMobileFoldersOpen(false)
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Chat konnte im Ordner nicht erstellt werden.')
+    } finally {
+      setIsNewChatPending(false)
+    }
+  }
+
+  function handleSidebarHeaderToggleClick() {
+    if (isCompactMobileSidebarLayout) {
+      if (chatTourEligible) {
+        return
+      }
+      setIsMobileSidebarOpen(false)
+      pageMenus.closeThreadActionMenu()
+      pageModals.profileFullSheetRef.current?.requestClose()
+      return
+    }
+    setIsSidebarCollapsed((prev) => {
+      if (prev) {
+        hapticLightImpact()
+      }
+      return !prev
+    })
+    pageMenus.closeThreadActionMenu()
+  }
+
+  function handleSidebarThreadSelect(threadId: string) {
+    if (pageMenus.suppressThreadClickRef.current) {
+      pageMenus.suppressThreadClickRef.current = false
+      return
+    }
+    if (swipeOpenThreadId && swipeOpenThreadId !== threadId) {
+      setSwipeOpenThreadId(null)
+    }
+    /* In einem Zug statt `dismissMainOverlays()` + separatem `?thread=`-Sync-Effekt (der erst reagiert,
+       sobald `activeThreadId` durchgesickert ist): `setSearchParams` liest bei einem Funktions-Update
+       den zum Aufrufzeitpunkt aktuellen Zustand — zwei Aufrufe kurz hintereinander (z. B. Einstellungen
+       schliessen, dann kurz danach der Sync-Effekt) können sich sonst gegenseitig überschreiben und
+       "settings=1" bleibt stehen, obwohl gerade ein Chat geöffnet wurde.
+       (Betrifft nur den bekannten Ziel-Thread hier — bei `createNewChat` steht die neue Id erst nach
+       einem echten Await fest, dort bleibt es beim Sync-Effekt.) */
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        clearOverlaySearchParams(next)
+        next.set('thread', threadId)
+        return next
+      },
+      { replace: false },
+    )
+    void selectChat(threadId)
+    pageMenus.closeThreadActionMenu()
+    setIsMobileSidebarOpen(false)
+    setIsMobileFoldersOpen(false)
+  }
+
+  /**
+   * Zeigt in der Chat-Liste keinen Chat als aktiv an, solange ein anderer Bereich (Lernpfad/
+   * Ordner/Freunde) den Hauptinhalt überlagert — sonst bliebe z. B. beim automatischen Landen im
+   * leeren Lernbereich (keine Lernpfade) der zuletzt bearbeitete Chat fälschlich markiert.
+   */
+  const sidebarActiveThreadId =
+    isLearnWorkspaceOpen || isFolderOverviewOpen || isFriendsOverviewOpen || isNewsOverviewOpen
+      ? null
+      : activeThreadId
+
+  function renderSidebarThreadRow(thread: ChatThread, threadIndex: number) {
+    return (
+      <ChatSidebarThreadRow
+        key={thread.id}
+        thread={thread}
+        threadIndex={threadIndex}
+        activeThreadId={sidebarActiveThreadId}
+        openMenuThreadId={pageMenus.openMenuThreadId}
+        swipeOpenThreadId={swipeOpenThreadId}
+        pressingThreadId={pageMenus.pressingThreadId}
+        canSwipeDeleteThread={false}
+        longPressHandlers={pageMenus.buildThreadLongPressHandlers(thread.id)}
+        onContextMenu={pageMenus.openThreadContextMenu}
+        onSwipeOpen={(id) => setSwipeOpenThreadId(id)}
+        onSwipeClose={(id) => setSwipeOpenThreadId((current) => (current === id ? null : current))}
+        onSelect={handleSidebarThreadSelect}
+        onSwipeDeleteStart={() => {
+          setSwipeOpenThreadId(null)
+          pageMenus.closeThreadActionMenu()
+        }}
+        onDelete={(id) => void deleteThreadFromSwipe(id)}
+        onSwipeGestureStart={pageMenus.cancelThreadLongPress}
+      />
+    )
+  }
+
+  const displayName = getUserDisplayName(user, profile)
+  const greetingName = getGreetingFirstName(user, profile)
+  const avatarFallback = getAvatarFallbackLetter(user, profile)
+  const subscriptionPlanName = profile?.subscription_plans?.name ?? null
+  const tokenLimitReached = getChatPageTokenLimitReached(profile, error)
+  const themeVariant = useDocumentThemeVariant()
+  const logoSrc = useMemo(() => {
+    const base = import.meta.env.BASE_URL
+    return themeVariant === 'pink-glass'
+      ? `${base}assets/logo/Straton-pink.png`
+      : `${base}assets/logo/Straton.png`
+  }, [themeVariant])
+
+  const mobileTopBar = (
+    <ChatPageMobileTopBar
+      isGuest={!user}
+      guestChatReplyMode={guestPrefs.guestChatReplyMode}
+      chatReplyMode={chatReplyMode}
+      isSending={isSending}
+      mobileTopBarModeTouch={mobileTopBarModeTouch}
+      mobileTopBarTitleTouch={mobileTopBarTitleTouch}
+      mobileTopBarMenuTouch={mobileTopBarMenuTouch}
+      showMobileTitleMenu={collaboration.showMobileTitleMenu}
+      activeThread={activeThread}
+      mobileToolbarChatTitle={mobileToolbarChatTitle}
+      learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
+      isLearnPathCreateButtonDisabled={isLearnPathCreateButtonDisabled}
+      showCollaborationToolbar={collaboration.showCollaborationToolbar}
+      canInviteToActiveChat={collaboration.canInviteToActiveChat}
+      hasCollaborators={collaboration.hasCollaborators}
+      shareActionBusy={collaboration.shareActionBusy}
+      threadMembersLoading={collaboration.threadMembersLoading}
+      toolbarAvatarCount={collaboration.toolbarAvatars.list.length}
+      onGuestReplyModeChange={guestPrefs.handleGuestChatReplyMode}
+      onReplyModeChange={setChatReplyMode}
+      onRenameThread={pageMenus.openRenameModal}
+      onArchiveThread={archiveChat}
+      onDeleteThread={deleteChat}
+      onOpenLearningPathDraft={learnDraft.openLearningPathDraft}
+      onShareChipClick={collaboration.handleShareChipClick}
+      onOpenParticipants={() => {
+        if (collaboration.membersForToolbarFull.length > 0) {
+          collaboration.setParticipantsOpen(true)
+        }
+      }}
+    />
+  )
+
+  const mainMobileBottomDock = (
+    <ChatPageMobileBottomDock
+      variant="main"
+      tabIndex={mobileBottomNavTabIndex}
+      pillPulseActive={pillAccentPulseActive}
+      mobileBottomNavSpring={mobileBottomNavSpring}
+      mobileNewChatTouch={mobileNewChatTouch}
+      isMobileSidebarOpen={isMobileSidebarOpen}
+      mobileChatBottomTabActive={mobileChatBottomTabActive}
+      mobileFoldersBottomTabActive={mobileFoldersBottomTabActive}
+      isMobileFoldersTabDisabled={isMobileFoldersTabDisabled}
+      isMobileFolderDockAction={mobileFoldersBottomTabActive}
+      isNewChatPending={isNewChatPending}
+      chatTourEligible={chatTourEligible}
+      newChatTourRef={newChatTourRef}
+      onToggleSidebar={toggleMobileSidebarFromBottomNav}
+      onSelectTab={selectMobileBottomNavTab}
+      onGuestLogin={() => navigate('/login')}
+      onCreateFolder={pageMenus.openCreateFolderSheet}
+      onCreateChat={() => void handleCreateNewChat()}
+    />
+  )
+
+  if (isLoading) {
+    return <AuthSessionBootstrap />
+  }
+
+  if (!user) {
+    return (
+      <ChatPageGuestView
+        pageEnterShellClass={pageEnterShellClass}
+        isSidebarCollapsed={isSidebarCollapsed}
+        isMobileSidebarOpen={isMobileSidebarOpen}
+        isCompactMobileSidebarLayout={isCompactMobileSidebarLayout}
+        isChatToolbarMobile={isChatToolbarMobile}
+        logoSrc={logoSrc}
+        guestMobileBottomNavTabIndex={guestMobileBottomNavTabIndex}
+        guestPillAccentPulseActive={guestPillAccentPulseActive}
+        mobileBottomNavSpring={mobileBottomNavSpring}
+        mobileNewChatTouch={mobileNewChatTouch}
+        sidebarNewChatTouch={sidebarNewChatTouch}
+        sidebarEdgeSwipe={sidebarEdgeSwipe}
+        guestComposerSelection={guestPrefs.guestComposerSelection}
+        guestChatReplyMode={guestPrefs.guestChatReplyMode}
+        mobileTopBar={mobileTopBar}
+        onNavigateLogin={() => navigate('/login')}
+        onOpenBetaNotice={() => pageModals.openBetaNoticeModal(false)}
+        onSidebarHeaderToggle={handleSidebarHeaderToggleClick}
+        onExpandSidebar={() => setIsSidebarCollapsed(false)}
+        onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
+        onGuestComposerSelection={guestPrefs.handleGuestComposerSelection}
+        onGuestChatReplyMode={guestPrefs.handleGuestChatReplyMode}
+        onToggleMobileSidebarFromBottomNav={toggleMobileSidebarFromBottomNav}
+      />
+    )
+  }
+
+  return (
+    <main
+      className={`chat-app-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
+        isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
+      }${pageEnterShellClass}`}
+    >
+      <ChatPageSidebar
+        profile={profile}
+        isSidebarCollapsed={isSidebarCollapsed}
+        isCompactMobileSidebarLayout={isCompactMobileSidebarLayout}
+        isMobileSidebarOpen={isMobileSidebarOpen}
+        logoSrc={logoSrc}
+        displayName={displayName}
+        greetingName={greetingName}
+        avatarFallback={avatarFallback}
+        subscriptionPlanName={subscriptionPlanName}
+        showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+        showFriendsInSidebar={friendsFeatureEnabled}
+        learningPaths={learningPathsSidebar.learningPaths}
+        activeLearnPathId={learnPathIdFromUrl}
+        isLearnPathCreateDisabled={
+          isLearnPathCreateButtonDisabled ||
+          pendingCreateLearningPath ||
+          learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
+        }
+        threadSkeletonMounted={threadSkeletonMounted}
+        threadSkeletonExiting={threadSkeletonExiting}
+        isBootstrapping={isBootstrapping}
+        threadsCount={threads.length}
+        sidebarThreadList={sidebarThreadList}
+        chatTourEligible={chatTourEligible}
+        learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
+        newsUnreadCount={newsUnreadCount}
+        isNewChatPending={isNewChatPending}
+        newChatTourRef={newChatTourRef}
+        learnTourRef={learnTourRef}
+        profileMenuRef={profileMenuRef}
+        sidebarNewChatTouch={sidebarNewChatTouch}
+        renderThreadRow={renderSidebarThreadRow}
+        onOpenBetaNotice={() => pageModals.openBetaNoticeModal(false)}
+        onGoHome={goToStartPage}
+        onSidebarHeaderToggle={handleSidebarHeaderToggleClick}
+        onExpandSidebar={() => {
+          hapticLightImpact()
+          setIsSidebarCollapsed(false)
+          pageMenus.closeThreadActionMenu()
+          pageModals.profileFullSheetRef.current?.requestClose()
+        }}
+        onCreateNewChat={() => void handleCreateNewChat()}
+        isSettingsWorkspaceOpen={isSettingsWorkspaceOpen}
+        onOpenSettings={toggleSettingsWorkspace}
+        onOpenNews={openNewsOverview}
+        onCloseNews={closeNewsOverview}
+        isNewsOverviewOpen={isNewsOverviewOpen}
+        onOpenFriends={() => openFriendsOverview('friends')}
+        onCloseFriends={closeFriendsOverview}
+        friendsIncomingCount={friendsState.incomingCount}
+        isFriendsOverviewOpen={isFriendsOverviewOpen}
+        onOpenAdmin={pageModals.openAdminModal}
+        onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
+        onSelectLearningPath={(pathId) => openLearnWorkspace(pathId)}
+        onCreateLearningPath={(mode) => openLearnWorkspace(undefined, { create: true, createMode: mode })}
+        openLearningPathMenuId={learningPathMenus.openMenuPathId}
+        onLearningPathContextMenu={learningPathMenus.openLearningPathContextMenu}
+        onThreadSkeletonTransitionEnd={handleThreadSkeletonTransitionEnd}
+        onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
+      />
+
+      <section
+        className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}${
+          isFolderOverviewOpen ? ' is-folder-overview-active' : ''
+        }${isFriendsOverviewOpen ? ' is-friends-overview-active' : ''}${
+          isNewsOverviewOpen ? ' is-news-overview-active' : ''
+        }${isLearnWorkspaceOpen ? ' is-learn-workspace-active' : ''}${
+          isHomeDashboardOpen ? ' is-home-dashboard-active' : ''
+        }${isDueFlashcardsOpen ? ' is-due-flashcards-active' : ''}${
+          isSettingsWorkspaceMounted ? ' is-settings-active' : ''
+        }${pageModals.isAdminMounted ? ' is-admin-active' : ''}`}
+      >
+        {isSettingsWorkspaceMounted ? (
+          <SettingsModal
+            variant="embedded"
+            onClose={closeSettingsWorkspace}
+            initialSection={settingsSectionFromUrl}
+            isVisible={isSettingsWorkspaceVisible}
+          />
+        ) : null}
+        {pageModals.isAdminMounted ? (
+          <AdministratorModal
+            variant="embedded"
+            onClose={pageModals.closeAdminModal}
+            isVisible={pageModals.isAdminVisible}
+          />
+        ) : null}
+        {isHomeDashboardOpen ? (
+          <ChatHomeDashboard
+            greetingName={greetingName}
+            learningPathsCount={learningPathsSidebar.learningPaths.length}
+            continuePath={homeDashboardContinuePath}
+            allPaths={homeDashboardAllPaths}
+            onOpenPath={(pathId) => openLearnWorkspace(pathId)}
+            dueFlashcardsCount={learningPathsSidebar.dueFlashcardsTotalCount}
+            onOpenDueFlashcards={openDueFlashcardsScreen}
+          />
+        ) : null}
+        {isDueFlashcardsOpen ? (
+          <ChatDueFlashcardsScreen
+            entries={learningPathsSidebar.dueFlashcardSets}
+            onBack={closeDueFlashcardsScreen}
+            onRateCard={learningPathsSidebar.rateDueFlashcard}
+          />
+        ) : null}
+        {isLearnWorkspaceOpen ? (
+          <LearnPage
+            embedded
+            controlledPathId={learnPathIdFromUrl}
+            onControlledPathIdChange={handleLearnControlledPathIdChange}
+            hostLearningPaths={learningPathsSidebar.learningPaths}
+            setHostLearningPaths={learningPathsSidebar.setLearningPaths}
+            onOpenHostSidebar={() => setIsMobileSidebarOpen(true)}
+            pendingCreateLearningPath={pendingCreateLearningPath}
+            pendingCreateLearningPathMode={pendingCreateLearningPathMode}
+            onPendingCreateLearningPathHandled={handlePendingCreateLearningPathHandled}
+          />
+        ) : null}
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen ? (
+          <ChatFoldersMobilePanel
+            folders={chatFolders.folders}
+            threadsByFolderId={chatFolders.threadsByFolderId}
+            selectedFolderId={activeOverviewFolder?.id ?? null}
+            onOpenFolder={openFolderOverview}
+            onFolderContextMenu={pageMenus.openFolderContextMenu}
+            onFolderLongPressStart={pageMenus.handleFolderLongPressTouchStart}
+            onFolderLongPressMove={pageMenus.handleFolderLongPressTouchMove}
+            onFolderLongPressEnd={pageMenus.handleFolderLongPressTouchEnd}
+            renderThreadRow={renderSidebarThreadRow}
+          />
+        ) : null}
+        {isFolderOverviewOpen && activeOverviewFolder ? (
+          <ChatFolderOverview
+            key={activeOverviewFolder.id}
+            folder={activeOverviewFolder}
+            tab={folderTabFromUrl}
+            threads={folderOverviewThreads}
+            files={folderFilesState.files}
+            filesLoading={folderFilesState.isLoading}
+            filesUploading={folderFilesState.isUploading}
+            isLearnPathCreateDisabled={isLearnPathCreateButtonDisabled}
+            isCompactMobile={isCompactMobileSidebarLayout}
+            activeThreadId={activeThreadId}
+            onSelectThread={handleSidebarThreadSelect}
+            onEditFolder={() => pageMenus.openEditFolderSheet(activeOverviewFolder)}
+            onTabChange={setFolderOverviewTab}
+            onUploadFiles={async (fileList) => {
+              try {
+                await folderFilesState.uploadFiles(fileList)
+                await refreshProfile()
+                pushToast('Datei(en) zum Ordner hinzugefügt.')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Upload fehlgeschlagen.')
+              }
+            }}
+            onDeleteFile={async (file) => {
+              try {
+                await folderFilesState.removeFile(file)
+                pushToast('Datei entfernt.')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Datei konnte nicht entfernt werden.')
+              }
+            }}
+            onDownloadFile={async (file) => {
+              try {
+                const url = await createChatFolderFileSignedUrl(file)
+                window.open(url, '_blank', 'noopener,noreferrer')
+              } catch (err) {
+                pushToast(err instanceof Error ? err.message : 'Download fehlgeschlagen.')
+              }
+            }}
+            onCreateLearningPath={() =>
+              void learnDraft.openFolderLearningPathDraft({
+                folderId: activeOverviewFolder.id,
+                folderName: activeOverviewFolder.name,
+                threads: folderOverviewThreads,
+                folderFiles: folderFilesState.files,
+              })
+            }
+            onCreateChat={() => void handleCreateNewChatInFolder(activeOverviewFolder.id)}
+            onBack={closeFolderOverview}
+          />
+        ) : null}
+        {isFriendsOverviewOpen ? (
+          <ChatFriendsOverview
+            tab={friendsTabFromUrl}
+            userId={user?.id}
+            friends={friendsState.friends}
+            incomingRequests={friendsState.incomingRequests}
+            outgoingRequests={friendsState.outgoingRequests}
+            incomingCount={friendsState.incomingCount}
+            isLoading={friendsState.isLoading}
+            error={friendsState.error}
+            isCompactMobile={isCompactMobileSidebarLayout}
+            onTabChange={setFriendsOverviewTab}
+            onSendRequest={friendsState.sendRequest}
+            onAcceptRequest={friendsState.acceptRequest}
+            onDeclineRequest={friendsState.declineRequest}
+            onCancelRequest={friendsState.cancelRequest}
+          />
+        ) : null}
+        {isNewsOverviewOpen ? (
+          <ChatNewsOverview isAdmin={profile?.is_superadmin === true} isCompactMobile={isCompactMobileSidebarLayout} />
+        ) : null}
+        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen
+          ? mobileTopBar
+          : null}
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen ? (
+          <ChatMainCollaborationToolbar
+            isNarrowViewport={isNarrowViewport}
+            participantsAnchorRef={collaboration.participantsAnchorRef}
+            participantsOpen={collaboration.participantsOpen}
+            threadMembersLoading={collaboration.threadMembersLoading}
+            toolbarAvatars={collaboration.toolbarAvatars}
+            membersForToolbarFull={collaboration.membersForToolbarFull}
+            showCollaborationToolbar={collaboration.showCollaborationToolbar}
+            canInviteToActiveChat={collaboration.canInviteToActiveChat}
+            hasCollaborators={collaboration.hasCollaborators}
+            shareActionBusy={collaboration.shareActionBusy}
+            showLearningPathToolbarChip={collaboration.showLearningPathToolbarChip}
+            isLearnPathCreateButtonDisabled={isLearnPathCreateButtonDisabled}
+            learningPathDraftLoading={learnDraft.learningPathDraftLoading}
+            learnFeatureInfoVisible={learnDraft.learnFeatureInfoVisible}
+            activeThread={activeThread}
+            onRenameThread={pageMenus.openRenameModal}
+            onDeleteThread={(id) => void deleteChat(id)}
+            onToolbarAvatarsClick={collaboration.handleToolbarAvatarsClick}
+            onShareChipClick={collaboration.handleShareChipClick}
+            onOpenLearningPathDraft={learnDraft.openLearningPathDraft}
+          />
+        ) : null}
+        <ChatWindow
+          threadKey={activeThreadId}
+          composerUserId={user?.id ?? null}
+          documentAuthorName={displayName}
+          messages={messages}
+          isSending={isSending}
+          sendPhase={sendPhase}
+          error={error}
+          greetingName={greetingName}
+          tokenLimitReached={tokenLimitReached}
+          composerSelection={composerSelection}
+          onComposerSelectionChange={setComposerSelection}
+          blockedModelIds={blockedModelIds}
+          chatReplyMode={chatReplyMode}
+          onChatReplyModeChange={setChatReplyMode}
+          showReplyModePicker={!isChatToolbarMobile}
+          chatWebSearchMode={chatWebSearchMode}
+          onChatWebSearchModeChange={setChatWebSearchMode}
+          thinkingClarifyDialog={thinkingClarifyDialog}
+          onDismissThinkingClarify={dismissThinkingClarify}
+          onSubmitThinkingClarifyAnswer={(text) => void submitMessage(text)}
+          showInstantAnalyzeDebug={isAdmin && instantAnalyzeDebugEnabled}
+          liveInstantAnalyzeDebug={liveInstantAnalyzeDebug}
+          liveThinkingAnalyzeDebug={liveThinkingAnalyzeDebug}
+          onSendMessage={submitMessage}
+          onCancelSend={cancelSend}
+          onFinalizeWordDocument={finalizeWordDocumentExport}
+          wordFinalizeBusy={wordFinalizeBusy}
+          onFinalizePdfDocument={finalizePdfDocumentExport}
+          pdfFinalizeBusy={pdfFinalizeBusy}
+          onFinalizeExcelDocument={finalizeExcelDocumentExport}
+          excelFinalizeBusy={excelFinalizeBusy}
+          onFinalizePptxDocument={finalizePptxDocumentExport}
+          pptxFinalizeBusy={pptxFinalizeBusy}
+          onSubmitPptxEdit={submitPptxEditMessage}
+          onSwitchPptxPreset={applyPptxPresetSwitch}
+          thinkingCreditsRemaining={
+            profile?.is_superadmin === true ? undefined : thinkingCreditsRemaining ?? 0
+          }
+          thinkingCreditMax={
+            profile?.is_superadmin === true
+              ? undefined
+              : profile?.subscription_plans?.ai_credits_balance_max ?? undefined
+          }
+          thinkingDailyGrant={
+            profile?.is_superadmin === true
+              ? undefined
+              : profile?.subscription_plans?.ai_credits_daily_grant ?? null
+          }
+          thinkingCreditsBlocked={thinkingCreditsBlocked}
+          mainChatContextMaxTokens={mainChatContextMaxTokens}
+          subscriptionUsageDisplay={chatSubscriptionUsage?.display ?? null}
+        />
+        <ChatLearningPathDraftSidebar
+          open={learnDraft.learningPathDraftOpen}
+          loading={learnDraft.learningPathDraftLoading}
+          step={learnDraft.learningPathDraftStep}
+          context={learnDraft.learningPathDraftContext}
+          files={learnDraft.learningPathDraftFiles}
+          imageCount={learnDraft.learningPathDraftImages}
+          proficiency={learnDraft.learningPathDraftProficiency}
+          name={learnDraft.learningPathDraftName}
+          onClose={() => learnDraft.setLearningPathDraftOpen(false)}
+          onProficiencyChange={learnDraft.setLearningPathDraftProficiency}
+          onNameChange={learnDraft.setLearningPathDraftName}
+          onStepChange={learnDraft.setLearningPathDraftStep}
+          onProceed={learnDraft.proceedToLearnPageFromChatDraft}
+        />
+      </section>
+
+      <InviteToChatModal
+        isOpen={collaboration.inviteModalOpen}
+        threadId={activeThread?.id ?? null}
+        threadTitle={activeThread?.title ?? ''}
+        onClose={() => collaboration.setInviteModalOpen(false)}
+        onSent={() => void collaboration.refreshThreadMembers()}
+      />
+      <ChatEndSharingDialogs
+        isNarrowViewport={isNarrowViewport}
+        shareActionBusy={collaboration.shareActionBusy}
+        endSharingDesktopMounted={collaboration.endSharingDesktopMounted}
+        endSharingDesktopOpen={collaboration.endSharingDesktopOpen}
+        endSharingConfirmOpen={collaboration.endSharingConfirmOpen}
+        endSharingSheetRef={endSharingSheetRef}
+        participantsOpen={collaboration.participantsOpen}
+        participantsSheetRef={collaboration.participantsSheetRef}
+        showCollaborationToolbar={collaboration.showCollaborationToolbar}
+        membersForToolbarFull={collaboration.membersForToolbarFull}
+        onCloseEndSharing={collaboration.closeEndSharingConfirm}
+        onConfirmEndSharing={() => void collaboration.confirmEndSharing()}
+        onEndSharingSheetExitComplete={collaboration.handleEndSharingSheetExitComplete}
+        onParticipantsSheetExitComplete={collaboration.handleParticipantsSheetExitComplete}
+      />
+      {mainMobileBottomDock}
+      <div
+        className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
+        onClick={() => {
+          if (chatTourEligible) {
+            return
+          }
+          setIsMobileSidebarOpen(false)
+        }}
+        aria-hidden="true"
+        {...sidebarEdgeSwipe.backdropSwipeHandlers}
+      />
+
+      {chatTourEligible ? (
+        <ChatOnboardingTour
+          newChatButtonRef={newChatTourRef}
+          learnButtonRef={learnTourRef}
+          active={chatTourOverlayActive}
+          onComplete={completeChatOnboarding}
+        />
+      ) : null}
+
+      <ChatPageOverlays
+        isNarrowViewport={isNarrowViewport}
+        isCompactMobileSidebarLayout={isCompactMobileSidebarLayout}
+        logoSrc={logoSrc}
+        profile={profile}
+        displayName={displayName}
+        avatarFallback={avatarFallback}
+        subscriptionPlanName={subscriptionPlanName}
+        threads={threads}
+        chatFolders={chatFolders}
+        chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
+        chatTourEligible={chatTourEligible}
+        isLearnPathsButtonDisabled={isLearnPathsButtonDisabled}
+        profileFullSheetRef={pageModals.profileFullSheetRef}
+        betaNoticeSheetRef={pageModals.betaNoticeSheetRef}
+        mobileSheetMode={pageModals.mobileSheetMode}
+        setMobileSheetMode={pageModals.setMobileSheetMode}
+        settingsInitialSection={pageModals.settingsInitialSection}
+        isBetaNoticeMounted={pageModals.isBetaNoticeMounted}
+        isBetaNoticeVisible={pageModals.isBetaNoticeVisible}
+        introductionSheetRef={pageModals.introductionSheetRef}
+        isIntroductionMounted={pageModals.isIntroductionMounted}
+        isIntroductionVisible={pageModals.isIntroductionVisible}
+        introductionDraft={pageModals.introductionDraft}
+        onIntroductionDraftChange={pageModals.setIntroductionDraft}
+        isIntroductionSaving={pageModals.isIntroductionSaving}
+        onSaveIntroduction={pageModals.saveIntroductionFromModal}
+        onDeferIntroduction={pageModals.deferIntroductionModal}
+        onIntroductionSheetExitComplete={pageModals.handleIntroductionSheetExitComplete}
+        menuWrapperRef={pageMenus.menuWrapperRef}
+        threadSheetRef={pageMenus.threadSheetRef}
+        renameSheetRef={pageMenus.renameSheetRef}
+        folderSheetRef={pageMenus.folderSheetRef}
+        folderMenuWrapperRef={pageMenus.folderMenuWrapperRef}
+        openMenuThreadId={pageMenus.openMenuThreadId}
+        threadMenuVariant={pageMenus.threadMenuVariant}
+        contextMenuPosition={pageMenus.contextMenuPosition}
+        ownsThreadForMenu={pageMenus.ownsThreadForMenu}
+        canLeaveSharedChatForMenu={pageMenus.canLeaveSharedChatForMenu}
+        openFolderMenuId={pageMenus.openFolderMenuId}
+        folderMenuVariant={pageMenus.folderMenuVariant}
+        folderContextMenuPosition={pageMenus.folderContextMenuPosition}
+        folderMoveThreadId={pageMenus.folderMoveThreadId}
+        isFolderMoveModalVisible={pageMenus.isFolderMoveModalVisible}
+        folderNameSheetMode={pageMenus.folderNameSheetMode}
+        folderNameDraft={pageMenus.folderNameDraft}
+        setFolderNameDraft={pageMenus.setFolderNameDraft}
+        folderColorDraft={pageMenus.folderColorDraft}
+        setFolderColorDraft={pageMenus.setFolderColorDraft}
+        isFolderNameSheetOpen={pageMenus.isFolderNameSheetOpen}
+        isFolderNameModalVisible={pageMenus.isFolderNameModalVisible}
+        editingThread={pageMenus.editingThread}
+        isRenameVisible={pageMenus.isRenameVisible}
+        renameDraft={pageMenus.renameDraft}
+        setRenameDraft={pageMenus.setRenameDraft}
+        onCloseSettings={pageModals.closeSettingsModal}
+        onOpenSettings={openSettingsWorkspace}
+        onOpenAdmin={pageModals.openAdminModal}
+        onCloseBetaNotice={pageModals.closeBetaNoticeModal}
+        onBetaNoticeSheetExitComplete={pageModals.handleBetaNoticeSheetExitComplete}
+        onNavigateLearn={() => {
+          openLearnWorkspace()
+        }}
+        onLogout={handleLogout}
+        onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
+        onCloseThreadMenu={pageMenus.closeThreadActionMenu}
+        onCloseFolderMenu={pageMenus.closeFolderActionMenu}
+        onOpenFolderMove={pageMenus.openFolderMoveDialog}
+        onOpenRenameThread={pageMenus.openRenameModal}
+        onArchiveThread={archiveChat}
+        onDeleteThread={deleteChat}
+        onLeaveSharedThread={async (id) => {
+          await leaveSharedChatAsMember(id)
+          pushToast('Freigegebener Chat entfernt. Du hast keinen Zugriff mehr.')
+        }}
+        onMoveThreadToFolder={pageMenus.handleMoveThreadToFolder}
+        onCloseFolderMove={pageMenus.closeFolderMoveDialog}
+        onOpenEditFolderSheet={pageMenus.openEditFolderSheet}
+        onDeleteFolder={pageMenus.handleDeleteFolder}
+        onCloseFolderName={pageMenus.closeFolderNameSheet}
+        onFolderNameSubmit={pageMenus.handleFolderNameSubmit}
+        onCloseRenameModal={pageMenus.closeRenameModal}
+        onRenameSheetClosed={pageMenus.handleRenameSheetClosed}
+        onRenameSubmit={pageMenus.handleRenameSubmit}
+        showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+        learningPaths={learningPathsSidebar.learningPaths}
+        pathMenuRef={learningPathMenus.pathMenuRef}
+        learningPathRenameSheetRef={learningPathMenus.renameSheetRef}
+        openMenuPathId={learningPathMenus.openMenuPathId}
+        pathMenuVariant={learningPathMenus.pathMenuVariant}
+        pathContextMenuPosition={learningPathMenus.contextMenuPosition}
+        onCloseLearningPathMenu={learningPathMenus.closeLearningPathMenu}
+        onOpenRenameLearningPath={learningPathMenus.openRenameLearningPathModal}
+        onDeleteLearningPath={learningPathMenus.handleDeleteLearningPath}
+        learningPathRenamingId={learningPathMenus.renamingPathId}
+        isLearningPathRenameVisible={learningPathMenus.isRenameVisible}
+        learningPathRenameDraft={learningPathMenus.renameDraft}
+        setLearningPathRenameDraft={learningPathMenus.setRenameDraft}
+        onCloseLearningPathRename={learningPathMenus.closeRenameLearningPathModal}
+        onLearningPathRenameSheetClosed={learningPathMenus.handleRenameSheetClosed}
+        onLearningPathRenameSubmit={learningPathMenus.handleRenameLearningPathSubmit}
+      />
+          </main>
+  )
+}

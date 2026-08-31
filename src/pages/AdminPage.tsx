@@ -1,0 +1,5324 @@
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
+import accountIcon from '../assets/icons/account-outlined.svg'
+import aiIcon from '../assets/icons/ai.svg'
+import cardsOutlineIcon from '../assets/icons/cards-outline.svg'
+import generalIcon from '../assets/icons/general.svg'
+import sendIcon from '../assets/icons/send.svg'
+import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
+import { BrainAgentModelsSection } from '../features/learn/brain/admin/BrainAgentModelsSection'
+import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
+import { ModalHeader } from '../components/ui/modal/ModalHeader'
+import { ModalShell } from '../components/ui/modal/ModalShell'
+import {
+  DEFAULT_SYSTEM_PROMPTS,
+  SYSTEM_PROMPT_KEYS,
+  SYSTEM_PROMPT_LABELS,
+  type SystemPromptKey,
+} from '../config/systemPromptDefaults'
+import {
+  adminCreateUser,
+  adminDeleteUser,
+  adminSetMustChangePasswordOnFirstLogin,
+  adminSetUserProfileNames,
+  createSubscriptionPlan,
+  deleteSubscriptionPlan,
+  updateSubscriptionPlan,
+  deploySubscriptionAssignmentDrafts,
+  listAdminAiTokenUsageLogForUserDay,
+  listAdminAiTokenUsageSummary,
+  utcTodayDateInputValue,
+  listAdminUserLastAiUsage,
+  listAdminUsers,
+  listSubscriptionAssignmentDrafts,
+  listSubscriptionPlans,
+  listSubscriptionPlanShowcaseSlots,
+  saveSubscriptionAssignmentDraft,
+  saveSubscriptionPlanShowcaseSlots,
+  type AdminAiTokenUsageLogRow,
+  type AdminAiTokenUsageRow,
+  type AdminUserLastAiUsageRow,
+  type AdminUser,
+  type SubscriptionAssignmentDraftRow,
+  type SubscriptionPlanRow,
+  type SubscriptionPlanShowcaseSlotRow,
+} from '../features/auth/services/admin.service'
+import {
+  SUBSCRIPTION_IMAGE_GENERATION_MODELS,
+  labelForSubscriptionImageGenerationModel,
+  parseSubscriptionImageGenerationModelId,
+  type SubscriptionImageGenerationModelId,
+} from '../features/auth/constants/subscriptionImageGenerationModels'
+import {
+  adminCreateInviteToken,
+  adminListInviteTokens,
+  adminRevokeInviteToken,
+  buildInviteRegistrationLink,
+  type InviteTokenRow,
+} from '../features/auth/services/inviteTokens.service'
+import { DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS } from '../features/chat/constants/mainChatContext'
+import {
+  CHAT_COMPOSER_MODELS,
+  getComposerApiModelIdsForAdminFilter,
+} from '../features/chat/constants/chatComposerModels'
+import { DEFAULT_AI_CREDITS_BALANCE_MAX } from '../features/auth/constants/aiCredits'
+import { DEFAULT_WEB_SEARCH_CREDIT_MAX } from '../features/chat/constants/webSearchCredits'
+import {
+  adminDeployLearnAiModelDraft,
+  adminDeployLearnAiProviderDraft,
+  adminSetLearnAiModelDraft,
+  adminSetLearnAiProviderDraft,
+  adminSetLearnPathCreateEnabled,
+  adminSetLearnPathsEnabled,
+  adminSetBetaNoticeEnabled,
+  adminSetDeployedAppVersion,
+  adminSetLearnAreaBanner,
+  adminSetInstantAnalyzeDebugEnabled,
+  adminSetGeminiInstantEnabled,
+  adminSetChatFoldersEnabled,
+  adminSetFriendsEnabled,
+  adminSetThinkingGeminiModelsDraft,
+  adminDeployThinkingGeminiModelsDraft,
+  adminSetInstantAnalyzeModelDraft,
+  adminDeployInstantAnalyzeModelDraft,
+  adminSetThinkingAnalyzeModelDraft,
+  adminDeployThinkingAnalyzeModelDraft,
+  adminSetChatIntentModelRoutingDraft,
+  adminDeployChatIntentModelRoutingDraft,
+  getChatIntentModelRouting,
+  adminSetThinkingTaskTypeModelRoutingDraft,
+  adminSetThinkingTaskTypeTierDraft,
+  adminDeployThinkingTaskTypeModelRoutingDraft,
+  getThinkingTaskTypeModelRouting,
+  getAppFeatureFlags,
+  LEARN_AI_DEFAULT_OPENAI_MODEL,
+  type LearnAiModelId,
+  type LearnAiProvider,
+  type ThinkingGeminiModelsDraft,
+} from '../features/auth/services/appFeatureFlags.service'
+import type { AnalyzeModelId, ThinkingGeminiModelId } from '../features/chat/constants/geminiModels'
+import { ANALYZE_MODEL_IDS } from '../features/chat/constants/geminiModels'
+import {
+  CHAT_INTENT_MODEL_ROUTING_ENTRIES,
+  type ChatIntentModelRoutingRow,
+} from '../features/chat/constants/chatIntentModelRouting'
+import {
+  THINKING_TASK_TYPE_MODEL_ROUTING_ENTRIES,
+  type ThinkingTaskTypeModelRoutingRow,
+  type ThinkingTaskTypeTier,
+} from '../features/chat/constants/thinkingTaskTypeModelRouting'
+import {
+  estimateAiTokenCostsUsd,
+  formatUsdEstimate,
+} from '../features/auth/utils/aiModelPricing'
+import {
+  createFeedbackPhotoSignedUrl,
+  deleteUserFeedbackById,
+  listUserFeedbackForAdmin,
+  resolveUserFeedback,
+  type UserFeedbackRow,
+} from '../features/feedback/services/feedback.persistence'
+import { AdminFeedbackChatViewerModal } from '../features/feedback/components/AdminFeedbackChatViewerModal'
+import { ChatImageLightbox } from '../features/chat/components/chat-window/ChatImageLightbox'
+import { useChatImageLightbox } from '../features/chat/hooks/useChatImageLightbox'
+import { useAuth } from '../features/auth/context/useAuth'
+import { useSystemPrompts } from '../features/systemPrompts/useSystemPrompts'
+import { deleteSystemPromptOverride, upsertSystemPrompt } from '../features/systemPrompts/systemPrompts.service'
+import { cssUrl } from '../utils/assetUrl'
+
+/** KI-Credits: gemeinsamer, kostenbasierter Pool für Chat + Denken (siehe credits-system-plan.md). */
+function formatSubscriptionPlanAiCreditsSummary(plan: SubscriptionPlanRow): string {
+  const daily =
+    plan.ai_credits_daily_grant != null
+      ? `${plan.ai_credits_daily_grant.toLocaleString('de-DE')}/Tag`
+      : 'unbegrenzt'
+  const start =
+    typeof plan.ai_credits_start_balance === 'number'
+      ? plan.ai_credits_start_balance.toLocaleString('de-DE')
+      : '0'
+  const cap =
+    typeof plan.ai_credits_balance_max === 'number'
+      ? plan.ai_credits_balance_max.toLocaleString('de-DE')
+      : DEFAULT_AI_CREDITS_BALANCE_MAX.toLocaleString('de-DE')
+  return `KI-Credits (Chat + Denken): ${daily}, Start-Guthaben ${start}, Guthaben-Limit ${cap} (Rest des Tages → Guthaben)`
+}
+
+/** KI-Bildgenerierung (GPT Image / Flux) — nicht Unsplash-Suche, nicht Foto-Upload. */
+function formatSubscriptionPlanImageCreditsSummary(plan: SubscriptionPlanRow): string {
+  if (plan.max_images == null) {
+    return 'KI-Bildgenerierung: unbegrenzt'
+  }
+  const start = plan.image_start_balance ?? 0
+  const daily = plan.max_images
+  const cap = plan.image_credit_max ?? 60
+  return `KI-Bildgenerierung: Start ${start}, +${daily}/Tag (UTC), max. ${cap} angespart`
+}
+
+const ADMIN_IMAGE_CREDITS_HINT =
+  'Gilt für generierte KI-Grafiken (Chat «Bild erstellen», Lernkarten-Bilder). Pro Bild −1 Guthaben. Unsplash-Fotosuche und hochgeladene Fotos zählen nicht. Feld «Tages-Aufladung» leer lassen = unbegrenzt (kein Guthaben-System).'
+
+function formatSubscriptionPlanWebSearchSummary(plan: SubscriptionPlanRow): string {
+  const start = plan.web_search_start_balance ?? 0
+  const daily =
+    typeof plan.web_search_daily_grant === 'number' ? plan.web_search_daily_grant : 0
+  const cap = plan.web_search_credit_max ?? DEFAULT_WEB_SEARCH_CREDIT_MAX
+  if (daily <= 0 && start <= 0 && cap <= 0) {
+    return 'Websuche: deaktiviert (0 Guthaben)'
+  }
+  const dailyLabel =
+    typeof plan.web_search_daily_grant === 'number'
+      ? `+${plan.web_search_daily_grant}/Tag (UTC)`
+      : 'keine Tages-Aufladung'
+  return `Websuche: Start ${start}, ${dailyLabel}, max. ${cap} angespart`
+}
+
+const ADMIN_WEB_SEARCH_HINT =
+  'Gilt für automatische Tavily-Websuche (Smart Instant & Thinking bei aktuellen Fakten). Pro Suche −1 Guthaben. Tages-Aufladung leer = keine tägliche Aufladung (Start-Guthaben bleibt).'
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message
+  }
+  if (typeof err === 'object' && err !== null) {
+    const maybeMessage = Reflect.get(err, 'message')
+    if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+      return maybeMessage
+    }
+  }
+  return fallback
+}
+
+function labelForLearnAiModel(model: LearnAiModelId): string {
+  switch (model) {
+    case 'gpt-5.4':
+      return 'GPT-5.4'
+    case 'gpt-5.4-mini':
+      return 'GPT-5.4 mini'
+    case 'gpt-5-mini':
+      return 'GPT-5 mini'
+    case 'gpt-4o-mini':
+      return 'GPT-4 mini (4o mini)'
+    case 'claude-sonnet-4-6':
+      return 'Claude Sonnet 4.6'
+    case 'claude-3-5-haiku-latest':
+      return 'Claude 3.5 Haiku'
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-3.1-flash-lite-preview':
+      return 'Gemini 3.1 Flash Lite (Preview)'
+    default:
+      return model
+  }
+}
+
+function labelForThinkingGeminiModel(model: ThinkingGeminiModelId): string {
+  switch (model) {
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-2.5-flash':
+      return 'Gemini 2.5 Flash'
+    case 'gemini-3-flash-preview':
+      return 'Gemini 3 Flash Preview'
+    default:
+      return model
+  }
+}
+
+function labelForAnalyzeModel(model: AnalyzeModelId): string {
+  switch (model) {
+    case 'gemini-3.1-flash-lite':
+      return 'Gemini 3.1 Flash Lite'
+    case 'gemini-2.5-flash':
+      return 'Gemini 2.5 Flash'
+    case 'gemini-3-flash-preview':
+      return 'Gemini 3 Flash Preview'
+    case 'gpt-4o-mini':
+      return 'GPT-4 mini (4o mini)'
+    case 'gpt-5-mini':
+      return 'GPT-5 mini'
+    case 'gpt-5.4-mini':
+      return 'GPT-5.4 mini'
+    case 'gpt-5.4':
+      return 'GPT-5.4'
+    default:
+      return model
+  }
+}
+
+function parseAnalyzeModelDraftValue(value: string): AnalyzeModelId {
+  return (ANALYZE_MODEL_IDS as readonly string[]).includes(value)
+    ? (value as AnalyzeModelId)
+    : 'gemini-3.1-flash-lite'
+}
+
+function chatIntentModelRoutingKey(category: string, action: string): string {
+  return `${category}:${action}`
+}
+
+function parseThinkingTaskTypeTierDraftValue(value: string): ThinkingTaskTypeTier {
+  return value === 'rich' ? 'rich' : 'standard'
+}
+
+function parseChatIntentRoutingModelDraftValue(value: string): ChatIntentModelRoutingRow['modelActive'] {
+  if (
+    value === 'gpt-5.4' ||
+    value === 'gpt-5.4-mini' ||
+    value === 'gpt-5-mini' ||
+    value === 'gpt-4o' ||
+    value === 'gpt-4o-mini'
+  ) {
+    return value
+  }
+  return 'gpt-5.4-mini'
+}
+
+function parseThinkingGeminiModelDraftValue(value: string): ThinkingGeminiModelId {
+  if (
+    value === 'gemini-3.1-flash-lite' ||
+    value === 'gemini-2.5-flash' ||
+    value === 'gemini-3-flash-preview'
+  ) {
+    return value
+  }
+  return 'gemini-3.1-flash-lite'
+}
+
+function labelForLearnAiProvider(provider: LearnAiProvider): string {
+  switch (provider) {
+    case 'anthropic':
+      return 'Claude (Anthropic)'
+    case 'gemini':
+      return 'Gemini (Google)'
+    default:
+      return 'OpenAI'
+  }
+}
+
+function parseLearnAiModelDraftValue(value: string): LearnAiModelId {
+  if (
+    value === 'gpt-5.4' ||
+    value === 'gpt-5.4-mini' ||
+    value === 'gpt-5-mini' ||
+    value === 'gpt-4o-mini' ||
+    value === 'claude-sonnet-4-6' ||
+    value === 'claude-3-5-haiku-latest' ||
+    value === 'gemini-3.1-flash-lite' ||
+    value === 'gemini-3.1-flash-lite-preview'
+  ) {
+    return value
+  }
+  return LEARN_AI_DEFAULT_OPENAI_MODEL
+}
+
+type AdminSectionId =
+  | 'overview'
+  | 'users'
+  | 'tokenUsage'
+  | 'subscriptions'
+  | 'deployment'
+  | 'roles'
+  | 'aiProviders'
+  | 'brainAgents'
+  | 'systemPrompts'
+  | 'feedback'
+
+type AdminSection = {
+  id: AdminSectionId
+  label: string
+  title: string
+  icon: string
+}
+
+const sections: AdminSection[] = [
+  { id: 'overview', label: 'Übersicht', title: 'Administrator Übersicht', icon: generalIcon },
+  { id: 'users', label: 'Nutzer', title: 'Nutzerverwaltung', icon: accountIcon },
+  { id: 'tokenUsage', label: 'KI-Tokens', title: 'KI Token-Verbrauch', icon: aiIcon },
+  { id: 'subscriptions', label: 'Abonnements', title: 'Abonnements verwalten', icon: cardsOutlineIcon },
+  { id: 'deployment', label: 'Deployment', title: 'Abo-Entwürfe deployen', icon: sendIcon },
+  { id: 'roles', label: 'Rollen', title: 'Rollen und Rechte', icon: accountIcon },
+  { id: 'aiProviders', label: 'KI Provider', title: 'KI Provider konfigurieren', icon: aiIcon },
+  { id: 'brainAgents', label: 'Gehirn-Agenten', title: 'Lern-Gehirn: Modell je Rolle', icon: aiIcon },
+  { id: 'systemPrompts', label: 'KI Anweisungen', title: 'KI Systemanweisungen', icon: aiIcon },
+  { id: 'feedback', label: 'Feedback', title: 'Nutzer-Feedback', icon: sendIcon },
+]
+
+type AdministratorModalProps = {
+  onClose: () => void
+  /**
+   * `modal`: eigenständiges Overlay (frühere Darstellung), aktuell ungenutzt (siehe `embedded`).
+   * `embedded`: im rechten Chat-Hauptbereich integriert statt als Modal (siehe
+   * `.chat-main.is-admin-active`, `chat-settings-workspace.css`) — gleiches Prinzip wie
+   * `SettingsModal` mit `variant="embedded"`, nur ohne Karten-Chrome (kein Rahmen/Schatten), da
+   * die Fläche bereits vom umgebenden Chat-Layout kommt.
+   */
+  variant?: 'modal' | 'embedded'
+  /** Nur `variant="embedded"`: steuert die Fade-Animation von aussen (siehe ChatPage.tsx). */
+  isVisible?: boolean
+}
+
+export function AdministratorModal({ onClose, variant = 'modal', isVisible = true }: AdministratorModalProps) {
+  const { user: currentAuthUser } = useAuth()
+  const [activeSection, setActiveSection] = useState<AdminSectionId>('overview')
+  const { prompts, refresh, isLoading: promptsContextLoading } = useSystemPrompts()
+  const [promptDrafts, setPromptDrafts] = useState<Record<SystemPromptKey, string>>(() => ({
+    ...DEFAULT_SYSTEM_PROMPTS,
+  }))
+  const [promptSaveError, setPromptSaveError] = useState<string | null>(null)
+  const [promptActionKey, setPromptActionKey] = useState<SystemPromptKey | null>(null)
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [newUserEmail, setNewUserEmail] = useState('')
+  const [newUserFirstName, setNewUserFirstName] = useState('')
+  const [newUserLastName, setNewUserLastName] = useState('')
+  const [newUserTemporaryPassword, setNewUserTemporaryPassword] = useState('')
+  const [isCreatingUser, setIsCreatingUser] = useState(false)
+  const [createUserInfo, setCreateUserInfo] = useState<string | null>(null)
+  const [inviteTokens, setInviteTokens] = useState<InviteTokenRow[]>([])
+  const [isLoadingInviteTokens, setIsLoadingInviteTokens] = useState(false)
+  const [inviteTokensError, setInviteTokensError] = useState<string | null>(null)
+  /** Gültigkeit für den nächsten erzeugten Link, in Stunden (Default 7 Tage). */
+  const [newInviteHours, setNewInviteHours] = useState('168')
+  const [isCreatingInviteToken, setIsCreatingInviteToken] = useState(false)
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null)
+  const [createdInviteExpiresAt, setCreatedInviteExpiresAt] = useState<string | null>(null)
+  const [inviteLinkCopyInfo, setInviteLinkCopyInfo] = useState<string | null>(null)
+  const [revokingInviteTokenId, setRevokingInviteTokenId] = useState<string | null>(null)
+  const [feedbackItems, setFeedbackItems] = useState<UserFeedbackRow[]>([])
+  const [isLoadingFeedback, setIsLoadingFeedback] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+  const [deletingFeedbackId, setDeletingFeedbackId] = useState<string | null>(null)
+  const [feedbackResolveTarget, setFeedbackResolveTarget] = useState<UserFeedbackRow | null>(null)
+  const [feedbackResolveMessage, setFeedbackResolveMessage] = useState('')
+  const [isResolvingFeedback, setIsResolvingFeedback] = useState(false)
+  const [feedbackChatViewerThreadId, setFeedbackChatViewerThreadId] = useState<string | null>(null)
+  const [loadingFeedbackPhotoId, setLoadingFeedbackPhotoId] = useState<string | null>(null)
+  const feedbackImageLightbox = useChatImageLightbox()
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlanRow[]>([])
+  const [isLoadingSubscriptionPlans, setIsLoadingSubscriptionPlans] = useState(false)
+  const [subscriptionPlansError, setSubscriptionPlansError] = useState<string | null>(null)
+  const [newPlanName, setNewPlanName] = useState('')
+  const [newPlanAiCreditsDailyGrant, setNewPlanAiCreditsDailyGrant] = useState('')
+  const [newPlanMaxImages, setNewPlanMaxImages] = useState('')
+  const [newPlanMaxFiles, setNewPlanMaxFiles] = useState('')
+  const [newPlanWebSearchDailyGrant, setNewPlanWebSearchDailyGrant] = useState('')
+  const [newPlanWebSearchStartBalance, setNewPlanWebSearchStartBalance] = useState('0')
+  const [newPlanWebSearchCreditMax, setNewPlanWebSearchCreditMax] = useState(
+    String(DEFAULT_WEB_SEARCH_CREDIT_MAX),
+  )
+  const [newPlanImageStartBalance, setNewPlanImageStartBalance] = useState('0')
+  const [newPlanImageCreditMax, setNewPlanImageCreditMax] = useState('60')
+  const [newPlanChatContextMaxTokens, setNewPlanChatContextMaxTokens] = useState(
+    String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS),
+  )
+  const [newPlanAiCreditsStartBalance, setNewPlanAiCreditsStartBalance] = useState('0')
+  const [newPlanAiCreditsBalanceMax, setNewPlanAiCreditsBalanceMax] = useState(
+    String(DEFAULT_AI_CREDITS_BALANCE_MAX),
+  )
+  /** Leer = unbegrenzt, wie bei aiCreditsDailyGrant. */
+  const [newPlanLearningPathsMonthlyLimit, setNewPlanLearningPathsMonthlyLimit] = useState('')
+  const [newPlanImageGenerationModel, setNewPlanImageGenerationModel] =
+    useState<SubscriptionImageGenerationModelId>('gpt_image_1')
+  const [newPlanChatAllowCustomMode, setNewPlanChatAllowCustomMode] = useState(false)
+  const [isCreatePlanModalOpen, setIsCreatePlanModalOpen] = useState(false)
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const [editPlanDraft, setEditPlanDraft] = useState<{
+    id: string
+    name: string
+    maxImages: string
+    maxFiles: string
+    imageGenerationModel: SubscriptionImageGenerationModelId
+    chatContextMaxTokens: string
+    webSearchDailyGrant: string
+    webSearchStartBalance: string
+    webSearchCreditMax: string
+    imageStartBalance: string
+    imageCreditMax: string
+    aiCreditsDailyGrant: string
+    aiCreditsStartBalance: string
+    aiCreditsBalanceMax: string
+    learningPathsMonthlyLimit: string
+    /** Vom Abo gesperrte Chat-Modelle; leer = alle wählbar. */
+    chatBlockedModelIds: string[]
+  } | null>(null)
+  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false)
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
+  const [assigningUserId, setAssigningUserId] = useState<string | null>(null)
+  const [userProfileNameDrafts, setUserProfileNameDrafts] = useState<
+    Record<string, { first: string; last: string }>
+  >({})
+  const [savingProfileNamesUserId, setSavingProfileNamesUserId] = useState<string | null>(null)
+  const [savingMustPwUserId, setSavingMustPwUserId] = useState<string | null>(null)
+  const [subscriptionDrafts, setSubscriptionDrafts] = useState<Record<string, SubscriptionAssignmentDraftRow>>({})
+  const [selectedDraftPlanByUser, setSelectedDraftPlanByUser] = useState<Record<string, string | null>>({})
+  const [confirmDraftUserId, setConfirmDraftUserId] = useState<string | null>(null)
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null)
+  const [deleteUserEmailConfirm, setDeleteUserEmailConfirm] = useState('')
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [isDeployingDrafts, setIsDeployingDrafts] = useState(false)
+  const [showcaseSlots, setShowcaseSlots] = useState<Record<1 | 2 | 3, string>>({ 1: '', 2: '', 3: '' })
+  const [isSavingShowcaseSlots, setIsSavingShowcaseSlots] = useState(false)
+  const [betaNoticeEnabled, setBetaNoticeEnabled] = useState(true)
+  const [isLoadingBetaNoticeToggle, setIsLoadingBetaNoticeToggle] = useState(false)
+  const [learnPathsEnabled, setLearnPathsEnabled] = useState(true)
+  const [learnPathCreateEnabled, setLearnPathCreateEnabled] = useState(true)
+  const [isLoadingLearnPathsToggle, setIsLoadingLearnPathsToggle] = useState(false)
+  const [isLoadingLearnPathCreateToggle, setIsLoadingLearnPathCreateToggle] = useState(false)
+  const [learnAreaBannerEnabled, setLearnAreaBannerEnabled] = useState(false)
+  const [learnAreaBannerTextDraft, setLearnAreaBannerTextDraft] = useState('')
+  const [isLoadingLearnAreaBannerToggle, setIsLoadingLearnAreaBannerToggle] = useState(false)
+  const [isSavingLearnAreaBannerText, setIsSavingLearnAreaBannerText] = useState(false)
+  const [learnAreaBannerInfo, setLearnAreaBannerInfo] = useState<string | null>(null)
+  const [instantAnalyzeDebugEnabled, setInstantAnalyzeDebugEnabled] = useState(false)
+  const [isLoadingInstantAnalyzeDebugToggle, setIsLoadingInstantAnalyzeDebugToggle] = useState(false)
+  const [chatFoldersEnabled, setChatFoldersEnabled] = useState(true)
+  const [isLoadingChatFoldersToggle, setIsLoadingChatFoldersToggle] = useState(false)
+  const [friendsEnabled, setFriendsEnabled] = useState(true)
+  const [isLoadingFriendsToggle, setIsLoadingFriendsToggle] = useState(false)
+  const [instantAnalyzeDebugInfo, setInstantAnalyzeDebugInfo] = useState<string | null>(null)
+  const [geminiInstantEnabled, setGeminiInstantEnabled] = useState(false)
+  const [thinkingGeminiStandardActive, setThinkingGeminiStandardActive] =
+    useState<ThinkingGeminiModelId>('gemini-3.1-flash-lite')
+  const [thinkingGeminiRichActive, setThinkingGeminiRichActive] =
+    useState<ThinkingGeminiModelId>('gemini-3-flash-preview')
+  const [thinkingGeminiStandardDraft, setThinkingGeminiStandardDraft] =
+    useState<ThinkingGeminiModelId>('gemini-3.1-flash-lite')
+  const [thinkingGeminiRichDraft, setThinkingGeminiRichDraft] =
+    useState<ThinkingGeminiModelId>('gemini-3-flash-preview')
+  const [isSavingThinkingGeminiModelsDraft, setIsSavingThinkingGeminiModelsDraft] = useState(false)
+  const [isDeployingThinkingGeminiModels, setIsDeployingThinkingGeminiModels] = useState(false)
+  const [thinkingGeminiModelsInfo, setThinkingGeminiModelsInfo] = useState<string | null>(null)
+  const [instantAnalyzeModelActive, setInstantAnalyzeModelActive] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [instantAnalyzeModelDraft, setInstantAnalyzeModelDraft] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [thinkingAnalyzeModelActive, setThinkingAnalyzeModelActive] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [thinkingAnalyzeModelDraft, setThinkingAnalyzeModelDraft] =
+    useState<AnalyzeModelId>('gemini-3.1-flash-lite')
+  const [isSavingInstantAnalyzeModelDraft, setIsSavingInstantAnalyzeModelDraft] = useState(false)
+  const [isDeployingInstantAnalyzeModel, setIsDeployingInstantAnalyzeModel] = useState(false)
+  const [isSavingThinkingAnalyzeModelDraft, setIsSavingThinkingAnalyzeModelDraft] = useState(false)
+  const [isDeployingThinkingAnalyzeModel, setIsDeployingThinkingAnalyzeModel] = useState(false)
+  const [analyzeModelsInfo, setAnalyzeModelsInfo] = useState<string | null>(null)
+  const [chatIntentModelRoutingRows, setChatIntentModelRoutingRows] = useState<ChatIntentModelRoutingRow[]>([])
+  const [chatIntentModelRoutingDrafts, setChatIntentModelRoutingDrafts] = useState<
+    Record<string, ChatIntentModelRoutingRow['modelDraft']>
+  >({})
+  const [savingChatIntentModelRoutingKey, setSavingChatIntentModelRoutingKey] = useState<string | null>(null)
+  const [isDeployingChatIntentModelRouting, setIsDeployingChatIntentModelRouting] = useState(false)
+  const [chatIntentModelRoutingInfo, setChatIntentModelRoutingInfo] = useState<string | null>(null)
+  const [thinkingTaskTypeModelRoutingRows, setThinkingTaskTypeModelRoutingRows] = useState<
+    ThinkingTaskTypeModelRoutingRow[]
+  >([])
+  const [thinkingTaskTypeModelRoutingModelDrafts, setThinkingTaskTypeModelRoutingModelDrafts] = useState<
+    Record<string, AnalyzeModelId>
+  >({})
+  const [thinkingTaskTypeModelRoutingTierDrafts, setThinkingTaskTypeModelRoutingTierDrafts] = useState<
+    Record<string, ThinkingTaskTypeTier>
+  >({})
+  const [savingThinkingTaskTypeModelRoutingKey, setSavingThinkingTaskTypeModelRoutingKey] = useState<
+    string | null
+  >(null)
+  const [isDeployingThinkingTaskTypeModelRouting, setIsDeployingThinkingTaskTypeModelRouting] = useState(false)
+  const [thinkingTaskTypeModelRoutingInfo, setThinkingTaskTypeModelRoutingInfo] = useState<string | null>(null)
+  const [isLoadingGeminiInstantToggle, setIsLoadingGeminiInstantToggle] = useState(false)
+  const [geminiInstantInfo, setGeminiInstantInfo] = useState<string | null>(null)
+  const [learnAiProviderActive, setLearnAiProviderActive] = useState<LearnAiProvider>('openai')
+  const [learnAiProviderDraft, setLearnAiProviderDraft] = useState<LearnAiProvider>('openai')
+  const [learnAiModelActive, setLearnAiModelActive] = useState<LearnAiModelId>(LEARN_AI_DEFAULT_OPENAI_MODEL)
+  const [learnAiModelDraft, setLearnAiModelDraft] = useState<LearnAiModelId>(LEARN_AI_DEFAULT_OPENAI_MODEL)
+  const [isSavingLearnAiProviderDraft, setIsSavingLearnAiProviderDraft] = useState(false)
+  const [isDeployingLearnAiProvider, setIsDeployingLearnAiProvider] = useState(false)
+  const [isSavingLearnAiModelDraft, setIsSavingLearnAiModelDraft] = useState(false)
+  const [isDeployingLearnAiModel, setIsDeployingLearnAiModel] = useState(false)
+  const [learnAiProviderInfo, setLearnAiProviderInfo] = useState<string | null>(null)
+  const [learnAiModelInfo, setLearnAiModelInfo] = useState<string | null>(null)
+  const [deployedAppVersion, setDeployedAppVersion] = useState('')
+  const [deployedAppVersionDraft, setDeployedAppVersionDraft] = useState('')
+  const [isSavingDeployedAppVersion, setIsSavingDeployedAppVersion] = useState(false)
+  const [deployedAppVersionInfo, setDeployedAppVersionInfo] = useState<string | null>(null)
+  const [tokenUsageRows, setTokenUsageRows] = useState<AdminAiTokenUsageRow[]>([])
+  const [tokenUsageLogDayByUser, setTokenUsageLogDayByUser] = useState<Record<string, string>>({})
+  const [tokenUsageLogByUserDay, setTokenUsageLogByUserDay] = useState<
+    Record<string, AdminAiTokenUsageLogRow[]>
+  >({})
+  const [tokenUsageLogLoadingUserId, setTokenUsageLogLoadingUserId] = useState<string | null>(null)
+  const [tokenUsageLogErrorByUser, setTokenUsageLogErrorByUser] = useState<Record<string, string>>({})
+  const [lastAiUsageRows, setLastAiUsageRows] = useState<AdminUserLastAiUsageRow[]>([])
+  const [isLoadingTokenUsage, setIsLoadingTokenUsage] = useState(false)
+  const [tokenUsageError, setTokenUsageError] = useState<string | null>(null)
+  const [tokenUsageFilterOpen, setTokenUsageFilterOpen] = useState(false)
+  const [tokenUsageFilterUserId, setTokenUsageFilterUserId] = useState('')
+  const [tokenUsageFilterModel, setTokenUsageFilterModel] = useState('')
+  const [tokenUsageFilterEmail, setTokenUsageFilterEmail] = useState('')
+  const [tokenUsageFilterCostMin, setTokenUsageFilterCostMin] = useState('')
+  const [tokenUsageFilterCostMax, setTokenUsageFilterCostMax] = useState('')
+
+  const activeSectionConfig = useMemo(
+    () => sections.find((section) => section.id === activeSection) ?? sections[0],
+    [activeSection],
+  )
+
+  const deleteTargetUser = useMemo(
+    () => (confirmDeleteUserId ? users.find((u) => u.id === confirmDeleteUserId) ?? null : null),
+    [confirmDeleteUserId, users],
+  )
+  const deleteEmailMatches =
+    Boolean(deleteTargetUser?.email) &&
+    deleteUserEmailConfirm.trim().toLowerCase() === (deleteTargetUser?.email ?? '').trim().toLowerCase()
+
+  const lastAiUsageSorted = useMemo(() => {
+    return [...lastAiUsageRows].sort((a, b) => {
+      const ta = new Date(a.last_used_at).getTime()
+      const tb = new Date(b.last_used_at).getTime()
+      return tb - ta
+    })
+  }, [lastAiUsageRows])
+
+  const tokenUsageProtocolUsers = useMemo(() => {
+    return [...lastAiUsageSorted].sort((a, b) => formatLastAiPerson(a).localeCompare(formatLastAiPerson(b), 'de'))
+  }, [lastAiUsageSorted])
+
+  function tokenUsageLogCacheKey(userId: string, day: string): string {
+    return `${userId}:${day}`
+  }
+
+  function getTokenUsageLogDayForUser(userId: string): string {
+    return tokenUsageLogDayByUser[userId] ?? utcTodayDateInputValue()
+  }
+
+  async function loadTokenUsageLogForUser(userId: string, day?: string) {
+    const selectedDay = day ?? getTokenUsageLogDayForUser(userId)
+    const cacheKey = tokenUsageLogCacheKey(userId, selectedDay)
+    setTokenUsageLogLoadingUserId(userId)
+    setTokenUsageLogErrorByUser((prev) => {
+      const next = { ...prev }
+      delete next[userId]
+      return next
+    })
+    try {
+      const rows = await listAdminAiTokenUsageLogForUserDay(userId, selectedDay)
+      setTokenUsageLogByUserDay((prev) => ({ ...prev, [cacheKey]: rows }))
+    } catch (err) {
+      setTokenUsageLogErrorByUser((prev) => ({
+        ...prev,
+        [userId]: getErrorMessage(err, 'Protokoll konnte nicht geladen werden.'),
+      }))
+    } finally {
+      setTokenUsageLogLoadingUserId(null)
+    }
+  }
+
+  function handleTokenUsageLogDayChange(userId: string, nextDay: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDay)) {
+      return
+    }
+    setTokenUsageLogDayByUser((prev) => ({ ...prev, [userId]: nextDay }))
+    void loadTokenUsageLogForUser(userId, nextDay)
+  }
+
+  const tokenUsageUserOptions = useMemo(() => {
+    const byId = new Map<string, AdminAiTokenUsageRow>()
+    for (const row of tokenUsageRows) {
+      if (!byId.has(row.user_id)) {
+        byId.set(row.user_id, row)
+      }
+    }
+    return [...byId.values()].sort((a, b) => {
+      const na = [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email?.trim() || a.user_id
+      const nb = [b.first_name, b.last_name].filter(Boolean).join(' ').trim() || b.email?.trim() || b.user_id
+      return na.localeCompare(nb, 'de')
+    })
+  }, [tokenUsageRows])
+
+  const tokenUsageModelOptions = useMemo(() => {
+    const ids = new Set<string>()
+    for (const row of tokenUsageRows) {
+      if (row.model) {
+        ids.add(row.model)
+      }
+    }
+    for (const id of getComposerApiModelIdsForAdminFilter()) {
+      ids.add(id)
+    }
+    return [...ids].sort((a, b) => a.localeCompare(b, 'de'))
+  }, [tokenUsageRows])
+
+  const tokenUsageFiltersActive = useMemo(() => {
+    return Boolean(
+      tokenUsageFilterUserId ||
+        tokenUsageFilterModel ||
+        tokenUsageFilterEmail.trim() ||
+        tokenUsageFilterCostMin.trim() ||
+        tokenUsageFilterCostMax.trim(),
+    )
+  }, [
+    tokenUsageFilterUserId,
+    tokenUsageFilterModel,
+    tokenUsageFilterEmail,
+    tokenUsageFilterCostMin,
+    tokenUsageFilterCostMax,
+  ])
+
+  const tokenUsageFilteredRows = useMemo(() => {
+    const emailQ = tokenUsageFilterEmail.trim().toLowerCase()
+    const rawMin = tokenUsageFilterCostMin.trim().replace(',', '.')
+    const rawMax = tokenUsageFilterCostMax.trim().replace(',', '.')
+    const costMin = rawMin === '' ? Number.NaN : Number.parseFloat(rawMin)
+    const costMax = rawMax === '' ? Number.NaN : Number.parseFloat(rawMax)
+    const hasCostMin = Number.isFinite(costMin)
+    const hasCostMax = Number.isFinite(costMax)
+
+    return tokenUsageRows.filter((row) => {
+      if (tokenUsageFilterUserId && row.user_id !== tokenUsageFilterUserId) {
+        return false
+      }
+      if (tokenUsageFilterModel && row.model !== tokenUsageFilterModel) {
+        return false
+      }
+      if (emailQ && !(row.email ?? '').toLowerCase().includes(emailQ)) {
+        return false
+      }
+      if (hasCostMin || hasCostMax) {
+        const c = estimateAiTokenCostsUsd(
+          row.provider,
+          row.model,
+          row.input_tokens,
+          row.output_tokens,
+          row.cached_input_tokens,
+          row.cache_write_input_tokens,
+        )
+        if (!c.known) {
+          return false
+        }
+        if (hasCostMin && c.totalUsd < costMin) {
+          return false
+        }
+        if (hasCostMax && c.totalUsd > costMax) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [
+    tokenUsageRows,
+    tokenUsageFilterUserId,
+    tokenUsageFilterModel,
+    tokenUsageFilterEmail,
+    tokenUsageFilterCostMin,
+    tokenUsageFilterCostMax,
+  ])
+
+  const tokenUsageTotals = useMemo(() => {
+    let grossInput = 0
+    let cachedInput = 0
+    let cacheWriteInput = 0
+    let input = 0
+    let output = 0
+    for (const row of tokenUsageFilteredRows) {
+      grossInput += row.gross_input_tokens
+      cachedInput += row.cached_input_tokens
+      cacheWriteInput += row.cache_write_input_tokens
+      input += row.input_tokens
+      output += row.output_tokens
+    }
+    return { grossInput, cachedInput, cacheWriteInput, input, output, total: input + output }
+  }, [tokenUsageFilteredRows])
+
+  const tokenUsageCostTotals = useMemo(() => {
+    let inputUsd = 0
+    let outputUsd = 0
+    let hasUnknownModel = false
+    let hasKnownModel = false
+    for (const row of tokenUsageFilteredRows) {
+      const c = estimateAiTokenCostsUsd(
+        row.provider,
+        row.model,
+        row.input_tokens,
+        row.output_tokens,
+        row.cached_input_tokens,
+        row.cache_write_input_tokens,
+      )
+      if (!c.known) {
+        hasUnknownModel = true
+        continue
+      }
+      hasKnownModel = true
+      inputUsd += c.inputUsd
+      outputUsd += c.outputUsd
+    }
+    return {
+      inputUsd,
+      outputUsd,
+      totalUsd: inputUsd + outputUsd,
+      hasUnknownModel,
+      hasKnownModel,
+    }
+  }, [tokenUsageFilteredRows])
+
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const flags = await getAppFeatureFlags()
+        if (!isMounted) {
+          return
+        }
+        setBetaNoticeEnabled(flags.show_beta_notice_on_first_login)
+        setLearnPathsEnabled(flags.learn_paths_enabled)
+        setLearnPathCreateEnabled(flags.learn_path_create_enabled)
+        setLearnAiProviderActive(flags.learn_ai_provider_active)
+        setLearnAiProviderDraft(flags.learn_ai_provider_draft)
+        setLearnAiModelActive(flags.learn_ai_model_active)
+        setLearnAiModelDraft(flags.learn_ai_model_draft)
+        setLearnAreaBannerEnabled(flags.learn_area_banner_enabled)
+        setLearnAreaBannerTextDraft(flags.learn_area_banner_text)
+        setInstantAnalyzeDebugEnabled(flags.instant_analyze_debug_enabled)
+        setChatFoldersEnabled(flags.chat_folders_enabled)
+        setFriendsEnabled(flags.friends_enabled)
+        setGeminiInstantEnabled(flags.gemini_instant_enabled)
+        setThinkingGeminiStandardActive(flags.thinking_gemini_model_standard_active)
+        setThinkingGeminiRichActive(flags.thinking_gemini_model_rich_active)
+        setThinkingGeminiStandardDraft(flags.thinking_gemini_model_standard_draft)
+        setThinkingGeminiRichDraft(flags.thinking_gemini_model_rich_draft)
+        setInstantAnalyzeModelActive(flags.instant_analyze_model_active)
+        setInstantAnalyzeModelDraft(flags.instant_analyze_model_draft)
+        setThinkingAnalyzeModelActive(flags.thinking_analyze_model_active)
+        setThinkingAnalyzeModelDraft(flags.thinking_analyze_model_draft)
+        const nextVersion = flags.deployed_app_version ?? ''
+        setDeployedAppVersion(nextVersion)
+        setDeployedAppVersionDraft(nextVersion)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setBetaNoticeEnabled(true)
+        setLearnPathsEnabled(true)
+        setLearnPathCreateEnabled(true)
+        setLearnAiProviderActive('openai')
+        setLearnAiProviderDraft('openai')
+        setLearnAiModelActive(LEARN_AI_DEFAULT_OPENAI_MODEL)
+        setLearnAiModelDraft(LEARN_AI_DEFAULT_OPENAI_MODEL)
+        setDeployedAppVersion('')
+        setDeployedAppVersionDraft('')
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const rows = await getChatIntentModelRouting()
+        if (!isMounted) {
+          return
+        }
+        setChatIntentModelRoutingRows(rows)
+        setChatIntentModelRoutingDrafts(
+          rows.reduce<Record<string, ChatIntentModelRoutingRow['modelDraft']>>((acc, row) => {
+            acc[chatIntentModelRoutingKey(row.category, row.action)] = row.modelDraft
+            return acc
+          }, {}),
+        )
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setChatIntentModelRoutingRows([])
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const rows = await getThinkingTaskTypeModelRouting()
+        if (!isMounted) {
+          return
+        }
+        setThinkingTaskTypeModelRoutingRows(rows)
+        setThinkingTaskTypeModelRoutingModelDrafts(
+          rows.reduce<Record<string, AnalyzeModelId>>((acc, row) => {
+            acc[row.taskType] = row.modelDraft
+            return acc
+          }, {}),
+        )
+        setThinkingTaskTypeModelRoutingTierDrafts(
+          rows.reduce<Record<string, ThinkingTaskTypeTier>>((acc, row) => {
+            acc[row.taskType] = row.tierDraft
+            return acc
+          }, {}),
+        )
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        setThinkingTaskTypeModelRoutingRows([])
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'users' && activeSection !== 'deployment') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadUsers() {
+      try {
+        setIsLoadingUsers(true)
+        setUsersError(null)
+        const nextUsers = await listAdminUsers()
+        if (isMounted) {
+          setUsers(nextUsers)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setUsersError(getErrorMessage(err, 'Nutzer konnten nicht geladen werden.'))
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingUsers(false)
+        }
+      }
+    }
+
+    void loadUsers()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'users') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadInviteTokens() {
+      try {
+        setIsLoadingInviteTokens(true)
+        setInviteTokensError(null)
+        const rows = await adminListInviteTokens()
+        if (isMounted) {
+          setInviteTokens(rows)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setInviteTokensError(getErrorMessage(err, 'Einladungslinks konnten nicht geladen werden.'))
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingInviteTokens(false)
+        }
+      }
+    }
+
+    void loadInviteTokens()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    const next: Record<string, { first: string; last: string }> = {}
+    for (const u of users) {
+      next[u.id] = {
+        first: u.first_name ?? '',
+        last: u.last_name ?? '',
+      }
+    }
+    setUserProfileNameDrafts(next)
+  }, [users])
+
+  useEffect(() => {
+    if (activeSection !== 'subscriptions') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadShowcaseSlots() {
+      try {
+        const slots = await listSubscriptionPlanShowcaseSlots()
+        if (!isMounted) {
+          return
+        }
+        const nextSlots: Record<1 | 2 | 3, string> = { 1: '', 2: '', 3: '' }
+        for (const slot of slots) {
+          nextSlots[slot.slot_index] = slot.plan_id ?? ''
+        }
+        setShowcaseSlots(nextSlots)
+      } catch (err) {
+        if (!isMounted) {
+          return
+        }
+        setSubscriptionPlansError(getErrorMessage(err, 'Sichtbare Abo-Modelle konnten nicht geladen werden.'))
+      }
+    }
+
+    void loadShowcaseSlots()
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'users' && activeSection !== 'subscriptions' && activeSection !== 'deployment') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadSubscriptionPlansList() {
+      try {
+        setIsLoadingSubscriptionPlans(true)
+        setSubscriptionPlansError(null)
+        const rows = await listSubscriptionPlans()
+        if (isMounted) {
+          setSubscriptionPlans(rows)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setSubscriptionPlansError(getErrorMessage(err, 'Abonnements konnten nicht geladen werden.'))
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingSubscriptionPlans(false)
+        }
+      }
+    }
+
+    void loadSubscriptionPlansList()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'users' && activeSection !== 'deployment') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadDrafts() {
+      try {
+        setSubscriptionPlansError(null)
+        const rows = await listSubscriptionAssignmentDrafts()
+        if (!isMounted) {
+          return
+        }
+        const byUser: Record<string, SubscriptionAssignmentDraftRow> = {}
+        for (const row of rows) {
+          byUser[row.user_id] = row
+        }
+        setSubscriptionDrafts(byUser)
+      } catch (err) {
+        if (!isMounted) {
+          return
+        }
+        setSubscriptionPlansError(getErrorMessage(err, 'Abo-Entwürfe konnten nicht geladen werden.'))
+      }
+    }
+
+    void loadDrafts()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'tokenUsage') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadTokenUsage() {
+      try {
+        setIsLoadingTokenUsage(true)
+        setTokenUsageError(null)
+        const [summary, lastByUser] = await Promise.all([
+          listAdminAiTokenUsageSummary(),
+          listAdminUserLastAiUsage(),
+        ])
+        if (isMounted) {
+          setTokenUsageRows(summary)
+          setLastAiUsageRows(lastByUser)
+          setTokenUsageLogByUserDay({})
+          setTokenUsageLogErrorByUser({})
+        }
+      } catch (err) {
+        if (isMounted) {
+          setTokenUsageError(getErrorMessage(err, 'Token-Statistik konnte nicht geladen werden.'))
+          setTokenUsageRows([])
+          setLastAiUsageRows([])
+          setTokenUsageLogByUserDay({})
+          setTokenUsageLogErrorByUser({})
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingTokenUsage(false)
+        }
+      }
+    }
+
+    void loadTokenUsage()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'feedback') {
+      return
+    }
+
+    let isMounted = true
+
+    async function loadFeedback() {
+      try {
+        setIsLoadingFeedback(true)
+        setFeedbackError(null)
+        const rows = await listUserFeedbackForAdmin()
+        if (isMounted) {
+          setFeedbackItems(rows)
+        }
+      } catch (err) {
+        if (isMounted) {
+          setFeedbackError(err instanceof Error ? err.message : 'Feedback konnte nicht geladen werden.')
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingFeedback(false)
+        }
+      }
+    }
+
+    void loadFeedback()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'systemPrompts') {
+      return
+    }
+    setPromptDrafts({ ...prompts })
+    setPromptSaveError(null)
+  }, [activeSection, prompts])
+
+  async function handleSaveSystemPrompt(key: SystemPromptKey) {
+    setPromptActionKey(key)
+    setPromptSaveError(null)
+    try {
+      await upsertSystemPrompt(key, promptDrafts[key] ?? '')
+      await refresh()
+    } catch (err) {
+      setPromptSaveError(getErrorMessage(err, 'Speichern fehlgeschlagen.'))
+    } finally {
+      setPromptActionKey(null)
+    }
+  }
+
+  async function handleResetSystemPrompt(key: SystemPromptKey) {
+    setPromptActionKey(key)
+    setPromptSaveError(null)
+    try {
+      await deleteSystemPromptOverride(key)
+      await refresh()
+    } catch (err) {
+      setPromptSaveError(getErrorMessage(err, 'Zurücksetzen fehlgeschlagen.'))
+    } finally {
+      setPromptActionKey(null)
+    }
+  }
+
+  function parseOptionalInstantTokenBalance(raw: string): number | null {
+    const n = parseOptionalNonNegativeInt(raw)
+    if (n === null) {
+      return null
+    }
+    if (n > 10_000_000) {
+      return null
+    }
+    return n
+  }
+
+  function parseOptionalNonNegativeInt(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+      return null
+    }
+    return n
+  }
+
+  /** Leer = keine tägliche Aufladung; sonst 0 … 10 000. */
+  function parseOptionalWebSearchDailyGrant(raw: string): number | null {
+    return parseOptionalPlanCreditField(raw)
+  }
+
+  /** Guthaben-Felder pro Abo (0 … 10 000). */
+  function parseOptionalPlanCreditField(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 10_000) {
+      return null
+    }
+    return n
+  }
+
+  /** Leer = unbegrenzter Verlauf; sonst 1000 … 5_000_000 (wie DB-Check). */
+  function parseOptionalChatContextMaxTokens(raw: string): number | null {
+    const t = raw.trim()
+    if (!t) {
+      return null
+    }
+    const n = Number(t)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1000 || n > 5_000_000) {
+      return null
+    }
+    return n
+  }
+
+  async function handleCreateSubscriptionPlan() {
+    const name = newPlanName.trim()
+    if (!name) {
+      return
+    }
+
+    const maxTokens = parseOptionalNonNegativeInt(newPlanAiCreditsDailyGrant)
+    const maxImages = parseOptionalNonNegativeInt(newPlanMaxImages)
+    const maxFiles = parseOptionalNonNegativeInt(newPlanMaxFiles)
+
+    if (newPlanAiCreditsDailyGrant.trim() && maxTokens === null) {
+      setSubscriptionPlansError(
+        'Smart Instant: Max. Tokens pro Tag muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).',
+      )
+      return
+    }
+    const instantTokenStartBalance = parseOptionalInstantTokenBalance(newPlanAiCreditsStartBalance)
+    if (newPlanAiCreditsStartBalance.trim() && instantTokenStartBalance === null) {
+      setSubscriptionPlansError('Smart Instant Start-Guthaben: ganze Zahl 0–10 000 000.')
+      return
+    }
+    const instantTokenBalanceMax = parseOptionalInstantTokenBalance(newPlanAiCreditsBalanceMax)
+    if (newPlanAiCreditsBalanceMax.trim() && instantTokenBalanceMax === null) {
+      setSubscriptionPlansError('Smart Instant Guthaben-Limit: ganze Zahl 0–10 000 000.')
+      return
+    }
+    if (newPlanMaxImages.trim() && maxImages === null) {
+      setSubscriptionPlansError('Max Bilder muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+    if (newPlanMaxFiles.trim() && maxFiles === null) {
+      setSubscriptionPlansError('Max Dateien muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+
+    const chatContextMaxTokens = parseOptionalChatContextMaxTokens(newPlanChatContextMaxTokens)
+    if (newPlanChatContextMaxTokens.trim() && chatContextMaxTokens === null) {
+      setSubscriptionPlansError(
+        'Chat-Kontext (Tokens): ganze Zahl zwischen 1000 und 5 000 000, oder leer für unbegrenzten Verlauf.',
+      )
+      return
+    }
+
+    const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(newPlanWebSearchDailyGrant)
+    if (newPlanWebSearchDailyGrant.trim() && webSearchDailyGrant === null) {
+      setSubscriptionPlansError('Websuche Tages-Aufladung: ganze Zahl 0–10 000, oder leer.')
+      return
+    }
+    const webSearchStartBalance = parseOptionalPlanCreditField(newPlanWebSearchStartBalance)
+    if (newPlanWebSearchStartBalance.trim() && webSearchStartBalance === null) {
+      setSubscriptionPlansError('Websuche Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const webSearchCreditMax = parseOptionalPlanCreditField(newPlanWebSearchCreditMax)
+    if (newPlanWebSearchCreditMax.trim() && webSearchCreditMax === null) {
+      setSubscriptionPlansError('Websuche Guthaben-Limit: ganze Zahl 0–10 000.')
+      return
+    }
+
+    const imageStartBalance = parseOptionalPlanCreditField(newPlanImageStartBalance)
+    if (newPlanImageStartBalance.trim() && imageStartBalance === null) {
+      setSubscriptionPlansError('KI-Bildgenerierung Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const learningPathsMonthlyLimit = parseOptionalNonNegativeInt(newPlanLearningPathsMonthlyLimit)
+    if (newPlanLearningPathsMonthlyLimit.trim() && learningPathsMonthlyLimit === null) {
+      setSubscriptionPlansError('Lernpfade pro Monat: ganze Zahl >= 0 (oder leer = unbegrenzt).')
+      return
+    }
+    const imageCreditMax = parseOptionalPlanCreditField(newPlanImageCreditMax)
+    if (newPlanImageCreditMax.trim() && imageCreditMax === null) {
+      setSubscriptionPlansError('KI-Bildgenerierung max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+
+    setSubscriptionPlansError(null)
+    setIsCreatingPlan(true)
+    try {
+      const row = await createSubscriptionPlan({
+        name,
+        maxImages,
+        maxFiles,
+        imageGenerationModel: newPlanImageGenerationModel,
+        chatContextMaxTokens,
+        webSearchDailyGrant,
+        webSearchStartBalance: webSearchStartBalance ?? 0,
+        webSearchCreditMax: webSearchCreditMax ?? DEFAULT_WEB_SEARCH_CREDIT_MAX,
+        imageStartBalance: imageStartBalance ?? 0,
+        imageCreditMax: imageCreditMax ?? 60,
+        aiCreditsDailyGrant: maxTokens,
+        aiCreditsStartBalance: instantTokenStartBalance ?? 0,
+        aiCreditsBalanceMax: instantTokenBalanceMax ?? DEFAULT_AI_CREDITS_BALANCE_MAX,
+        learningPathsMonthlyLimit,
+      })
+      setSubscriptionPlans((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, 'de')))
+
+      setIsCreatePlanModalOpen(false)
+      setNewPlanName('')
+      setNewPlanAiCreditsDailyGrant('')
+      setNewPlanMaxImages('')
+      setNewPlanMaxFiles('')
+      setNewPlanWebSearchDailyGrant('')
+      setNewPlanWebSearchStartBalance('0')
+      setNewPlanWebSearchCreditMax(String(DEFAULT_WEB_SEARCH_CREDIT_MAX))
+      setNewPlanImageStartBalance('0')
+      setNewPlanImageCreditMax('60')
+      setNewPlanChatContextMaxTokens(String(DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS))
+      setNewPlanAiCreditsStartBalance('0')
+      setNewPlanAiCreditsBalanceMax(String(DEFAULT_AI_CREDITS_BALANCE_MAX))
+      setNewPlanLearningPathsMonthlyLimit('')
+      setNewPlanImageGenerationModel('gpt_image_1')
+      setNewPlanChatAllowCustomMode(false)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht angelegt werden.'))
+    } finally {
+      setIsCreatingPlan(false)
+    }
+  }
+
+  async function handleUpdateSubscriptionPlan() {
+    if (!editPlanDraft) {
+      return
+    }
+    const name = editPlanDraft.name.trim()
+    if (!name) {
+      return
+    }
+
+    const aiCreditsDailyGrant = parseOptionalNonNegativeInt(editPlanDraft.aiCreditsDailyGrant)
+    const maxImages = parseOptionalNonNegativeInt(editPlanDraft.maxImages)
+    const maxFiles = parseOptionalNonNegativeInt(editPlanDraft.maxFiles)
+
+    if (editPlanDraft.aiCreditsDailyGrant.trim() && aiCreditsDailyGrant === null) {
+      setSubscriptionPlansError(
+        'KI-Credits: Tageszuschuss muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).',
+      )
+      return
+    }
+    const aiCreditsStartBalance = parseOptionalInstantTokenBalance(
+      editPlanDraft.aiCreditsStartBalance,
+    )
+    if (editPlanDraft.aiCreditsStartBalance.trim() && aiCreditsStartBalance === null) {
+      setSubscriptionPlansError('KI-Credits Start-Guthaben: ganze Zahl 0-10 000 000.')
+      return
+    }
+    const aiCreditsBalanceMax = parseOptionalInstantTokenBalance(editPlanDraft.aiCreditsBalanceMax)
+    if (editPlanDraft.aiCreditsBalanceMax.trim() && aiCreditsBalanceMax === null) {
+      setSubscriptionPlansError('KI-Credits Guthaben-Limit: ganze Zahl 0-10 000 000.')
+      return
+    }
+    if (editPlanDraft.maxImages.trim() && maxImages === null) {
+      setSubscriptionPlansError('Max Bilder muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+    if (editPlanDraft.maxFiles.trim() && maxFiles === null) {
+      setSubscriptionPlansError('Max Dateien muss eine ganze Zahl >= 0 sein (oder leer = unbegrenzt).')
+      return
+    }
+
+    const chatContextMaxTokens = parseOptionalChatContextMaxTokens(editPlanDraft.chatContextMaxTokens)
+    if (editPlanDraft.chatContextMaxTokens.trim() && chatContextMaxTokens === null) {
+      setSubscriptionPlansError(
+        'Chat-Kontext (Tokens): ganze Zahl zwischen 1000 und 5 000 000, oder leer für unbegrenzten Verlauf.',
+      )
+      return
+    }
+
+    const webSearchDailyGrant = parseOptionalWebSearchDailyGrant(editPlanDraft.webSearchDailyGrant)
+    if (editPlanDraft.webSearchDailyGrant.trim() && webSearchDailyGrant === null) {
+      setSubscriptionPlansError('Websuche Tages-Aufladung: ganze Zahl 0–10 000, oder leer.')
+      return
+    }
+    const webSearchStartBalance = parseOptionalPlanCreditField(editPlanDraft.webSearchStartBalance)
+    if (editPlanDraft.webSearchStartBalance.trim() && webSearchStartBalance === null) {
+      setSubscriptionPlansError('Websuche Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const webSearchCreditMax = parseOptionalPlanCreditField(editPlanDraft.webSearchCreditMax)
+    if (editPlanDraft.webSearchCreditMax.trim() && webSearchCreditMax === null) {
+      setSubscriptionPlansError('Websuche Guthaben-Limit: ganze Zahl 0–10 000.')
+      return
+    }
+
+    const imageStartBalance = parseOptionalPlanCreditField(editPlanDraft.imageStartBalance)
+    if (editPlanDraft.imageStartBalance.trim() && imageStartBalance === null) {
+      setSubscriptionPlansError('KI-Bildgenerierung Start-Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    const learningPathsMonthlyLimit = parseOptionalNonNegativeInt(editPlanDraft.learningPathsMonthlyLimit)
+    if (editPlanDraft.learningPathsMonthlyLimit.trim() && learningPathsMonthlyLimit === null) {
+      setSubscriptionPlansError('Lernpfade pro Monat: ganze Zahl >= 0 (oder leer = unbegrenzt).')
+      return
+    }
+    const imageCreditMax = parseOptionalPlanCreditField(editPlanDraft.imageCreditMax)
+    if (editPlanDraft.imageCreditMax.trim() && imageCreditMax === null) {
+      setSubscriptionPlansError('KI-Bildgenerierung max. Guthaben: ganze Zahl 0–10 000.')
+      return
+    }
+    setSubscriptionPlansError(null)
+    setIsUpdatingPlan(true)
+    try {
+      const row = await updateSubscriptionPlan({
+        planId: editPlanDraft.id,
+        name,
+        maxImages,
+        maxFiles,
+        imageGenerationModel: editPlanDraft.imageGenerationModel,
+        chatContextMaxTokens,
+        webSearchDailyGrant,
+        webSearchStartBalance: webSearchStartBalance ?? 0,
+        webSearchCreditMax: webSearchCreditMax ?? DEFAULT_WEB_SEARCH_CREDIT_MAX,
+        imageStartBalance: imageStartBalance ?? 0,
+        imageCreditMax: imageCreditMax ?? 60,
+        aiCreditsDailyGrant,
+        aiCreditsStartBalance: aiCreditsStartBalance ?? 0,
+        aiCreditsBalanceMax: aiCreditsBalanceMax ?? DEFAULT_AI_CREDITS_BALANCE_MAX,
+        learningPathsMonthlyLimit,
+        chatBlockedModelIds: editPlanDraft.chatBlockedModelIds,
+      })
+      setSubscriptionPlans((prev) =>
+        prev.map((p) => (p.id === row.id ? row : p)).sort((a, b) => a.name.localeCompare(b.name, 'de')),
+      )
+      setEditPlanDraft(null)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsUpdatingPlan(false)
+    }
+  }
+
+  async function handleDeleteSubscriptionPlan(planId: string) {
+    if (!window.confirm('Dieses Abo wirklich löschen? Nutzer verlieren die Zuweisung (wird auf kein Abo gesetzt).')) {
+      return
+    }
+    setSubscriptionPlansError(null)
+    setDeletingPlanId(planId)
+    try {
+      await deleteSubscriptionPlan(planId)
+      setSubscriptionPlans((prev) => prev.filter((p) => p.id !== planId))
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.subscription_plan_id === planId
+            ? { ...u, subscription_plan_id: null, subscription_plan_name: null }
+            : u,
+        ),
+      )
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Abo konnte nicht gelöscht werden.'))
+    } finally {
+      setDeletingPlanId(null)
+    }
+  }
+
+  async function handleDeleteUser(userId: string) {
+    const target = users.find((u) => u.id === userId)
+    const expectedEmail = target?.email?.trim()
+    if (
+      !expectedEmail ||
+      deleteUserEmailConfirm.trim().toLowerCase() !== expectedEmail.toLowerCase()
+    ) {
+      return
+    }
+    setUsersError(null)
+    setDeletingUserId(userId)
+    try {
+      await adminDeleteUser(userId)
+      setConfirmDeleteUserId(null)
+      setDeleteUserEmailConfirm('')
+      setUsers((prev) => prev.filter((u) => u.id !== userId))
+      setSubscriptionDrafts((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+      setSelectedDraftPlanByUser((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+      setUserProfileNameDrafts((prev) => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht gelöscht werden.'))
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
+  async function handleCreateUser() {
+    const email = newUserEmail.trim().toLowerCase()
+    const temporaryPassword = newUserTemporaryPassword
+    const firstName = newUserFirstName.trim()
+    const lastName = newUserLastName.trim()
+    if (!email || !temporaryPassword) {
+      setUsersError('Bitte E-Mail und temporäres Passwort ausfüllen.')
+      return
+    }
+    setUsersError(null)
+    setCreateUserInfo(null)
+    setIsCreatingUser(true)
+    try {
+      const result = await adminCreateUser({
+        email,
+        temporaryPassword,
+        firstName,
+        lastName,
+      })
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+      setCreateUserInfo(`Nutzer ${result.email} wurde erstellt.`)
+      setNewUserEmail('')
+      setNewUserFirstName('')
+      setNewUserLastName('')
+      setNewUserTemporaryPassword('')
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Nutzer konnte nicht erstellt werden.'))
+    } finally {
+      setIsCreatingUser(false)
+    }
+  }
+
+  function formatInviteTokenDate(iso: string): string {
+    try {
+      return new Date(iso).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })
+    } catch {
+      return iso
+    }
+  }
+
+  function describeInviteTokenStatus(row: InviteTokenRow): string {
+    if (row.used_at) {
+      const who = row.used_by_email ?? 'unbekannt'
+      return `Eingelöst von ${who} am ${formatInviteTokenDate(row.used_at)}`
+    }
+    if (row.revoked_at) {
+      return `Widerrufen am ${formatInviteTokenDate(row.revoked_at)}`
+    }
+    if (new Date(row.expires_at).getTime() <= Date.now()) {
+      return `Abgelaufen (war gültig bis ${formatInviteTokenDate(row.expires_at)})`
+    }
+    return `Offen — gültig bis ${formatInviteTokenDate(row.expires_at)}`
+  }
+
+  async function handleCreateInviteToken() {
+    const hours = Number(newInviteHours)
+    if (!Number.isFinite(hours) || !Number.isInteger(hours) || hours < 1 || hours > 8760) {
+      setInviteTokensError('Gültigkeit muss eine ganze Zahl zwischen 1 und 8760 Stunden (365 Tage) sein.')
+      return
+    }
+    setInviteTokensError(null)
+    setIsCreatingInviteToken(true)
+    try {
+      const { token, expiresAt } = await adminCreateInviteToken(hours)
+      setCreatedInviteLink(buildInviteRegistrationLink(token))
+      setCreatedInviteExpiresAt(expiresAt)
+      setInviteLinkCopyInfo(null)
+      const rows = await adminListInviteTokens()
+      setInviteTokens(rows)
+    } catch (err) {
+      setInviteTokensError(getErrorMessage(err, 'Einladungslink konnte nicht erzeugt werden.'))
+    } finally {
+      setIsCreatingInviteToken(false)
+    }
+  }
+
+  async function handleCopyInviteLink() {
+    if (!createdInviteLink) {
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(createdInviteLink)
+      setInviteLinkCopyInfo('Link kopiert.')
+    } catch {
+      setInviteLinkCopyInfo('Kopieren fehlgeschlagen — Link bitte manuell markieren und kopieren.')
+    }
+  }
+
+  async function handleRevokeInviteToken(id: string) {
+    setInviteTokensError(null)
+    setRevokingInviteTokenId(id)
+    try {
+      await adminRevokeInviteToken(id)
+      const rows = await adminListInviteTokens()
+      setInviteTokens(rows)
+    } catch (err) {
+      setInviteTokensError(getErrorMessage(err, 'Einladungslink konnte nicht widerrufen werden.'))
+    } finally {
+      setRevokingInviteTokenId(null)
+    }
+  }
+
+  async function handleToggleMustChangePassword(userId: string, enabled: boolean) {
+    setUsersError(null)
+    setSavingMustPwUserId(userId)
+    try {
+      await adminSetMustChangePasswordOnFirstLogin(userId, enabled)
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Einstellung konnte nicht gespeichert werden.'))
+    } finally {
+      setSavingMustPwUserId(null)
+    }
+  }
+
+  async function handleSaveUserProfileNames(userId: string) {
+    const draft = userProfileNameDrafts[userId]
+    if (!draft) {
+      return
+    }
+    setUsersError(null)
+    setSavingProfileNamesUserId(userId)
+    try {
+      await adminSetUserProfileNames(userId, draft.first, draft.last)
+      const nextUsers = await listAdminUsers()
+      setUsers(nextUsers)
+    } catch (err) {
+      setUsersError(getErrorMessage(err, 'Profil konnte nicht gespeichert werden.'))
+    } finally {
+      setSavingProfileNamesUserId(null)
+    }
+  }
+
+  async function handleSaveUserSubscriptionDraft(userId: string, rawPlanId: string) {
+    const planId = rawPlanId.trim() === '' ? null : rawPlanId
+    setUsersError(null)
+    setSubscriptionPlansError(null)
+    setAssigningUserId(userId)
+    try {
+      await saveSubscriptionAssignmentDraft(userId, planId)
+      const name = planId === null ? null : (subscriptionPlans.find((p) => p.id === planId)?.name ?? null)
+      const nowIso = new Date().toISOString()
+      setSubscriptionDrafts((prev) => ({
+        ...prev,
+        [userId]: {
+          user_id: userId,
+          subscription_plan_id: planId,
+          subscription_plan_name: name,
+          updated_at: nowIso,
+          updated_by: 'current-admin',
+        },
+      }))
+      setSelectedDraftPlanByUser((prev) => ({
+        ...prev,
+        [userId]: planId,
+      }))
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Entwurf konnte nicht gespeichert werden.')
+      if (activeSection === 'users') {
+        setUsersError(msg)
+      } else {
+        setSubscriptionPlansError(msg)
+      }
+    } finally {
+      setAssigningUserId(null)
+    }
+  }
+
+  async function handleDeploySubscriptionDrafts() {
+    setSubscriptionPlansError(null)
+    setIsDeployingDrafts(true)
+    try {
+      const deployedCount = await deploySubscriptionAssignmentDrafts()
+      setUsers((prev) =>
+        prev.map((u) => {
+          const draft = subscriptionDrafts[u.id]
+          if (!draft) {
+            return u
+          }
+          return {
+            ...u,
+            subscription_plan_id: draft.subscription_plan_id,
+            subscription_plan_name: draft.subscription_plan_name,
+          }
+        }),
+      )
+      setSubscriptionDrafts({})
+      setSelectedDraftPlanByUser({})
+      if (deployedCount === 0) {
+        setSubscriptionPlansError('Keine Entwürfe zum Deployen vorhanden.')
+      }
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Deployment fehlgeschlagen.'))
+    } finally {
+      setIsDeployingDrafts(false)
+    }
+  }
+
+  async function handleSaveShowcaseSlots() {
+    setSubscriptionPlansError(null)
+    setIsSavingShowcaseSlots(true)
+    try {
+      const payload: SubscriptionPlanShowcaseSlotRow[] = [
+        { slot_index: 1, plan_id: showcaseSlots[1] || null },
+        { slot_index: 2, plan_id: showcaseSlots[2] || null },
+        { slot_index: 3, plan_id: showcaseSlots[3] || null },
+      ]
+      await saveSubscriptionPlanShowcaseSlots(payload)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Sichtbare Abo-Modelle konnten nicht gespeichert werden.'))
+    } finally {
+      setIsSavingShowcaseSlots(false)
+    }
+  }
+
+  async function handleDeleteFeedback(id: string) {
+    if (!window.confirm('Diesen Feedback-Eintrag wirklich löschen?')) {
+      return
+    }
+    setFeedbackError(null)
+    setDeletingFeedbackId(id)
+    try {
+      await deleteUserFeedbackById(id)
+      setFeedbackItems((prev) => prev.filter((row) => row.id !== id))
+    } catch (err) {
+      setFeedbackError(getErrorMessage(err, 'Löschen fehlgeschlagen.'))
+    } finally {
+      setDeletingFeedbackId(null)
+    }
+  }
+
+  async function handleViewFeedbackPhoto(row: UserFeedbackRow) {
+    if (!row.attachment_photo_path || loadingFeedbackPhotoId) {
+      return
+    }
+    setLoadingFeedbackPhotoId(row.id)
+    setFeedbackError(null)
+    try {
+      const signedUrl = await createFeedbackPhotoSignedUrl(row.attachment_photo_path)
+      if (!signedUrl) {
+        throw new Error('Foto konnte nicht geladen werden.')
+      }
+      feedbackImageLightbox.setImageLightboxSrc(signedUrl)
+    } catch (err) {
+      setFeedbackError(getErrorMessage(err, 'Foto konnte nicht geladen werden.'))
+    } finally {
+      setLoadingFeedbackPhotoId(null)
+    }
+  }
+
+  function openFeedbackResolveModal(row: UserFeedbackRow) {
+    setFeedbackResolveTarget(row)
+    setFeedbackResolveMessage(row.resolution_message ?? '')
+  }
+
+  function closeFeedbackResolveModal() {
+    if (isResolvingFeedback) {
+      return
+    }
+    setFeedbackResolveTarget(null)
+    setFeedbackResolveMessage('')
+  }
+
+  async function handleSubmitFeedbackResolve(event: FormEvent) {
+    event.preventDefault()
+    if (!feedbackResolveTarget) {
+      return
+    }
+    setFeedbackError(null)
+    setIsResolvingFeedback(true)
+    try {
+      await resolveUserFeedback(feedbackResolveTarget.id, feedbackResolveMessage)
+      const resolvedAt = new Date().toISOString()
+      const message = feedbackResolveMessage.trim()
+      setFeedbackItems((prev) =>
+        prev.map((row) =>
+          row.id === feedbackResolveTarget.id
+            ? {
+                ...row,
+                resolved_at: resolvedAt,
+                resolution_message: message,
+                resolution_seen_at: null,
+              }
+            : row,
+        ),
+      )
+      setFeedbackResolveTarget(null)
+      setFeedbackResolveMessage('')
+    } catch (err) {
+      setFeedbackError(getErrorMessage(err, 'Feedback konnte nicht abgeschlossen werden.'))
+    } finally {
+      setIsResolvingFeedback(false)
+    }
+  }
+
+  async function handleToggleBetaNoticeEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingBetaNoticeToggle(true)
+    try {
+      await adminSetBetaNoticeEnabled(nextEnabled)
+      setBetaNoticeEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Beta-Hinweis konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingBetaNoticeToggle(false)
+    }
+  }
+
+  async function handleToggleLearnPathsEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingLearnPathsToggle(true)
+    try {
+      await adminSetLearnPathsEnabled(nextEnabled)
+      setLearnPathsEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernpfade-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingLearnPathsToggle(false)
+    }
+  }
+
+  async function handleToggleLearnPathCreateEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingLearnPathCreateToggle(true)
+    try {
+      await adminSetLearnPathCreateEnabled(nextEnabled)
+      setLearnPathCreateEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernpfad-erstellen-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingLearnPathCreateToggle(false)
+    }
+  }
+
+  async function handleToggleLearnAreaBannerEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setLearnAreaBannerInfo(null)
+    setIsLoadingLearnAreaBannerToggle(true)
+    try {
+      await adminSetLearnAreaBanner(nextEnabled, learnAreaBannerTextDraft)
+      setLearnAreaBannerEnabled(nextEnabled)
+      setLearnAreaBannerInfo(nextEnabled ? 'Hinweisbalken im Lernbereich eingeblendet.' : 'Hinweisbalken ausgeblendet.')
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lernbereich-Hinweis konnte nicht umgeschaltet werden.'))
+    } finally {
+      setIsLoadingLearnAreaBannerToggle(false)
+    }
+  }
+
+  async function handleToggleGeminiInstantEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setGeminiInstantInfo(null)
+    setIsLoadingGeminiInstantToggle(true)
+    try {
+      await adminSetGeminiInstantEnabled(nextEnabled)
+      setGeminiInstantEnabled(nextEnabled)
+      setGeminiInstantInfo(
+        nextEnabled
+          ? 'Smart Instant nutzt Gemini (Intent + Antwort) für alle Nutzer.'
+          : 'Smart Instant nutzt wieder OpenAI (Composer-Modell).',
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Gemini Instant konnte nicht umgeschaltet werden.'),
+      )
+    } finally {
+      setIsLoadingGeminiInstantToggle(false)
+    }
+  }
+
+  async function handleSaveThinkingGeminiModelsDraft(draft: ThinkingGeminiModelsDraft) {
+    setSubscriptionPlansError(null)
+    setThinkingGeminiModelsInfo(null)
+    setIsSavingThinkingGeminiModelsDraft(true)
+    try {
+      await adminSetThinkingGeminiModelsDraft(draft)
+      setThinkingGeminiStandardDraft(draft.standard)
+      setThinkingGeminiRichDraft(draft.rich)
+      setThinkingGeminiModelsInfo(
+        `Thinking-Modell-Entwurf gespeichert: Standard ${labelForThinkingGeminiModel(draft.standard)}, Rich ${labelForThinkingGeminiModel(draft.rich)}`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Gemini-Modelle konnten nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingThinkingGeminiModelsDraft(false)
+    }
+  }
+
+  async function handleDeployThinkingGeminiModelsDraft() {
+    setSubscriptionPlansError(null)
+    setThinkingGeminiModelsInfo(null)
+    setIsDeployingThinkingGeminiModels(true)
+    try {
+      await adminDeployThinkingGeminiModelsDraft()
+      setThinkingGeminiStandardActive(thinkingGeminiStandardDraft)
+      setThinkingGeminiRichActive(thinkingGeminiRichDraft)
+      setThinkingGeminiModelsInfo(
+        `Thinking-Modelle aktiv: Standard ${labelForThinkingGeminiModel(thinkingGeminiStandardDraft)}, Rich ${labelForThinkingGeminiModel(thinkingGeminiRichDraft)}`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Gemini-Modelle konnten nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingGeminiModels(false)
+    }
+  }
+
+  async function handleSaveInstantAnalyzeModelDraft(nextModel: AnalyzeModelId) {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsSavingInstantAnalyzeModelDraft(true)
+    try {
+      await adminSetInstantAnalyzeModelDraft(nextModel)
+      setInstantAnalyzeModelDraft(nextModel)
+      setAnalyzeModelsInfo(`Instant-Analyze-Modell-Entwurf gespeichert: ${labelForAnalyzeModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyze-Modell-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingInstantAnalyzeModelDraft(false)
+    }
+  }
+
+  async function handleDeployInstantAnalyzeModelDraft() {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsDeployingInstantAnalyzeModel(true)
+    try {
+      await adminDeployInstantAnalyzeModelDraft()
+      setInstantAnalyzeModelActive(instantAnalyzeModelDraft)
+      setAnalyzeModelsInfo(`Instant-Analyze-Modell aktiv: ${labelForAnalyzeModel(instantAnalyzeModelDraft)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyze-Modell konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingInstantAnalyzeModel(false)
+    }
+  }
+
+  async function handleSaveThinkingAnalyzeModelDraft(nextModel: AnalyzeModelId) {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsSavingThinkingAnalyzeModelDraft(true)
+    try {
+      await adminSetThinkingAnalyzeModelDraft(nextModel)
+      setThinkingAnalyzeModelDraft(nextModel)
+      setAnalyzeModelsInfo(`Thinking-Analyze-Modell-Entwurf gespeichert: ${labelForAnalyzeModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Analyze-Modell-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setIsSavingThinkingAnalyzeModelDraft(false)
+    }
+  }
+
+  async function handleDeployThinkingAnalyzeModelDraft() {
+    setSubscriptionPlansError(null)
+    setAnalyzeModelsInfo(null)
+    setIsDeployingThinkingAnalyzeModel(true)
+    try {
+      await adminDeployThinkingAnalyzeModelDraft()
+      setThinkingAnalyzeModelActive(thinkingAnalyzeModelDraft)
+      setAnalyzeModelsInfo(`Thinking-Analyze-Modell aktiv: ${labelForAnalyzeModel(thinkingAnalyzeModelDraft)}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Analyze-Modell konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingAnalyzeModel(false)
+    }
+  }
+
+  async function handleSaveChatIntentModelRoutingDraft(category: string, action: string) {
+    const key = chatIntentModelRoutingKey(category, action)
+    const model = chatIntentModelRoutingDrafts[key]
+    if (!model) {
+      return
+    }
+    setSubscriptionPlansError(null)
+    setChatIntentModelRoutingInfo(null)
+    setSavingChatIntentModelRoutingKey(key)
+    try {
+      await adminSetChatIntentModelRoutingDraft(category, action, model)
+      setChatIntentModelRoutingRows((prev) =>
+        prev.map((row) =>
+          row.category === category && row.action === action ? { ...row, modelDraft: model } : row,
+        ),
+      )
+      setChatIntentModelRoutingInfo(`Entwurf gespeichert: ${category}.${action} → ${model}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Modell-Routing-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setSavingChatIntentModelRoutingKey(null)
+    }
+  }
+
+  async function handleDeployChatIntentModelRoutingDraft() {
+    setSubscriptionPlansError(null)
+    setChatIntentModelRoutingInfo(null)
+    setIsDeployingChatIntentModelRouting(true)
+    try {
+      await adminDeployChatIntentModelRoutingDraft()
+      setChatIntentModelRoutingRows((prev) => prev.map((row) => ({ ...row, modelActive: row.modelDraft })))
+      setChatIntentModelRoutingInfo('Modell-Routing deployt — alle Entwürfe sind jetzt aktiv.')
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Modell-Routing konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingChatIntentModelRouting(false)
+    }
+  }
+
+  async function handleSaveThinkingTaskTypeModelRoutingDraft(taskType: string) {
+    const model = thinkingTaskTypeModelRoutingModelDrafts[taskType]
+    const tier = thinkingTaskTypeModelRoutingTierDrafts[taskType]
+    if (!model || !tier) {
+      return
+    }
+    setSubscriptionPlansError(null)
+    setThinkingTaskTypeModelRoutingInfo(null)
+    setSavingThinkingTaskTypeModelRoutingKey(taskType)
+    try {
+      await Promise.all([
+        adminSetThinkingTaskTypeModelRoutingDraft(taskType, model),
+        adminSetThinkingTaskTypeTierDraft(taskType, tier),
+      ])
+      setThinkingTaskTypeModelRoutingRows((prev) =>
+        prev.map((row) =>
+          row.taskType === taskType ? { ...row, modelDraft: model, tierDraft: tier } : row,
+        ),
+      )
+      setThinkingTaskTypeModelRoutingInfo(`Entwurf gespeichert: ${taskType} → ${tier} / ${model}`)
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Modell-Routing-Entwurf konnte nicht gespeichert werden.'),
+      )
+    } finally {
+      setSavingThinkingTaskTypeModelRoutingKey(null)
+    }
+  }
+
+  async function handleDeployThinkingTaskTypeModelRoutingDraft() {
+    setSubscriptionPlansError(null)
+    setThinkingTaskTypeModelRoutingInfo(null)
+    setIsDeployingThinkingTaskTypeModelRouting(true)
+    try {
+      await adminDeployThinkingTaskTypeModelRoutingDraft()
+      setThinkingTaskTypeModelRoutingRows((prev) =>
+        prev.map((row) => ({ ...row, modelActive: row.modelDraft, tierActive: row.tierDraft })),
+      )
+      setThinkingTaskTypeModelRoutingInfo('Thinking-Modell-Routing deployt — alle Entwürfe sind jetzt aktiv.')
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Thinking-Modell-Routing konnte nicht deployt werden.'),
+      )
+    } finally {
+      setIsDeployingThinkingTaskTypeModelRouting(false)
+    }
+  }
+
+  async function handleToggleInstantAnalyzeDebugEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setInstantAnalyzeDebugInfo(null)
+    setIsLoadingInstantAnalyzeDebugToggle(true)
+    try {
+      await adminSetInstantAnalyzeDebugEnabled(nextEnabled)
+      setInstantAnalyzeDebugEnabled(nextEnabled)
+      setInstantAnalyzeDebugInfo(
+        nextEnabled
+          ? 'Instant-Analyse-Debug im Chat für Superadmins eingeblendet.'
+          : 'Instant-Analyse-Debug im Chat ausgeblendet.',
+      )
+    } catch (err) {
+      setSubscriptionPlansError(
+        getErrorMessage(err, 'Instant-Analyse-Debug konnte nicht umgeschaltet werden.'),
+      )
+    } finally {
+      setIsLoadingInstantAnalyzeDebugToggle(false)
+    }
+  }
+
+  async function handleToggleChatFoldersEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingChatFoldersToggle(true)
+    try {
+      await adminSetChatFoldersEnabled(nextEnabled)
+      setChatFoldersEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Chat-Ordner-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingChatFoldersToggle(false)
+    }
+  }
+
+  async function handleToggleFriendsEnabled(nextEnabled: boolean) {
+    setSubscriptionPlansError(null)
+    setIsLoadingFriendsToggle(true)
+    try {
+      await adminSetFriendsEnabled(nextEnabled)
+      setFriendsEnabled(nextEnabled)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Freunde-Schalter konnte nicht aktualisiert werden.'))
+    } finally {
+      setIsLoadingFriendsToggle(false)
+    }
+  }
+
+  async function handleSaveLearnAreaBannerText() {
+    const nextText = learnAreaBannerTextDraft.trim()
+    if (!nextText) {
+      setSubscriptionPlansError('Bitte einen Hinweistext eintragen oder den Balken deaktivieren.')
+      return
+    }
+    setSubscriptionPlansError(null)
+    setLearnAreaBannerInfo(null)
+    setIsSavingLearnAreaBannerText(true)
+    try {
+      await adminSetLearnAreaBanner(learnAreaBannerEnabled, nextText)
+      setLearnAreaBannerTextDraft(nextText)
+      setLearnAreaBannerInfo('Hinweistext gespeichert.')
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Hinweistext konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAreaBannerText(false)
+    }
+  }
+
+  async function handlePushDeployedAppVersion() {
+    const nextVersion = deployedAppVersionDraft.trim()
+    if (!nextVersion) {
+      setSubscriptionPlansError('Bitte eine Version eintragen (z. B. 2026.04.30-1).')
+      return
+    }
+    setSubscriptionPlansError(null)
+    setDeployedAppVersionInfo(null)
+    setIsSavingDeployedAppVersion(true)
+    try {
+      await adminSetDeployedAppVersion(nextVersion)
+      setDeployedAppVersion(nextVersion)
+      setDeployedAppVersionDraft(nextVersion)
+      setDeployedAppVersionInfo(`Version gepusht: ${nextVersion}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Version konnte nicht gepusht werden.'))
+    } finally {
+      setIsSavingDeployedAppVersion(false)
+    }
+  }
+
+  async function handleSaveLearnAiProviderDraft(nextProvider: LearnAiProvider) {
+    setSubscriptionPlansError(null)
+    setLearnAiProviderInfo(null)
+    setIsSavingLearnAiProviderDraft(true)
+    try {
+      await adminSetLearnAiProviderDraft(nextProvider)
+      setLearnAiProviderDraft(nextProvider)
+      setLearnAiProviderInfo(`Lern-KI-Entwurf gespeichert: ${labelForLearnAiProvider(nextProvider)}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Entwurf konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAiProviderDraft(false)
+    }
+  }
+
+  async function handleDeployLearnAiProviderDraft() {
+    setSubscriptionPlansError(null)
+    setLearnAiProviderInfo(null)
+    setIsDeployingLearnAiProvider(true)
+    try {
+      await adminDeployLearnAiProviderDraft()
+      setLearnAiProviderActive(learnAiProviderDraft)
+      setLearnAiProviderInfo(
+        `Lern-KI aktiv: ${labelForLearnAiProvider(learnAiProviderDraft)} (Deployment gespeichert)`,
+      )
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Deployment fehlgeschlagen.'))
+    } finally {
+      setIsDeployingLearnAiProvider(false)
+    }
+  }
+
+  async function handleSaveLearnAiModelDraft(nextModel: LearnAiModelId) {
+    setSubscriptionPlansError(null)
+    setLearnAiModelInfo(null)
+    setIsSavingLearnAiModelDraft(true)
+    try {
+      await adminSetLearnAiModelDraft(nextModel)
+      setLearnAiModelDraft(nextModel)
+      setLearnAiModelInfo(`Lern-KI-Modell-Entwurf gespeichert: ${labelForLearnAiModel(nextModel)}`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Modell-Entwurf konnte nicht gespeichert werden.'))
+    } finally {
+      setIsSavingLearnAiModelDraft(false)
+    }
+  }
+
+  async function handleDeployLearnAiModelDraft() {
+    setSubscriptionPlansError(null)
+    setLearnAiModelInfo(null)
+    setIsDeployingLearnAiModel(true)
+    try {
+      await adminDeployLearnAiModelDraft()
+      setLearnAiModelActive(learnAiModelDraft)
+      setLearnAiModelInfo(`Lern-KI-Modell aktiv: ${labelForLearnAiModel(learnAiModelDraft)} (Deployment gespeichert)`)
+    } catch (err) {
+      setSubscriptionPlansError(getErrorMessage(err, 'Lern-KI-Modell-Deployment fehlgeschlagen.'))
+    } finally {
+      setIsDeployingLearnAiModel(false)
+    }
+  }
+
+  function formatFeedbackAuthorName(row: UserFeedbackRow): string {
+    const first = row.author_first_name?.trim() ?? ''
+    const last = row.author_last_name?.trim() ?? ''
+    const combined = [first, last].filter(Boolean).join(' ').trim()
+    if (combined) {
+      return combined
+    }
+    return '—'
+  }
+
+  function formatFeedbackDate(iso: string) {
+    try {
+      return new Date(iso).toLocaleString('de-CH', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      })
+    } catch {
+      return iso
+    }
+  }
+
+  const feedbackOpenItems = useMemo(
+    () => feedbackItems.filter((row) => !row.resolved_at),
+    [feedbackItems],
+  )
+  const feedbackResolvedItems = useMemo(
+    () => feedbackItems.filter((row) => row.resolved_at),
+    [feedbackItems],
+  )
+
+  function renderAdminFeedbackCard(row: UserFeedbackRow) {
+    return (
+      <article key={row.id} className="settings-card admin-feedback-card" role="listitem">
+        <div className="admin-feedback-header-row">
+          <div className="admin-feedback-person">
+            <p className="admin-feedback-name">{formatFeedbackAuthorName(row)}</p>
+            <p className="admin-feedback-email-line">{row.author_email ?? '—'}</p>
+          </div>
+          <div className="admin-feedback-header-aside">
+            <time className="admin-feedback-time" dateTime={row.created_at}>
+              {formatFeedbackDate(row.created_at)}
+            </time>
+            <SecondaryButton
+              type="button"
+              className="admin-feedback-delete-button"
+              disabled={deletingFeedbackId === row.id}
+              onClick={() => void handleDeleteFeedback(row.id)}
+            >
+              {deletingFeedbackId === row.id ? 'Löschen…' : 'Löschen'}
+            </SecondaryButton>
+          </div>
+        </div>
+        <p className="admin-feedback-display-id">Feedback-ID: {row.display_id}</p>
+        <p className="admin-feedback-userid">Nutzer-ID: {row.user_id}</p>
+        <p className="admin-feedback-body">{row.body}</p>
+        {row.attachment_photo_path || row.attachment_chat_thread_id ? (
+          <div className="admin-feedback-attachments">
+            {row.attachment_photo_path ? (
+              <SecondaryButton
+                type="button"
+                disabled={loadingFeedbackPhotoId === row.id}
+                onClick={() => void handleViewFeedbackPhoto(row)}
+              >
+                {loadingFeedbackPhotoId === row.id ? 'Foto lädt…' : 'Foto ansehen'}
+              </SecondaryButton>
+            ) : null}
+            {row.attachment_chat_thread_id ? (
+              <SecondaryButton
+                type="button"
+                onClick={() => setFeedbackChatViewerThreadId(row.attachment_chat_thread_id)}
+              >
+                Chat öffnen
+              </SecondaryButton>
+            ) : null}
+          </div>
+        ) : null}
+        {row.resolved_at ? (
+          <div className="admin-feedback-resolved">
+            <p className="admin-feedback-resolved-label">Erledigt</p>
+            <p className="admin-feedback-resolved-message">{row.resolution_message}</p>
+            {row.resolution_seen_at ? (
+              <p className="admin-feedback-resolved-meta">Vom Nutzer gelesen</p>
+            ) : (
+              <p className="admin-feedback-resolved-meta">Hinweis beim Nutzer noch offen</p>
+            )}
+          </div>
+        ) : (
+          <div className="admin-feedback-actions">
+            <PrimaryButton
+              type="button"
+              disabled={deletingFeedbackId === row.id || isResolvingFeedback}
+              onClick={() => openFeedbackResolveModal(row)}
+            >
+              Als erledigt markieren
+            </PrimaryButton>
+          </div>
+        )}
+      </article>
+    )
+  }
+
+  /** `ai_token_usage.created_at` — Anzeige in UTC (Spalte «Erstellt»). */
+  function formatAiTokenUsageCreatedAt(iso: string) {
+    try {
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) {
+        return iso
+      }
+      return d.toLocaleString('de-CH', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'UTC',
+      })
+    } catch {
+      return iso
+    }
+  }
+
+  function getUserLabel(user: AdminUser) {
+    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    if (fullName) {
+      return fullName
+    }
+    return user.email ?? user.id
+  }
+
+  function getUserLabelById(userId: string): string {
+    const user = users.find((candidate) => candidate.id === userId)
+    if (!user) {
+      return userId
+    }
+    return getUserLabel(user)
+  }
+
+  function formatTokenUsagePerson(row: AdminAiTokenUsageRow): string {
+    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    if (name) {
+      return name
+    }
+    return row.email?.trim() || row.user_id
+  }
+
+  function formatLastAiPerson(row: AdminUserLastAiUsageRow): string {
+    const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    if (name) {
+      return name
+    }
+    return row.email?.trim() || row.user_id
+  }
+
+  function formatTokenInt(n: number): string {
+    return n.toLocaleString('de-CH')
+  }
+
+  function getSelectedPlanForUser(user: AdminUser): string {
+    const localDraftSelection = selectedDraftPlanByUser[user.id]
+    if (localDraftSelection !== undefined) {
+      return localDraftSelection ?? ''
+    }
+    const persistedDraft = subscriptionDrafts[user.id]
+    if (persistedDraft) {
+      return persistedDraft.subscription_plan_id ?? ''
+    }
+    return user.subscription_plan_id ?? ''
+  }
+
+  function getSelectedPlanIdForUser(userId: string): string {
+    const user = users.find((candidate) => candidate.id === userId)
+    if (!user) {
+      return ''
+    }
+    return getSelectedPlanForUser(user)
+  }
+
+  return (
+    <>
+    <section
+      className={`settings-modal${
+        variant === 'embedded' ? ` settings-modal--embedded${isVisible ? ' is-panel-visible' : ''}` : ''
+      }`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Administrator"
+    >
+      <aside className="settings-sidebar">
+        <h2>Menü</h2>
+        <nav className="settings-menu">
+          {sections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className={`settings-menu-item ${activeSection === section.id ? 'is-active' : ''}`}
+              onClick={() => setActiveSection(section.id)}
+            >
+              <span
+                className="settings-menu-icon"
+                style={{ '--settings-menu-icon-src': cssUrl(section.icon) } as CSSProperties}
+                aria-hidden="true"
+              />
+              {section.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="settings-content">
+        <header className="settings-titlebar">
+          <ModalHeader
+            title={activeSectionConfig.title}
+            headingLevel="h1"
+            onClose={onClose}
+            closeLabel="Administrator schließen"
+          />
+        </header>
+
+        <section className="settings-body">
+          {activeSection === 'overview' ? (
+            <div className="admin-subscriptions-panel">
+              <p>Hier kannst du administrative Aktionen und Systemstatus zentral verwalten.</p>
+              <div className="setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Beta-Hinweis beim ersten Login anzeigen</h3>
+                  <p>
+                    Wenn aktiviert, erscheint nach Abschluss der Einstiegstour einmalig ein Beta-Hinweis für neue
+                    Nutzer.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${betaNoticeEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={betaNoticeEnabled}
+                  aria-label="Beta-Hinweis beim ersten Login anzeigen"
+                  disabled={isLoadingBetaNoticeToggle}
+                  onClick={() => {
+                    void handleToggleBetaNoticeEnabled(!betaNoticeEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Lernpfade global aktivieren</h3>
+                  <p>Wenn deaktiviert, ist der Button &quot;Lernpfade&quot; in der App ausgegraut und nicht klickbar.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnPathsEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnPathsEnabled}
+                  aria-label="Lernpfade global aktivieren"
+                  disabled={isLoadingLearnPathsToggle}
+                  onClick={() => {
+                    void handleToggleLearnPathsEnabled(!learnPathsEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Lernpfad erstellen aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, ist der Button &quot;Lernpfad erstellen&quot; (inkl. Neuer Lernpfad) ausgegraut
+                    und nicht klickbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnPathCreateEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnPathCreateEnabled}
+                  aria-label="Lernpfad erstellen aktivieren"
+                  disabled={isLoadingLearnPathCreateToggle}
+                  onClick={() => {
+                    void handleToggleLearnPathCreateEnabled(!learnPathCreateEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="setting-row setting-row--stacked">
+                <div className="chat-setting-copy">
+                  <h3>Smart Instant: Gemini</h3>
+                  <p>
+                    Schaltet Intent und Hauptchat-Antworten auf Gemini (3.1 Flash Lite). Gilt für alle Nutzer nach
+                    Reload; Edge liest dieselbe Einstellung aus der Datenbank. Secret GEMINI_API_KEY bleibt nötig.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${geminiInstantEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={geminiInstantEnabled}
+                  aria-label="Gemini Instant aktivieren"
+                  disabled={isLoadingGeminiInstantToggle}
+                  onClick={() => {
+                    void handleToggleGeminiInstantEnabled(!geminiInstantEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              {geminiInstantInfo ? <p className="learn-muted">{geminiInstantInfo}</p> : null}
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Thinking-Modus: Gemini-Modelle (Entwurf)</p>
+                <p className="admin-users-hint">
+                  Aktiv: Standard <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardActive)}</strong>,
+                  Rich <strong>{labelForThinkingGeminiModel(thinkingGeminiRichActive)}</strong>.
+                  Analyze nutzt immer das Standard-Modell; Zusammenfassungen und komplexe Aufgaben das Rich-Modell.
+                </p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingGeminiStandardDraft}
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    aria-label="Thinking Standard-Modell"
+                    onChange={(event) => {
+                      setThinkingGeminiStandardDraft(
+                        parseThinkingGeminiModelDraftValue(event.target.value),
+                      )
+                    }}
+                  >
+                    <option value="gemini-3.1-flash-lite">Standard: Gemini 3.1 Flash Lite</option>
+                    <option value="gemini-2.5-flash">Standard: Gemini 2.5 Flash</option>
+                    <option value="gemini-3-flash-preview">Standard: Gemini 3 Flash Preview</option>
+                  </select>
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingGeminiRichDraft}
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    aria-label="Thinking Rich-Modell"
+                    onChange={(event) => {
+                      setThinkingGeminiRichDraft(parseThinkingGeminiModelDraftValue(event.target.value))
+                    }}
+                  >
+                    <option value="gemini-3.1-flash-lite">Rich: Gemini 3.1 Flash Lite</option>
+                    <option value="gemini-2.5-flash">Rich: Gemini 2.5 Flash</option>
+                    <option value="gemini-3-flash-preview">Rich: Gemini 3 Flash Preview</option>
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingThinkingGeminiModelsDraft}
+                    onClick={() =>
+                      void handleSaveThinkingGeminiModelsDraft({
+                        standard: thinkingGeminiStandardDraft,
+                        rich: thinkingGeminiRichDraft,
+                      })
+                    }
+                  >
+                    {isSavingThinkingGeminiModelsDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Empfohlen: Standard <code>gemini-3.1-flash-lite</code>, Rich{' '}
+                  <code>gemini-3-flash-preview</code>. Live-Schaltung unter <strong>Deployment</strong>.
+                </p>
+                {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Analyze-Modelle (Intent-Klassifikation)</p>
+                <p className="admin-users-hint">
+                  Aktiv: Instant <strong>{labelForAnalyzeModel(instantAnalyzeModelActive)}</strong>, Thinking{' '}
+                  <strong>{labelForAnalyzeModel(thinkingAnalyzeModelActive)}</strong>. Modell für den ersten
+                  Einordnungsschritt (Kategorie/Aktion/Tiefe-Hinweis) — unabhängig vom Modell der finalen Antwort.
+                </p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={instantAnalyzeModelDraft}
+                    disabled={isSavingInstantAnalyzeModelDraft}
+                    aria-label="Instant-Analyze-Modell"
+                    onChange={(event) => {
+                      setInstantAnalyzeModelDraft(parseAnalyzeModelDraftValue(event.target.value))
+                    }}
+                  >
+                    {ANALYZE_MODEL_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        Instant: {labelForAnalyzeModel(id)}
+                      </option>
+                    ))}
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingInstantAnalyzeModelDraft}
+                    onClick={() => void handleSaveInstantAnalyzeModelDraft(instantAnalyzeModelDraft)}
+                  >
+                    {isSavingInstantAnalyzeModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={thinkingAnalyzeModelDraft}
+                    disabled={isSavingThinkingAnalyzeModelDraft}
+                    aria-label="Thinking-Analyze-Modell"
+                    onChange={(event) => {
+                      setThinkingAnalyzeModelDraft(parseAnalyzeModelDraftValue(event.target.value))
+                    }}
+                  >
+                    {ANALYZE_MODEL_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        Thinking: {labelForAnalyzeModel(id)}
+                      </option>
+                    ))}
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingThinkingAnalyzeModelDraft}
+                    onClick={() => void handleSaveThinkingAnalyzeModelDraft(thinkingAnalyzeModelDraft)}
+                  >
+                    {isSavingThinkingAnalyzeModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">Live-Schaltung unter <strong>Deployment</strong>.</p>
+                {analyzeModelsInfo ? <p className="admin-ai-info">{analyzeModelsInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Modell pro Kategorie &amp; Aktion (finale Antwort, Smart Instant)</p>
+                <p className="admin-users-hint">
+                  Gilt nur für den Smart-Instant-Modus. Bild-Generierung/-Suche läuft über eine eigene Bild-API und
+                  ist hier nicht aufgeführt. Für Thinking-Draft/-Reply gilt die Tabelle weiter unten pro
+                  Aufgabentyp; die Standard/Rich-Konfiguration oben betrifft nur noch Thinking-Review.
+                </p>
+                <table className="admin-token-usage-table">
+                  <thead>
+                    <tr>
+                      <th>Kategorie / Aktion</th>
+                      <th>Aktiv</th>
+                      <th>Entwurf</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CHAT_INTENT_MODEL_ROUTING_ENTRIES.map((entry) => {
+                      const row = chatIntentModelRoutingRows.find(
+                        (r) => r.category === entry.category && r.action === entry.action,
+                      )
+                      const key = chatIntentModelRoutingKey(entry.category, entry.action)
+                      const draftValue = chatIntentModelRoutingDrafts[key] ?? row?.modelDraft ?? entry.defaultModel
+                      return (
+                        <tr key={key}>
+                          <td>{entry.label}</td>
+                          <td>{row ? row.modelActive : entry.defaultModel}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={draftValue}
+                              disabled={savingChatIntentModelRoutingKey === key}
+                              aria-label={`Modell für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextModel = parseChatIntentRoutingModelDraftValue(event.target.value)
+                                setChatIntentModelRoutingDrafts((prev) => ({ ...prev, [key]: nextModel }))
+                              }}
+                            >
+                              <option value="gpt-5.4">GPT-5.4</option>
+                              <option value="gpt-5.4-mini">GPT-5.4 mini</option>
+                              <option value="gpt-5-mini">GPT-5 mini</option>
+                              <option value="gpt-4o">GPT-4</option>
+                              <option value="gpt-4o-mini">GPT-4 mini</option>
+                            </select>
+                          </td>
+                          <td>
+                            <SecondaryButton
+                              type="button"
+                              disabled={savingChatIntentModelRoutingKey === key}
+                              onClick={() => void handleSaveChatIntentModelRoutingDraft(entry.category, entry.action)}
+                            >
+                              {savingChatIntentModelRoutingKey === key ? 'Speichern…' : 'Speichern'}
+                            </SecondaryButton>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="admin-subscriptions-create-row" style={{ marginTop: '0.6rem' }}>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isDeployingChatIntentModelRouting}
+                    onClick={() => void handleDeployChatIntentModelRoutingDraft()}
+                  >
+                    {isDeployingChatIntentModelRouting ? 'Deployment läuft…' : 'Alle Entwürfe deployen'}
+                  </PrimaryButton>
+                </div>
+                {chatIntentModelRoutingInfo ? (
+                  <p className="admin-ai-info">{chatIntentModelRoutingInfo}</p>
+                ) : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Tier &amp; Modell pro Aufgabentyp (Thinking — Draft &amp; Reply)</p>
+                <p className="admin-users-hint">
+                  Gilt für Thinking-Entwurf und finale Antwort. Tier steuert die Prompt-Variante (Standard/Rich,
+                  z. B. Cards-Layout); Modell kann Gemini oder OpenAI sein — auch bei Tier «Rich» (kein
+                  automatischer Fallback auf OpenAI mehr). Review nutzt weiterhin die Standard/Rich-Dropdowns oben.
+                </p>
+                <table className="admin-token-usage-table">
+                  <thead>
+                    <tr>
+                      <th>Aufgabentyp</th>
+                      <th>Tier aktiv</th>
+                      <th>Tier-Entwurf</th>
+                      <th>Modell aktiv</th>
+                      <th>Modell-Entwurf</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {THINKING_TASK_TYPE_MODEL_ROUTING_ENTRIES.map((entry) => {
+                      const row = thinkingTaskTypeModelRoutingRows.find((r) => r.taskType === entry.taskType)
+                      const tierDraftValue =
+                        thinkingTaskTypeModelRoutingTierDrafts[entry.taskType] ?? row?.tierDraft ?? entry.defaultTier
+                      const modelDraftValue =
+                        thinkingTaskTypeModelRoutingModelDrafts[entry.taskType] ??
+                        row?.modelDraft ??
+                        entry.defaultModel
+                      const saving = savingThinkingTaskTypeModelRoutingKey === entry.taskType
+                      return (
+                        <tr key={entry.taskType}>
+                          <td>{entry.label}</td>
+                          <td>{row ? row.tierActive : entry.defaultTier}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={tierDraftValue}
+                              disabled={saving}
+                              aria-label={`Tier für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextTier = parseThinkingTaskTypeTierDraftValue(event.target.value)
+                                setThinkingTaskTypeModelRoutingTierDrafts((prev) => ({
+                                  ...prev,
+                                  [entry.taskType]: nextTier,
+                                }))
+                              }}
+                            >
+                              <option value="standard">Standard</option>
+                              <option value="rich">Rich</option>
+                            </select>
+                          </td>
+                          <td>{row ? labelForAnalyzeModel(row.modelActive) : labelForAnalyzeModel(entry.defaultModel)}</td>
+                          <td>
+                            <select
+                              className="admin-user-subscription-select"
+                              value={modelDraftValue}
+                              disabled={saving}
+                              aria-label={`Modell für ${entry.label}`}
+                              onChange={(event) => {
+                                const nextModel = parseAnalyzeModelDraftValue(event.target.value)
+                                setThinkingTaskTypeModelRoutingModelDrafts((prev) => ({
+                                  ...prev,
+                                  [entry.taskType]: nextModel,
+                                }))
+                              }}
+                            >
+                              {ANALYZE_MODEL_IDS.map((id) => (
+                                <option key={id} value={id}>
+                                  {labelForAnalyzeModel(id)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <SecondaryButton
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void handleSaveThinkingTaskTypeModelRoutingDraft(entry.taskType)}
+                            >
+                              {saving ? 'Speichern…' : 'Speichern'}
+                            </SecondaryButton>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="admin-subscriptions-create-row" style={{ marginTop: '0.6rem' }}>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isDeployingThinkingTaskTypeModelRouting}
+                    onClick={() => void handleDeployThinkingTaskTypeModelRoutingDraft()}
+                  >
+                    {isDeployingThinkingTaskTypeModelRouting ? 'Deployment läuft…' : 'Alle Entwürfe deployen'}
+                  </PrimaryButton>
+                </div>
+                {thinkingTaskTypeModelRoutingInfo ? (
+                  <p className="admin-ai-info">{thinkingTaskTypeModelRoutingInfo}</p>
+                ) : null}
+              </div>
+              <div className="setting-row setting-row--stacked">
+                <div className="chat-setting-copy">
+                  <h3>Instant-Analyse-Debug (Chat)</h3>
+                  <p>
+                    Zeigt Superadmins unter eigenen Chat-Nachrichten die Einordnung (Schritt 1): Web ja/nein,
+                    Suchquery, Heuristik, Tavily. Für normale Nutzer unsichtbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${instantAnalyzeDebugEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={instantAnalyzeDebugEnabled}
+                  aria-label="Instant-Analyse-Debug im Chat"
+                  disabled={isLoadingInstantAnalyzeDebugToggle}
+                  onClick={() => {
+                    void handleToggleInstantAnalyzeDebugEnabled(!instantAnalyzeDebugEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              {instantAnalyzeDebugInfo ? <p className="learn-muted">{instantAnalyzeDebugInfo}</p> : null}
+              <div className="setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Chat-Ordner global aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, sind Ordner in der Desktop-Sidebar ausgeblendet, der Ordner-Tab in der mobilen
+                    Leiste ausgegraut und «In Ordner verschieben» nicht verfügbar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${chatFoldersEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={chatFoldersEnabled}
+                  aria-label="Chat-Ordner global aktivieren"
+                  disabled={isLoadingChatFoldersToggle}
+                  onClick={() => {
+                    void handleToggleChatFoldersEnabled(!chatFoldersEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="setting-row">
+                <div className="chat-setting-copy">
+                  <h3>Freunde-Funktion global aktivieren</h3>
+                  <p>
+                    Wenn deaktiviert, ist der Freunde-Button in der Sidebar für alle Nutzer ausgeblendet.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${friendsEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={friendsEnabled}
+                  aria-label="Freunde-Funktion global aktivieren"
+                  disabled={isLoadingFriendsToggle}
+                  onClick={() => {
+                    void handleToggleFriendsEnabled(!friendsEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="setting-row setting-row--stacked">
+                <div className="chat-setting-copy">
+                  <h3>Hinweisbalken im Lernbereich</h3>
+                  <p>
+                    Gelber Balken oberhalb der Tabs (Lernpfad, Tests, …). Text und Sichtbarkeit gelten für alle Nutzer
+                    im Lernbereich.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ios-switch ${learnAreaBannerEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={learnAreaBannerEnabled}
+                  aria-label="Hinweisbalken im Lernbereich anzeigen"
+                  disabled={isLoadingLearnAreaBannerToggle}
+                  onClick={() => {
+                    void handleToggleLearnAreaBannerEnabled(!learnAreaBannerEnabled)
+                  }}
+                >
+                  <span className="ios-switch-track" aria-hidden="true">
+                    <span className="ios-switch-thumb" />
+                  </span>
+                </button>
+              </div>
+              <div className="admin-subscriptions-create">
+                <p className="admin-subscriptions-field-label">Hinweistext</p>
+                <textarea
+                  className="admin-user-profile-input admin-learn-banner-textarea"
+                  value={learnAreaBannerTextDraft}
+                  onChange={(event) => setLearnAreaBannerTextDraft(event.target.value)}
+                  placeholder="z. B. Pflicht-Lernblatt: Bitte alle Aufgaben mit dem Kreis prüfen."
+                  rows={3}
+                  maxLength={500}
+                  disabled={isSavingLearnAreaBannerText}
+                />
+                <div className="admin-subscriptions-create-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={isSavingLearnAreaBannerText || !learnAreaBannerTextDraft.trim()}
+                    onClick={() => {
+                      void handleSaveLearnAreaBannerText()
+                    }}
+                  >
+                    {isSavingLearnAreaBannerText ? 'Speichern…' : 'Hinweistext speichern'}
+                  </button>
+                </div>
+                {learnAreaBannerInfo ? <p className="learn-muted">{learnAreaBannerInfo}</p> : null}
+              </div>
+            </div>
+          ) : null}
+          {activeSection === 'users' ? (
+            <div className="admin-users-panel">
+              <div className="admin-subscriptions-create">
+                <p className="admin-subscriptions-field-label">Neuen Nutzer erstellen</p>
+                <div className="admin-subscriptions-create-row">
+                  <input
+                    type="email"
+                    className="admin-user-profile-input"
+                    value={newUserEmail}
+                    onChange={(event) => setNewUserEmail(event.target.value)}
+                    placeholder="E-Mail"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserFirstName}
+                    onChange={(event) => setNewUserFirstName(event.target.value)}
+                    placeholder="Vorname (optional)"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserLastName}
+                    onChange={(event) => setNewUserLastName(event.target.value)}
+                    placeholder="Nachname (optional)"
+                    autoComplete="off"
+                    disabled={isCreatingUser}
+                  />
+                  <input
+                    type="text"
+                    className="admin-user-profile-input"
+                    value={newUserTemporaryPassword}
+                    onChange={(event) => setNewUserTemporaryPassword(event.target.value)}
+                    placeholder="Temporäres Passwort"
+                    autoComplete="new-password"
+                    disabled={isCreatingUser}
+                  />
+                  <PrimaryButton type="button" disabled={isCreatingUser} onClick={() => void handleCreateUser()}>
+                    {isCreatingUser ? 'Erstellen…' : 'Nutzer erstellen'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Neue Nutzer werden in Supabase Auth erstellt und beim ersten Login automatisch zur Passwortänderung
+                  aufgefordert.
+                </p>
+                {createUserInfo ? <p className="admin-ai-info">{createUserInfo}</p> : null}
+              </div>
+              <div className="admin-subscriptions-create">
+                <p className="admin-subscriptions-field-label">Einladungslink erzeugen</p>
+                <p className="admin-users-hint">
+                  Der Link ist offen (nicht an eine E-Mail gebunden) und einmalig — er wird nach der ersten
+                  erfolgreichen Registrierung automatisch ungültig. Der Empfänger wählt sein eigenes Passwort.
+                </p>
+                <div className="admin-subscriptions-create-row">
+                  <label className="admin-user-subscription-label" htmlFor="admin-invite-hours">
+                    Gültig für (Stunden)
+                  </label>
+                  <input
+                    id="admin-invite-hours"
+                    type="number"
+                    min={1}
+                    max={8760}
+                    step={1}
+                    className="admin-user-profile-input"
+                    value={newInviteHours}
+                    onChange={(event) => setNewInviteHours(event.target.value)}
+                    disabled={isCreatingInviteToken}
+                  />
+                  <PrimaryButton
+                    type="button"
+                    disabled={isCreatingInviteToken}
+                    onClick={() => void handleCreateInviteToken()}
+                  >
+                    {isCreatingInviteToken ? 'Erzeugen…' : 'Link erzeugen'}
+                  </PrimaryButton>
+                </div>
+                {createdInviteLink ? (
+                  <div className="admin-subscriptions-create-row">
+                    <input
+                      type="text"
+                      className="admin-user-profile-input"
+                      readOnly
+                      value={createdInviteLink}
+                      onFocus={(event) => event.currentTarget.select()}
+                      aria-label="Erzeugter Einladungslink"
+                    />
+                    <SecondaryButton type="button" onClick={() => void handleCopyInviteLink()}>
+                      Kopieren
+                    </SecondaryButton>
+                  </div>
+                ) : null}
+                {createdInviteLink && createdInviteExpiresAt ? (
+                  <p className="admin-ai-info">
+                    Gültig bis {formatInviteTokenDate(createdInviteExpiresAt)} — jetzt an die Person senden, die sich
+                    registrieren soll.
+                  </p>
+                ) : null}
+                {inviteLinkCopyInfo ? <p className="admin-ai-info">{inviteLinkCopyInfo}</p> : null}
+                {inviteTokensError ? <p className="error-text">{inviteTokensError}</p> : null}
+                {isLoadingInviteTokens ? <p>Lade Einladungslinks...</p> : null}
+                {!isLoadingInviteTokens && inviteTokens.length > 0 ? (
+                  <div className="admin-users-list" role="list" aria-label="Einladungslinks">
+                    {inviteTokens.map((row) => {
+                      const isOpen = !row.used_at && !row.revoked_at && new Date(row.expires_at).getTime() > Date.now()
+                      return (
+                        <div key={row.id} className="admin-user-row" role="listitem">
+                          <div className="admin-user-left">
+                            <div className="admin-user-meta">
+                              <p className="admin-user-name-line">
+                                <span className="admin-user-name">…{row.token_suffix}</span>
+                              </p>
+                              <p className="admin-user-email">{describeInviteTokenStatus(row)}</p>
+                            </div>
+                          </div>
+                          <div className="admin-user-actions">
+                            {isOpen ? (
+                              <SecondaryButton
+                                type="button"
+                                disabled={revokingInviteTokenId === row.id}
+                                onClick={() => void handleRevokeInviteToken(row.id)}
+                              >
+                                {revokingInviteTokenId === row.id ? 'Widerrufen…' : 'Widerrufen'}
+                              </SecondaryButton>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              <p className="admin-users-warning">
+                Achtung: Änderungen in diesem Bereich können kritische Berechtigungen beeinflussen. Bitte nur mit
+                Vorsicht bearbeiten.
+              </p>
+              <p className="admin-users-hint">
+                Alle Auth-Konten erscheinen in der Liste. Vor- und Nachname kannst du für die Beta vorbereiten
+                (&quot;Profil speichern&quot; — unabhängig vom Abo). Das Häkchen &quot;Passwort bei Erstanmeldung
+                ändern&quot; ist nur sichtbar, solange sich der Nutzer noch nie angemeldet hat. Mit &quot;Nutzer
+                löschen&quot; entfernst du Konto und zugehörige Daten endgültig (E-Mail-Bestätigung im Dialog).
+              </p>
+              {usersError ? <p className="error-text">{usersError}</p> : null}
+              {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
+              {isLoadingUsers ? <p>Lade Nutzer...</p> : null}
+              {!isLoadingUsers ? (
+                <div className="admin-users-list" role="list" aria-label="Nutzerliste">
+                  {users.map((user) => (
+                    <div key={user.id} className="admin-user-row" role="listitem">
+                      <div className="admin-user-left">
+                        <div className="admin-user-meta">
+                          <p className="admin-user-name-line">
+                            <span className="admin-user-name">{getUserLabel(user)}</span>
+                            {!user.has_profile ? (
+                              <span className="account-admin-badge" title="Noch keine Zeile in public.profiles">
+                                Kein Profil
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="admin-user-email">{user.email ?? '-'}</p>
+                        </div>
+                        <div className="admin-user-profile-fields">
+                          <input
+                            type="text"
+                            className="admin-user-profile-input"
+                            aria-label={`Vorname ${getUserLabel(user)}`}
+                            autoComplete="off"
+                            value={userProfileNameDrafts[user.id]?.first ?? ''}
+                            onChange={(event) =>
+                              setUserProfileNameDrafts((prev) => ({
+                                ...prev,
+                                [user.id]: {
+                                  first: event.target.value,
+                                  last: prev[user.id]?.last ?? '',
+                                },
+                              }))
+                            }
+                            disabled={savingProfileNamesUserId === user.id || isDeployingDrafts}
+                            placeholder="Vorname"
+                          />
+                          <input
+                            type="text"
+                            className="admin-user-profile-input"
+                            aria-label={`Nachname ${getUserLabel(user)}`}
+                            autoComplete="off"
+                            value={userProfileNameDrafts[user.id]?.last ?? ''}
+                            onChange={(event) =>
+                              setUserProfileNameDrafts((prev) => ({
+                                ...prev,
+                                [user.id]: {
+                                  first: prev[user.id]?.first ?? '',
+                                  last: event.target.value,
+                                },
+                              }))
+                            }
+                            disabled={savingProfileNamesUserId === user.id || isDeployingDrafts}
+                            placeholder="Nachname"
+                          />
+                          <SecondaryButton
+                            type="button"
+                            disabled={
+                              savingProfileNamesUserId === user.id || isDeployingDrafts || assigningUserId === user.id
+                            }
+                            onClick={() => void handleSaveUserProfileNames(user.id)}
+                          >
+                            {savingProfileNamesUserId === user.id ? 'Speichern…' : 'Profil speichern'}
+                          </SecondaryButton>
+                        </div>
+                        {user.last_sign_in_at == null ? (
+                          <label className="admin-user-must-pw-label">
+                            <input
+                              type="checkbox"
+                              checked={user.must_change_password_on_first_login}
+                              disabled={
+                                savingMustPwUserId === user.id ||
+                                isDeployingDrafts ||
+                                savingProfileNamesUserId === user.id
+                              }
+                              onChange={(event) => {
+                                void handleToggleMustChangePassword(user.id, event.target.checked)
+                              }}
+                            />
+                            <span>Passwort bei Erstanmeldung ändern</span>
+                            {savingMustPwUserId === user.id ? <span aria-hidden="true"> …</span> : null}
+                          </label>
+                        ) : null}
+                      </div>
+                      <div className="admin-user-actions">
+                        <label className="admin-user-subscription-label" htmlFor={`admin-user-sub-${user.id}`}>
+                          Abo
+                        </label>
+                        <select
+                          id={`admin-user-sub-${user.id}`}
+                          className="admin-user-subscription-select"
+                          value={getSelectedPlanForUser(user)}
+                          disabled={assigningUserId === user.id || isLoadingSubscriptionPlans || isDeployingDrafts}
+                          aria-busy={assigningUserId === user.id}
+                          onChange={(event) =>
+                            setSelectedDraftPlanByUser((prev) => ({
+                              ...prev,
+                              [user.id]: event.target.value === '' ? null : event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Kein Abo</option>
+                          {subscriptionPlans.map((plan) => (
+                            <option key={plan.id} value={plan.id}>
+                              {plan.name}
+                            </option>
+                          ))}
+                        </select>
+                        <PrimaryButton
+                          type="button"
+                          disabled={assigningUserId === user.id || isLoadingSubscriptionPlans || isDeployingDrafts}
+                          onClick={() => setConfirmDraftUserId(user.id)}
+                        >
+                          {assigningUserId === user.id ? 'Speichern…' : 'Speichern'}
+                        </PrimaryButton>
+                        {subscriptionDrafts[user.id] ? <span className="account-admin-badge">Entwurf</span> : null}
+                        {user.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                        <SecondaryButton
+                          type="button"
+                          className="admin-user-delete-button"
+                          disabled={
+                            currentAuthUser?.id === user.id ||
+                            deletingUserId === user.id ||
+                            isDeployingDrafts ||
+                            !user.email?.trim()
+                          }
+                          title={!user.email?.trim() ? 'Keine E-Mail — Löschen nicht möglich' : undefined}
+                          onClick={() => {
+                            setDeleteUserEmailConfirm('')
+                            setConfirmDeleteUserId(user.id)
+                          }}
+                        >
+                          Nutzer löschen
+                        </SecondaryButton>
+                      </div>
+                    </div>
+                  ))}
+                  {!usersError && users.length === 0 ? (
+                    <p className="admin-user-empty">Keine Nutzer gefunden.</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {activeSection === 'tokenUsage' ? (
+            <div className="admin-users-panel">
+              <p className="admin-users-warning">
+                Daten stammen aus der Tabelle <code>ai_token_usage</code> (von der Edge Function{' '}
+                <strong>chat-completion</strong> geschrieben).                 Oben: nur die <strong>jüngste</strong> Zeile pro Nutzer (kein vollständiges Protokoll), ohne Modus{' '}
+                <code>generate_title</code>. Darunter: <strong>Anfragen-Protokoll</strong> mit jeder einzelnen Anfrage
+                (Modus, Provider, Modell) — Nutzer aufklappen. Provider <code>gemini</code> seit Migration{' '}
+                <code>20260602130000_ai_token_usage_gemini_provider</code>. Kumulierte Token nach Nutzer/Modell.
+                Geschätzte Kosten in <strong>USD</strong> (Listenpreise 2026; ohne Gewähr). Voraussetzung:
+                Migrationen inkl. <code>ai_token_usage</code> und Secret{' '}
+                <code>SUPABASE_SERVICE_ROLE_KEY</code> für die Function.
+              </p>
+              {tokenUsageError ? <p className="error-text">{tokenUsageError}</p> : null}
+              {isLoadingTokenUsage ? <p>Lade Token-Statistik…</p> : null}
+              {!isLoadingTokenUsage && !tokenUsageError ? (
+                <>
+                  {lastAiUsageSorted.length === 0 && tokenUsageRows.length === 0 ? (
+                    <p className="admin-user-empty">
+                      Noch keine Einträge. Nach Migration und KI-Nutzung erscheinen hier Werte.
+                    </p>
+                  ) : (
+                    <>
+                      <h3 className="admin-token-section-heading">Zuletzt protokolliertes Modell (je Nutzer)</h3>
+                      <p className="admin-token-section-hint">
+                        Jüngste Zeile aus <code>ai_token_usage</code> pro Nutzer außer Chat-Titelgenerierung (
+                        <code>generate_title</code>). Spalte «Modell»: API-Rückgabe.
+                      </p>
+                      {lastAiUsageSorted.length === 0 ? (
+                        <p className="admin-user-empty">Keine Zeilen für «zuletzt» (ungewöhnlich).</p>
+                      ) : (
+                        <div className="admin-token-table-scroll">
+                        <table className="admin-token-usage-table" aria-label="Letzter KI-Aufruf pro Nutzer">
+                          <thead>
+                            <tr>
+                              <th scope="col">Nutzer</th>
+                              <th scope="col">E-Mail</th>
+                              <th scope="col">Zuletzt</th>
+                              <th scope="col">Provider</th>
+                              <th scope="col">Modell</th>
+                              <th scope="col">Modus</th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Brutto Input
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Cache
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Netto Input
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Output
+                              </th>
+                              <th scope="col" className="admin-token-usage-num">
+                                Summe
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lastAiUsageSorted.map((row) => {
+                              const sum = row.input_tokens + row.output_tokens
+                              const cost = estimateAiTokenCostsUsd(
+                                row.provider,
+                                row.model,
+                                row.input_tokens,
+                                row.output_tokens,
+                                row.cached_input_tokens,
+                                row.cache_write_input_tokens,
+                              )
+                              return (
+                                <tr key={row.user_id}>
+                                  <td>{formatLastAiPerson(row)}</td>
+                                  <td>{row.email ?? '—'}</td>
+                                  <td>
+                                    <time dateTime={row.last_used_at}>{formatFeedbackDate(row.last_used_at)}</time>
+                                  </td>
+                                  <td>{row.provider}</td>
+                                  <td>
+                                    <code className="admin-token-model">{row.model}</code>
+                                  </td>
+                                  <td>
+                                    <code className="admin-token-model">{row.mode}</code>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">
+                                      {formatTokenInt(row.gross_input_tokens)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">
+                                      {formatTokenInt(row.cached_input_tokens)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.inputUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(row.output_tokens)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.outputUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                  <td className="admin-token-usage-num">
+                                    <span className="admin-token-metric-value">{formatTokenInt(sum)}</span>
+                                    <span className="admin-token-metric-cost">
+                                      {formatUsdEstimate(cost.totalUsd, cost.known)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                        </div>
+                      )}
+
+                      <h3 className="admin-token-section-heading">Anfragen-Protokoll (je Nutzer aufklappbar)</h3>
+                      <p className="admin-token-section-hint">
+                        Jede Zeile ist ein KI-Aufruf. Nutzer aufklappen, <strong>UTC-Tag</strong> wählen — es werden{' '}
+                        <strong>alle Anfragen dieses Tages</strong> geladen (neueste zuerst). Spalte{' '}
+                        <strong>Erstellt</strong>: <code>created_at</code> in UTC.
+                      </p>
+                      {tokenUsageProtocolUsers.length === 0 ? (
+                        <p className="admin-user-empty">Keine Nutzer mit protokollierten KI-Aufrufen.</p>
+                      ) : (
+                        <div
+                          className="admin-token-user-log-list"
+                          role="list"
+                          aria-label="KI-Anfragen gruppiert nach Nutzer"
+                        >
+                          {tokenUsageProtocolUsers.map((userRow) => {
+                            const userId = userRow.user_id
+                            const selectedDay = getTokenUsageLogDayForUser(userId)
+                            const cacheKey = tokenUsageLogCacheKey(userId, selectedDay)
+                            const rows = tokenUsageLogByUserDay[cacheKey]
+                            const isLoadingLog = tokenUsageLogLoadingUserId === userId
+                            const logError = tokenUsageLogErrorByUser[userId]
+                            let sumIn = 0
+                            let sumOut = 0
+                            let sumUsd = 0
+                            if (rows) {
+                              for (const r of rows) {
+                                sumIn += r.input_tokens
+                                sumOut += r.output_tokens
+                                sumUsd += r.estimated_cost_usd
+                              }
+                            }
+                            const sumTok = sumIn + sumOut
+                            const summaryStats =
+                              rows && !isLoadingLog
+                                ? `${rows.length} Anfrage${rows.length === 1 ? '' : 'n'} · ${formatTokenInt(sumTok)} Tok. · ${formatUsdEstimate(sumUsd, true)}`
+                                : `Tag ${selectedDay} (UTC)`
+                            return (
+                              <details
+                                key={userId}
+                                className="admin-token-user-log"
+                                role="listitem"
+                                onToggle={(event) => {
+                                  if (event.currentTarget.open && rows === undefined && !isLoadingLog) {
+                                    void loadTokenUsageLogForUser(userId, selectedDay)
+                                  }
+                                }}
+                              >
+                                <summary className="admin-token-user-log-summary">
+                                  <span className="admin-token-user-log-summary-main">
+                                    <strong>{formatLastAiPerson(userRow)}</strong>
+                                    <span className="admin-token-user-log-summary-email">{userRow.email ?? '—'}</span>
+                                  </span>
+                                  <span className="admin-token-user-log-summary-stats">{summaryStats}</span>
+                                </summary>
+                                <div
+                                  className="admin-token-user-log-controls"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                  }}
+                                >
+                                  <label className="admin-token-user-log-day-label" htmlFor={`admin-token-log-day-${userId}`}>
+                                    Tag (UTC)
+                                  </label>
+                                  <input
+                                    id={`admin-token-log-day-${userId}`}
+                                    className="admin-token-user-log-day-input"
+                                    type="date"
+                                    value={selectedDay}
+                                    onChange={(event) => handleTokenUsageLogDayChange(userId, event.target.value)}
+                                  />
+                                  <SecondaryButton
+                                    type="button"
+                                    disabled={isLoadingLog}
+                                    onClick={() => void loadTokenUsageLogForUser(userId, selectedDay)}
+                                  >
+                                    {isLoadingLog ? 'Lade…' : 'Neu laden'}
+                                  </SecondaryButton>
+                                </div>
+                                {logError ? <p className="error-text admin-token-user-log-error">{logError}</p> : null}
+                                {isLoadingLog ? <p className="admin-token-user-log-loading">Lade Anfragen…</p> : null}
+                                {!isLoadingLog && rows && rows.length === 0 ? (
+                                  <p className="admin-user-empty admin-token-user-log-empty">
+                                    Keine Anfragen am {selectedDay} (UTC).
+                                  </p>
+                                ) : null}
+                                {!isLoadingLog && rows && rows.length > 0 ? (
+                                  <div className="admin-token-table-scroll">
+                                    <table
+                                      className="admin-token-usage-table admin-token-log-detail-table"
+                                      aria-label={`Anfragen für ${formatLastAiPerson(userRow)} am ${selectedDay}`}
+                                    >
+                                      <thead>
+                                        <tr>
+                                          <th scope="col">Erstellt (UTC)</th>
+                                          <th scope="col">Modus</th>
+                                          <th scope="col">Provider</th>
+                                          <th scope="col">Modell</th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Brutto In
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Cache-Read
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Cache-Write
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Netto In
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Output
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Σ Tokens
+                                          </th>
+                                          <th scope="col" className="admin-token-usage-num">
+                                            Kosten
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {rows.map((r) => {
+                                          const lineSum = r.input_tokens + r.output_tokens
+                                          return (
+                                            <tr key={r.id}>
+                                              <td>
+                                                <time dateTime={r.created_at}>
+                                                  {formatAiTokenUsageCreatedAt(r.created_at)}
+                                                </time>
+                                              </td>
+                                              <td>
+                                                <code className="admin-token-model">{r.mode}</code>
+                                              </td>
+                                              <td>{r.provider}</td>
+                                              <td>
+                                                <code className="admin-token-model">{r.model}</code>
+                                              </td>
+                                              <td className="admin-token-usage-num">
+                                                {formatTokenInt(r.gross_input_tokens)}
+                                              </td>
+                                              <td className="admin-token-usage-num">
+                                                {formatTokenInt(r.cached_input_tokens)}
+                                              </td>
+                                              <td className="admin-token-usage-num">
+                                                {formatTokenInt(r.cache_write_input_tokens)}
+                                              </td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(r.input_tokens)}</td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(r.output_tokens)}</td>
+                                              <td className="admin-token-usage-num">{formatTokenInt(lineSum)}</td>
+                                              <td className="admin-token-usage-num">
+                                                {formatUsdEstimate(r.estimated_cost_usd, true)}
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : null}
+                              </details>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      <h3 className="admin-token-section-heading">Kumulierte Tokens (nach Nutzer und Modell)</h3>
+                      <p className="admin-token-section-hint">
+                        Summen aller protokollierten Aufrufe, gruppiert nach Nutzer, Provider und Modell.
+                      </p>
+                      {tokenUsageRows.length === 0 ? (
+                        <p className="admin-user-empty">Keine aggregierten Einträge.</p>
+                      ) : (
+                    <>
+                      <div className="admin-token-toolbar">
+                        <SecondaryButton
+                          type="button"
+                          onClick={() => setTokenUsageFilterOpen((open) => !open)}
+                          aria-expanded={tokenUsageFilterOpen}
+                          aria-controls="admin-token-filters-panel"
+                        >
+                          {tokenUsageFilterOpen ? 'Filter ausblenden' : 'Filter'}
+                        </SecondaryButton>
+                        {tokenUsageFiltersActive ? (
+                          <span className="admin-token-filter-active-badge" aria-live="polite">
+                            Filter aktiv
+                          </span>
+                        ) : null}
+                      </div>
+                      {tokenUsageFilterOpen ? (
+                        <div
+                          id="admin-token-filters-panel"
+                          className="admin-token-filters-panel"
+                          role="region"
+                          aria-label="Token-Statistik filtern"
+                        >
+                          <div className="admin-token-filters-grid">
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-user">
+                              Nutzer
+                            </label>
+                            <select
+                              id="admin-token-filter-user"
+                              className="admin-subscriptions-name-input admin-token-filter-select"
+                              value={tokenUsageFilterUserId}
+                              onChange={(e) => setTokenUsageFilterUserId(e.target.value)}
+                            >
+                              <option value="">Alle Nutzer</option>
+                              {tokenUsageUserOptions.map((row) => (
+                                <option key={row.user_id} value={row.user_id}>
+                                  {formatTokenUsagePerson(row)}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-model">
+                              Modell
+                            </label>
+                            <select
+                              id="admin-token-filter-model"
+                              className="admin-subscriptions-name-input admin-token-filter-select"
+                              value={tokenUsageFilterModel}
+                              onChange={(e) => setTokenUsageFilterModel(e.target.value)}
+                            >
+                              <option value="">Alle Modelle</option>
+                              {tokenUsageModelOptions.map((id) => (
+                                <option key={id} value={id}>
+                                  {id}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-email">
+                              E-Mail (enthält)
+                            </label>
+                            <input
+                              id="admin-token-filter-email"
+                              type="search"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. @firma.ch"
+                              value={tokenUsageFilterEmail}
+                              onChange={(e) => setTokenUsageFilterEmail(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-cost-min">
+                              Kosten gesamt min. (USD)
+                            </label>
+                            <input
+                              id="admin-token-filter-cost-min"
+                              type="text"
+                              inputMode="decimal"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. 0.01"
+                              value={tokenUsageFilterCostMin}
+                              onChange={(e) => setTokenUsageFilterCostMin(e.target.value)}
+                              autoComplete="off"
+                            />
+                            <label className="admin-subscriptions-field-label" htmlFor="admin-token-filter-cost-max">
+                              Kosten gesamt max. (USD)
+                            </label>
+                            <input
+                              id="admin-token-filter-cost-max"
+                              type="text"
+                              inputMode="decimal"
+                              className="admin-subscriptions-name-input"
+                              placeholder="z. B. 1.50"
+                              value={tokenUsageFilterCostMax}
+                              onChange={(e) => setTokenUsageFilterCostMax(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </div>
+                          <p className="admin-token-filter-hint">
+                            Kostenfilter beziehen sich auf die geschätzte Summe pro Zeile (Input+Output). Zeilen ohne
+                            bekannten Tarif werden bei gesetztem Min./Max.-Kostenfilter ausgeblendet.
+                          </p>
+                          <SecondaryButton
+                            type="button"
+                            className="admin-token-filter-reset"
+                            onClick={() => {
+                              setTokenUsageFilterUserId('')
+                              setTokenUsageFilterModel('')
+                              setTokenUsageFilterEmail('')
+                              setTokenUsageFilterCostMin('')
+                              setTokenUsageFilterCostMax('')
+                            }}
+                          >
+                            Filter zurücksetzen
+                          </SecondaryButton>
+                        </div>
+                      ) : null}
+                      {tokenUsageFilteredRows.length === 0 ? (
+                        <p className="admin-user-empty">Keine Zeilen für die aktuellen Filter.</p>
+                      ) : (
+                        <>
+                      <div className="admin-token-table-scroll">
+                      <table className="admin-token-usage-table" aria-label="KI Token Verbrauch">
+                        <thead>
+                          <tr>
+                            <th scope="col">Nutzer</th>
+                            <th scope="col">E-Mail</th>
+                            <th scope="col">Provider</th>
+                            <th scope="col">Modell</th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Brutto Input
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Cache
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Netto Input
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Output
+                            </th>
+                            <th scope="col" className="admin-token-usage-num">
+                              Summe
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tokenUsageFilteredRows.map((row) => {
+                            const sum = row.input_tokens + row.output_tokens
+                            const key = `${row.user_id}-${row.provider}-${row.model}`
+                            const cost = estimateAiTokenCostsUsd(
+                              row.provider,
+                              row.model,
+                              row.input_tokens,
+                              row.output_tokens,
+                              row.cached_input_tokens,
+                              row.cache_write_input_tokens,
+                            )
+                            return (
+                              <tr key={key}>
+                                <td>{formatTokenUsagePerson(row)}</td>
+                                <td>{row.email ?? '—'}</td>
+                                <td>{row.provider}</td>
+                                <td>
+                                  <code className="admin-token-model">{row.model}</code>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">
+                                    {formatTokenInt(row.gross_input_tokens)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">
+                                    {formatTokenInt(row.cached_input_tokens)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(row.input_tokens)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.inputUsd, cost.known)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(row.output_tokens)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.outputUsd, cost.known)}
+                                  </span>
+                                </td>
+                                <td className="admin-token-usage-num">
+                                  <span className="admin-token-metric-value">{formatTokenInt(sum)}</span>
+                                  <span className="admin-token-metric-cost">
+                                    {formatUsdEstimate(cost.totalUsd, cost.known)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="admin-token-usage-foot">
+                            <td colSpan={4}>
+                              <strong>
+                                {tokenUsageFiltersActive ? 'Gesamt (gefiltert)' : 'Gesamt (alle Nutzer)'}
+                              </strong>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.grossInput)}</strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.cachedInput)}</strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.input)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.inputUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.output)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.outputUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                            <td className="admin-token-usage-num">
+                              <span className="admin-token-metric-value">
+                                <strong>{formatTokenInt(tokenUsageTotals.total)}</strong>
+                              </span>
+                              <span className="admin-token-metric-cost">
+                                <strong>
+                                  {formatUsdEstimate(
+                                    tokenUsageCostTotals.totalUsd,
+                                    tokenUsageCostTotals.hasKnownModel,
+                                  )}
+                                </strong>
+                              </span>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      </div>
+                      {tokenUsageCostTotals.hasUnknownModel ? (
+                        <p className="admin-token-cost-footnote">
+                          Kosten-Summen in der Fußzeile zählen nur Zeilen mit bekanntem Modelltarif (OpenAI/Anthropic
+                          in <code>aiModelPricing.ts</code>).
+                        </p>
+                      ) : null}
+                        </>
+                      )}
+                    </>
+                  )}
+                    </>
+                  )}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {activeSection === 'subscriptions' ? (
+            <div className="admin-subscriptions-panel">
+              <p className="admin-users-warning">
+                Lege frei wählbare Abo-Namen an und weise sie unter &quot;Nutzer&quot; einzelnen Konten zu.
+              </p>
+              {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
+              <div className="admin-subscriptions-create">
+                <label htmlFor="admin-new-subscription-name" className="admin-subscriptions-field-label">
+                  Neues Abo
+                </label>
+                <PrimaryButton
+                  type="button"
+                  disabled={isCreatingPlan}
+                  onClick={() => {
+                    setSubscriptionPlansError(null)
+                    setIsCreatePlanModalOpen(true)
+                  }}
+                >
+                  Abo anlegen
+                </PrimaryButton>
+              </div>
+              {isLoadingSubscriptionPlans ? <p>Lade Abonnements…</p> : null}
+              {!isLoadingSubscriptionPlans ? (
+                <ul className="admin-subscriptions-list" aria-label="Definierte Abonnements">
+                  {subscriptionPlans.map((plan) => {
+                    return (
+                    <li key={plan.id} className="admin-subscriptions-row">
+                      <div className="admin-subscriptions-info">
+                        <span className="admin-subscriptions-name">{plan.name}</span>
+                        <p className="admin-subscriptions-meta">
+                          {formatSubscriptionPlanAiCreditsSummary(plan)}
+                          <br />
+                          {formatSubscriptionPlanImageCreditsSummary(plan)}
+                          {' · '}Dateien:{' '}
+                          {plan.max_files ?? 'unbegrenzt'}
+                          <br />
+                          {formatSubscriptionPlanWebSearchSummary(plan)}
+                          <br />
+                          Chat-Kontext (Verlauf):{' '}
+                          {typeof plan.chat_context_max_tokens === 'number'
+                            ? `max. ca. ${plan.chat_context_max_tokens.toLocaleString('de-DE')} Tokens`
+                            : 'unbegrenzt'}
+                          <br />
+                          Neue Lernpfade/Monat:{' '}
+                          {typeof plan.learning_paths_monthly_limit === 'number'
+                            ? plan.learning_paths_monthly_limit.toLocaleString('de-DE')
+                            : 'unbegrenzt'}
+                          <br />
+                          Bildgenerator:{' '}
+                          {labelForSubscriptionImageGenerationModel(
+                            parseSubscriptionImageGenerationModelId(plan.image_generation_model),
+                          )}
+                          <br />
+                          Gesperrte Modelle:{' '}
+                          {plan.chat_blocked_model_ids?.length
+                            ? plan.chat_blocked_model_ids
+                                .map((id) => CHAT_COMPOSER_MODELS.find((m) => m.id === id)?.label ?? id)
+                                .join(', ')
+                            : 'keine'}
+                        </p>
+                      </div>
+                      <div className="admin-subscriptions-row-actions">
+                        <SecondaryButton
+                          type="button"
+                          className="admin-subscriptions-edit"
+                          disabled={deletingPlanId === plan.id}
+                          onClick={() => {
+                            setSubscriptionPlansError(null)
+                            setEditPlanDraft({
+                              id: plan.id,
+                              name: plan.name,
+                              aiCreditsDailyGrant: plan.ai_credits_daily_grant != null ? String(plan.ai_credits_daily_grant) : '',
+                              maxImages: plan.max_images != null ? String(plan.max_images) : '',
+                              maxFiles: plan.max_files != null ? String(plan.max_files) : '',
+                              imageGenerationModel: parseSubscriptionImageGenerationModelId(plan.image_generation_model),
+                              chatContextMaxTokens:
+                                typeof plan.chat_context_max_tokens === 'number'
+                                  ? String(plan.chat_context_max_tokens)
+                                  : '',
+                              webSearchDailyGrant:
+                                typeof plan.web_search_daily_grant === 'number'
+                                  ? String(plan.web_search_daily_grant)
+                                  : '',
+                              webSearchStartBalance:
+                                typeof plan.web_search_start_balance === 'number'
+                                  ? String(plan.web_search_start_balance)
+                                  : '0',
+                              webSearchCreditMax:
+                                typeof plan.web_search_credit_max === 'number'
+                                  ? String(plan.web_search_credit_max)
+                                  : String(DEFAULT_WEB_SEARCH_CREDIT_MAX),
+                              imageStartBalance:
+                                typeof plan.image_start_balance === 'number'
+                                  ? String(plan.image_start_balance)
+                                  : '0',
+                              imageCreditMax:
+                                typeof plan.image_credit_max === 'number'
+                                  ? String(plan.image_credit_max)
+                                  : '60',
+                              aiCreditsStartBalance:
+                                typeof plan.ai_credits_start_balance === 'number'
+                                  ? String(plan.ai_credits_start_balance)
+                                  : '0',
+                              aiCreditsBalanceMax:
+                                typeof plan.ai_credits_balance_max === 'number'
+                                  ? String(plan.ai_credits_balance_max)
+                                  : String(DEFAULT_AI_CREDITS_BALANCE_MAX),
+                              learningPathsMonthlyLimit:
+                                typeof plan.learning_paths_monthly_limit === 'number'
+                                  ? String(plan.learning_paths_monthly_limit)
+                                  : '',
+                              chatBlockedModelIds: Array.isArray(plan.chat_blocked_model_ids)
+                                ? [...plan.chat_blocked_model_ids]
+                                : [],
+                            })
+                          }}
+                        >
+                          Bearbeiten
+                        </SecondaryButton>
+                        <SecondaryButton
+                          type="button"
+                          className="admin-subscriptions-delete"
+                          disabled={deletingPlanId === plan.id}
+                          onClick={() => void handleDeleteSubscriptionPlan(plan.id)}
+                        >
+                          {deletingPlanId === plan.id ? 'Löschen…' : 'Löschen'}
+                        </SecondaryButton>
+                      </div>
+                    </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+              {!isLoadingSubscriptionPlans && subscriptionPlans.length === 0 ? (
+                <p className="admin-user-empty">Noch keine Abonnements angelegt.</p>
+              ) : null}
+              <article className="settings-card">
+                <h3 className="admin-system-prompt-title">Sichtbare Abo-Modelle für Nutzer</h3>
+                <p className="admin-system-prompt-hint">
+                  Bestimme hier die drei Abo-Modelle, die im Kauf-Modal der Nutzer sichtbar sind.
+                </p>
+                <div className="admin-subscriptions-create">
+                  <label htmlFor="admin-showcase-slot-1" className="admin-subscriptions-field-label">
+                    Modell 1
+                  </label>
+                  <select
+                    id="admin-showcase-slot-1"
+                    className="admin-user-subscription-select"
+                    value={showcaseSlots[1]}
+                    disabled={isSavingShowcaseSlots || isLoadingSubscriptionPlans}
+                    onChange={(event) => setShowcaseSlots((prev) => ({ ...prev, 1: event.target.value }))}
+                  >
+                    <option value="">Nicht anzeigen</option>
+                    {subscriptionPlans.map((plan) => (
+                      <option key={`slot-1-${plan.id}`} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="admin-showcase-slot-2" className="admin-subscriptions-field-label">
+                    Modell 2
+                  </label>
+                  <select
+                    id="admin-showcase-slot-2"
+                    className="admin-user-subscription-select"
+                    value={showcaseSlots[2]}
+                    disabled={isSavingShowcaseSlots || isLoadingSubscriptionPlans}
+                    onChange={(event) => setShowcaseSlots((prev) => ({ ...prev, 2: event.target.value }))}
+                  >
+                    <option value="">Nicht anzeigen</option>
+                    {subscriptionPlans.map((plan) => (
+                      <option key={`slot-2-${plan.id}`} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="admin-showcase-slot-3" className="admin-subscriptions-field-label">
+                    Modell 3
+                  </label>
+                  <select
+                    id="admin-showcase-slot-3"
+                    className="admin-user-subscription-select"
+                    value={showcaseSlots[3]}
+                    disabled={isSavingShowcaseSlots || isLoadingSubscriptionPlans}
+                    onChange={(event) => setShowcaseSlots((prev) => ({ ...prev, 3: event.target.value }))}
+                  >
+                    <option value="">Nicht anzeigen</option>
+                    {subscriptionPlans.map((plan) => (
+                      <option key={`slot-3-${plan.id}`} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rename-actions">
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingShowcaseSlots || isLoadingSubscriptionPlans}
+                    onClick={() => void handleSaveShowcaseSlots()}
+                  >
+                    {isSavingShowcaseSlots ? 'Speichern…' : 'Sichtbare Modelle speichern'}
+                  </PrimaryButton>
+                </div>
+              </article>
+
+            </div>
+          ) : null}
+          {activeSection === 'deployment' ? (
+            <div className="admin-subscriptions-panel">
+              <p className="admin-users-warning">
+                Erst ein Deployment macht gespeicherte Abo-Entwürfe für Nutzer sichtbar.
+              </p>
+              <article className="settings-card">
+                <p className="admin-subscriptions-field-label">Lernbereich KI deployen</p>
+                <p className="admin-users-hint">
+                  Aktiv: <strong>{labelForLearnAiProvider(learnAiProviderActive)}</strong><br />
+                  Entwurf: <strong>{labelForLearnAiProvider(learnAiProviderDraft)}</strong><br />
+                  Modell aktiv: <strong>{labelForLearnAiModel(learnAiModelActive)}</strong><br />
+                  Modell Entwurf: <strong>{labelForLearnAiModel(learnAiModelDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingLearnAiProvider || learnAiProviderActive === learnAiProviderDraft}
+                  onClick={() => void handleDeployLearnAiProviderDraft()}
+                >
+                  {isDeployingLearnAiProvider ? 'Deployment läuft…' : 'Lern-KI jetzt deployen'}
+                </PrimaryButton>
+                {learnAiProviderInfo ? <p className="admin-ai-info">{learnAiProviderInfo}</p> : null}
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingLearnAiModel || learnAiModelActive === learnAiModelDraft}
+                  onClick={() => void handleDeployLearnAiModelDraft()}
+                >
+                  {isDeployingLearnAiModel ? 'Deployment läuft…' : 'Lern-KI-Modell jetzt deployen'}
+                </PrimaryButton>
+                {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
+                <p className="admin-subscriptions-field-label" style={{ marginTop: '1rem' }}>
+                  Thinking Gemini deployen
+                </p>
+                <p className="admin-users-hint">
+                  Standard aktiv: <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardActive)}</strong>
+                  <br />
+                  Rich aktiv: <strong>{labelForThinkingGeminiModel(thinkingGeminiRichActive)}</strong>
+                  <br />
+                  Entwurf Standard: <strong>{labelForThinkingGeminiModel(thinkingGeminiStandardDraft)}</strong>
+                  <br />
+                  Entwurf Rich: <strong>{labelForThinkingGeminiModel(thinkingGeminiRichDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingThinkingGeminiModels ||
+                    (thinkingGeminiStandardActive === thinkingGeminiStandardDraft &&
+                      thinkingGeminiRichActive === thinkingGeminiRichDraft)
+                  }
+                  onClick={() => void handleDeployThinkingGeminiModelsDraft()}
+                >
+                  {isDeployingThinkingGeminiModels ? 'Deployment läuft…' : 'Thinking-Modelle jetzt deployen'}
+                </PrimaryButton>
+                {thinkingGeminiModelsInfo ? <p className="admin-ai-info">{thinkingGeminiModelsInfo}</p> : null}
+              </article>
+              <article className="settings-card">
+                <p className="admin-subscriptions-field-label">Analyze-Modelle deployen</p>
+                <p className="admin-users-hint">
+                  Instant aktiv: <strong>{labelForAnalyzeModel(instantAnalyzeModelActive)}</strong>
+                  <br />
+                  Instant Entwurf: <strong>{labelForAnalyzeModel(instantAnalyzeModelDraft)}</strong>
+                  <br />
+                  Thinking aktiv: <strong>{labelForAnalyzeModel(thinkingAnalyzeModelActive)}</strong>
+                  <br />
+                  Thinking Entwurf: <strong>{labelForAnalyzeModel(thinkingAnalyzeModelDraft)}</strong>
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={isDeployingInstantAnalyzeModel || instantAnalyzeModelActive === instantAnalyzeModelDraft}
+                  onClick={() => void handleDeployInstantAnalyzeModelDraft()}
+                >
+                  {isDeployingInstantAnalyzeModel ? 'Deployment läuft…' : 'Instant-Analyze-Modell jetzt deployen'}
+                </PrimaryButton>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingThinkingAnalyzeModel || thinkingAnalyzeModelActive === thinkingAnalyzeModelDraft
+                  }
+                  onClick={() => void handleDeployThinkingAnalyzeModelDraft()}
+                >
+                  {isDeployingThinkingAnalyzeModel ? 'Deployment läuft…' : 'Thinking-Analyze-Modell jetzt deployen'}
+                </PrimaryButton>
+                {analyzeModelsInfo ? <p className="admin-ai-info">{analyzeModelsInfo}</p> : null}
+                <p className="admin-subscriptions-field-label" style={{ marginTop: '1rem' }}>
+                  Modell-Routing (Kategorie/Aktion) deployen
+                </p>
+                <p className="admin-users-hint">
+                  {chatIntentModelRoutingRows.filter((r) => r.modelActive !== r.modelDraft).length} von{' '}
+                  {chatIntentModelRoutingRows.length} Zeilen mit ungespeichertem Entwurf.
+                </p>
+                <PrimaryButton
+                  type="button"
+                  disabled={
+                    isDeployingChatIntentModelRouting ||
+                    chatIntentModelRoutingRows.every((r) => r.modelActive === r.modelDraft)
+                  }
+                  onClick={() => void handleDeployChatIntentModelRoutingDraft()}
+                >
+                  {isDeployingChatIntentModelRouting ? 'Deployment läuft…' : 'Modell-Routing jetzt deployen'}
+                </PrimaryButton>
+                {chatIntentModelRoutingInfo ? (
+                  <p className="admin-ai-info">{chatIntentModelRoutingInfo}</p>
+                ) : null}
+              </article>
+              <article className="settings-card">
+                <p className="admin-subscriptions-field-label">App-Version für Settings pushen</p>
+                <div className="admin-subscriptions-create-row">
+                  <input
+                    id="admin-deployed-app-version"
+                    type="text"
+                    className="admin-subscriptions-name-input"
+                    placeholder="z. B. 2026.04.30-1"
+                    value={deployedAppVersionDraft}
+                    onChange={(event) => setDeployedAppVersionDraft(event.target.value)}
+                    autoComplete="off"
+                    disabled={isSavingDeployedAppVersion}
+                  />
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingDeployedAppVersion || !deployedAppVersionDraft.trim()}
+                    onClick={() => void handlePushDeployedAppVersion()}
+                  >
+                    {isSavingDeployedAppVersion ? 'Push läuft…' : 'Version pushen'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Aktive Version: <strong>{deployedAppVersion || 'Nicht gesetzt'}</strong>
+                </p>
+                {deployedAppVersionInfo ? <p className="admin-ai-info">{deployedAppVersionInfo}</p> : null}
+              </article>
+              {subscriptionPlansError ? <p className="error-text">{subscriptionPlansError}</p> : null}
+              <ul className="admin-subscriptions-list" aria-label="Abo-Entwürfe">
+                {Object.values(subscriptionDrafts).map((draft) => {
+                  return (
+                    <li key={draft.user_id} className="admin-subscriptions-row">
+                      <div className="admin-subscriptions-info">
+                        <span className="admin-subscriptions-name">{getUserLabelById(draft.user_id)}</span>
+                        <p className="admin-subscriptions-meta">
+                          Entwurf: {draft.subscription_plan_name ?? 'Kein Abo'}
+                        </p>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+              {Object.keys(subscriptionDrafts).length === 0 ? (
+                <p className="admin-user-empty">Keine offenen Entwürfe vorhanden.</p>
+              ) : null}
+              <PrimaryButton
+                type="button"
+                disabled={isDeployingDrafts || Object.keys(subscriptionDrafts).length === 0}
+                onClick={() => void handleDeploySubscriptionDrafts()}
+              >
+                {isDeployingDrafts ? 'Deployment läuft…' : 'Jetzt deployen'}
+              </PrimaryButton>
+            </div>
+          ) : null}
+          {activeSection === 'roles' ? (
+            <article className="settings-card">
+              <p>Hier kannst du Rollen, Zugriffe und Berechtigungskonzepte pflegen.</p>
+            </article>
+          ) : null}
+          {activeSection === 'aiProviders' ? (
+            <article className="settings-card">
+              <p>
+                KI-Provider-Keys werden aus Sicherheitsgründen nicht mehr in der Datenbank gepflegt.
+                Bitte nutze Supabase Secrets für die Edge Function.
+              </p>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Lernbereich KI (Entwurf)</p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={learnAiProviderDraft}
+                    disabled={isSavingLearnAiProviderDraft}
+                    onChange={(event) => {
+                      const nextProvider: LearnAiProvider =
+                        event.target.value === 'anthropic'
+                          ? 'anthropic'
+                          : event.target.value === 'gemini'
+                            ? 'gemini'
+                            : 'openai'
+                      setLearnAiProviderDraft(nextProvider)
+                      if (nextProvider === 'gemini' && !learnAiModelDraft.startsWith('gemini-')) {
+                        setLearnAiModelDraft('gemini-3.1-flash-lite')
+                      }
+                      if (nextProvider === 'anthropic' && learnAiModelDraft.startsWith('gpt-')) {
+                        setLearnAiModelDraft('claude-sonnet-4-6')
+                      }
+                      if (nextProvider === 'openai' && (learnAiModelDraft.startsWith('claude-') || learnAiModelDraft.startsWith('gemini-'))) {
+                        setLearnAiModelDraft(LEARN_AI_DEFAULT_OPENAI_MODEL)
+                      }
+                    }}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Gemini (Google) — empfohlen für JSON-Kapitel</option>
+                    <option value="anthropic">Claude (Anthropic)</option>
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingLearnAiProviderDraft}
+                    onClick={() => void handleSaveLearnAiProviderDraft(learnAiProviderDraft)}
+                  >
+                    {isSavingLearnAiProviderDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Dieser Entwurf wird erst im Bereich <strong>Deployment</strong> live geschaltet.
+                </p>
+                {learnAiProviderInfo ? <p className="admin-ai-info">{learnAiProviderInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form" style={{ marginTop: '0.85rem' }}>
+                <p className="admin-subscriptions-field-label">Lernbereich KI Modell (Entwurf)</p>
+                <div className="admin-subscriptions-create-row">
+                  <select
+                    className="admin-user-subscription-select"
+                    value={learnAiModelDraft}
+                    disabled={isSavingLearnAiModelDraft}
+                    onChange={(event) => {
+                      setLearnAiModelDraft(parseLearnAiModelDraftValue(event.target.value))
+                    }}
+                  >
+                    {learnAiProviderDraft === 'gemini' ? (
+                      <>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite (Preview)</option>
+                      </>
+                    ) : learnAiProviderDraft === 'anthropic' ? (
+                      <>
+                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</option>
+                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (Anthropic)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="gpt-5.4">GPT-5.4 (OpenAI)</option>
+                        <option value="gpt-5.4-mini">GPT-5.4 mini (OpenAI)</option>
+                        <option value="gpt-5-mini">GPT-5 mini (OpenAI)</option>
+                        <option value="gpt-4o-mini">GPT-4 mini (4o mini, OpenAI)</option>
+                      </>
+                    )}
+                  </select>
+                  <PrimaryButton
+                    type="button"
+                    disabled={isSavingLearnAiModelDraft}
+                    onClick={() => void handleSaveLearnAiModelDraft(learnAiModelDraft)}
+                  >
+                    {isSavingLearnAiModelDraft ? 'Speichern…' : 'Entwurf speichern'}
+                  </PrimaryButton>
+                </div>
+                <p className="admin-users-hint">
+                  Bei Provider <strong>Gemini</strong>: <code>gemini-3.1-flash-lite</code> empfohlen (JSON-Kapitel).
+                  Aktiv wird das Modell erst nach Deployment.
+                </p>
+                {learnAiModelInfo ? <p className="admin-ai-info">{learnAiModelInfo}</p> : null}
+              </div>
+              <div className="admin-ai-form">
+                <p>
+                  Setze in Supabase unter <strong>Project Settings - Edge Functions - Secrets</strong>:
+                </p>
+                <ul className="settings-list">
+                  <li>
+                    <strong>OPENAI_API_KEY</strong> — Hauptchat (z. B. GPT-5 mini)
+                  </li>
+                  <li>
+                    <strong>GEMINI_API_KEY</strong> — Smart Instant, Dokument-Extraktion und Lernpfad (Gemini 3.1 Flash
+                    Lite)
+                  </li>
+                  <li>
+                    <strong>GEMINI_INSTANT_ENABLED</strong> — optional Edge-Fallback; primär: Admin «Smart Instant:
+                    Gemini» (DB <code>gemini_instant_enabled</code>)
+                  </li>
+                  <li>
+                    <strong>ANTHROPIC_API_KEY</strong> — nur falls im Lernbereich ein Claude-Modell gewählt wird
+                  </li>
+                  <li>
+                    <strong>SUPABASE_SERVICE_ROLE_KEY</strong> — für <strong>chat-completion</strong>: schreibt
+                    Token-Statistik in <code>ai_token_usage</code> (Admin-Menü «KI-Tokens»)
+                  </li>
+                  <li>
+                    Optional: <strong>ANTHROPIC_MODEL</strong> — anderes Claude-Modell (Sonnet-Standard im Code)
+                  </li>
+                </ul>
+                <p>
+                  Danach die Function <strong>chat-completion</strong> neu deployen. Das Frontend braucht keine
+                  API-Keys; <code>VITE_AI_PROVIDER</code> nur <code>mock</code> vs. Gateway.
+                </p>
+              </div>
+            </article>
+          ) : null}
+          {activeSection === 'brainAgents' ? <BrainAgentModelsSection /> : null}
+          {activeSection === 'feedback' ? (
+            <div className="admin-feedback-panel">
+              <p className="admin-users-warning">
+                Hier siehst du Feedback, das Nutzer über die Einstellungen gesendet haben.
+              </p>
+              {feedbackError ? <p className="error-text">{feedbackError}</p> : null}
+              {isLoadingFeedback ? <p>Lade Feedback…</p> : null}
+              {!isLoadingFeedback && !feedbackError ? (
+                feedbackItems.length === 0 ? (
+                  <p className="admin-user-empty">Noch kein Feedback eingegangen.</p>
+                ) : (
+                  <div className="admin-feedback-sections" aria-label="Feedback nach Status">
+                    <details
+                      className="admin-feedback-section"
+                      open={feedbackOpenItems.length > 0}
+                    >
+                      <summary className="admin-feedback-section-summary">
+                        <span className="admin-feedback-section-title">Noch offen</span>
+                        <span className="admin-feedback-section-count">
+                          {feedbackOpenItems.length}{' '}
+                          {feedbackOpenItems.length === 1 ? 'Eintrag' : 'Einträge'}
+                        </span>
+                      </summary>
+                      <div
+                        className="admin-feedback-list admin-feedback-list--section"
+                        role="list"
+                        aria-label="Offenes Feedback"
+                      >
+                        {feedbackOpenItems.map((row) => renderAdminFeedbackCard(row))}
+                        {feedbackOpenItems.length === 0 ? (
+                          <p className="admin-user-empty admin-feedback-section-empty">Keine offenen Einträge.</p>
+                        ) : null}
+                      </div>
+                    </details>
+                    <details className="admin-feedback-section">
+                      <summary className="admin-feedback-section-summary">
+                        <span className="admin-feedback-section-title">Erledigt</span>
+                        <span className="admin-feedback-section-count">
+                          {feedbackResolvedItems.length}{' '}
+                          {feedbackResolvedItems.length === 1 ? 'Eintrag' : 'Einträge'}
+                        </span>
+                      </summary>
+                      <div
+                        className="admin-feedback-list admin-feedback-list--section"
+                        role="list"
+                        aria-label="Erledigtes Feedback"
+                      >
+                        {feedbackResolvedItems.map((row) => renderAdminFeedbackCard(row))}
+                        {feedbackResolvedItems.length === 0 ? (
+                          <p className="admin-user-empty admin-feedback-section-empty">Noch nichts erledigt.</p>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                )
+              ) : null}
+            </div>
+          ) : null}
+          {activeSection === 'systemPrompts' ? (
+            <div className="admin-system-prompts-panel">
+              <p className="admin-users-warning">
+                Änderungen gelten für alle angemeldeten Nutzer. Leere DB-Zeile = App nutzt Code-Standard nach
+                &quot;Zurücksetzen&quot;. Nach Migration bitte Tabelle <code>app_system_prompts</code> anlegen.
+              </p>
+              {promptSaveError ? <p className="error-text">{promptSaveError}</p> : null}
+              {promptsContextLoading ? <p>Lade Anweisungen...</p> : null}
+              <div className="admin-system-prompts-list">
+                {SYSTEM_PROMPT_KEYS.map((key) => {
+                  const meta = SYSTEM_PROMPT_LABELS[key]
+                  const busy = promptActionKey === key
+                  return (
+                    <article key={key} className="settings-card admin-system-prompt-block">
+                      <h3 className="admin-system-prompt-title">{meta.title}</h3>
+                      <p className="admin-system-prompt-hint">{meta.hint}</p>
+                      <textarea
+                        className="admin-system-prompt-textarea"
+                        rows={14}
+                        spellCheck={false}
+                        value={promptDrafts[key] ?? ''}
+                        onChange={(event) =>
+                          setPromptDrafts((prev) => ({
+                            ...prev,
+                            [key]: event.target.value,
+                          }))
+                        }
+                        aria-label={meta.title}
+                      />
+                      <div className="admin-system-prompt-actions">
+                        <PrimaryButton type="button" disabled={busy} onClick={() => void handleSaveSystemPrompt(key)}>
+                          {busy ? 'Speichern…' : 'Speichern'}
+                        </PrimaryButton>
+                        <SecondaryButton
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleResetSystemPrompt(key)}
+                        >
+                          Standard wiederherstellen
+                        </SecondaryButton>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+        </section>
+      </div>
+      {feedbackResolveTarget ? (
+        <ModalShell isOpen={true} onRequestClose={closeFeedbackResolveModal}>
+          <section className="rename-modal admin-feedback-resolve-modal" role="dialog" aria-modal="true" aria-label="Feedback abschließen">
+            <ModalHeader
+              title="Feedback abschließen"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={closeFeedbackResolveModal}
+              closeLabel="Abschluss schließen"
+            />
+            <p className="admin-feedback-resolve-id">Feedback-ID: {feedbackResolveTarget.display_id}</p>
+            <p className="admin-feedback-resolve-preview">{feedbackResolveTarget.body}</p>
+            <form className="rename-form admin-feedback-resolve-form" onSubmit={(event) => void handleSubmitFeedbackResolve(event)}>
+              <label htmlFor="admin-feedback-resolve-message">Abschlussnachricht für den Nutzer</label>
+              <textarea
+                id="admin-feedback-resolve-message"
+                className="admin-feedback-resolve-textarea"
+                rows={4}
+                value={feedbackResolveMessage}
+                onChange={(event) => setFeedbackResolveMessage(event.target.value)}
+                placeholder="z. B. Danke — wir haben deinen Vorschlag umgesetzt."
+                disabled={isResolvingFeedback}
+                required
+              />
+              <div className="rename-actions">
+                <SecondaryButton type="button" disabled={isResolvingFeedback} onClick={closeFeedbackResolveModal}>
+                  Abbrechen
+                </SecondaryButton>
+                <PrimaryButton type="submit" disabled={isResolvingFeedback || !feedbackResolveMessage.trim()}>
+                  {isResolvingFeedback ? 'Speichern…' : 'Abschließen & Nutzer informieren'}
+                </PrimaryButton>
+              </div>
+            </form>
+          </section>
+        </ModalShell>
+      ) : null}
+      {feedbackImageLightbox.imageLightboxSrc !== null ? (
+        <ChatImageLightbox
+          src={feedbackImageLightbox.imageLightboxSrc}
+          open={feedbackImageLightbox.imageLightboxOpen}
+          onClose={feedbackImageLightbox.closeImageLightbox}
+          onTransitionEnd={feedbackImageLightbox.handleImageLightboxTransitionEnd}
+        />
+      ) : null}
+      {feedbackChatViewerThreadId ? (
+        <AdminFeedbackChatViewerModal
+          threadId={feedbackChatViewerThreadId}
+          onClose={() => setFeedbackChatViewerThreadId(null)}
+        />
+      ) : null}
+      {confirmDraftUserId ? (
+        <ModalShell isOpen={Boolean(confirmDraftUserId)} onRequestClose={() => setConfirmDraftUserId(null)}>
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Entwurf speichern bestätigen">
+            <ModalHeader
+              title="Abo als Entwurf speichern?"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={() => setConfirmDraftUserId(null)}
+              closeLabel="Bestätigung schließen"
+            />
+            <p>
+              Diese Aenderung ist noch nicht live. Sie wird erst nach Deployment im Bereich &quot;Deployment&quot;
+              sichtbar.
+            </p>
+            <div className="rename-actions">
+              <SecondaryButton type="button" onClick={() => setConfirmDraftUserId(null)}>
+                Abbrechen
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  const planId = getSelectedPlanIdForUser(confirmDraftUserId)
+                  const userId = confirmDraftUserId
+                  setConfirmDraftUserId(null)
+                  void handleSaveUserSubscriptionDraft(userId, planId)
+                }}
+              >
+                Als Entwurf speichern
+              </PrimaryButton>
+            </div>
+          </section>
+        </ModalShell>
+      ) : null}
+      {confirmDeleteUserId && deleteTargetUser ? (
+        <ModalShell
+          isOpen={Boolean(confirmDeleteUserId)}
+          onRequestClose={() => {
+            if (!deletingUserId) {
+              setConfirmDeleteUserId(null)
+              setDeleteUserEmailConfirm('')
+            }
+          }}
+        >
+          <section className="rename-modal" role="dialog" aria-modal="true" aria-label="Nutzer löschen">
+            <ModalHeader
+              title="Nutzer endgültig löschen?"
+              headingLevel="h3"
+              className="rename-modal-header"
+              onClose={() => {
+                if (!deletingUserId) {
+                  setConfirmDeleteUserId(null)
+                  setDeleteUserEmailConfirm('')
+                }
+              }}
+              closeLabel="Dialog schließen"
+            />
+            <p>
+              Das Auth-Konto, Profil, Chats, Lernpfade, Feedback und weitere verknüpfte Daten werden unwiderruflich
+              entfernt (soweit in der Datenbank mit CASCADE vorgesehen).
+            </p>
+            <p>
+              Gib zur Bestätigung die E-Mail-Adresse ein:{' '}
+              <strong>{deleteTargetUser.email ?? '—'}</strong>
+            </p>
+            <label className="admin-delete-email-label" htmlFor="admin-delete-email-confirm">
+              E-Mail bestätigen
+            </label>
+            <input
+              id="admin-delete-email-confirm"
+              type="email"
+              className="admin-subscriptions-name-input"
+              autoComplete="off"
+              value={deleteUserEmailConfirm}
+              onChange={(event) => setDeleteUserEmailConfirm(event.target.value)}
+              disabled={Boolean(deletingUserId)}
+              placeholder="E-Mail-Adresse"
+            />
+            <div className="rename-actions">
+              <SecondaryButton
+                type="button"
+                disabled={Boolean(deletingUserId)}
+                onClick={() => {
+                  setConfirmDeleteUserId(null)
+                  setDeleteUserEmailConfirm('')
+                }}
+              >
+                Abbrechen
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                className="admin-delete-confirm-button"
+                disabled={!deleteEmailMatches || Boolean(deletingUserId)}
+                onClick={() => void handleDeleteUser(confirmDeleteUserId)}
+              >
+                {deletingUserId ? 'Löschen…' : 'Endgültig löschen'}
+              </PrimaryButton>
+            </div>
+          </section>
+        </ModalShell>
+      ) : null}
+    </section>
+    {createPortal(
+      <>
+        {isCreatePlanModalOpen ? (
+          <ModalShell
+            className="settings-overlay subscription-plan-editor-overlay"
+            isOpen={isCreatePlanModalOpen}
+            onRequestClose={() => {
+              setIsCreatePlanModalOpen(false)
+              setSubscriptionPlansError(null)
+            }}
+          >
+            <section
+              className="rename-modal subscription-plan-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Abo erstellen"
+            >
+              <ModalHeader
+                title="Abo erstellen"
+                headingLevel="h3"
+                className="rename-modal-header"
+                onClose={() => {
+                  setIsCreatePlanModalOpen(false)
+                  setSubscriptionPlansError(null)
+                }}
+                closeLabel="Abo erstellen schließen"
+              />
+
+              <form
+                className="rename-form subscription-plan-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleCreateSubscriptionPlan()
+                }}
+              >
+                <div className="subscription-plan-form-sections">
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-general"
+                  >
+                    <h4 id="admin-new-plan-section-general" className="subscription-plan-form-section-title">
+                      Allgemein
+                    </h4>
+                    <div className="subscription-plan-form-field">
+                      <label htmlFor="admin-new-subscription-name">Name</label>
+                      <input
+                        id="admin-new-subscription-name"
+                        type="text"
+                        placeholder="z. B. Premium"
+                        value={newPlanName}
+                        maxLength={120}
+                        onChange={(event) => setNewPlanName(event.target.value)}
+                      />
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-ai-credits"
+                  >
+                    <h4 id="admin-new-plan-section-ai-credits" className="subscription-plan-form-section-title">
+                      KI-Credits (Chat + Denken)
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-tokens">Tageszuschuss (Credits/Tag)</label>
+                        <input
+                          id="admin-new-subscription-max-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanAiCreditsDailyGrant}
+                          onChange={(event) => setNewPlanAiCreditsDailyGrant(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-instant-token-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-instant-token-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={newPlanAiCreditsStartBalance}
+                          onChange={(event) => setNewPlanAiCreditsStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-instant-token-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-new-instant-token-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={newPlanAiCreditsBalanceMax}
+                          onChange={(event) => setNewPlanAiCreditsBalanceMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Gemeinsamer Pool für Chat und Denken, kostenbasiert (1 Credit ≈ 0,001 $ echte Modellkosten).
+                        Verfügbar pro UTC-Tag: Guthaben + Tageszuschuss. Ungenutzte Credits des Tages werden ins
+                        Guthaben übernommen (gecappt mit Guthaben-Limit).
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-learning-paths"
+                  >
+                    <h4
+                      id="admin-new-plan-section-learning-paths"
+                      className="subscription-plan-form-section-title"
+                    >
+                      Lernpfade
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-plan-learning-paths-limit">Neue Lernpfade pro Monat</label>
+                        <input
+                          id="admin-new-plan-learning-paths-limit"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanLearningPathsMonthlyLimit}
+                          onChange={(event) => setNewPlanLearningPathsMonthlyLimit(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Eigenes Kontingent, unabhängig von den KI-Credits oben — zählt nur beim Erzeugen eines neuen
+                        Lernpfads. Setzt sich am 1. jedes Monats (UTC) zurück. Innerhalb eines bestehenden Lernpfads
+                        (Kapitel, Fragen, Sitzungen) gilt kein Abo-Limit.
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-images"
+                  >
+                    <h4 id="admin-new-plan-section-images" className="subscription-plan-form-section-title">
+                      KI-Bildgenerierung
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-images">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-new-subscription-max-images"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanMaxImages}
+                          onChange={(event) => setNewPlanMaxImages(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-subscription-image-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanImageStartBalance}
+                          onChange={(event) => setNewPlanImageStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-new-subscription-image-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanImageCreditMax}
+                          onChange={(event) => setNewPlanImageCreditMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">{ADMIN_IMAGE_CREDITS_HINT}</p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-web-search"
+                  >
+                    <h4 id="admin-new-plan-section-web-search" className="subscription-plan-form-section-title">
+                      Websuche
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-daily">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-new-subscription-web-search-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          placeholder="leer = keine Aufladung"
+                          value={newPlanWebSearchDailyGrant}
+                          onChange={(event) => setNewPlanWebSearchDailyGrant(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-start">Start-Guthaben</label>
+                        <input
+                          id="admin-new-subscription-web-search-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanWebSearchStartBalance}
+                          onChange={(event) => setNewPlanWebSearchStartBalance(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-web-search-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-new-subscription-web-search-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={newPlanWebSearchCreditMax}
+                          onChange={(event) => setNewPlanWebSearchCreditMax(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        {ADMIN_WEB_SEARCH_HINT}
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-new-plan-section-limits"
+                  >
+                    <h4 id="admin-new-plan-section-limits" className="subscription-plan-form-section-title">
+                      Weitere Limits
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-image-gen-model">Bildgenerator</label>
+                        <select
+                          id="admin-new-subscription-image-gen-model"
+                          className="admin-user-subscription-select"
+                          value={newPlanImageGenerationModel}
+                          onChange={(event) =>
+                            setNewPlanImageGenerationModel(
+                              event.target.value as SubscriptionImageGenerationModelId,
+                            )
+                          }
+                        >
+                          {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-max-files">Max. Dateien</label>
+                        <input
+                          id="admin-new-subscription-max-files"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={newPlanMaxFiles}
+                          onChange={(event) => setNewPlanMaxFiles(event.target.value)}
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-new-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                        <input
+                          id="admin-new-subscription-chat-context-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={1000}
+                          max={5_000_000}
+                          step={1}
+                          placeholder={`Standard ${DEFAULT_MAIN_CHAT_CONTEXT_MAX_TOKENS.toLocaleString('de-DE')} — leer = unbegrenzt`}
+                          value={newPlanChatContextMaxTokens}
+                          onChange={(event) => setNewPlanChatContextMaxTokens(event.target.value)}
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Chat-Kontext: geschätzte Input-Tokens für den mitgesendeten Verlauf (ca. Zeichen ÷ 4), ohne
+                        Systemprompt.
+                      </p>
+                      <div className="subscription-plan-form-field subscription-plan-form-field-full">
+                        <label className="admin-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={newPlanChatAllowCustomMode}
+                            onChange={(event) => setNewPlanChatAllowCustomMode(event.target.checked)}
+                          />
+                          Custom-Modus im Chat erlauben (Modellwahl + Intent Analyze)
+                        </label>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="rename-actions subscription-plan-modal-actions">
+                  <SecondaryButton
+                    type="button"
+                    disabled={isCreatingPlan}
+                    onClick={() => {
+                      setIsCreatePlanModalOpen(false)
+                      setSubscriptionPlansError(null)
+                    }}
+                  >
+                    Abbrechen
+                  </SecondaryButton>
+                  <PrimaryButton type="submit" disabled={isCreatingPlan || !newPlanName.trim()}>
+                    {isCreatingPlan ? 'Speichern…' : 'Speichern'}
+                  </PrimaryButton>
+                </div>
+              </form>
+            </section>
+          </ModalShell>
+        ) : null}
+        {editPlanDraft ? (
+          <ModalShell
+            className="settings-overlay subscription-plan-editor-overlay"
+            isOpen={Boolean(editPlanDraft)}
+            onRequestClose={() => {
+              setEditPlanDraft(null)
+              setSubscriptionPlansError(null)
+            }}
+          >
+            <section
+              className="rename-modal subscription-plan-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Abo bearbeiten"
+            >
+              <ModalHeader
+                title="Abo bearbeiten"
+                headingLevel="h3"
+                className="rename-modal-header"
+                onClose={() => {
+                  setEditPlanDraft(null)
+                  setSubscriptionPlansError(null)
+                }}
+                closeLabel="Abo bearbeiten schließen"
+              />
+
+              <form
+                className="rename-form subscription-plan-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleUpdateSubscriptionPlan()
+                }}
+              >
+                <div className="subscription-plan-form-sections">
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-general"
+                  >
+                    <h4 id="admin-edit-plan-section-general" className="subscription-plan-form-section-title">
+                      Allgemein
+                    </h4>
+                    <div className="subscription-plan-form-field">
+                      <label htmlFor="admin-edit-subscription-name">Name</label>
+                      <input
+                        id="admin-edit-subscription-name"
+                        type="text"
+                        value={editPlanDraft.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          setEditPlanDraft((prev) => (prev ? { ...prev, name: event.target.value } : null))
+                        }
+                      />
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-ai-credits"
+                  >
+                    <h4 id="admin-edit-plan-section-ai-credits" className="subscription-plan-form-section-title">
+                      KI-Credits (Chat + Denken)
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-tokens">Tageszuschuss (Credits/Tag)</label>
+                        <input
+                          id="admin-edit-subscription-max-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.aiCreditsDailyGrant}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, aiCreditsDailyGrant: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-instant-token-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-instant-token-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={editPlanDraft.aiCreditsStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, aiCreditsStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-instant-token-max">Guthaben-Limit</label>
+                        <input
+                          id="admin-edit-instant-token-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10_000_000}
+                          step={1}
+                          value={editPlanDraft.aiCreditsBalanceMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, aiCreditsBalanceMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Gemeinsamer Pool für Chat und Denken, kostenbasiert. Verfügbar pro UTC-Tag: Guthaben +
+                        Tageszuschuss. Rest des Tages → Guthaben (Limit siehe oben).
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-learning-paths"
+                  >
+                    <h4
+                      id="admin-edit-plan-section-learning-paths"
+                      className="subscription-plan-form-section-title"
+                    >
+                      Lernpfade
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-plan-learning-paths-limit">Neue Lernpfade pro Monat</label>
+                        <input
+                          id="admin-edit-plan-learning-paths-limit"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.learningPathsMonthlyLimit}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, learningPathsMonthlyLimit: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Eigenes Kontingent, unabhängig von den KI-Credits oben — zählt nur beim Erzeugen eines neuen
+                        Lernpfads. Setzt sich am 1. jedes Monats (UTC) zurück. Innerhalb eines bestehenden Lernpfads
+                        (Kapitel, Fragen, Sitzungen) gilt kein Abo-Limit.
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-images"
+                  >
+                    <h4 id="admin-edit-plan-section-images" className="subscription-plan-form-section-title">
+                      KI-Bildgenerierung
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-images">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-edit-subscription-max-images"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.maxImages}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, maxImages: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-image-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.imageStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, imageStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-image-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.imageCreditMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, imageCreditMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">{ADMIN_IMAGE_CREDITS_HINT}</p>
+                    </div>
+                  </section>
+
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-web-search"
+                  >
+                    <h4 id="admin-edit-plan-section-web-search" className="subscription-plan-form-section-title">
+                      Websuche
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-daily">Tages-Aufladung (+/Tag, UTC)</label>
+                        <input
+                          id="admin-edit-subscription-web-search-daily"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          placeholder="leer = keine Aufladung"
+                          value={editPlanDraft.webSearchDailyGrant}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchDailyGrant: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-start">Start-Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-web-search-start"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.webSearchStartBalance}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchStartBalance: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-web-search-max">Max. angespartes Guthaben</label>
+                        <input
+                          id="admin-edit-subscription-web-search-max"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={10000}
+                          step={1}
+                          value={editPlanDraft.webSearchCreditMax}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, webSearchCreditMax: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        {ADMIN_WEB_SEARCH_HINT}
+                      </p>
+                    </div>
+                  </section>
+
+                  <hr className="subscription-plan-form-divider" />
+
+                  <section
+                    className="subscription-plan-form-section"
+                    aria-labelledby="admin-edit-plan-section-limits"
+                  >
+                    <h4 id="admin-edit-plan-section-limits" className="subscription-plan-form-section-title">
+                      Weitere Limits
+                    </h4>
+                    <div className="subscription-plan-form-fields-grid">
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-image-gen-model">Bildgenerator</label>
+                        <select
+                          id="admin-edit-subscription-image-gen-model"
+                          className="admin-user-subscription-select"
+                          value={editPlanDraft.imageGenerationModel}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    imageGenerationModel: event.target.value as SubscriptionImageGenerationModelId,
+                                  }
+                                : null,
+                            )
+                          }
+                        >
+                          {SUBSCRIPTION_IMAGE_GENERATION_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-max-files">Max. Dateien</label>
+                        <input
+                          id="admin-edit-subscription-max-files"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          placeholder="leer = unbegrenzt"
+                          value={editPlanDraft.maxFiles}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) => (prev ? { ...prev, maxFiles: event.target.value } : null))
+                          }
+                        />
+                      </div>
+                      <div className="subscription-plan-form-field">
+                        <label htmlFor="admin-edit-subscription-chat-context-tokens">Chat-Kontext (max. Tokens)</label>
+                        <input
+                          id="admin-edit-subscription-chat-context-tokens"
+                          type="number"
+                          inputMode="numeric"
+                          min={1000}
+                          max={5_000_000}
+                          step={1}
+                          placeholder="leer = unbegrenzter Verlauf"
+                          value={editPlanDraft.chatContextMaxTokens}
+                          onChange={(event) =>
+                            setEditPlanDraft((prev) =>
+                              prev ? { ...prev, chatContextMaxTokens: event.target.value } : null,
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Chat-Kontext: geschätzte Input-Tokens für den mitgesendeten Verlauf (ca. Zeichen ÷ 4), ohne
+                        Systemprompt.
+                      </p>
+                      {/* Alle Modelle stehen offen — die Kosten regelt der Credit-Verbrauch, der pro
+                          Modell unterschiedlich hoch ausfällt. Hier lassen sich einzelne sperren. */}
+                      <div className="subscription-plan-form-field subscription-plan-form-field-full">
+                        <span className="subscription-plan-form-field-label">Gesperrte Chat-Modelle</span>
+                        <div className="subscription-plan-model-blocklist">
+                          {CHAT_COMPOSER_MODELS.map((model) => {
+                            const isBlocked = editPlanDraft.chatBlockedModelIds.includes(model.id)
+                            return (
+                              <label key={model.id} className="admin-checkbox-label">
+                                <input
+                                  type="checkbox"
+                                  checked={isBlocked}
+                                  onChange={(event) =>
+                                    setEditPlanDraft((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            chatBlockedModelIds: event.target.checked
+                                              ? [...prev.chatBlockedModelIds, model.id]
+                                              : prev.chatBlockedModelIds.filter((id) => id !== model.id),
+                                          }
+                                        : null,
+                                    )
+                                  }
+                                />
+                                {model.label}
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      <p className="admin-users-hint subscription-plan-form-field-full">
+                        Gesperrte Modelle erscheinen im Chat ausgegraut und lassen sich nicht wählen. Ohne
+                        Häkchen stehen alle Modelle offen; teurere Modelle verbrauchen mehr KI-Credits.
+                      </p>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="rename-actions subscription-plan-modal-actions">
+                  <SecondaryButton
+                    type="button"
+                    disabled={isUpdatingPlan}
+                    onClick={() => {
+                      setEditPlanDraft(null)
+                      setSubscriptionPlansError(null)
+                    }}
+                  >
+                    Abbrechen
+                  </SecondaryButton>
+                  <PrimaryButton type="submit" disabled={isUpdatingPlan || !editPlanDraft.name.trim()}>
+                    {isUpdatingPlan ? 'Speichern…' : 'Speichern'}
+                  </PrimaryButton>
+                </div>
+              </form>
+            </section>
+          </ModalShell>
+        ) : null}
+      </>,
+      document.body,
+    )}
+    </>
+  )
+}

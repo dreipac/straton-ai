@@ -1,0 +1,30 @@
+{
+  "name": "Straton",
+  "short_name": "Straton",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "description": "Straton AI",
+  "icons": [
+    {
+      "src": "./assets/logo/icon-192-v4.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/logo/icon-512-v4.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/logo/icon-512-v4.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

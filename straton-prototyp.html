@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Straton — Lernpfad Prototyp</title>
+<style>
+:root{
+  --bg:#0A0C12;--surface:#12151E;--surface-2:#171B26;
+  --line:rgba(255,255,255,0.08);--line-2:rgba(255,255,255,0.15);
+  --txt:#E9EAEE;--muted:#868C9B;--faint:#5C6270;
+  --accent:#6D5AE6;--accent-soft:rgba(109,90,230,0.14);
+  --ok:#3FC7A8;--ok-soft:rgba(63,199,168,0.12);
+  --warn:#E0A33A;--warn-soft:rgba(224,163,58,0.12);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+.app{max-width:980px;margin:0 auto;padding:26px 20px 60px}
+.hide{display:none!important}
+
+.head{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.ring{width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.ring i{width:40px;height:40px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;font-style:normal}
+h1{font-size:22px;font-weight:500;letter-spacing:-.01em;margin:0}
+.sub{font-size:13px;color:var(--muted);margin:3px 0 0}
+.spacer{flex:1}
+.goal{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.goal b{color:var(--txt);font-weight:500}
+.goal:hover{border-color:var(--line-2)}
+
+.tabs{display:flex;gap:26px;margin:24px 0 0;border-bottom:1px solid var(--line)}
+.tab{padding:0 0 12px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:8px}
+.tab:hover{color:var(--txt)}
+.tab.on{color:var(--txt);border-bottom-color:var(--accent)}
+.badge{font-family:var(--mono);font-size:10px;background:var(--accent-soft);color:#B7ACF0;padding:2px 7px;border-radius:20px}
+
+.now{margin:24px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--accent);margin:0 0 10px}
+.now h2{font-size:19px;font-weight:500;margin:0;letter-spacing:-.01em}
+.why{font-size:13.5px;line-height:1.6;color:var(--muted);margin:9px 0 0;max-width:62ch}
+.acts{display:flex;gap:10px;align-items:center;margin:18px 0 0;flex-wrap:wrap}
+button{font-family:var(--sans);font-size:13.5px;font-weight:500;border-radius:9px;padding:10px 18px;cursor:pointer;border:none}
+.primary{background:var(--accent);color:#fff}.primary:hover{filter:brightness(1.12)}
+.ghost{background:transparent;color:var(--muted);border:1px solid var(--line-2)}.ghost:hover{color:var(--txt)}
+button:focus-visible{outline:2px solid var(--ok);outline-offset:2px}
+
+.cols{display:grid;grid-template-columns:1fr 320px;gap:22px;margin-top:24px;align-items:start}
+@media(max-width:840px){.cols{grid-template-columns:1fr}}
+.sechead{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:0 0 12px}
+
+.theme{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:10px;overflow:hidden}
+.thead{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;user-select:none}
+.thead:hover{background:var(--surface-2)}
+.tdot{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tdot i{width:20px;height:20px;border-radius:50%;background:var(--surface);font-style:normal;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)}
+.tname{font-size:14.5px;font-weight:500}
+.tmeta{font-size:12px;color:var(--faint);margin-top:2px}
+.chev{color:var(--faint);font-size:12px;transition:transform .18s;display:inline-block}
+.theme.open .chev{transform:rotate(90deg)}
+.nodes{display:none;padding:2px 16px 14px}
+.theme.open .nodes{display:block}
+
+.node{display:flex;gap:14px;align-items:flex-start;padding:11px 10px;border-radius:10px;cursor:pointer}
+.node:hover{background:var(--surface-2)}
+.node.sel{background:var(--accent-soft)}
+.node.ein{margin-left:22px}
+.rail{width:20px;display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+.dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--faint);margin-top:3px}
+.dot.done{background:var(--ok);border-color:var(--ok)}
+.dot.now{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.dot.shaky{border-color:var(--accent);border-style:dashed}
+.dot.due{border-color:var(--warn)}
+.line{width:2px;flex:1;background:var(--line);margin-top:4px;min-height:20px}
+.line.dash{background:none;border-left:2px dashed var(--line-2)}
+.nname{font-size:14px;font-weight:500}
+.nmeta{font-size:12px;color:var(--faint);margin-top:3px}
+.tagx{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:5px;margin-left:8px}
+.t-ein{background:var(--accent-soft);color:#B7ACF0}
+.t-due{background:var(--warn-soft);color:var(--warn)}
+.t-new{background:var(--ok-soft);color:var(--ok)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+.pname{font-size:16px;font-weight:500;margin:0}
+.psrc{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin:6px 0 0}
+.bars{margin:16px 0 0;display:grid;gap:11px}
+.bar b{font-size:11.5px;color:var(--muted);font-weight:400;margin-bottom:5px;display:flex;justify-content:space-between}
+.bar b em{font-style:normal;color:var(--txt)}
+.track{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.fill{height:100%;background:var(--accent)}
+.fill.low{background:var(--warn)}
+.depth{display:flex;gap:5px}
+.step{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.08)}
+.step.on{background:var(--ok)}
+.pnote{font-size:12.5px;line-height:1.6;color:var(--muted);margin:16px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+.pacts{display:grid;gap:7px;margin-top:15px}
+.pacts button{width:100%;text-align:left;padding:10px 13px;font-size:13px}
+
+.insight{margin-top:20px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:flex;gap:14px;align-items:center;cursor:pointer}
+.insight:hover{border-color:var(--line-2)}
+.pulse{width:9px;height:9px;border-radius:50%;background:var(--ok);flex-shrink:0}
+.imeta{font-size:12px;color:var(--faint);margin-top:3px}
+
+/* Sitzung */
+.top{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+.close{color:var(--faint);font-size:18px;cursor:pointer}
+.count{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.prog{display:flex;gap:4px;margin:14px 0 24px}
+.seg{height:3px;flex:1;border-radius:2px;background:rgba(255,255,255,.09)}
+.seg.done{background:var(--ok)}.seg.miss{background:var(--warn)}.seg.cur{background:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px}
+.q{font-size:19px;line-height:1.45;font-weight:500;margin:0 0 6px}
+.qsub{font-size:13px;color:var(--muted);margin:0 0 20px;line-height:1.6}
+.opts{display:grid;gap:8px}
+.opt{display:flex;gap:12px;padding:13px 15px;border:1px solid var(--line);border-radius:11px;cursor:pointer;font-size:14.5px;background:var(--surface-2)}
+.opt:hover{border-color:var(--line-2)}
+.opt.pick{border-color:var(--accent);background:var(--accent-soft)}
+.opt.right{border-color:var(--ok);background:var(--ok-soft)}
+.opt.wrong{border-color:var(--warn);background:var(--warn-soft)}
+.opt em{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}
+input[type=text],textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:11px;color:var(--txt);font-family:var(--sans);font-size:15px;padding:13px 15px;outline:none}
+input:focus,textarea:focus{border-color:var(--accent)}
+textarea{min-height:100px;resize:vertical;line-height:1.6}
+.given{background:var(--surface-2);border:1px solid var(--line);border-radius:11px;padding:15px 17px;font-family:var(--mono);font-size:13px;line-height:1.9;color:var(--muted)}
+.pickline{cursor:pointer;padding:2px 6px;border-radius:5px;display:block}
+.pickline:hover{background:rgba(255,255,255,.05)}
+.pickline.pick{background:var(--accent-soft);color:var(--txt)}
+.pickline.right{background:var(--ok-soft)}
+.pickline.wrong{background:var(--warn-soft);color:var(--txt)}
+.fb{margin:20px 0 0;border-radius:12px;padding:16px 18px;font-size:13.5px;line-height:1.65;display:none}
+.fb.show{display:block}
+.fb.good{background:var(--ok-soft);border:1px solid rgba(63,199,168,.3)}
+.fb.bad{background:var(--warn-soft);border:1px solid rgba(224,163,58,.3)}
+.fb h4{margin:0 0 7px;font-size:14px;font-weight:500}
+.fb p{margin:0;color:var(--muted)}
+.src{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:11px}
+.endrow{display:flex;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line);font-size:14px}
+.endrow:last-of-type{border-bottom:none}
+.edot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.endrow span{color:var(--muted);font-size:13px;margin-left:auto}
+
+.stack{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;margin-top:22px}
+.mrow{display:flex;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);font-size:14px}
+.mrow:last-child{border-bottom:none}
+.mrow .mm{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:3px}
+.note{font-size:12px;color:var(--faint);line-height:1.6;margin-top:26px;padding-top:16px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ÜBERSICHT -->
+<div id="scr-path">
+  <div class="head">
+    <div class="ring" id="ring"><i id="ringv">42%</i></div>
+    <div><h1>Netzwerke M129</h1><p class="sub" id="headsub">14 Konzepte · 6 gefestigt · 2 fällig</p></div>
+    <div class="spacer"></div>
+    <div class="goal" role="button" tabindex="0">Ziel: <b>Prüfung Freitag</b> · 11 Konzepte · wird knapp</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-tab="pfad">Pfad</div>
+    <div class="tab" data-tab="wdh">Wiederholen <span class="badge" id="repBadge">8</span></div>
+    <div class="tab" data-tab="mat">Material</div>
+  </div>
+
+  <div id="tab-pfad">
+    <div class="now">
+      <p class="eyebrow" id="noweb">Jetzt dran</p>
+      <h2 id="nowt">Binärumrechnung</h2>
+      <p class="why" id="noww">Ich schiebe das hier ein: deine Fehler bei der Subnetzmaske kommen aus den Zweierpotenzen, nicht aus dem Rechenweg. Etwa 8 Minuten, danach geht es normal weiter.</p>
+      <div class="acts">
+        <button class="primary" id="start">Weiterlernen</button>
+        <button class="ghost" id="later">Später</button>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <p class="sechead">Der Pfad</p>
+        <div id="themes"></div>
+        <div class="insight">
+          <div class="pulse"></div>
+          <div><div style="font-size:13.5px">Einsichten</div><div class="imeta" id="ins">1 Beobachtung über dich · 1 Frage zu deiner Karte</div></div>
+        </div>
+      </div>
+      <div>
+        <p class="sechead">Knoten</p>
+        <div class="panel" id="panel"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-wdh" class="hide">
+    <div class="stack">
+      <p class="eyebrow">Fälliger Stapel</p>
+      <h2 style="margin:0 0 6px;font-size:19px;font-weight:500" id="repHead">8 Abfragen aus 3 Konzepten</h2>
+      <p class="qsub">Kurz und mechanisch, gedacht für zwischendurch. Du tippst statt umzudrehen — so bleibt die Bewertung beim Prüfer. Die Formulierungen wechseln zwischen den Durchgängen, damit du das Konzept lernst und nicht die Karte.</p>
+      <div id="repList"></div>
+      <div class="acts"><button class="primary" id="repStart">Stapel starten</button><button class="ghost" id="repShort">Nur 3 Minuten</button></div>
+    </div>
+  </div>
+
+  <div id="tab-mat" class="hide">
+    <div class="stack">
+      <p class="eyebrow">Quellen</p>
+      <div class="mrow"><span class="edot" style="background:var(--ok)"></span><div>Skript_M129_Netzwerke.pdf<div class="mm">38 Seiten · 12 Konzepte abgeleitet</div></div></div>
+      <div class="mrow"><span class="edot" style="background:var(--accent)"></span><div>Chat: IPv6 Übungen<div class="mm">2 Konzepte ergänzt</div></div></div>
+      <div class="mrow"><span class="edot" style="background:var(--faint)"></span><div>KI-ergänzte Konzepte<div class="mm">2 Stück · nicht in deinem Skript</div></div></div>
+    </div>
+    <div class="stack">
+      <p class="eyebrow">Arbeitsblätter</p>
+      <p class="qsub">Auf Anfrage erzeugt, für Papier und offline. Lösungen auf Seite zwei.</p>
+      <div class="acts"><button class="ghost">Adressierung als Arbeitsblatt</button><button class="ghost">Nur meine Fehlerthemen</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- SITZUNG -->
+<div id="scr-sess" class="hide">
+  <div class="top">
+    <span class="close" id="quit">✕</span>
+    <div><div style="font-size:13.5px;font-weight:500" id="sesst">Binärumrechnung</div><div style="font-size:11.5px;color:var(--faint);margin-top:2px" id="sesss">Einschub · Adressierung · etwa 8 Minuten</div></div>
+    <div class="spacer"></div>
+    <div class="count" id="count">1 / 5</div>
+  </div>
+  <div class="prog" id="prog"></div>
+  <div class="card" id="card"></div>
+</div>
+
+<!-- WIEDERHOLEN -->
+<div id="scr-rep" class="hide">
+  <div class="top">
+    <span class="close" id="repQuit">✕</span>
+    <div><div style="font-size:13.5px;font-weight:500">Wiederholen</div><div style="font-size:11.5px;color:var(--faint);margin-top:2px" id="repSub">Fälliger Stapel · jederzeit abbrechbar</div></div>
+    <div class="spacer"></div>
+    <div class="count" id="repCount">1 / 8</div>
+  </div>
+  <div class="prog" id="repProg"></div>
+  <div class="card" id="repCard"></div>
+</div>
+
+<p class="note">Prototyp. Klick dich einmal ganz durch: Thema aufklappen, Knoten antippen, Sitzung starten, ruhig auch falsch antworten. Am Ende verändert sich der Pfad tatsächlich — genau das ist der Punkt.</p>
+</div>
+
+<script>
+var NODES={
+ osi:{n:"OSI-Schichten",t:1,s:"done",m:88,sl:"hoch",sv:78,d:3,src:"Skript Seite 3 · aus deinem Material",meta:"gefestigt · zuletzt vor 6 Tagen",note:"Sitzt. Taucht nur noch zur Auffrischung auf."},
+ mac:{n:"MAC-Adressen",t:1,s:"done",m:81,sl:"hoch",sv:72,d:2,src:"Skript Seite 5 · aus deinem Material",meta:"gefestigt · Anwenden",note:"Stabil. Nächste Auffrischung in etwa zwei Wochen."},
+ ipv4:{n:"IPv4-Aufbau",t:2,s:"done",m:76,sl:"mittel",sv:55,d:2,src:"Skript Seite 9 · aus deinem Material",meta:"gefestigt · Anwenden",note:"Solide. Die Übertragen-Stufe ist noch offen — dort entscheiden sich Prüfungen."},
+ bin:{n:"Binärumrechnung",t:2,s:"now",m:34,sl:"niedrig",sv:18,d:2,tag:"ein",src:"Skript Seite 12 · aus deinem Material",meta:"eingefügt, weil Subnetzmaske daran hängt",note:"Zuletzt dreimal dieselbe Ursache: Zweierpotenzen verwechselt. Deshalb steht dieser Knoten gerade vorne."},
+ mask:{n:"Subnetzmaske berechnen",t:2,s:"shaky",m:41,sl:"niedrig",sv:22,d:2,src:"Skript Seite 14 · aus deinem Material",meta:"unsicher · 3 Fehlversuche",note:"Der Rechenweg stimmte jedes Mal. Der Fehler liegt eine Stufe tiefer — daher der Einschub davor."},
+ host:{n:"Hostanzahl bestimmen",t:2,s:"open",m:0,sl:"keine",sv:5,d:1,src:"Skript Seite 15 · aus deinem Material",meta:"noch nicht begonnen",note:"Noch keine Evidenz. Kommt nach der Subnetzmaske."},
+ vlsm:{n:"VLSM",t:2,s:"due",m:62,sl:"mittel",sv:48,d:2,tag:"due",src:"Skript Seite 21 · aus deinem Material",meta:"verfällt · zuletzt vor 19 Tagen",note:"Steht in der Wiederholungsreserve und wird in kommende Sitzungen eingemischt."},
+ stat:{n:"Statisches Routing",t:3,s:"open",m:0,sl:"keine",sv:5,d:1,src:"Skript Seite 26 · aus deinem Material",meta:"noch nicht begonnen",note:"Setzt Adressierung voraus."},
+ dyn:{n:"Dynamisches Routing",t:3,s:"open",m:0,sl:"keine",sv:5,d:1,src:"KI-ergänzt · nicht in deinem Skript",meta:"noch nicht begonnen · ergänzt",note:"Ergänzt, weil dein Skript hier eine Lücke hat. Prüfe selbst, ob es im Unterricht vorkam."}
+};
+var THEMES=[{id:1,n:"Grundlagen"},{id:2,n:"Adressierung"},{id:3,n:"Routing"}];
+var open={1:false,2:true,3:false},sel="bin",ringv=42;
+
+function order(){return Object.keys(NODES)}
+function byTheme(t){return order().filter(function(k){return NODES[k].t===t})}
+
+function drawThemes(){
+  var h="";
+  THEMES.forEach(function(th){
+    var ks=byTheme(th.id),done=ks.filter(function(k){return NODES[k].s==="done"}).length;
+    var pct=Math.round(done/ks.length*100);
+    var grad=pct===100?"conic-gradient(var(--ok) 0 100%)":pct===0?"rgba(255,255,255,.08)":"conic-gradient(var(--accent) 0 "+pct+"%,rgba(255,255,255,.10) "+pct+"% 100%)";
+    h+='<div class="theme'+(open[th.id]?" open":"")+'" data-t="'+th.id+'">'
+      +'<div class="thead"><span class="chev">›</span><div class="tdot" style="background:'+grad+'"><i>'+(pct===100?"✓":done+"/"+ks.length)+'</i></div>'
+      +'<div><div class="tname">'+th.n+'</div><div class="tmeta">'+(pct===100?"alle gefestigt":pct===0?"noch nicht begonnen":done+" von "+ks.length+" · hier bist du gerade")+'</div></div></div>'
+      +'<div class="nodes">';
+    ks.forEach(function(k,idx){
+      var d=NODES[k],tag="";
+      if(d.tag==="ein")tag='<span class="tagx t-ein">Einschub</span>';
+      if(d.tag==="due")tag='<span class="tagx t-due">fällig</span>';
+      if(d.tag==="new")tag='<span class="tagx t-new">neu</span>';
+      h+='<div class="node'+(sel===k?" sel":"")+(d.tag==="ein"?" ein":"")+'" data-n="'+k+'">'
+       +'<div class="rail"><div class="dot '+(d.s==="done"?"done":d.s==="now"?"now":d.s==="shaky"?"shaky":d.s==="due"?"due":"")+'"></div>'
+       +(idx<ks.length-1?'<div class="line'+(d.tag==="ein"?" dash":"")+'"></div>':"")+'</div>'
+       +'<div><div class="nname">'+d.n+tag+'</div><div class="nmeta">'+d.meta+'</div></div></div>';
+    });
+    h+='</div></div>';
+  });
+  document.getElementById("themes").innerHTML=h;
+  document.querySelectorAll(".thead").forEach(function(el){
+    el.addEventListener("click",function(){var t=el.parentNode.getAttribute("data-t");open[t]=!open[t];drawThemes()});
+  });
+  document.querySelectorAll(".node").forEach(function(el){
+    el.addEventListener("click",function(){sel=el.getAttribute("data-n");drawThemes();drawPanel()});
+  });
+}
+
+function drawPanel(){
+  var d=NODES[sel],depth=["Erkennen","Anwenden","Übertragen"][d.d-1];
+  document.getElementById("panel").innerHTML=
+   '<p class="pname">'+d.n+'</p><p class="psrc">'+d.src+'</p>'
+   +'<div class="bars">'
+   +'<div class="bar"><b>Beherrschung <em>'+d.m+'%</em></b><div class="track"><div class="fill" style="width:'+d.m+'%"></div></div></div>'
+   +'<div class="bar"><b>Sicherheit <em>'+d.sl+'</em></b><div class="track"><div class="fill'+(d.sv<40?" low":"")+'" style="width:'+d.sv+'%"></div></div></div>'
+   +'<div class="bar"><b>Anwendungstiefe <em>'+depth+'</em></b><div class="depth"><span class="step on"></span><span class="step'+(d.d>1?" on":"")+'"></span><span class="step'+(d.d>2?" on":"")+'"></span></div></div>'
+   +'</div><p class="pnote">'+d.note+'</p>'
+   +'<div class="pacts"><button class="primary" id="prac">Hier üben</button>'
+   +'<button class="ghost">Erklären lassen</button><button class="ghost">Im Chat dazu fragen</button><button class="ghost">Knoten bearbeiten</button></div>';
+  document.getElementById("prac").addEventListener("click",openSess);
+}
+
+/* Tabs */
+document.querySelectorAll(".tab").forEach(function(t){
+  t.addEventListener("click",function(){
+    document.querySelectorAll(".tab").forEach(function(x){x.classList.remove("on")});
+    t.classList.add("on");
+    ["pfad","wdh","mat"].forEach(function(k){
+      document.getElementById("tab-"+k).classList.toggle("hide",k!==t.getAttribute("data-tab"));
+    });
+  });
+});
+document.getElementById("later").addEventListener("click",function(){
+  document.getElementById("noww").textContent="Gut — dann nehmen wir zuerst VLSM, das ist ohnehin fällig. Der Einschub bleibt im Pfad stehen und kommt danach.";
+  document.getElementById("nowt").textContent="VLSM";
+});
+
+/* Sitzung */
+var items=[
+{k:"Erkennen · Auswahl",q:"Wie viele verschiedene Werte kann ein Byte darstellen?",sub:"Eine Antwort auswählen.",t:"mc",o:["128","256","255","512"],r:1,
+ g:"Richtig. 2 hoch 8 sind 256 Werte, von 0 bis 255.",
+ b:"Fast. 255 ist der höchste Wert, aber die Anzahl ist 256 — die Null zählt mit. Genau diese Verwechslung taucht bei dir wieder auf.",s:"Skript Seite 12"},
+{k:"Erkennen · Kurzantwort",q:"Welche Zweierpotenz ergibt 64?",sub:"Nur den Exponenten eintippen.",t:"tx",ph:"z. B. 5",r:"6",
+ g:"Richtig. 2 hoch 6 ist 64.",b:"Nicht ganz. 2 hoch 6 ergibt 64. Die Reihe ab 32: 32, 64, 128, 256.",s:"Skript Seite 12"},
+{k:"Anwenden · Rechnung",q:"Wandle 11010110 in eine Dezimalzahl um.",sub:"Nur das Ergebnis eintippen.",t:"tx",ph:"Dezimalwert",r:"214",
+ g:"Richtig. 128 + 64 + 16 + 4 + 2 ergibt 214.",b:"Das Ergebnis ist 214. Stellenwerte von links: 128, 64, 32, 16, 8, 4, 2, 1 — addiere nur die, wo eine Eins steht.",s:"Skript Seite 13"},
+{k:"Wiederholung · VLSM",q:"Wie viele nutzbare Hostadressen hat ein /29-Netz?",sub:"Eingemischt aus deinem fälligen Stapel — nicht Teil des Einschubs.",t:"tx",ph:"Anzahl",r:"6",
+ g:"Richtig. 8 Adressen minus Netz- und Broadcast-Adresse ergibt 6.",b:"Es sind 6. Ein /29 hat 8 Adressen, davon gehen Netz- und Broadcast-Adresse ab.",s:"Skript Seite 21 · Wiederholung"},
+{k:"Übertragen · Szenario",q:"Ein Kollege sagt, in einem /26-Netz seien 64 Geräte adressierbar. Er irrt sich. Erkläre kurz, warum.",sub:"Zwei bis drei Sätze. Das gesuchte Konzept wird absichtlich nicht genannt.",t:"fr",ph:"Deine Erklärung …",
+ g:"Guter Kern: Netz- und Broadcast-Adresse fallen weg, nutzbar bleiben 62.",b:"Zwei Adressen fallen weg: Netzadresse und Broadcast-Adresse. Nutzbar sind 62. Genau diese beiden verwechselst du regelmässig.",s:"Skript Seite 14"}
+];
+var i=0,st=[],pick=null,ans=false;
+
+function openSess(){document.getElementById("scr-path").classList.add("hide");document.getElementById("scr-sess").classList.remove("hide");i=0;st=[];render();window.scrollTo(0,0)}
+function closeSess(){document.getElementById("scr-sess").classList.add("hide");document.getElementById("scr-path").classList.remove("hide");window.scrollTo(0,0)}
+document.getElementById("start").addEventListener("click",openSess);
+document.getElementById("quit").addEventListener("click",closeSess);
+
+function prg(){var p=document.getElementById("prog");p.innerHTML="";for(var k=0;k<items.length;k++){var s=document.createElement("div");s.className="seg"+(st[k]==="ok"?" done":st[k]==="no"?" miss":k===i?" cur":"");p.appendChild(s)}document.getElementById("count").textContent=(Math.min(i+1,items.length))+" / "+items.length}
+
+function render(){
+  if(i>=items.length)return fin();
+  var it=items[i];pick=null;ans=false;var body="";
+  if(it.t==="mc")body='<div class="opts">'+it.o.map(function(o,n){return '<div class="opt" data-o="'+n+'"><em>'+String.fromCharCode(65+n)+'</em><div>'+o+'</div></div>'}).join("")+'</div>';
+  else if(it.t==="tx")body='<input type="text" id="inp" placeholder="'+it.ph+'" autocomplete="off">';
+  else body='<textarea id="inp" placeholder="'+it.ph+'"></textarea>';
+  document.getElementById("card").innerHTML='<p class="eyebrow">'+it.k+'</p><p class="q">'+it.q+'</p><p class="qsub">'+it.sub+'</p>'+body
+   +'<div class="fb" id="fb"><h4 id="fbh"></h4><p id="fbp"></p><div class="src" id="fbs"></div></div>'
+   +'<div class="acts"><button class="primary" id="go">Antwort prüfen</button><button class="ghost" id="dk">Ich weiss es nicht</button></div>';
+  prg();
+  document.querySelectorAll(".opt").forEach(function(el){el.addEventListener("click",function(){if(ans)return;document.querySelectorAll(".opt").forEach(function(x){x.classList.remove("pick")});el.classList.add("pick");pick=parseInt(el.getAttribute("data-o"),10)})});
+  document.getElementById("go").addEventListener("click",function(){chk(false)});
+  document.getElementById("dk").addEventListener("click",function(){chk(true)});
+}
+function chk(dk){
+  var it=items[i];
+  if(ans){i++;render();return}
+  var ok=false;
+  if(!dk){
+    if(it.t==="mc")ok=pick===it.r;
+    else if(it.t==="tx")ok=(document.getElementById("inp").value||"").trim()===it.r;
+    else ok=(document.getElementById("inp").value||"").trim().length>25;
+  }
+  ans=true;st[i]=ok?"ok":"no";
+  if(it.t==="mc")document.querySelectorAll(".opt").forEach(function(el,n){if(n===it.r)el.classList.add("right");else if(n===pick&&!ok)el.classList.add("wrong");el.classList.remove("pick")});
+  var fb=document.getElementById("fb");fb.className="fb show "+(ok?"good":"bad");
+  document.getElementById("fbh").textContent=dk?"Kein Problem — das zählt als offen, nicht als Fehler.":(ok?"Richtig":"Noch nicht");
+  document.getElementById("fbp").textContent=ok?it.g:it.b;
+  document.getElementById("fbs").textContent=it.s;
+  document.getElementById("go").textContent=(i===items.length-1)?"Sitzung abschliessen":"Weiter";
+  document.getElementById("dk").style.display="none";
+  prg();
+}
+function fin(){
+  var right=st.filter(function(s){return s==="ok"}).length;
+  document.getElementById("card").innerHTML='<p class="eyebrow">Sitzung beendet</p><h2 style="font-size:20px;font-weight:500;margin:0 0 6px">Das hat sich verändert</h2>'
+   +'<p class="qsub">'+right+' von '+items.length+' richtig · rund 8 Minuten</p>'
+   +'<div class="endrow"><span class="edot" style="background:var(--ok)"></span>Binärumrechnung<span>34 % → 58 %</span></div>'
+   +'<div class="endrow"><span class="edot" style="background:var(--accent)"></span>Subnetzmaske berechnen<span>Sicherheit gestiegen</span></div>'
+   +'<div class="endrow"><span class="edot" style="background:var(--warn)"></span>Netz- und Broadcast-Adresse<span>neuer Knoten aus Verdacht</span></div>'
+   +'<p class="qsub" style="margin-top:20px">Der Einschub ist erledigt. Weiter geht es regulär mit Subnetzmaske berechnen — jetzt auf einer Grundlage, die trägt.</p>'
+   +'<div class="acts"><button class="primary" id="back">Zurück zum Pfad</button></div>';
+  prg();document.getElementById("count").textContent="fertig";
+  document.getElementById("back").addEventListener("click",applyAndBack);
+}
+function applyAndBack(){
+  NODES.bin.s="done";NODES.bin.m=58;NODES.bin.sl="mittel";NODES.bin.sv=52;NODES.bin.tag=null;
+  NODES.bin.meta="gefestigt · Einschub erledigt";NODES.bin.note="Deutlich verbessert. Die Zweierpotenzen sitzen jetzt — die Auffrischung kommt in etwa einer Woche.";
+  NODES.mask.sv=44;NODES.mask.sl="mittel";NODES.mask.s="now";NODES.mask.meta="jetzt dran · Grundlage steht";
+  NODES.nb={n:"Netz- und Broadcast-Adresse",t:2,s:"shaky",m:20,sl:"niedrig",sv:14,d:1,tag:"new",
+    src:"Skript Seite 14 · aus deinem Material",meta:"neu aufgenommen · aus Verdacht entstanden",
+    note:"Dieser Knoten existierte vorher nicht. Deine Antworten zeigten, dass hier eine eigene Fähigkeit steckt, die vom Subnetzrechnen getrennt ist."};
+  ringv=46;
+  document.getElementById("ringv").textContent=ringv+"%";
+  document.getElementById("ring").style.background="conic-gradient(var(--accent) 0 "+ringv+"%,rgba(255,255,255,.10) "+ringv+"% 100%)";
+  document.getElementById("headsub").textContent="15 Konzepte · 7 gefestigt · 2 fällig";
+  document.getElementById("nowt").textContent="Subnetzmaske berechnen";
+  document.getElementById("noww").textContent="Die Grundlage steht jetzt. Zurück zum eigentlichen Thema — diesmal sollte der Rechenweg durchgehen.";
+  document.getElementById("ins").textContent="2 Beobachtungen über dich · 1 Frage zu deiner Karte";
+  sel="nb";open[2]=true;
+  drawThemes();drawPanel();closeSess();
+}
+
+/* ---------- Wiederholen ---------- */
+var REPC=[
+ {id:"vlsm",n:"VLSM",why:"19 Tage nicht angefasst",col:"var(--warn)",cnt:3},
+ {id:"osi",n:"OSI-Schichten",why:"verfällt in 2 Tagen",col:"var(--warn)",cnt:3},
+ {id:"ipv4",n:"IPv4-Aufbau",why:"planmässige Auffrischung",col:"var(--accent)",cnt:2}
+];
+var REP=[
+ {c:"VLSM",w:"fällig seit 19 Tagen",q:"Wie viele nutzbare Hostadressen hat ein /29-Netz?",t:"tx",ph:"Anzahl",r:"6",
+  g:"Richtig. 8 Adressen minus Netz- und Broadcast-Adresse.",b:"Es sind 6. Ein /29 hat 8 Adressen, davon gehen zwei ab."},
+ {c:"VLSM",w:"fällig seit 19 Tagen",q:"Welches Präfix brauchst du für mindestens 30 Hosts?",t:"mc",o:["/26","/27","/28","/29"],r:1,
+  g:"Richtig. /27 gibt 32 Adressen, also 30 nutzbare.",b:"/27 ist die Antwort: 32 Adressen minus zwei ergibt genau 30."},
+ {c:"VLSM",w:"fällig seit 19 Tagen",q:"Wofür steht das L in VLSM?",t:"tx",ph:"Ein Wort",r:"Length",
+  g:"Richtig — Variable Length Subnet Mask.",b:"Length. Variable Length Subnet Mask, also unterschiedlich grosse Subnetze."},
+ {c:"OSI-Schichten",w:"verfällt in 2 Tagen",q:"Auf welcher Schicht arbeitet ein Router?",t:"mc",o:["Schicht 1","Schicht 2","Schicht 3","Schicht 4"],r:2,
+  g:"Richtig. Vermittlungsschicht.",b:"Schicht 3, die Vermittlungsschicht. Schicht 2 wäre ein Switch."},
+ {c:"OSI-Schichten",w:"verfällt in 2 Tagen",q:"Wie heisst Schicht 4?",t:"tx",ph:"Name der Schicht",r:"Transportschicht",
+  g:"Richtig.",b:"Transportschicht. Dort sitzen TCP und UDP."},
+ {c:"OSI-Schichten",w:"verfällt in 2 Tagen",q:"Auf welcher Schicht liegt eine MAC-Adresse?",t:"mc",o:["Schicht 1","Schicht 2","Schicht 3","Schicht 7"],r:1,
+  g:"Richtig. Sicherungsschicht.",b:"Schicht 2. IP-Adressen liegen dagegen auf Schicht 3."},
+ {c:"IPv4-Aufbau",w:"Auffrischung",q:"Aus wie vielen Bit besteht eine IPv4-Adresse?",t:"tx",ph:"Anzahl Bit",r:"32",
+  g:"Richtig. Vier Oktette zu je 8 Bit.",b:"32 Bit — vier Oktette zu je 8 Bit."},
+ {c:"IPv4-Aufbau",w:"Auffrischung",q:"Welche Adresse ist eine private Adresse?",t:"mc",o:["8.8.8.8","172.16.4.1","203.0.113.5","1.1.1.1"],r:1,
+  g:"Richtig. 172.16.0.0 bis 172.31.255.255 ist privat.",b:"172.16.4.1 liegt im privaten Bereich 172.16 bis 172.31."}
+];
+var ri=0,rst=[],rpick=null,rans=false,rlimit=REP.length;
+
+function drawRepList(){
+  var h="";
+  REPC.forEach(function(c){
+    h+='<div class="mrow"><span class="edot" style="background:'+c.col+'"></span><div>'+c.n
+      +'<div class="mm">'+c.cnt+' Abfragen · '+c.why+'</div></div></div>';
+  });
+  document.getElementById("repList").innerHTML=h;
+  document.getElementById("repBadge").textContent=REP.length;
+  document.getElementById("repHead").textContent=REP.length+" Abfragen aus "+REPC.length+" Konzepten";
+}
+
+function openRep(limit){
+  rlimit=limit||REP.length;ri=0;rst=[];
+  document.getElementById("repSub").textContent=rlimit<REP.length
+    ? "Kurzer Durchgang · "+rlimit+" Abfragen · Rest bleibt fällig"
+    : "Fälliger Stapel · jederzeit abbrechbar";
+  document.getElementById("scr-path").classList.add("hide");
+  document.getElementById("scr-rep").classList.remove("hide");
+  renderRep();window.scrollTo(0,0);
+}
+function closeRep(){document.getElementById("scr-rep").classList.add("hide");document.getElementById("scr-path").classList.remove("hide");window.scrollTo(0,0)}
+
+function rprg(){
+  var p=document.getElementById("repProg");p.innerHTML="";
+  for(var k=0;k<rlimit;k++){var s=document.createElement("div");
+    s.className="seg"+(rst[k]==="ok"?" done":rst[k]==="no"?" miss":k===ri?" cur":"");p.appendChild(s)}
+  document.getElementById("repCount").textContent=Math.min(ri+1,rlimit)+" / "+rlimit;
+}
+
+function renderRep(){
+  if(ri>=rlimit)return finRep();
+  var it=REP[ri];rpick=null;rans=false;var body="";
+  if(it.t==="mc")body='<div class="opts">'+it.o.map(function(o,n){return '<div class="opt" data-o="'+n+'"><em>'+String.fromCharCode(65+n)+'</em><div>'+o+'</div></div>'}).join("")+'</div>';
+  else body='<input type="text" id="rinp" placeholder="'+it.ph+'" autocomplete="off">';
+  document.getElementById("repCard").innerHTML=
+    '<p class="eyebrow">'+it.c+' · '+it.w+'</p><p class="q">'+it.q+'</p>'+body
+    +'<div class="fb" id="rfb"><h4 id="rfbh"></h4><p id="rfbp"></p></div>'
+    +'<div class="acts"><button class="primary" id="rgo">Prüfen</button><button class="ghost" id="rdk">Weiss ich nicht</button></div>';
+  rprg();
+  document.querySelectorAll("#repCard .opt").forEach(function(el){
+    el.addEventListener("click",function(){if(rans)return;
+      document.querySelectorAll("#repCard .opt").forEach(function(x){x.classList.remove("pick")});
+      el.classList.add("pick");rpick=parseInt(el.getAttribute("data-o"),10)})});
+  document.getElementById("rgo").addEventListener("click",function(){chkRep(false)});
+  document.getElementById("rdk").addEventListener("click",function(){chkRep(true)});
+  var inp=document.getElementById("rinp");
+  if(inp){inp.focus();inp.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();chkRep(false)}})}
+}
+
+function chkRep(dk){
+  var it=REP[ri];
+  if(rans){ri++;renderRep();return}
+  var ok=false;
+  if(!dk){
+    if(it.t==="mc")ok=rpick===it.r;
+    else ok=(document.getElementById("rinp").value||"").trim().toLowerCase()===String(it.r).toLowerCase();
+  }
+  rans=true;rst[ri]=ok?"ok":"no";
+  if(it.t==="mc")document.querySelectorAll("#repCard .opt").forEach(function(el,n){
+    if(n===it.r)el.classList.add("right");else if(n===rpick&&!ok)el.classList.add("wrong");el.classList.remove("pick")});
+  var fb=document.getElementById("rfb");fb.className="fb show "+(ok?"good":"bad");
+  document.getElementById("rfbh").textContent=dk?"Zählt als offen, nicht als Fehler.":(ok?"Richtig":"Noch nicht");
+  document.getElementById("rfbp").textContent=ok?it.g:it.b;
+  document.getElementById("rgo").textContent=(ri===rlimit-1)?"Fertig":"Weiter";
+  document.getElementById("rdk").style.display="none";
+  rprg();
+}
+
+function finRep(){
+  var right=rst.filter(function(s){return s==="ok"}).length,done=rst.length;
+  var rest=REP.length-rlimit;
+  document.getElementById("repCard").innerHTML=
+   '<p class="eyebrow">Durchgang beendet</p><h2 style="font-size:20px;font-weight:500;margin:0 0 6px">'+right+' von '+done+' sassen</h2>'
+   +'<p class="qsub">Auch ein abgebrochener Stapel zählt — jede beantwortete Abfrage ist Evidenz.</p>'
+   +'<div class="endrow"><span class="edot" style="background:var(--ok)"></span>VLSM<span>nächste Auffrischung in 9 Tagen</span></div>'
+   +'<div class="endrow"><span class="edot" style="background:var(--ok)"></span>OSI-Schichten<span>nächste Auffrischung in 14 Tagen</span></div>'
+   +'<div class="endrow"><span class="edot" style="background:var(--warn)"></span>IPv4-Aufbau<span>bleibt kurzfristig fällig</span></div>'
+   +(rest>0?'<p class="qsub" style="margin-top:18px">'+rest+' Abfragen bleiben fällig und kommen beim nächsten Mal zuerst.</p>':'')
+   +'<div class="acts"><button class="primary" id="repBack">Zurück</button></div>';
+  rprg();document.getElementById("repCount").textContent="fertig";
+  document.getElementById("repBack").addEventListener("click",function(){
+    REPC[0].cnt=0;REPC[1].cnt=0;
+    document.getElementById("repBadge").textContent=Math.max(REP.length-rlimit,0);
+    closeRep();
+  });
+}
+
+document.getElementById("repStart").addEventListener("click",function(){openRep(REP.length)});
+document.getElementById("repShort").addEventListener("click",function(){openRep(3)});
+document.getElementById("repQuit").addEventListener("click",closeRep);
+drawRepList();
+
+document.getElementById("ring").style.background="conic-gradient(var(--accent) 0 42%,rgba(255,255,255,.10) 42% 100%)";
+drawThemes();drawPanel();
+</script>
+</body>
+</html>

@@ -1,0 +1,913 @@
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { useToast } from '../../../components/toast/ToastProvider'
+import { ActionBottomSheet } from '../../../components/ui/bottom-sheet/ActionBottomSheet'
+import { useGlassPillTouchFeedback } from '../../../hooks/useGlassPillTouchFeedback'
+import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
+import duringIcon from '../../../assets/icons/during.svg'
+import sendIcon from '../../../assets/icons/send.svg'
+import type {
+  ChatMessage,
+  ChatMessagePptxExport,
+  ChatMessageWordExport,
+  InstantAnalyzeDebugMeta,
+  ThinkingAnalyzeDebugMeta,
+} from '../types'
+import type { AssistantRichContentOptions } from '../utils/renderAssistantRichContent'
+import type { PptxEditResult } from '../hooks/useChat'
+import { stripPptxCommandMarker, type PptxPresetKey } from '../constants/pptxExportPrompt'
+import { userMessageRequestsPptxGenerate } from '../constants/instantAnalyzeRoute'
+import { resolvePptxPresentationState, stripPptxHtmlBlock, stripPptxPatchBlock, type PptxSlide } from '../utils/pptxOutline'
+import { PptxPresetPickerModal } from './chat-window/PptxPresetPickerModal'
+import { ChatComposerReplyQuoteSlot } from './ChatComposerReplyQuoteBar'
+import { ChatContextUsageRing } from './ChatContextUsageRing'
+import { ChatInstantAnalyzeDebugPanel } from './ChatInstantAnalyzeDebugPanel'
+import { ChatThinkingAnalyzeDebugPanel } from './ChatThinkingAnalyzeDebugPanel'
+import { ChatEmptyGreetingTitle } from './ChatEmptyGreetingTitle'
+import { getChatEmptyGreeting } from '../utils/chatEmptyGreeting'
+import type { ChatComposerModelId } from '../constants/chatComposerModels'
+import {
+  fromChatComposerSelection,
+  type ChatComposerSelection,
+} from '../constants/chatComposerSelection'
+import type { ChatReplyMode } from '../constants/chatReplyMode'
+import type { ChatWebSearchMode } from '../constants/chatWebSearchMode'
+import { ChatComposerAttachMenu } from './ChatComposerAttachMenu'
+import { ChatComposerModePicker } from './ChatComposerModePicker'
+import { ThinkingClarifyModal } from './ThinkingClarifyModal'
+import { useUserMessageLongPress } from '../hooks/useUserMessageLongPress'
+import { useVisualKeyboardInset } from '../hooks/useVisualKeyboardInset'
+import { copyTextToClipboard, copyRichTextToClipboard } from '../../../utils/copyTextToClipboard'
+import { buildAssistantRichContentClipboardHtml } from '../utils/assistantRichContentHtml'
+import type { ThinkingClarifyDialogState } from '../utils/thinkingClarify'
+import type { AccountSubscriptionDisplay } from '../../settings/utils/accountSubscriptionDisplay'
+import { ThinkingClarifyFreeTextModal } from './ThinkingClarifyFreeTextModal'
+import type { ChatSendPhaseState } from '../constants/chatSendPhase'
+import { CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS } from './chat-window/chatWindowConstants'
+import { ChatMessageList } from './chat-window/ChatMessageList'
+import { useChatMessageList } from '../hooks/useChatMessageList'
+import { useChatComposer } from '../hooks/useChatComposer'
+import { useChatComposerSectionReply } from '../hooks/useChatComposerSectionReply'
+import { useChatImageLightbox } from '../hooks/useChatImageLightbox'
+import { useChatDocumentPreview } from '../hooks/useChatDocumentPreview'
+import { useChatSlidePreview } from '../hooks/useChatSlidePreview'
+import { useChatWordPreview } from '../hooks/useChatWordPreview'
+import { ChatComposerForm } from './chat-window/ChatComposerForm'
+import { ChatComposerThinkingCreditsHint } from './chat-window/ChatComposerThinkingCreditsHint'
+import { ChatImageLightbox } from './chat-window/ChatImageLightbox'
+import { ChatDocumentPreviewModal } from './chat-window/ChatDocumentPreviewModal'
+import { ChatSlidePreviewModal } from './chat-window/ChatSlidePreviewModal'
+import { ChatWordPreviewModal } from './chat-window/ChatWordPreviewModal'
+
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = []
+
+type ChatWindowProps = {
+  /** Aktiver Thread — wechsel setzt Stream-Zustand zurück (sonst falsche Animation). */
+  threadKey: string | null
+  messages: ChatMessage[]
+  isSending: boolean
+  /** Smart Instant: Einordnung / automatische Websuche vor dem Stream. */
+  sendPhase?: ChatSendPhaseState
+  /** Superadmin + Admin-Center-Schalter: Einordnung unter User-Nachrichten. */
+  showInstantAnalyzeDebug?: boolean
+  /** Laufende Einordnung (vor Speichern der User-Nachricht). */
+  liveInstantAnalyzeDebug?: InstantAnalyzeDebugMeta | null
+  liveThinkingAnalyzeDebug?: ThinkingAnalyzeDebugMeta | null
+  error: string | null
+  greetingName: string
+  tokenLimitReached?: boolean
+  /** Smart Instant, Thinking oder ein festes Modell — eine Auswahl, ein Menü. */
+  composerSelection: ChatComposerSelection
+  onComposerSelectionChange: (selection: ChatComposerSelection) => void
+  /** Vom Abo gesperrte Modelle — im Menü sichtbar, aber nicht anwählbar. */
+  blockedModelIds?: readonly ChatComposerModelId[]
+  chatReplyMode: ChatReplyMode
+  onChatReplyModeChange: (mode: ChatReplyMode) => void
+  /** Websuche pro Turn: Analyse entscheidet (`auto`), immer (`on`) oder nie (`off`). */
+  chatWebSearchMode: ChatWebSearchMode
+  onChatWebSearchModeChange: (mode: ChatWebSearchMode) => void
+  /** Auf schmalen Viewports sitzt der Comfort/Strict-Schalter in der Oberleiste (`ChatToolbarReplyModeSelect`). */
+  showReplyModePicker?: boolean
+  /** Thinking-Rückfragen (Popup über der Message Box). */
+  thinkingClarifyDialog?: ThinkingClarifyDialogState | null
+  onDismissThinkingClarify?: () => void
+  onSubmitThinkingClarifyAnswer?: (text: string) => void | Promise<void>
+  composerUserId?: string | null
+  /** Anzeigename des Nutzers — Autor fürs Word-Titelblatt (Vorschau-Karte/Modal). */
+  documentAuthorName?: string
+  onSendMessage: (
+    content: string,
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions,
+  ) => Promise<void>
+  /** Thinking-Modus: verbleibendes Guthaben (Superadmin: auslassen). */
+  thinkingCreditsRemaining?: number
+  thinkingCreditMax?: number
+  thinkingDailyGrant?: number | null
+  /** Thinking-Guthaben leer — Senden gesperrt. */
+  thinkingCreditsBlocked?: boolean
+  /** Laufender KI-Stream: Klick auf den During-Button bricht die Antwort ab. */
+  onCancelSend?: () => void
+  /** Nach /Word: Word-Datei erzeugen, wenn die Papier-Vorschau passt. */
+  onFinalizeWordDocument?: () => Promise<ChatMessageWordExport | undefined> | void
+  wordFinalizeBusy?: boolean
+  /** Nach /PDF: PDF-Datei erzeugen, wenn die Papier-Vorschau passt. */
+  onFinalizePdfDocument?: () => void | Promise<void>
+  pdfFinalizeBusy?: boolean
+  /** Nach /Excel: .xlsx erzeugen, wenn die Tabellen-Vorschau passt. */
+  onFinalizeExcelDocument?: () => void | Promise<void>
+  excelFinalizeBusy?: boolean
+  /** Nach /PowerPoint: .pptx erzeugen, wenn die Folien-Vorschau passt. */
+  onFinalizePptxDocument?: () => Promise<ChatMessagePptxExport | undefined> | void
+  pptxFinalizeBusy?: boolean
+  /** Editier-Box in der Folien-Vorschau: gezielte Änderung statt Neugenerierung. */
+  onSubmitPptxEdit?: (
+    instruction: string,
+    currentSlides: PptxSlide[],
+    anchorMessageId: string,
+  ) => Promise<PptxEditResult | undefined>
+  /** "Design ändern" in der Folien-Vorschau (nur neue, Preset-basierte Decks) — kein KI-Aufruf, tauscht nur `preset`/`theme`. */
+  onSwitchPptxPreset?: (
+    anchorMessageId: string,
+    currentSlides: PptxSlide[],
+    preset: PptxPresetKey,
+  ) => Promise<PptxSlide[] | undefined>
+  /** Abo: max. geschätzte Tokens für Chat-Verlauf (Kontext-Ring). */
+  mainChatContextMaxTokens?: number | null
+  /** Live Abo-Verbrauch — Karten in Assistentenantworten. */
+  subscriptionUsageDisplay?: AccountSubscriptionDisplay | null
+}
+
+export function ChatWindow({
+  threadKey,
+  messages,
+  isSending,
+  sendPhase = null,
+  showInstantAnalyzeDebug = false,
+  liveInstantAnalyzeDebug = null,
+  liveThinkingAnalyzeDebug = null,
+  error,
+  greetingName,
+  tokenLimitReached = false,
+  composerSelection,
+  onComposerSelectionChange,
+  blockedModelIds,
+  chatReplyMode,
+  onChatReplyModeChange,
+  chatWebSearchMode,
+  onChatWebSearchModeChange,
+  showReplyModePicker = true,
+  thinkingClarifyDialog = null,
+  onDismissThinkingClarify = () => {},
+  onSubmitThinkingClarifyAnswer = async () => {},
+  composerUserId = null,
+  documentAuthorName,
+  onSendMessage,
+  thinkingCreditsRemaining,
+  thinkingCreditMax,
+  thinkingDailyGrant,
+  thinkingCreditsBlocked = false,
+  onCancelSend,
+  onFinalizeWordDocument,
+  wordFinalizeBusy = false,
+  onFinalizePdfDocument,
+  pdfFinalizeBusy = false,
+  onFinalizeExcelDocument,
+  excelFinalizeBusy = false,
+  onFinalizePptxDocument,
+  pptxFinalizeBusy = false,
+  onSubmitPptxEdit,
+  onSwitchPptxPreset,
+  mainChatContextMaxTokens = null,
+  subscriptionUsageDisplay = null,
+}: ChatWindowProps) {
+  const messageList = Array.isArray(messages) ? messages : EMPTY_CHAT_MESSAGES
+  const messageListModel = useChatMessageList({
+    threadKey,
+    messages: messageList,
+    isSending,
+    sendPhase,
+  })
+  const {
+    messagesScrollRef,
+    animatedAssistantContent,
+    showPendingAssistantRow,
+    showBootstrapPendingRow,
+    bootstrapStatusLabel,
+    pendingImageGeneration,
+    pendingImageSearch,
+    pendingExcelGeneration,
+    pendingWordGeneration,
+    pendingPdfGeneration,
+    pendingChartGeneration,
+    pendingDiagramGeneration,
+    pendingPptxGeneration,
+    pendingStatusLabel,
+    showLatestAssistantOrbitLoader,
+    streamingStatusLabel,
+    isAssistantReplyStillAnimating,
+    excelDownloadBusyId,
+    wordDownloadBusyId,
+    pdfDownloadBusyId,
+    pptxDownloadBusyId,
+    getQuizAnswerState,
+    updateQuizAnswerValue,
+    checkQuizAnswer,
+    quizChecksInProgress,
+    downloadExcelExport,
+    downloadWordExport,
+    downloadPdfExport,
+    downloadPptxExport,
+  } = messageListModel
+  const isEmptyState = messageList.length === 0 && !isSending
+  const emptyChatGreeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
+
+  const clearSectionReplyEmbedRef = useRef<() => void>(() => {})
+
+  /**
+   * PowerPoint-Generierung läuft nie direkt aus dem Composer — vorher MUSS der Nutzer ein Design
+   * wählen (siehe `PptxPresetPickerModal`). Die Heuristik läuft synchron auf dem Roh-Text (gleiche
+   * Erkennung wie `detectRouteHeuristic`/`resolveInstantRouteOverrides`, siehe `userMessageRequestsPptxGenerate`)
+   * — die Editier-Box der Folien-Vorschau ist ein komplett separater Pfad (`onSubmitPptxEdit`),
+   * landet also nie hier.
+   */
+  const [pendingPptxGenerateSend, setPendingPptxGenerateSend] = useState<{
+    content: string
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions
+  } | null>(null)
+
+  const handleSendMessageWithPptxGate = async (
+    content: string,
+    opts?: import('../types/chatSendOptions').ChatSendMessageOptions,
+  ) => {
+    if (userMessageRequestsPptxGenerate(content)) {
+      setPendingPptxGenerateSend({ content, opts })
+      return
+    }
+    await onSendMessage(content, opts)
+  }
+
+  /* Der Verarbeitungsweg steckt in der Auswahl: ein festes Modell läuft über Smart Instant. */
+  const chatThinkingMode = fromChatComposerSelection(composerSelection).thinkingMode
+
+  const composer = useChatComposer({
+    threadKey,
+    composerUserId,
+    isSending,
+    tokenLimitReached,
+    thinkingCreditsBlocked,
+    chatThinkingMode,
+    onSendMessage: handleSendMessageWithPptxGate,
+    onClearSectionReplyEmbed: () => clearSectionReplyEmbedRef.current(),
+  })
+
+  const sectionReply = useChatComposerSectionReply({
+    isMobileComposer: composer.isMobileComposer,
+    inputRef: composer.inputRef,
+    messagesScrollRef,
+    composerSectionReply: composer.composerSectionReply,
+    setComposerSectionReply: composer.setComposerSectionReply,
+  })
+  clearSectionReplyEmbedRef.current = sectionReply.clearSectionReplyEmbedSchedule
+
+  const imageLightbox = useChatImageLightbox()
+  const documentPreview = useChatDocumentPreview()
+  const slidePreview = useChatSlidePreview()
+  const wordPreview = useChatWordPreview()
+
+  const userMessageLongPress = useUserMessageLongPress(composer.isMobileComposer)
+  const mobileComposerSendTouch = useGlassPillTouchFeedback()
+  const mobileComposerMessageBoxTouch = useGlassPillTouchFeedback()
+  const mobileSendStartedWithTouchRef = useRef(false)
+  const [mobileDuringIconReady, setMobileDuringIconReady] = useState(false)
+  const { push: pushToast } = useToast()
+  const showDuringSendIcon =
+    isAssistantReplyStillAnimating ||
+    (isSending && (!composer.isMobileComposer || mobileDuringIconReady))
+
+  useEffect(() => {
+    if (!isSending) {
+      setMobileDuringIconReady(false)
+      return
+    }
+    if (!composer.isMobileComposer) {
+      return
+    }
+    const beganWithTouch = mobileSendStartedWithTouchRef.current
+    mobileSendStartedWithTouchRef.current = false
+    if (!beganWithTouch) {
+      setMobileDuringIconReady(true)
+      return
+    }
+    setMobileDuringIconReady(false)
+    const id = window.setTimeout(() => setMobileDuringIconReady(true), CHAT_WINDOW_MOBILE_SEND_DURING_ICON_DELAY_MS)
+    return () => window.clearTimeout(id)
+  }, [isSending, composer.isMobileComposer])
+
+  const cancelWhileSending = Boolean(isSending && onCancelSend)
+
+  const composerSendButtonClassName = composer.isMobileComposer
+    ? ['new-chat-touch-btn', mobileComposerSendTouch.touchStateClass]
+        .filter(Boolean)
+        .join(' ')
+    : undefined
+
+  const composerSendIconEl = (
+    <span
+      className={
+        composer.isMobileComposer ? 'chat-send-icon-stack new-chat-touch-btn__icon' : 'chat-send-icon-stack'
+      }
+    >
+      <img
+        className={`ui-icon chat-send-icon chat-send-icon-stack__layer${showDuringSendIcon ? '' : ' chat-send-icon-stack__layer--on'}`}
+        src={sendIcon}
+        alt=""
+        aria-hidden="true"
+      />
+      <img
+        className={`ui-icon chat-send-icon chat-send-icon--during chat-send-icon-stack__layer${showDuringSendIcon ? ' chat-send-icon-stack__layer--on' : ''}`}
+        src={duringIcon}
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+  )
+
+  const pendingVisionImageCount = composer.pendingAttachments.filter((a) => a.kind === 'pasted-image').length
+  const showContextUsageRing = Boolean(threadKey) && chatThinkingMode !== 'thinking'
+
+  const composerSendButton = (
+    <button
+      type="submit"
+      className={composerSendButtonClassName}
+      disabled={
+        tokenLimitReached ||
+        thinkingCreditsBlocked ||
+        composer.isAttachingFiles ||
+        (!cancelWhileSending && !composer.draft.trim() && composer.pendingAttachments.length === 0)
+      }
+      aria-busy={isSending || isAssistantReplyStillAnimating}
+      aria-label={
+        tokenLimitReached
+          ? 'KI-Credits-Limit erreicht'
+          : thinkingCreditsBlocked
+            ? 'KI-Credits-Guthaben aufgebraucht'
+            : cancelWhileSending
+              ? 'Antwort abbrechen'
+              : 'Nachricht senden'
+      }
+      onClick={handleComposerSendClick}
+      onPointerDown={handleComposerSendPointerDown}
+      onPointerUp={handleComposerSendPointerUp}
+      onPointerCancel={mobileComposerSendTouch.touchHandlers.onPointerCancel}
+      onPointerLeave={mobileComposerSendTouch.touchHandlers.onPointerLeave}
+      onAnimationEnd={mobileComposerSendTouch.touchHandlers.onAnimationEnd}
+    >
+      {composerSendIconEl}
+    </button>
+  )
+
+  const composerSendActions = (
+    <div className="chat-composer-send-actions">
+      {showContextUsageRing ? (
+        <ChatContextUsageRing
+          messages={messageList}
+          maxTokens={mainChatContextMaxTokens}
+          pendingVisionImages={pendingVisionImageCount}
+        />
+      ) : null}
+      {composerSendButton}
+    </div>
+  )
+
+  const composerInputRowTouchHandlers = composer.isMobileComposer
+    ? mobileComposerMessageBoxTouch.touchHandlers
+    : undefined
+
+  function handleComposerSendClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (!cancelWhileSending) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    onCancelSend?.()
+  }
+
+  /** Fokus der Textarea bleibt; globales Tap-Spring wie Sidebar/Topbar (`new-chat-touch-btn`). */
+  function handleComposerSendPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || event.currentTarget.disabled) {
+      return
+    }
+    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
+    if (!composer.isMobileComposer || !touchLike) {
+      return
+    }
+    event.stopPropagation()
+    preventIosBlurOnlyTapWhenChatInputFocused(event)
+    mobileSendStartedWithTouchRef.current = true
+    mobileComposerSendTouch.touchHandlers.onPointerDown(event)
+  }
+
+  function handleComposerSendPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    mobileComposerSendTouch.touchHandlers.onPointerUp(event)
+    const touchLike = event.pointerType === 'touch' || event.pointerType === 'pen'
+    if (composer.isMobileComposer && touchLike) {
+      event.stopPropagation()
+    }
+  }
+
+  useVisualKeyboardInset()
+
+  const composerReplyQuoteSlot = (
+    <ChatComposerReplyQuoteSlot
+      reference={composer.composerSectionReply}
+      onDismiss={() => {
+        sectionReply.clearSectionReplyEmbedSchedule()
+        composer.setComposerSectionReply(null)
+      }}
+      onOpenSettled={
+        composer.isMobileComposer ? sectionReply.handleSectionReplyEmbedSettled : undefined
+      }
+    />
+  )
+
+  const thinkingClarifyOverlay =
+    thinkingClarifyDialog?.kind === 'structured' ? (
+      <ThinkingClarifyModal
+        key={thinkingClarifyDialog.messageId}
+        payload={thinkingClarifyDialog.payload}
+        introMarkdown={thinkingClarifyDialog.introMarkdown}
+        clarifyRound={thinkingClarifyDialog.clarifyRound}
+        clarifyRoundsTotal={thinkingClarifyDialog.clarifyRoundsTotal}
+        intakeSummary={thinkingClarifyDialog.intakeSummary}
+        analysisSummary={thinkingClarifyDialog.analysisSummary}
+        onDismiss={onDismissThinkingClarify}
+        onSubmit={(text) => {
+          void onSubmitThinkingClarifyAnswer(text)
+        }}
+      />
+    ) : thinkingClarifyDialog?.kind === 'freeText' ? (
+      <ThinkingClarifyFreeTextModal
+        key={thinkingClarifyDialog.messageId}
+        previewText={thinkingClarifyDialog.previewText}
+        onDismiss={onDismissThinkingClarify}
+        onSubmit={(text) => {
+          void onSubmitThinkingClarifyAnswer(text)
+        }}
+      />
+    ) : null
+
+  const thinkingCreditsHintEl = (
+    <ChatComposerThinkingCreditsHint
+      chatThinkingMode={chatThinkingMode}
+      thinkingCreditsRemaining={thinkingCreditsRemaining}
+      thinkingCreditMax={thinkingCreditMax}
+      thinkingDailyGrant={thinkingDailyGrant}
+      thinkingCreditsBlocked={thinkingCreditsBlocked}
+      tokenLimitReached={tokenLimitReached}
+    />
+  )
+
+  const composerAttachButton = (
+    <ChatComposerAttachMenu
+      className={composer.attachButtonClassName}
+      disabled={composer.attachControlDisabled}
+      ariaLabel={composer.isMobileComposer ? 'Anhang hinzufügen' : 'Anhang-Menü öffnen'}
+      isMobile={composer.isMobileComposer}
+      onMobileOpen={composer.openMobileAttachSheet}
+      onUploadFile={() => composer.openDocumentFilePicker()}
+      replyMode={chatReplyMode}
+      onReplyModeChange={onChatReplyModeChange}
+      showReplyModeOption={showReplyModePicker && !composer.isMobileComposer}
+    />
+  )
+
+  const composerAttachSheet = (
+    <ActionBottomSheet
+      open={composer.attachComposerSheetOpen}
+      onClose={() => composer.setAttachComposerSheetOpen(false)}
+      title="Einfügen"
+      ariaLabel="Foto oder Datei anhängen"
+      actions={[
+        {
+          id: 'foto',
+          label: 'Foto anhängen',
+          actionClassName: 'action-bottom-sheet-action--compose-bilder',
+          onClick: () => {
+            composer.setAttachComposerSheetOpen(false)
+            composer.openImageFilePicker()
+          },
+        },
+        {
+          id: 'anhang',
+          label: 'Datei anhängen',
+          onClick: () => {
+            composer.setAttachComposerSheetOpen(false)
+            composer.openDocumentFilePicker()
+          },
+        },
+      ]}
+    />
+  )
+
+  const imageLightboxEl =
+    imageLightbox.imageLightboxSrc !== null ? (
+      <ChatImageLightbox
+        src={imageLightbox.imageLightboxSrc}
+        open={imageLightbox.imageLightboxOpen}
+        onClose={imageLightbox.closeImageLightbox}
+        onTransitionEnd={imageLightbox.handleImageLightboxTransitionEnd}
+      />
+    ) : null
+
+  const documentPreviewEl =
+    documentPreview.preview !== null ? (
+      <ChatDocumentPreviewModal
+        preview={documentPreview.preview}
+        open={documentPreview.open}
+        previewText={documentPreview.previewText}
+        showPdfEmbed={documentPreview.showPdfEmbed}
+        signedUrl={documentPreview.signedUrl}
+        loading={documentPreview.loading}
+        error={documentPreview.error}
+        canDownload={documentPreview.canDownload}
+        onClose={documentPreview.closeDocumentPreview}
+        onTransitionEnd={documentPreview.handleTransitionEnd}
+        onDownload={documentPreview.downloadDocument}
+      />
+    ) : null
+
+  const slidePreviewMessage = slidePreview.preview
+    ? messageList.find((m) => m.id === slidePreview.preview?.messageId)
+    : undefined
+  /** Ein vorhandener `pptxExport` gilt als veraltet, sobald seither editiert wurde — sonst würde der Download-Button eine alte, nicht mehr passende Datei anbieten. */
+  const slidePreviewHasEdits = slidePreview.preview
+    ? resolvePptxPresentationState(messageList, slidePreview.preview.messageId)?.hasEdits ?? false
+    : false
+  const slidePreviewPptxExport =
+    slidePreviewHasEdits ? undefined : slidePreviewMessage?.metadata?.pptxExport
+
+  const pptxEditHistory = useMemo(() => {
+    const anchorId = slidePreview.preview?.messageId
+    if (!anchorId) {
+      return []
+    }
+    return messageList
+      .filter((m) => m.metadata?.pptxEditAnchorMessageId === anchorId)
+      .map((m) => ({
+        id: m.id,
+        role: m.role,
+        content:
+          m.role === 'user'
+            ? stripPptxCommandMarker(m.content)
+            : stripPptxPatchBlock(stripPptxHtmlBlock(m.content)).trim() || 'Änderung übernommen.',
+      }))
+  }, [messageList, slidePreview.preview?.messageId])
+
+  async function handleSlidePreviewDownload() {
+    if (slidePreviewPptxExport && slidePreviewMessage) {
+      await downloadPptxExport(slidePreviewMessage)
+      return
+    }
+    const result = await onFinalizePptxDocument?.()
+    if (result && slidePreviewMessage) {
+      await downloadPptxExport({
+        ...slidePreviewMessage,
+        metadata: { ...slidePreviewMessage.metadata, pptxExport: result },
+      })
+    }
+  }
+
+  const [pptxEditHint, setPptxEditHint] = useState<string | null>(null)
+  useEffect(() => {
+    setPptxEditHint(null)
+  }, [slidePreview.preview?.messageId])
+
+  /** Neue (Preset-basierte) Präsentation: nur Text editierbar, Design über den eigenen Button. */
+  const slidePreviewIsTextOnly = Boolean(slidePreview.preview?.slides[0]?.preset)
+  const [presetSwitchOpen, setPresetSwitchOpen] = useState(false)
+
+  async function handleConfirmPresetSwitch(preset: PptxPresetKey) {
+    const slides = slidePreview.preview?.slides
+    const anchorMessageId = slidePreview.preview?.messageId
+    setPresetSwitchOpen(false)
+    if (!slides || slides.length === 0 || !anchorMessageId) {
+      return
+    }
+    const newSlides = await onSwitchPptxPreset?.(anchorMessageId, slides, preset)
+    if (newSlides) {
+      slidePreview.updatePreviewSlides(newSlides)
+    }
+  }
+
+  async function handleSlidePreviewEdit(instruction: string) {
+    const slides = slidePreview.preview?.slides
+    const anchorMessageId = slidePreview.preview?.messageId
+    if (!slides || slides.length === 0 || !anchorMessageId) {
+      return
+    }
+    setPptxEditHint(null)
+    const result = await onSubmitPptxEdit?.(instruction, slides, anchorMessageId)
+    if (!result) {
+      return
+    }
+    if ('unsupported' in result) {
+      setPptxEditHint(result.message)
+      return
+    }
+    slidePreview.updatePreviewSlides(result.slides)
+  }
+
+  const slidePreviewEl =
+    slidePreview.preview !== null ? (
+      <ChatSlidePreviewModal
+        preview={slidePreview.preview}
+        open={slidePreview.open}
+        activeIndex={slidePreview.activeIndex}
+        onClose={slidePreview.closeSlidePreview}
+        onTransitionEnd={slidePreview.handleTransitionEnd}
+        onGoToSlide={slidePreview.goToSlide}
+        onNextSlide={slidePreview.goNextSlide}
+        onPrevSlide={slidePreview.goPrevSlide}
+        downloadReady={Boolean(slidePreviewPptxExport)}
+        downloadBusy={pptxFinalizeBusy || pptxDownloadBusyId === slidePreviewMessage?.id}
+        onDownload={handleSlidePreviewDownload}
+        onSubmitEdit={onSubmitPptxEdit ? handleSlidePreviewEdit : undefined}
+        editBusy={isSending}
+        editHint={pptxEditHint}
+        editHistory={pptxEditHistory}
+        isTextOnly={slidePreviewIsTextOnly}
+        onChangeDesign={
+          slidePreviewIsTextOnly && onSwitchPptxPreset ? () => setPresetSwitchOpen(true) : undefined
+        }
+      />
+    ) : null
+
+  const wordPreviewMessage = wordPreview.preview
+    ? messageList.find((m) => m.id === wordPreview.preview?.messageId)
+    : undefined
+  const wordPreviewWordExport = wordPreviewMessage?.metadata?.wordExport
+
+  async function handleWordPreviewDownload() {
+    if (wordPreviewWordExport && wordPreviewMessage) {
+      await downloadWordExport(wordPreviewMessage)
+      return
+    }
+    const result = await onFinalizeWordDocument?.()
+    if (result && wordPreviewMessage) {
+      await downloadWordExport({
+        ...wordPreviewMessage,
+        metadata: { ...wordPreviewMessage.metadata, wordExport: result },
+      })
+    }
+  }
+
+  const wordPreviewEl =
+    wordPreview.preview !== null ? (
+      <ChatWordPreviewModal
+        preview={wordPreview.preview}
+        open={wordPreview.open}
+        activeIndex={wordPreview.activeIndex}
+        onClose={wordPreview.closeWordPreview}
+        onTransitionEnd={wordPreview.handleTransitionEnd}
+        onGoToPage={wordPreview.goToPage}
+        onNextPage={wordPreview.goNextPage}
+        onPrevPage={wordPreview.goPrevPage}
+        downloadReady={Boolean(wordPreviewWordExport)}
+        downloadBusy={wordFinalizeBusy || wordDownloadBusyId === wordPreviewMessage?.id}
+        onDownload={handleWordPreviewDownload}
+      />
+    ) : null
+
+  const pptxPresetPickerEl = pendingPptxGenerateSend ? (
+    <PptxPresetPickerModal
+      open
+      mode="pick"
+      onCancel={() => {
+        composer.handleDraftChange(pendingPptxGenerateSend.content)
+        setPendingPptxGenerateSend(null)
+      }}
+      onConfirm={(preset) => {
+        const { content, opts } = pendingPptxGenerateSend
+        setPendingPptxGenerateSend(null)
+        void onSendMessage(content, { ...opts, pptxSelectedPreset: preset })
+      }}
+    />
+  ) : null
+
+  const pptxPresetSwitchEl =
+    presetSwitchOpen && slidePreview.preview ? (
+      <PptxPresetPickerModal
+        open
+        mode="switch"
+        currentPreset={slidePreview.preview.slides[0]?.preset}
+        onCancel={() => setPresetSwitchOpen(false)}
+        onConfirm={(preset) => {
+          void handleConfirmPresetSwitch(preset)
+        }}
+      />
+    ) : null
+
+  function buildAssistantRichOptions(messageId: string): AssistantRichContentOptions {
+    return {
+      onChatImagePreview: imageLightbox.setImageLightboxSrc,
+      sectionReply: {
+        messageId,
+        onReference: sectionReply.beginSectionReplyFromSwipe,
+      },
+    }
+  }
+
+  const composerLeftActions = (
+    <>
+      {composerAttachButton}
+      {composer.showComposerInlinePickers ? (
+        <ChatComposerModePicker
+          value={composerSelection}
+          onChange={onComposerSelectionChange}
+          disabled={isSending || tokenLimitReached}
+          blockedModelIds={blockedModelIds}
+          webSearchMode={chatWebSearchMode}
+          onWebSearchModeChange={onChatWebSearchModeChange}
+        />
+      ) : null}
+    </>
+  )
+
+  async function handleCopyUserMessageText(text: string): Promise<boolean> {
+    const ok = await copyTextToClipboard(text)
+    pushToast(ok ? 'Nachricht kopiert' : 'Kopieren fehlgeschlagen')
+    return ok
+  }
+
+  /** Wie `handleCopyUserMessageText`, aber zusätzlich als HTML — Tabellen/Listen kommen dadurch
+   *  beim Einfügen in Word/Outlook als echte Tabelle/Liste an statt als Zeilen mit `|`-Zeichen. */
+  async function handleCopyAssistantMessageText(text: string): Promise<boolean> {
+    const html = buildAssistantRichContentClipboardHtml(text)
+    const ok = await copyRichTextToClipboard(html, text)
+    pushToast(ok ? 'Nachricht kopiert' : 'Kopieren fehlgeschlagen')
+    return ok
+  }
+
+  if (isEmptyState) {
+    return (
+      <section
+        className={`chat-panel is-empty${tokenLimitReached ? ' has-limit-banner' : ''}`}
+      >
+        {tokenLimitReached ? (
+          <p className="chat-limit-banner" role="alert">
+            Dein Token-Limit für heute ist erreicht. Du kannst morgen wieder schreiben.
+          </p>
+        ) : null}
+        <div className="chat-empty-compose">
+          <ChatEmptyGreetingTitle
+            greet={emptyChatGreeting.greet}
+            ask={emptyChatGreeting.ask}
+            animationKey={threadKey ?? 'new'}
+          />
+          {error ? <p className="error-text">{error}</p> : null}
+          {thinkingClarifyOverlay}
+          {thinkingCreditsHintEl}
+          {showInstantAnalyzeDebug && liveInstantAnalyzeDebug ? (
+            <div className="chat-empty-instant-debug">
+              <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
+            </div>
+          ) : null}
+          <ChatComposerForm
+            centered
+            composer={composer}
+            isSending={isSending}
+            tokenLimitReached={tokenLimitReached}
+            thinkingCreditsBlocked={thinkingCreditsBlocked}
+            leftActions={composerLeftActions}
+            sendActions={composerSendActions}
+            composerReplyQuoteSlot={composerReplyQuoteSlot}
+            composerInputRowTouchHandlers={composerInputRowTouchHandlers}
+            messageBoxTouchStateClass={mobileComposerMessageBoxTouch.touchStateClass}
+            onPreviewImage={imageLightbox.setImageLightboxSrc}
+          />
+          <p className="chat-input-hint">
+            Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
+          </p>
+          {composerAttachSheet}
+        </div>
+        {imageLightboxEl}
+        {documentPreviewEl}
+        {slidePreviewEl}
+        {wordPreviewEl}
+        {pptxPresetPickerEl}
+        {pptxPresetSwitchEl}
+      </section>
+    )
+  }
+
+  return (
+    <section className={`chat-panel${tokenLimitReached ? ' has-limit-banner' : ''}`}>
+      {tokenLimitReached ? (
+        <p className="chat-limit-banner" role="alert">
+          Dein Token-Limit für heute ist erreicht. Du kannst morgen wieder schreiben.
+        </p>
+      ) : null}
+      <ChatMessageList
+        messagesScrollRef={messagesScrollRef}
+        messages={messageList}
+        documentAuthorName={documentAuthorName}
+        animatedAssistantContent={animatedAssistantContent}
+        sentPastedImagePreviews={composer.sentPastedImagePreviews}
+        onImagePreview={imageLightbox.setImageLightboxSrc}
+        onDocumentPreview={documentPreview.openDocumentPreview}
+        isMobileComposer={composer.isMobileComposer}
+        showInstantAnalyzeDebug={showInstantAnalyzeDebug}
+        chatThinkingMode={chatThinkingMode}
+        isSending={isSending}
+        showPendingAssistantRow={showPendingAssistantRow}
+        showBootstrapPendingRow={showBootstrapPendingRow}
+        bootstrapStatusLabel={bootstrapStatusLabel}
+        pendingImageGeneration={pendingImageGeneration}
+        pendingImageSearch={pendingImageSearch}
+        pendingExcelGeneration={pendingExcelGeneration}
+        pendingWordGeneration={pendingWordGeneration}
+        pendingPdfGeneration={pendingPdfGeneration}
+        pendingChartGeneration={pendingChartGeneration}
+        pendingDiagramGeneration={pendingDiagramGeneration}
+        pendingPptxGeneration={pendingPptxGeneration}
+        pendingStatusLabel={pendingStatusLabel}
+        sendPhase={sendPhase}
+        showLatestAssistantOrbitLoader={showLatestAssistantOrbitLoader}
+        streamingStatusLabel={streamingStatusLabel}
+        userMessageLongPress={userMessageLongPress}
+        buildAssistantRichOptions={buildAssistantRichOptions}
+        getQuizAnswerState={getQuizAnswerState}
+        updateQuizAnswerValue={updateQuizAnswerValue}
+        checkQuizAnswer={checkQuizAnswer}
+        quizChecksInProgress={quizChecksInProgress}
+        downloadExcelExport={downloadExcelExport}
+        downloadWordExport={downloadWordExport}
+        downloadPdfExport={downloadPdfExport}
+        downloadPptxExport={downloadPptxExport}
+        excelDownloadBusyId={excelDownloadBusyId}
+        wordDownloadBusyId={wordDownloadBusyId}
+        pdfDownloadBusyId={pdfDownloadBusyId}
+        pptxDownloadBusyId={pptxDownloadBusyId}
+        onFinalizeWordDocument={onFinalizeWordDocument}
+        wordFinalizeBusy={wordFinalizeBusy}
+        onFinalizePdfDocument={onFinalizePdfDocument}
+        pdfFinalizeBusy={pdfFinalizeBusy}
+        onFinalizeExcelDocument={onFinalizeExcelDocument}
+        excelFinalizeBusy={excelFinalizeBusy}
+        onFinalizePptxDocument={onFinalizePptxDocument}
+        pptxFinalizeBusy={pptxFinalizeBusy}
+        onCopyUserMessage={handleCopyUserMessageText}
+        onCopyAssistantMessage={handleCopyAssistantMessageText}
+        subscriptionUsageDisplay={subscriptionUsageDisplay}
+        onPptxPreview={slidePreview.openSlidePreview}
+        onWordPreview={wordPreview.openWordPreview}
+      />
+      {error ? <p className="error-text">{error}</p> : null}
+
+      <div className="chat-composer-stack">
+        {thinkingClarifyOverlay}
+        {composer.isMobileComposer ? thinkingCreditsHintEl : null}
+        {showInstantAnalyzeDebug && liveInstantAnalyzeDebug && isSending ? (
+          <div className="chat-composer-instant-debug">
+            <ChatInstantAnalyzeDebugPanel debug={liveInstantAnalyzeDebug} compact />
+          </div>
+        ) : null}
+        {showInstantAnalyzeDebug && liveThinkingAnalyzeDebug && isSending && chatThinkingMode === 'thinking' ? (
+          <div className="chat-composer-instant-debug">
+            <ChatThinkingAnalyzeDebugPanel debug={liveThinkingAnalyzeDebug} compact />
+          </div>
+        ) : null}
+        {composerAttachSheet}
+        <ChatComposerForm
+          centered={false}
+          composer={composer}
+          isSending={isSending}
+          tokenLimitReached={tokenLimitReached}
+          thinkingCreditsBlocked={thinkingCreditsBlocked}
+          leftActions={composerLeftActions}
+          sendActions={composerSendActions}
+          composerReplyQuoteSlot={composerReplyQuoteSlot}
+          composerInputRowTouchHandlers={composerInputRowTouchHandlers}
+          messageBoxTouchStateClass={mobileComposerMessageBoxTouch.touchStateClass}
+          onPreviewImage={imageLightbox.setImageLightboxSrc}
+        />
+        {!composer.isMobileComposer ? thinkingCreditsHintEl : null}
+        <p className="chat-input-hint">
+          Straton ist eine KI und kann Fehler machen, überprüfe wichtige Informationen
+        </p>
+      </div>
+      {imageLightboxEl}
+      {documentPreviewEl}
+      {slidePreviewEl}
+      {wordPreviewEl}
+      {pptxPresetPickerEl}
+      {pptxPresetSwitchEl}
+    </section>
+  )
+}

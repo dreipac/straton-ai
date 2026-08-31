@@ -1,0 +1,100 @@
+import { useCallback, type MutableRefObject } from 'react'
+import {
+  updateLearningPathById,
+  type ChapterBlueprint,
+  type ChapterSession,
+  type EntryQuizResult,
+  type LearnFlashcardSet,
+  type LearnWorksheetItem,
+  type LearnTutorState,
+  type LearningPathRecord,
+  type LearningPathSummary,
+  type SkillMasteryBySkillId,
+  type SyllabusEntry,
+  type TopicSession,
+  type TutorChatEntry,
+  type UploadedMaterial,
+} from '../services/learn.persistence'
+import type { InteractiveQuizPayload } from '../../chat/utils/interactiveQuiz'
+import { getDisplayPathTitle, isPendingLearningPathId } from '../utils/learnPageHelpers'
+
+export type EditableLearningPathSnapshot = {
+  topic: string
+  topicSuggestions: string[]
+  selectedTopic: string
+  aiGuidance: string
+  proficiencyLevel: '' | 'low' | 'medium' | 'high'
+  setupStep: 1 | 2 | 3 | 4
+  isSetupComplete: boolean
+  materials: UploadedMaterial[]
+  tutorMessages: TutorChatEntry[]
+  entryQuiz: InteractiveQuizPayload | null
+  entryQuizAnswers: Record<string, string>
+  entryQuizResult: EntryQuizResult | null
+  tutorState: LearnTutorState
+  currentChapterIndex: number
+  targetChapterCount: number
+  unlockedChapterCount: number
+  syllabus: SyllabusEntry[]
+  learningChapters: string[]
+  chapterBlueprints: ChapterBlueprint[]
+  chapterSession: ChapterSession
+  topicSessions: TopicSession[]
+  skillMasteryBySkillId: SkillMasteryBySkillId
+  learnFlashcardSets: LearnFlashcardSet[]
+  learnWorksheets: LearnWorksheetItem[]
+}
+
+type UseLearningPathPersistenceArgs = {
+  activePathIdRef: MutableRefObject<string>
+  learningPaths: LearningPathSummary[]
+  pathCacheRef: MutableRefObject<Record<string, LearningPathRecord>>
+  setError: (message: string | null) => void
+  snapshot: EditableLearningPathSnapshot
+}
+
+export function useLearningPathPersistence(args: UseLearningPathPersistenceArgs) {
+  const { activePathIdRef, learningPaths, pathCacheRef, setError, snapshot } = args
+
+  const persistActivePath = useCallback(async () => {
+    const pathId = activePathIdRef.current
+    if (!pathId || isPendingLearningPathId(pathId)) {
+      return
+    }
+    const currentSummary = learningPaths.find((entry) => entry.id === pathId)
+    if (!currentSummary) {
+      return
+    }
+
+    const updated = await updateLearningPathById(pathId, {
+      title: getDisplayPathTitle(currentSummary.title),
+      ...snapshot,
+    })
+
+    pathCacheRef.current[pathId] = updated
+  }, [activePathIdRef, learningPaths, pathCacheRef, snapshot])
+
+  const persistPathInBackground = useCallback(
+    (pathId: string, title: string, nextSnapshot: EditableLearningPathSnapshot) => {
+      if (isPendingLearningPathId(pathId)) {
+        return
+      }
+      void updateLearningPathById(pathId, {
+        title: getDisplayPathTitle(title),
+        ...nextSnapshot,
+      })
+        .then((updated) => {
+          pathCacheRef.current[pathId] = updated
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Lernpfad konnte nicht gespeichert werden.')
+        })
+    },
+    [pathCacheRef, setError],
+  )
+
+  return {
+    persistActivePath,
+    persistPathInBackground,
+  }
+}

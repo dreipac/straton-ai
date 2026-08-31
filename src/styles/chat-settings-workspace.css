@@ -1,0 +1,60 @@
+
+/* —— Einstellungen / Administrator im rechten Chat-Bereich integriert (Desktop) —— */
+/* Gleiches Prinzip für beide: ein Panel ersetzt den Chat-Inhalt an Ort und Stelle statt als
+   Overlay-Modal darüber zu schweben (siehe SettingsModal `variant="embedded"` bzw.
+   AdministratorModal `variant="embedded"`). */
+
+.chat-main.is-settings-active .chat-panel,
+.chat-main.is-admin-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-settings-active .chat-main-toolbar,
+.chat-main.is-admin-active .chat-main-toolbar {
+  display: none !important;
+}
+
+/* Admin hat (anders als Settings) keine eigenen `!isXyzOpen`-Ausschlüsse in den anderen
+   `.chat-main`-Geschwistern (Home-Dashboard, Fällige Karteikarten, Ordner-/Freunde-/News-Übersicht,
+   Lernpfad-Arbeitsbereich, Mobile-Toolbar, Kollaborations-Toolbar) — die kannten Admin bisher nicht,
+   weil es als echtes Modal (Portal-Overlay) unabhängig davon oben drauf lag. Jetzt, eingebettet,
+   muss die Fläche das pauschal selbst übernehmen: alles auser dem Admin-Panel verstecken, sonst
+   scheint z. B. die Home-Dashboard-Begrüssung ("Guten Morgen …") durch/darüber. */
+.chat-main.is-admin-active > *:not(.settings-modal--embedded) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-settings-active .settings-modal--embedded,
+.chat-main.is-admin-active .settings-modal--embedded {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+}
+
+/* Fade+Slide beim Ein-/Ausblenden — `ChatPage.tsx` hält die Komponente beim Schliessen noch für
+   `CHAT_PAGE_MODAL_ANIMATION_MS` (220ms, siehe chatPageConstants.ts) gemountet, damit dieser Übergang
+   überhaupt Zeit hat abzuspielen, statt dass die Fläche abrupt verschwindet. */
+.chat-main.is-settings-active .settings-modal--embedded,
+.chat-main.is-admin-active .settings-modal--embedded {
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.chat-main.is-settings-active .settings-modal--embedded.is-panel-visible,
+.chat-main.is-admin-active .settings-modal--embedded.is-panel-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-main.is-settings-active .settings-modal--embedded,
+  .chat-main.is-admin-active .settings-modal--embedded {
+    transition-duration: 1ms;
+    transform: none;
+  }
+}

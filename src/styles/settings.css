@@ -1,0 +1,4418 @@
+.settings-list {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  color: var(--color-text-secondary);
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  background: var(--color-overlay);
+  backdrop-filter: blur(6px);
+}
+
+/* Modals in chat-app-shell / learn-shell: sonst Grid-Zelle links unter der Sidebar */
+.chat-app-shell > .settings-overlay,
+.chat-app-shell-guest > .settings-overlay {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+/* Abo anlegen/bearbeiten: eigenes Overlay über dem Admin-Dialog (Portal → body) */
+.settings-overlay.subscription-plan-editor-overlay {
+  z-index: 80;
+}
+
+.rename-modal.subscription-plan-modal {
+  width: min(960px, calc(100vw - 2rem));
+  max-width: 100%;
+  max-height: min(88vh, 920px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.25rem 1rem;
+  box-sizing: border-box;
+}
+
+.subscription-plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.subscription-plan-form-sections {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.subscription-plan-form-section {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.subscription-plan-form-section-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--color-accent, #6366f1);
+  letter-spacing: 0.01em;
+}
+
+.subscription-plan-form-divider {
+  margin: 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.subscription-plan-form-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1.1rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .subscription-plan-form-fields-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.subscription-plan-form-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.subscription-plan-form-field label {
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+  line-height: 1.35;
+}
+
+.subscription-plan-form-field-full {
+  grid-column: 1 / -1;
+}
+
+.subscription-plan-form-field-label {
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+  line-height: 1.35;
+}
+
+/* Sperrliste der Chat-Modelle: mehrspaltig, damit die Liste den Dialog nicht in die Länge zieht. */
+.subscription-plan-model-blocklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.3rem 0.9rem;
+}
+
+.subscription-plan-model-blocklist .admin-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.subscription-plan-modal-actions {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.modal-fade {
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.modal-fade .settings-modal,
+.modal-fade .rename-modal,
+.modal-fade .invite-chat-modal,
+.modal-fade .chat-end-sharing-confirm-modal,
+.modal-fade .account-subscription-modal,
+.modal-fade .news-feed-modal,
+.modal-fade .news-composer-modal {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.modal-fade:not(.is-open) {
+  pointer-events: none;
+}
+
+.modal-fade.is-open {
+  opacity: 1;
+}
+
+.modal-fade.is-open .settings-modal,
+.modal-fade.is-open .rename-modal,
+.modal-fade.is-open .invite-chat-modal,
+.modal-fade.is-open .chat-end-sharing-confirm-modal,
+.modal-fade.is-open .account-subscription-modal,
+.modal-fade.is-open .news-feed-modal,
+.modal-fade.is-open .news-composer-modal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die
+   Eigenheiten dieses konkreten Dialogs. */
+.settings-modal {
+  position: relative;
+  width: min(1050px, calc(100vw - 2rem));
+  height: min(720px, calc(100dvh - 2rem));
+  max-height: calc(100dvh - 2rem);
+  border-radius: var(--radius-3xl);
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* Squircle-Ecken (Desktop-Modal-Variante, siehe squircle.css `.squircle-clip` +
+   useSquircleBorder): maskiert Modal + Kinder als Gruppe auf die Silhouette, da Sidebar/
+   Content/Footer die Fläche bereits deckend ausfüllen. Der normale CSS-`border` folgt aber dem
+   Kreisbogen von `border-radius`, der in den Ecken sichtbar von der flacheren Squircle-Kontur
+   abweicht (dunkler Saum, da der Rand dort von der Maske ungleichmäßig abgeschnitten wird) —
+   deshalb hier unsichtbar geschaltet und durch `.settings-modal-squircle-border` unten ersetzt,
+   die denselben figma-squircle-Pfad wie die Maske zeichnet und dadurch exakt deckungsgleich ist.
+   `border-radius`/`corner-shape` bleiben als Fallback für Browser ohne Mask-Support stehen. */
+.settings-modal.squircle-clip {
+  --squircle-radius: 22px;
+  /* 0 = mathematisch identisch mit einem normalen `border-radius`-Kreisbogen (kein Squircle-Effekt
+     mehr sichtbar), 1 = sehr flach/eckig. 0.6 ist der iOS-typische Sweet Spot, klar als Squircle
+     erkennbar, ohne eckig zu wirken. */
+  --squircle-smoothing: 0.6;
+  border-color: transparent;
+}
+
+.settings-modal-squircle-border {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  --squircle-fill: transparent;
+  --squircle-stroke: var(--color-border);
+  --squircle-radius: 22px;
+  --squircle-smoothing: 0.6;
+  --squircle-border-width: 1px;
+}
+
+/* Eingebettet ins ProfileFullSheet (Mobile): kein Desktop-Modal-Rahmen */
+.settings-modal.settings-modal--sheet-embed {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Eingebettet im rechten Chat-Hauptbereich (Desktop, siehe chat-settings-workspace.css): volle
+   Fläche statt zentrierter Karte, kein Rahmen/Schatten/Radius — die Chrome kommt bereits vom
+   umgebenden `.chat-main`. Grid-Aufteilung (Sidebar/Content) bleibt wie im Modal erhalten. */
+.settings-modal.settings-modal--embedded {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--settings-modal-bg);
+}
+
+.settings-sheet-embed {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Keine Trennlinie zur Inhaltsfläche — die Schiene setzt sich allein über die Fläche ab. */
+.settings-sidebar {
+  background: var(--settings-sidebar-bg);
+  padding: 1.1rem;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.9rem;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.settings-menu-search-shell {
+  position: relative;
+}
+
+/* Squircle-Ecken über den globalen Mechanismus (squircle.css `.squircle` + useSquircleBorder) —
+   Fläche wird als SVG-`background-image` gemalt. Kein Rand: `--squircle-border-width` bleibt
+   auf dem registrierten Default (0px, siehe squircle.css `@property`), keine `--squircle-stroke`. */
+.settings-menu-search {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin: 0;
+  font: inherit;
+  padding: 0.5rem 0.7rem 0.5rem 2.15rem;
+  font-size: var(--fs-md);
+  color: var(--input-field-text);
+  --squircle-fill: var(--input-field-bg);
+  --squircle-radius: 10px;
+  transition: box-shadow 220ms ease;
+}
+
+.settings-menu-search::-webkit-search-cancel-button,
+.settings-menu-search::-webkit-search-decoration {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.settings-menu-search::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.settings-menu-search:focus-visible {
+  outline: none;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.settings-menu-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.65rem;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+  transition: color 220ms ease;
+}
+
+.settings-menu-search:focus-visible ~ .settings-menu-search-icon {
+  color: var(--color-accent, var(--accent-ring-base, #6366f1));
+}
+
+.settings-menu-empty {
+  margin: 0;
+  padding: 0.4rem 0.2rem;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.settings-menu {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.settings-menu-item {
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--color-text-muted);
+  padding: 0.56rem 0.72rem;
+  min-height: 42px;
+  border-radius: var(--radius-xs);
+  line-height: 1.2;
+  font-weight: 500;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    box-shadow 220ms ease,
+    border-color 200ms ease;
+  /* Gestaffeltes Erscheinen beim Öffnen der Einstellungen: jeder Eintrag bekommt über
+     `--settings-menu-item-index` (inline von SettingsPage.tsx gesetzt) eine eigene Verzögerung.
+     Spielt automatisch beim Mounten — kein zusätzlicher Trigger nötig, da die ganze Liste beim
+     Öffnen/Schliessen der Einstellungen ohnehin neu gemountet wird. */
+  animation: settingsMenuItemIn 260ms ease backwards;
+  animation-delay: calc(var(--settings-menu-item-index, 0) * 35ms);
+}
+
+@keyframes settingsMenuItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-menu-item {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+/* Kompaktere Buttons nur im Desktop-Modal — Mobile/Sheet bleibt unverändert. */
+/* Desktop: Inhaltsfläche in derselben Farbe wie die Menü-Schiene. Über die Variable statt über
+   `.settings-body { background }`, damit die davon abgeleiteten Flächen (Karten, Sticky-Header —
+   `color-mix(… var(--settings-body-bg))`) und die Theme-Regeln automatisch mitziehen. */
+.settings-modal:not(.settings-modal--mobile-nav) {
+  --settings-body-bg: var(--settings-sidebar-bg);
+  /* Gemeinsamer Abstand unter der Kopfzeile: Suchfeld links und erster Abschnitt rechts sollen
+     auf derselben Höhe beginnen, deshalb eine Quelle für beide Innenabstände. */
+  --settings-desktop-content-top: 1.25rem;
+}
+
+.settings-modal:not(.settings-modal--mobile-nav) .settings-sidebar {
+  padding-top: var(--settings-desktop-content-top);
+}
+
+.settings-modal:not(.settings-modal--mobile-nav) .settings-body {
+  padding-top: var(--settings-desktop-content-top);
+}
+
+.settings-modal:not(.settings-modal--mobile-nav) .settings-menu {
+  gap: 0.4rem;
+}
+
+.settings-modal:not(.settings-modal--mobile-nav) .settings-menu-item {
+  padding: 0.48rem 0.68rem;
+  min-height: 39px;
+  /* Typografie identisch zu den Sidebar-Optionen (`.chat-sidebar-footer-nav-button` in layout.css). */
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+
+/* Monochrome SVGs als Maske statt als `<img>` (gleiche Umsetzung wie `.chat-sidebar-footer-admin-icon`
+   in layout.css): die Fläche kommt aus `currentColor`, damit das Icon jedem Zustand des Buttons folgt —
+   Ruhezustand `--color-text-muted`, Hover/aktiv `--color-accent` aus der gewählten Akzentpalette.
+   Die SVG-URL reicht die Seite als `--settings-menu-icon-src` inline durch. */
+.settings-menu-icon {
+  --ui-icon-size: 20px;
+  display: inline-block;
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  flex-shrink: 0;
+  opacity: 0.9;
+  background: currentColor;
+  -webkit-mask-image: var(--settings-menu-icon-src);
+  mask-image: var(--settings-menu-icon-src);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transition: background 200ms ease;
+}
+
+/* Gefüllte Icon-Variante bei Hover und aktivem Eintrag. Sektionen ohne eigene Variante setzen
+   `--settings-menu-icon-src-active` nicht — der `var()`-Fallback lässt dort schlicht das
+   Ruhe-Icon stehen, statt die Maske zu verlieren. */
+.settings-menu-item:hover:enabled .settings-menu-icon,
+.settings-menu-item.is-active .settings-menu-icon {
+  -webkit-mask-image: var(--settings-menu-icon-src-active, var(--settings-menu-icon-src));
+  mask-image: var(--settings-menu-icon-src-active, var(--settings-menu-icon-src));
+}
+
+/* Einheitlich mit den Sidebar-Buttons (siehe `.chat-sidebar-footer-subnav-button` in layout.css):
+   dezenter Ruhezustand, Akzentfarbe bei Hover/aktivem Eintrag statt eines vollflächigen Tints. */
+.settings-menu-item:hover:enabled {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+  color: var(--color-accent, #6366f1);
+}
+
+/* Aktiver Menüpunkt: Text + Icon in Akzentfarbe und die Hover-Aufhellung bleibt dauerhaft stehen,
+   damit der aktive Eintrag auch ohne Zeiger als solcher sichtbar ist. Kein Akzent-Tint als Fläche —
+   die Hervorhebung ist dieselbe wie beim Hover der übrigen Einträge (siehe oben). */
+.settings-menu-item.is-active {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+  color: var(--color-accent, #6366f1);
+}
+
+.settings-menu-item--logout {
+  margin-top: 0.35rem;
+  padding-top: 0.72rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-danger-text, #b91c1c);
+  font-weight: 500;
+}
+
+.settings-menu-item--logout .settings-menu-logout-icon {
+  flex-shrink: 0;
+}
+
+.settings-menu-item--logout:hover:enabled {
+  background: var(--color-danger-bg-soft, rgba(254, 226, 226, 0.45));
+  color: var(--color-danger-text, #991b1b);
+}
+
+.settings-menu-item--logout:focus-visible {
+  outline: 2px solid var(--color-danger-border, #fecaca);
+  outline-offset: 2px;
+}
+
+.settings-content {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Desktop ohne ModalHeader: der Body füllt die Zeile allein — die Kopfzeile liegt als eigene
+   Grid-Zeile eine Ebene höher auf `.settings-modal` (siehe `.settings-breadcrumb-bar`). */
+.settings-content--no-header {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* Kopfzeile läuft über Schiene und Inhaltsfläche hinweg: zusätzliche Grid-Zeile im Modal, die
+   Leiste selbst überspannt beide Spalten. Nur dort, wo die Leiste auch gerendert wird — sonst
+   würde die leere Zeile die Auto-Platzierung der übrigen Modale (z. B. Admin) verschieben. */
+.settings-modal--with-breadcrumb {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* «Einstellungen › Aktiver Menüpunkt»: der Titel normal und gut lesbar, Pfad-Pfeil und aktiver
+   Menüpunkt zurückhaltend. Gleiche Fläche wie Schiene und Inhaltsbereich. */
+.settings-breadcrumb-bar {
+  position: relative;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.85rem 1.1rem 0.85rem 1.35rem;
+  background: var(--settings-sidebar-bg);
+}
+
+/* Trennlinie als Pseudo-Element statt `border-bottom`, damit sie links und rechts eingerückt
+   endet — links bündig mit dem Titel. */
+.settings-breadcrumb-bar::after {
+  content: '';
+  position: absolute;
+  left: 1.35rem;
+  right: 1.35rem;
+  bottom: 0;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.settings-breadcrumb-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 400;
+  color: var(--color-text-app);
+  white-space: nowrap;
+}
+
+.settings-breadcrumb-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: 0.55;
+  background: currentColor;
+  color: var(--color-text-muted);
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transform: rotate(180deg);
+}
+
+.settings-breadcrumb-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-lg);
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+/* X-Button und Sprach-Hinweis sitzen am rechten Ende derselben Leiste, statt wie zuvor frei über
+   der Inhaltsfläche zu schweben. Das Aussehen des Buttons steht bei den übrigen
+   `.settings-close-button`-Regeln weiter unten — bei gleicher Spezifität entscheidet dort die
+   Reihenfolge, deshalb muss die Variante nach der Basis stehen. */
+
+.settings-save-indicator.settings-save-indicator--breadcrumb {
+  position: static;
+  margin-left: auto;
+  transform: none;
+}
+
+.settings-save-indicator.settings-save-indicator--breadcrumb + .settings-close-button--breadcrumb {
+  margin-left: 0.6rem;
+}
+
+.settings-titlebar {
+  border-bottom: 1px solid var(--color-border);
+  padding: 1rem 1.35rem;
+  background: var(--settings-modal-bg);
+  position: relative;
+}
+
+.settings-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.settings-title-row--with-back {
+  gap: 0.45rem;
+}
+
+.settings-title-row-close-spacer {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.settings-title-row-heading,
+.settings-titlebar h1 {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  color: var(--color-text-app);
+  font-weight: 700;
+}
+
+.settings-title-row-heading {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.settings-title-row-heading--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.settings-title-row-heading-text {
+  min-width: 0;
+}
+
+.settings-title-row-icon {
+  --ui-icon-size: 1.45em;
+}
+
+.settings-back-button {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--color-surface-elevated);
+}
+
+.settings-back-icon {
+  --ui-icon-size: 20px;
+  display: inline-block;
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  background-color: var(--color-text-muted);
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+
+.settings-back-button:hover:enabled {
+  background: var(--color-close-hover-bg);
+  border-color: transparent;
+}
+
+.settings-back-button:hover:enabled .settings-back-icon {
+  background-color: var(--color-close-hover-icon);
+}
+
+.settings-save-indicator {
+  position: absolute;
+  top: 50%;
+  right: 4rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: none;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  pointer-events: none;
+}
+
+.settings-save-indicator-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-text-muted);
+  animation: settingsSaveSpin 800ms linear infinite;
+}
+
+@keyframes settingsSaveSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Generischer Schließen-Button (X): bewusst NICHT auf .settings-overlay/.settings-modal beschränkt —
+   wird auch außerhalb von ModalShell verwendet (z. B. LearnChapterWorkspace ist ein eingebetteter
+   Arbeitsbereich, kein Overlay-Modal). Sonst bleibt der Button unsichtbar (keine Größe/Icon-Maske),
+   weil die scope-Selektoren nie greifen. */
+.settings-close-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--color-surface-elevated);
+}
+
+.settings-close-icon {
+  --ui-icon-size: 20px;
+  display: inline-block;
+  background-color: var(--color-text-muted);
+  mask-image: url('../assets/icons/close.svg');
+  -webkit-mask-image: url('../assets/icons/close.svg');
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+
+.settings-close-button:hover:enabled {
+  background: var(--color-close-hover-bg);
+  border-color: transparent;
+}
+
+.settings-close-button:hover:enabled .settings-close-icon {
+  background-color: var(--color-close-hover-icon);
+}
+
+/* Variante in der Kopfzeile: etwas kleiner und im Ruhezustand ohne eigene Fläche. Erst beim Hover
+   erscheint die Buttonform als dezenter Akzent-Tint, zusammen mit dem Icon in der Akzentfarbe. */
+.settings-close-button--breadcrumb {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* `filter` abschalten: die Kette aus `.ui-icon` (ui.css) beginnt mit `brightness(0)` und legt jede
+   Fläche auf einen festen Theme-Ton fest — die Akzentfarbe käme sonst nicht durch. Die Einfärbung
+   übernimmt allein `background-color` auf der Maske. Drei Klassen, damit die Regel gegen
+   `.ui-icon:not(…):not(…)` gewinnt; settings.css lädt nach ui.css. */
+.settings-close-button--breadcrumb .ui-icon.settings-close-icon {
+  --ui-icon-size: 18px;
+  filter: none;
+  background-color: var(--color-text-muted);
+}
+
+.settings-close-button--breadcrumb:hover:enabled {
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 14%, transparent);
+  border-color: transparent;
+}
+
+.settings-close-button--breadcrumb:hover:enabled .ui-icon.settings-close-icon {
+  background-color: var(--color-accent, #6366f1);
+}
+
+.settings-body {
+  padding: 1.25rem 1.35rem;
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+  background: var(--settings-body-bg);
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.settings-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+  padding: 1rem 1.1rem;
+  background: var(--settings-card-bg);
+  box-shadow: 0 4px 14px var(--color-shadow-soft);
+}
+
+.settings-card p {
+  margin: 0 0 0.7rem;
+  color: var(--color-text-secondary);
+}
+
+/* Straton-Sektion: keine Karte — Logo und Wortmarke stehen direkt auf dem Body-Hintergrund. */
+.straton-settings-hero {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.9rem, 4vw, 1.8rem);
+  padding: clamp(1.25rem, 5vw, 2.5rem) 0.25rem;
+}
+
+.straton-settings-hero-logo {
+  flex-shrink: 0;
+  width: clamp(76px, 20vw, 128px);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.straton-settings-hero-text {
+  min-width: 0;
+}
+
+.straton-settings-hero-title {
+  margin: 0;
+  font-size: clamp(2rem, 7vw, 3rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--color-text-app);
+}
+
+.straton-settings-hero-version {
+  margin: 0.45rem 0 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+}
+
+.feedback-settings-textarea {
+  margin-top: 0.15rem;
+}
+
+.feedback-settings-actions {
+  margin-top: 0.65rem;
+}
+
+.feedback-settings-success {
+  margin: 0.4rem 0 0;
+  color: var(--color-success-text);
+  font-size: var(--fs-md);
+}
+
+.feedback-attachments {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.feedback-attachments-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.feedback-attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.feedback-attachment-label {
+  font-size: var(--fs-md);
+  color: var(--color-text-app);
+}
+
+.feedback-attachment-control {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Screenreader-/Fokus-erreichbar, aber unsichtbar — der eigentliche Trigger ist der Button
+   daneben (`photoInputRef.current?.click()`). */
+.feedback-photo-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.feedback-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.feedback-photo-preview-img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.feedback-chat-trigger {
+  min-width: 200px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Eigene offene Meldungen unter „Problem melden" — eigener Kartenstapel, kein Teil der
+   Formular-Karte (`.settings-card`) darüber. */
+.feedback-own-list-section {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.feedback-own-list-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.feedback-own-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.feedback-own-card {
+  --squircle-radius: var(--radius-lg);
+  --squircle-fill: var(--color-surface-elevated);
+  --squircle-stroke: var(--color-border);
+  --squircle-border-width: 1px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+  min-width: 0;
+}
+
+.feedback-own-card-title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text-app);
+}
+
+/* „dezent das Problem" — kleiner und gedeckter als der Titel. */
+.feedback-own-card-body {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thread-menu.popover-menu.feedback-chat-menu {
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.general-settings-panel {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.general-section-title {
+  margin: 0;
+  font-family: 'Satoshi Variable', 'Inter Variable', sans-serif;
+  font-weight: 800;
+  font-size: var(--fs-lg);
+  color: var(--color-text-app);
+}
+
+/* Für Titel, die wie die Personalisieren-Untertitel wirken sollen: gleiche Grösse (1rem von oben),
+   aber normale statt extra-fette Schrift und die globale statt der Satoshi-Titelschrift. `inherit`
+   statt einer harten Zahl, weil `:root` global `font-weight: var(--font-weight-body)` (500) setzt
+   (siehe base.css) — `.personalize-subtitle` setzt selbst keins und erbt genau diese 500. */
+.general-section-title--plain {
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.5rem 0;
+}
+
+/* Für lange Beschreibungstexte neben einem Schalter (z. B. AdminPage-Systemeinstellungen): Zeile
+   statt Spalten — gleiche Deklarationen wie die mobile Auto-Stapelung unten, nur bewusst auf
+   allen Breiten. War vorher als `.chat-setting-row--stacked` referenziert, aber nie definiert. */
+.setting-row--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.setting-row-divider {
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.6;
+}
+
+.setting-row-label {
+  font-family: 'Inter Variable', sans-serif;
+  font-weight: 700;
+  font-size: var(--fs-base);
+  color: var(--color-text-app);
+  opacity: 0.8;
+}
+
+/* Gleiche Grösse wie der Sprache-Trigger daneben (`.general-language-trigger--plain`, 1rem) und
+   dasselbe Font-Weight wie die Options-Namen unter Personalisieren (z. B. "White", "Dark" —
+   `.personalize-theme-tile`: font-weight 400). */
+.setting-row-label--plain {
+  font-weight: 400;
+  font-size: var(--fs-lg);
+  opacity: 1;
+}
+
+/* Label + Beschreibungstext gestapelt (Chat-Einstellungen, in Allgemein verschoben). */
+.setting-row-label--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  opacity: 1;
+  max-width: 62ch;
+}
+
+/* Gleiche Grösse/Gewicht wie "Anzeigesprache" (`.setting-row-label--plain`: 1rem/400) —
+   die Optionsnamen hier (z. B. "Auto löschen von leeren Chats") sollen gleich wirken. */
+.setting-row-label-title {
+  font-family: 'Inter Variable', sans-serif;
+  font-weight: 400;
+  font-size: var(--fs-lg);
+  color: var(--color-text-app);
+}
+
+.setting-row-label-desc {
+  font-family: 'Inter Variable', sans-serif;
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.setting-row-label-desc--success {
+  color: #2f855a;
+}
+
+:root[data-theme='dark'] .setting-row-label-desc--success {
+  color: #86efac;
+}
+
+.setting-row-control {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Squircle-Ecken, kein Rand — nur Fläche (kein `--squircle-stroke` gesetzt), analog zur Bar. */
+.general-language-trigger {
+  min-width: 150px;
+  min-height: 30px;
+  padding: 0.3rem 0.62rem;
+  text-align: left;
+  color: var(--color-text-app);
+  --squircle-fill: color-mix(in srgb, var(--color-text-app) 7%, var(--settings-body-bg));
+  --squircle-radius: 10px;
+}
+
+/* Sprache-Auswahl ohne Button-Look: nur Text (neutral) + Pfeil, kein Rahmen/keine Fläche im
+   Ruhezustand — der globale `button`-Reset in base.css setzt sonst einen Rahmen, daher hier explizit
+   `border: none`. Hover wie die Sidebar-Buttons (`.chat-sidebar-footer-subnav-button:hover` in
+   layout.css / `.settings-menu-item:hover` oben): neutrale Aufhellung, Text erst dabei in Akzentfarbe. */
+.general-language-trigger--plain {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  padding: 0.28rem 0.45rem;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-app);
+  font-size: var(--fs-lg);
+  /* Gleiches Font-Weight wie "Anzeigesprache" (`.setting-row-label--plain`: 400). */
+  font-weight: 400;
+}
+
+.general-language-trigger--plain:hover:enabled {
+  background: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+  color: var(--color-accent, #6366f1);
+}
+
+.general-language-trigger-chevron {
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+}
+
+.general-language-trigger-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* Position und Ausrichtung kommen von `.popover-menu`; eigen ist nur die Mindestbreite. */
+.thread-menu.popover-menu.general-language-menu {
+  min-width: 170px;
+}
+
+/* «Sicherheit & Login»: übernimmt Titel, Trennlinie und Zeilenraster von «Allgemein»; eigen sind nur
+   die Eingabefelder samt grünem Haken. */
+/* Beschriftung über dem Feld wie unter «Mein Konto». */
+.security-password-form {
+  display: grid;
+  justify-items: start;
+  gap: 0.85rem;
+}
+
+.security-password-row {
+  display: grid;
+  gap: 0.3rem;
+  width: min(26rem, 100%);
+}
+
+.security-password-label {
+  font-size: var(--fs-md);
+  color: #334155;
+}
+
+.security-password-field {
+  position: relative;
+}
+
+.security-password-input {
+  width: 100%;
+  padding: 0.42rem 2.3rem 0.42rem 0.7rem;
+  border: none;
+  border-bottom: 1px solid var(--input-field-border-idle);
+  border-radius: var(--radius-sm);
+  background-color: var(--input-field-bg);
+  color: var(--input-field-text);
+  font: inherit;
+  font-size: var(--fs-base);
+  transition:
+    border-color 180ms ease,
+    box-shadow 220ms ease;
+}
+
+.security-password-input:focus,
+.security-password-input:focus-visible {
+  outline: none;
+  border-bottom-color: transparent;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.security-password-check {
+  position: absolute;
+  right: 0.72rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* check_2.svg: Stroke → Grün (#22c55e), gleiche Filterkette wie beim E-Mail-Haken. */
+.security-password-check-img {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(52%) sepia(62%) saturate(602%) hue-rotate(93deg) brightness(96%)
+    contrast(89%);
+}
+
+.security-password-actions {
+  display: flex;
+  padding-top: 0.6rem;
+}
+
+/* Gleiche Breite wie die Felder (`.security-password-row`: min(26rem, 100%)) statt der sonst
+   inhaltsbreiten `.ui-button`. */
+.security-password-submit {
+  width: 100%;
+  text-align: center;
+}
+
+.security-password-error {
+  margin: 0.45rem 0 0;
+  font-size: var(--fs-sm);
+  color: #b91c1c;
+}
+
+/* Bestätigung nach dem Wechsel: Icon, Titel, Untertitel, Ladering — untereinander zentriert. */
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css). */
+.security-password-done-dialog {
+  display: grid;
+  justify-items: center;
+  gap: 0.55rem;
+  width: min(340px, calc(100vw - 2.5rem));
+  padding: 1.9rem 1.6rem;
+  border-radius: var(--radius-2xl);
+  text-align: center;
+}
+
+/* success.svg einfärben — gleiche Filterkette wie beim grünen Haken. */
+.security-password-done-icon {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(52%) sepia(62%) saturate(602%) hue-rotate(93deg) brightness(96%)
+    contrast(89%);
+}
+
+.security-password-done-title {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.security-password-done-subtitle {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+}
+
+.security-password-done-loader {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 0.35rem;
+  box-sizing: border-box;
+  border: 3px solid color-mix(in srgb, var(--color-text-app) 18%, transparent);
+  border-top-color: var(--color-accent, #6366f1);
+  border-radius: var(--radius-circle);
+  animation: security-password-done-spin 0.75s linear infinite;
+}
+
+@keyframes security-password-done-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .security-password-done-loader {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Gleiche Abstufung wie `.account-settings-form label` — Pink Glass erbt die Dark-Regel. */
+:root[data-theme='dark'] .security-password-label {
+  color: var(--color-text-secondary);
+}
+
+.personalize-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* `.billing-settings-subtitle` teilt sich bewusst die Deklarationen (und die Theme-Overrides weiter
+   unten) mit `.personalize-subtitle`, damit der Abschnittstitel «Abonnement» exakt wie «Theme» in
+   den Erscheinungsbild-Einstellungen wirkt. */
+.personalize-subtitle,
+.billing-settings-subtitle {
+  margin: 0;
+  color: #334155;
+}
+
+.settings-section-divider {
+  height: 1px;
+  background: #e2e8f0;
+}
+
+/* Reiner Abstand zwischen zwei eigenständigen Abschnitten (z. B. Sprache → Daten & Verlauf) — keine
+   Trennlinie, nur mehr Luft als der normale Panel-Gap zwischen Zeilen innerhalb eines Abschnitts.
+   Feste `height` statt `margin`, damit nichts mit den Nachbar-Margins kollabiert. */
+.general-section-gap {
+  height: 1.25rem;
+}
+
+.personalize-accent-row {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.personalize-accent-subtitle {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--color-text-muted);
+}
+
+.personalize-theme-row {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.personalize-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  width: min(720px, 100%);
+}
+
+@media (max-width: 640px) {
+  .personalize-theme-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Keine eigene Kachelfläche und kein Rahmen — die Vorschau trägt die Optik allein. Hover wie bei
+   den Sidebar-/Menü-Buttons: nur eine Aufhellung, kein Tint (siehe `.settings-menu-item:hover`). */
+.personalize-theme-tile {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: stretch;
+  align-content: start;
+  padding: 0.45rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-app);
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  text-align: left;
+  transition:
+    background-color 200ms ease,
+    color 180ms ease;
+}
+
+.personalize-theme-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+/* Auswahlkreis: leer im Ruhezustand, füllt sich beim Aktivieren aus der Mitte. Die Füllung liegt
+   als Pseudo-Element darunter, damit sich Kreis und Haken unabhängig animieren lassen. */
+.personalize-theme-radio {
+  position: relative;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-circle);
+  border: 1.5px solid var(--color-border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 220ms ease;
+}
+
+.personalize-theme-radio::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: var(--radius-circle);
+  background: var(--accent-gradient, var(--color-accent, #6366f1));
+  transform: scale(0);
+  transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.personalize-theme-radio-check {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  overflow: visible;
+}
+
+/* Haken zeichnet sich nach: der Pfad ist über `stroke-dasharray` komplett ausgeblendet und wird
+   durch den schrumpfenden `stroke-dashoffset` sichtbar — mit Verzögerung, damit erst die Füllung
+   läuft. `--accent-fab-fg` ist der bereits vorhandene Kontrastwert zur Akzentfläche (dunkel bei
+   sehr hellen Paletten, sonst weiss — siehe accentPalettes.ts). */
+.personalize-theme-radio-check path {
+  fill: none;
+  stroke: var(--accent-fab-fg, #ffffff);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset 240ms ease;
+}
+
+.personalize-theme-tile.is-active .personalize-theme-radio {
+  border-color: transparent;
+}
+
+.personalize-theme-tile.is-active .personalize-theme-radio::before {
+  transform: scale(1);
+}
+
+.personalize-theme-tile.is-active .personalize-theme-radio-check path {
+  stroke-dashoffset: 0;
+  transition-delay: 130ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personalize-theme-radio::before,
+  .personalize-theme-radio-check path {
+    transition: none;
+  }
+}
+
+.personalize-theme-preview {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+/* —— Theme-Kacheln: Layout-Skelett statt Farbverlauf ——
+   Jede Kachel zeigt das App-Layout in Miniatur (Schiene + Chatfläche + Composer), damit sichtbar
+   wird, wie das Theme wirkt. Die Farben liegen als `--pv-*`-Tokens pro Theme fest verdrahtet vor:
+   `var(--color-surface)` & Co. würden immer das *aktive* Theme zeigen, nicht das der Kachel. Die
+   Werte sind 1:1 aus den Theme-Blöcken in theme.css übernommen. */
+.personalize-theme-preview.is-light {
+  --pv-app-bg: #ffffff;
+  --pv-rail: #f3f5f9;
+  --pv-border: #e2e8f0;
+  --pv-line: rgba(15, 23, 42, 0.16);
+  --pv-surface: #f8fafc;
+  --pv-bubble: #eef2f7;
+  /* Heller Sheen wäre auf Weiss unsichtbar — hier läuft er dunkel. */
+  --pv-sheen: rgba(15, 23, 42, 0.1);
+}
+
+.personalize-theme-preview.is-dark {
+  --pv-app-bg: #131a23;
+  --pv-rail: #101720;
+  --pv-border: #2a3442;
+  --pv-line: rgba(238, 242, 249, 0.2);
+  --pv-surface: #18202b;
+  --pv-bubble: #2a303a;
+  --pv-sheen: rgba(255, 255, 255, 0.13);
+}
+
+.personalize-theme-preview.is-pink-glass {
+  --pv-app-bg:
+    radial-gradient(120% 90% at 12% 8%, rgba(244, 114, 182, 0.4), transparent 58%),
+    radial-gradient(110% 80% at 88% 10%, rgba(217, 70, 239, 0.3), transparent 56%),
+    linear-gradient(160deg, #11050f 0%, #221026 46%, #07020a 100%);
+  --pv-rail: rgba(42, 10, 38, 0.76);
+  --pv-border: rgba(244, 114, 182, 0.3);
+  --pv-line: rgba(252, 231, 243, 0.26);
+  --pv-surface: rgba(58, 16, 50, 0.56);
+  --pv-bubble: rgba(244, 114, 182, 0.28);
+  --pv-sheen: rgba(255, 236, 248, 0.17);
+}
+
+.personalize-theme-preview.is-black {
+  --pv-app-bg: #050505;
+  --pv-rail: #000000;
+  --pv-border: #1e222b;
+  --pv-line: rgba(241, 245, 249, 0.17);
+  --pv-surface: #0d0d11;
+  --pv-bubble: #121218;
+  --pv-sheen: rgba(255, 255, 255, 0.1);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.personalize-theme-preview--skeleton {
+  position: relative;
+  height: 84px;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  padding: 0;
+  background: var(--pv-app-bg);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Hover-Detail: die Vorschau hebt sich minimal an und ein Lichtstreif wandert einmal darüber —
+   dieselbe Geste, die Skeleton-Ladezustände nutzen. Sie sagt «das ist eine lebende Vorschau»,
+   ohne die Kachel unruhig zu machen. Der Streif liegt über den Skelett-Teilen, deshalb ein
+   Pseudo-Element; `overflow: hidden` oben schneidet ihn an den Rundungen sauber ab. */
+.personalize-theme-preview--skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    var(--pv-sheen, rgba(255, 255, 255, 0.12)) 50%,
+    transparent 62%
+  );
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.personalize-theme-tile:hover:enabled .personalize-theme-preview--skeleton {
+  transform: scale(1.025);
+}
+
+.personalize-theme-tile:hover:enabled .personalize-theme-preview--skeleton::after {
+  animation: personalize-theme-preview-sheen 820ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes personalize-theme-preview-sheen {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personalize-theme-preview--skeleton,
+  .personalize-theme-tile:hover:enabled .personalize-theme-preview--skeleton {
+    transition: none;
+    transform: none;
+  }
+
+  .personalize-theme-tile:hover:enabled .personalize-theme-preview--skeleton::after {
+    animation: none;
+  }
+}
+
+.personalize-theme-preview-rail {
+  flex: 0 0 30%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 6px;
+  background: var(--pv-rail);
+  border-right: 1px solid var(--pv-border);
+  transition:
+    flex-basis 200ms ease,
+    gap 200ms ease,
+    padding 200ms ease;
+}
+
+.personalize-theme-preview-logo {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-circle);
+  margin-bottom: 2px;
+  background: var(--accent-gradient, #6366f1);
+  transition:
+    width 200ms ease,
+    height 200ms ease;
+}
+
+.personalize-theme-preview-nav {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pv-line);
+  transition: height 200ms ease;
+}
+
+/* Aktiver Eintrag in der Schiene — zeigt die gewählte Akzentfarbe, die themenunabhängig gilt. */
+.personalize-theme-preview-nav.is-accent {
+  background: var(--accent-gradient, #6366f1);
+}
+
+.personalize-theme-preview-nav.is-short {
+  width: 62%;
+}
+
+/* Sidebar-Skalierung: das Bild bleibt gleich gross, nur die Schiene (Logo + Nav-Linien) wird für
+   «Gross» innerhalb desselben Rahmens vergrössert — «Normal» nutzt die Basiswerte oben unverändert. */
+.personalize-theme-preview--skeleton.is-rail-100 .personalize-theme-preview-rail {
+  flex-basis: 36%;
+  gap: 7px;
+  padding: 8px 7px;
+}
+
+.personalize-theme-preview--skeleton.is-rail-100 .personalize-theme-preview-logo {
+  width: 15px;
+  height: 15px;
+}
+
+.personalize-theme-preview--skeleton.is-rail-100 .personalize-theme-preview-nav {
+  height: 6px;
+}
+
+.personalize-theme-preview-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 7px 6px;
+}
+
+.personalize-theme-preview-topbar {
+  width: 45%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pv-line);
+}
+
+.personalize-theme-preview-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.personalize-theme-preview-bubble {
+  height: 12px;
+  border-radius: var(--radius-2xs);
+  border: 1px solid var(--pv-border);
+}
+
+.personalize-theme-preview-bubble.is-assistant {
+  width: 72%;
+  background: var(--pv-surface);
+}
+
+.personalize-theme-preview-bubble.is-user {
+  width: 52%;
+  align-self: flex-end;
+  background: var(--pv-bubble);
+}
+
+.personalize-theme-preview-composer {
+  height: 11px;
+  border-radius: var(--radius-2xs);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-border);
+}
+
+/* Kompaktes Eingabefeld: Anhang | Pill-Eingabe | Senden dicht gruppiert und schmaler als die
+   volle Composer-Breite oben — zeigt den Unterschied zur Standard-Kachel direkt in der Vorschau. */
+.personalize-theme-preview-composer.is-compact {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 78%;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-border);
+}
+
+.personalize-theme-preview-composer-attach {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-circle);
+  background: var(--pv-line);
+}
+
+.personalize-theme-preview-composer-pill {
+  flex: 1 1 auto;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--pv-line);
+  opacity: 0.6;
+}
+
+.personalize-theme-preview-composer-send {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-circle);
+  background: var(--accent-gradient, #6366f1);
+}
+
+/* Chat-Hintergrund-Kacheln: dasselbe Skelett wie bei Theme (Schiene + Chatfläche + Composer), nur
+   auf dem Weltall-Hintergrund statt einer Theme-Fläche — daher `--pv-*`-Tokens in Glas-Optik statt
+   fixen Theme-Farben, gemeinsam für beide Hintergrund-Varianten. */
+.personalize-theme-preview.is-space-dark,
+.personalize-theme-preview.is-space-stars {
+  --pv-rail: rgba(15, 20, 28, 0.55);
+  --pv-border: rgba(148, 163, 184, 0.22);
+  --pv-line: rgba(238, 242, 249, 0.24);
+  --pv-surface: rgba(24, 30, 41, 0.55);
+  --pv-bubble: rgba(42, 48, 58, 0.6);
+  --pv-sheen: rgba(255, 255, 255, 0.14);
+}
+
+.personalize-theme-preview.is-space-dark {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #1b2433 0%, rgba(27, 36, 51, 0.33) 42%, transparent 70%),
+    linear-gradient(160deg, #06080f 0%, #0c1018 56%, #05070d 100%);
+}
+
+.personalize-theme-preview.is-space-stars {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 67% 38%, rgba(226, 232, 240, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 42% 72%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 82% 74%, rgba(203, 213, 225, 0.86) 0 1px, transparent 1.2px),
+    radial-gradient(120% 90% at 50% 0%, #1b2433 0%, rgba(27, 36, 51, 0.38) 42%, transparent 70%),
+    linear-gradient(160deg, #06080f 0%, #0c1018 56%, #05070d 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-theme-preview.is-space-dark {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #4a2440 0%, rgba(74, 36, 64, 0.36) 42%, transparent 70%),
+    linear-gradient(160deg, #140812 0%, #1c0f18 56%, #10070f 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-theme-preview.is-space-stars {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 67% 38%, rgba(249, 168, 212, 0.84) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 42% 72%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 82% 74%, rgba(244, 114, 182, 0.82) 0 1px, transparent 1.2px),
+    radial-gradient(120% 90% at 50% 0%, #4a2440 0%, rgba(74, 36, 64, 0.4) 42%, transparent 70%),
+    linear-gradient(160deg, #140812 0%, #1c0f18 56%, #10070f 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .personalize-theme-preview.is-space-dark {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #12141a 0%, rgba(18, 20, 26, 0.4) 42%, transparent 70%),
+    linear-gradient(160deg, #000000 0%, #060608 56%, #000000 100%);
+}
+
+:root[data-theme='dark'][data-theme-variant='black'] .personalize-theme-preview.is-space-stars {
+  background:
+    radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.75) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 67% 38%, rgba(226, 232, 240, 0.55) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 42% 72%, rgba(255, 255, 255, 0.7) 0 1px, transparent 1.2px),
+    radial-gradient(circle at 82% 74%, rgba(203, 213, 225, 0.5) 0 1px, transparent 1.2px),
+    radial-gradient(120% 90% at 50% 0%, #0d0d12 0%, rgba(13, 13, 18, 0.45) 42%, transparent 70%),
+    linear-gradient(160deg, #000000 0%, #08080c 56%, #000000 100%);
+}
+
+/* Neutraler Hover wie bei den Sidebar-Buttons und den Einstellungs-Menüeinträgen: nur eine
+   Aufhellung der darunterliegenden Fläche, keine eigene Farbe, kein Anheben, kein Schatten. */
+.personalize-theme-tile:hover:enabled {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+  box-shadow: none;
+  color: var(--color-accent, #6366f1);
+}
+
+/* Aktive Kachel bekommt keinen Rahmen und keinen Ring — die Auswahl zeigt allein der gefüllte
+   Kreis mit Haken. */
+.personalize-theme-tile.is-active {
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--color-text-app);
+}
+
+.personalize-accent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 64px);
+  gap: 1rem 0.65rem;
+  width: min(560px, 100%);
+  justify-content: start;
+}
+
+.personalize-accent-swatch {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.personalize-accent-dot {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-circle);
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.08),
+    0 4px 10px rgba(15, 23, 42, 0.12);
+  transition:
+    transform 160ms ease,
+    box-shadow 220ms ease;
+}
+
+.personalize-accent-swatch:hover:enabled .personalize-accent-dot {
+  transform: translateY(-1px);
+}
+
+/* Ring direkt am Punkt (kein Abstand) — Farbe kommt vom Akzent selbst. */
+.personalize-accent-swatch.is-active .personalize-accent-dot {
+  box-shadow:
+    0 0 0 3px var(--accent-ring-base, var(--color-accent, #6366f1)),
+    0 4px 10px rgba(15, 23, 42, 0.12);
+}
+
+.personalize-accent-name {
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 180ms ease;
+}
+
+.personalize-accent-swatch.is-active .personalize-accent-name {
+  color: var(--color-text-secondary);
+}
+
+/* Haken-Badge auf dem Ring — dieselben Masse und Farben wie `.personalize-theme-radio` im
+   aktiven Zustand (siehe dort), nur als eigenständiges Badge statt inline neben dem Label. */
+.personalize-accent-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-circle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-gradient, var(--color-accent, #6366f1));
+  box-shadow: 0 0 0 2px var(--color-surface);
+  transform: scale(0);
+  transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.personalize-accent-swatch.is-active .personalize-accent-badge {
+  transform: scale(1);
+}
+
+.personalize-accent-badge-check {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  overflow: visible;
+}
+
+.personalize-accent-badge-check path {
+  fill: none;
+  stroke: var(--accent-fab-fg, #ffffff);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personalize-accent-dot,
+  .personalize-accent-badge {
+    transition: none;
+  }
+}
+
+/* War früher eine eigene, fast identische Kopie von `.setting-row` (nur für AdminPage.tsx) —
+   inzwischen zusammengeführt, AdminPage.tsx nutzt `.setting-row` direkt. */
+
+.chat-setting-copy h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: var(--fs-lg);
+}
+
+.chat-setting-copy p {
+  margin: 0.14rem 0 0;
+  color: #334155;
+  font-size: var(--fs-md);
+  line-height: 1.25;
+  max-width: 62ch;
+}
+
+.ios-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  width: 46px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ios-switch-track {
+  position: relative;
+  display: block;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: #d1d5db;
+  border: 1px solid #b9c2d2;
+  padding: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ios-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  transform: translateX(0px);
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.ios-switch.is-on .ios-switch-track {
+  background: #6756f5;
+  border-color: #8c82ff;
+  box-shadow:
+    inset 0 0 0 1px rgba(186, 176, 255, 0.46),
+    0 2px 8px rgba(103, 86, 245, 0.3);
+}
+
+.ios-switch.is-on .ios-switch-thumb {
+  transform: translateX(18px);
+  background: #ffffff;
+  border-color: rgba(167, 139, 250, 0.45);
+}
+
+.ios-switch:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.3);
+  outline-offset: 2px;
+  border-radius: var(--radius-full);
+}
+
+.ios-switch:disabled {
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — der Schatten war
+   hier vorher minimal abweichend (0 22px 54px statt 0 24px 60px), optisch kaum wahrnehmbar,
+   jetzt vereinheitlicht. */
+.rename-modal {
+  width: min(430px, 100%);
+  border-radius: var(--radius-3xl);
+  padding: 1rem 1.1rem;
+}
+
+.admin-feedback-chat-viewer-modal {
+  width: min(640px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-feedback-chat-viewer-status {
+  margin: 0.4rem 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+}
+
+.admin-feedback-chat-viewer-messages {
+  margin-top: 0.6rem;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.6rem;
+  padding-right: 0.2rem;
+}
+
+.admin-feedback-chat-viewer-message {
+  justify-self: start;
+  max-width: 85%;
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  background: var(--settings-card-bg);
+  border: 1px solid var(--color-border);
+}
+
+.admin-feedback-chat-viewer-message--user {
+  justify-self: end;
+  background: var(--chat-user-bubble-bg);
+}
+
+.admin-feedback-chat-viewer-message-role {
+  margin: 0 0 0.2rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.admin-feedback-chat-viewer-message-content {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rename-modal-header h3 {
+  margin: 0;
+  color: var(--color-text-app);
+}
+
+.first-login-password-intro {
+  margin: 0 0 0.85rem;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.rename-form {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0;
+}
+
+.rename-form label {
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+}
+
+.rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.35rem;
+}
+
+.account-settings-form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.account-settings-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.account-settings-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-3xl);
+  border: 1px solid color-mix(in srgb, var(--accent-ring-base, #6366f1) 24%, var(--color-border));
+  background: var(--color-surface-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.account-settings-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-settings-avatar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  background: var(--accent-gradient);
+  color: var(--accent-fab-fg, #ffffff);
+}
+
+.account-settings-avatar-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.account-settings-avatar-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Bild und Ändern-Knopf als eine Einheit: der Rahmen ist genau so gross wie das Bild, damit der
+   absolut gesetzte Knopf an dessen Ecke hängt. */
+.account-settings-avatar-frame {
+  position: relative;
+  width: max-content;
+}
+
+/* Knopf unten rechts auf dem Bild, in derselben Form wie das Profilbild. Rein rechnerisch entspräche
+   dessen Rundung (44px auf 168px) bei 38px Kantenlänge 10px — das wirkt am kleinen Knopf jedoch
+   kantiger, weil die Kurve absolut viel kürzer ausfällt. 13px gleicht das optisch aus. */
+.account-settings-avatar-edit-btn.ui-button {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 13px;
+  box-shadow: 0 4px 12px var(--color-shadow-soft);
+  --ui-icon-size: 17px;
+}
+
+.account-settings-avatar-edit-btn.ui-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.account-settings-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: min(26rem, 100%);
+}
+
+.account-settings-avatar-remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  padding: 0.2rem 0;
+  margin: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary, #64748b);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.account-settings-avatar-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-settings-avatar-error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #b91c1c;
+  max-width: min(26rem, 100%);
+}
+
+.account-settings-profile-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 1.15rem;
+}
+
+.account-settings-avatar--large {
+  width: 168px;
+  height: 168px;
+  border-radius: 44px;
+}
+
+.account-settings-avatar--large span {
+  font-size: 2.45rem;
+}
+
+@media (max-width: 520px) {
+  .account-settings-profile-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .account-settings-avatar-column {
+    align-items: center;
+    width: 100%;
+  }
+
+  .account-settings-avatar-actions {
+    align-items: stretch;
+    max-width: none;
+  }
+}
+
+.account-settings-panel p {
+  margin: 0;
+  color: #334155;
+}
+
+.account-settings-form label {
+  font-size: var(--fs-md);
+  color: #334155;
+}
+
+.account-settings-input-shell {
+  position: relative;
+  border-radius: var(--radius-md);
+}
+
+.account-settings-form input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--input-field-border-idle);
+  background-color: var(--input-field-bg);
+  color: var(--input-field-text);
+  transition:
+    border-color 180ms ease,
+    box-shadow 220ms ease,
+    background-color 180ms ease;
+}
+
+.account-settings-form input::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.account-settings-form input:focus,
+.account-settings-form input:focus-visible {
+  outline: none;
+  border-bottom-color: transparent;
+  background-color: var(--input-field-bg);
+  background-image: none;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.account-settings-input-shell::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  background-image: var(--accent-gradient-line);
+  background-size: calc(100% - 12px) 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  /* Nur Sichtbarkeitsmaske für weiche Enden/Kurven, ohne eigene Farbe. */
+  mask-image:
+    radial-gradient(16px 12px at left bottom, transparent 0%, #000 66%, #000 100%),
+    radial-gradient(16px 12px at right bottom, transparent 0%, #000 66%, #000 100%),
+    linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  mask-size:
+    22px 14px,
+    22px 14px,
+    calc(100% - 12px) 1px;
+  mask-position:
+    left bottom,
+    right bottom,
+    center bottom;
+  mask-repeat: no-repeat;
+  -webkit-mask-image:
+    radial-gradient(16px 12px at left bottom, transparent 0%, #000 66%, #000 100%),
+    radial-gradient(16px 12px at right bottom, transparent 0%, #000 66%, #000 100%),
+    linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  -webkit-mask-size:
+    22px 14px,
+    22px 14px,
+    calc(100% - 12px) 1px;
+  -webkit-mask-position:
+    left bottom,
+    right bottom,
+    center bottom;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.account-settings-input-shell:focus-within::after {
+  opacity: 1;
+}
+
+.account-settings-saving {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #64748b;
+}
+
+.account-settings-subscription-block {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Eigener Menüpunkt "Nutzung & Abonnement" — der Block steht hier als erstes/einziges Element,
+   der Trenner darüber (aus dem ursprünglichen Platz unter "Mein Konto") entfällt deshalb. */
+.billing-settings-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.billing-settings-panel .account-settings-subscription-block {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Credits-Abschnitt: kein Karten-Chrome, alles direkt auf dem Body-Hintergrund. Der Titel erbt den
+   Stil von `.billing-settings-subtitle` (= «Abonnement»), hier kommt nur das Icon davor dazu. */
+/* Zweispaltiges Raster: Credits und Bildgenerierung teilen sich die obere Zeile, die Websuche nimmt
+   die volle Breite. */
+/* Abstand zwischen «Abonnement» und «Nutzung» — soll genauso viel Luft ergeben wie zwischen
+   «Sprache» und «Daten & Verlauf» unter «Allgemein». Dort sind es 0.6rem Panel-Gap + 1.25rem
+   Abstandhalter + 0.6rem = 2.45rem; hier beträgt der Panel-Gap 0.7rem, also 2.45 − 2 × 0.7. */
+.billing-section-gap {
+  height: 1.05rem;
+}
+
+/* Abo-Zeile: Planname links, «Verwalten» rechts. Die Schaltfläche nutzt dieselben Klassen wie der
+   Sprache-Button unter «Allgemein» (`.general-language-trigger--plain`) und braucht deshalb kein
+   eigenes Styling. */
+.billing-plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* Schlichter Hinweis-Dialog ohne Kopfzeile: nur eine zentrierte Zeile. Rahmen/Hintergrund/Schatten/
+   Textfarbe kommen aus `.ui-dialog-card` (ui.css). */
+.billing-manage-dialog {
+  width: min(320px, calc(100vw - 2.5rem));
+  padding: 1.9rem 1.5rem;
+  border-radius: var(--radius-2xl);
+  text-align: center;
+}
+
+.billing-manage-dialog-text {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.billing-usage-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1rem 1.25rem;
+}
+
+/* Trennlinie und Balken laufen immer über die volle Spaltenbreite — die Halbierung kommt allein aus
+   dem Raster, damit beide Kanten in jeder Sektion aufeinanderliegen. */
+.billing-usage-section {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.billing-usage-section.is-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .billing-usage-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.billing-credits-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.billing-credits-heading-text {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.billing-credits-title {
+  display: block;
+  font-size: var(--fs-xl);
+  line-height: 1.25;
+}
+
+.billing-credits-subtitle {
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+}
+
+.billing-credits-title-icon {
+  --ui-icon-size: 29px;
+}
+
+.billing-credits-block {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Verbrauchszeile: die Zahlen tragen die Aussage und stehen deshalb grösser als der Abschnitts-
+   titel, «verbraucht» hängt klein und dezent auf derselben Grundlinie daneben. */
+.billing-credits-usage {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.billing-credits-usage-value {
+  font-size: var(--fs-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--color-text-app);
+}
+
+/* Verbrauchter Anteil inkl. Schrägstrich in Akzentfarbe, der Gesamtwert bleibt neutral. */
+.billing-credits-usage-used {
+  color: var(--color-accent, #6366f1);
+}
+
+.billing-credits-usage-caption {
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Fallback für unbegrenzte Pläne: kein X/Y, nur die schlichte Verbrauchszeile ohne Leiste. */
+.billing-credits-usage-plain {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary);
+}
+
+/* Balken (Schiene + Füllung) selbst kommt aus `.usage-meter-bar`/`.usage-meter-bar-fill`
+   (SubscriptionUsageMeterBar-Komponente) — hier nur noch der Rahmen drumherum für die
+   Prozentzahl unter dem Balken. */
+.billing-credits-progress-wrap {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.usage-meter-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-text-app) 12%, transparent);
+}
+
+.usage-meter-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent, #6366f1);
+  transition: width 0.2s ease;
+}
+
+/* Eigene Zeile, damit die absolut gesetzte Prozentzahl trotzdem Platz im Fluss belegt. */
+.billing-credits-progress-scale {
+  position: relative;
+  height: 1.05rem;
+}
+
+/* Sitzt unter dem Ende der Füllung. Die Verschiebung wächst mit dem Fortschritt (0 % → gar nicht,
+   50 % → halbe Labelbreite, 100 % → volle), damit das Label bei 0 % bündig am linken Rand der Leiste
+   beginnt, bei 100 % bündig rechts endet und dazwischen mittig über der Kante steht. */
+.billing-credits-progress-value {
+  position: absolute;
+  top: 0;
+  left: var(--billing-credits-percent, 0%);
+  transform: translateX(calc(-1 * var(--billing-credits-percent, 0%)));
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.05rem;
+  white-space: nowrap;
+  color: var(--color-accent, #6366f1);
+}
+
+.account-subscription-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.account-subscription-usage-card,
+.account-subscription-usage-meta {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.account-subscription-usage-card.is-muted {
+  opacity: 0.82;
+}
+
+.account-subscription-usage-card-header {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.account-subscription-usage-card-title {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-accent, #6366f1);
+}
+
+.account-subscription-usage-card-headline {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.account-subscription-usage-card-subline {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: #64748b;
+}
+
+
+.account-subscription-usage-details {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.account-subscription-usage-detail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.account-subscription-usage-detail-row dt {
+  margin: 0;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.account-subscription-usage-detail-row dd {
+  margin: 0;
+  color: #334155;
+  font-weight: 600;
+  text-align: right;
+}
+
+.account-subscription-usage-meta {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .account-subscription-usage-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Gleiche Grösse und Schriftstärke wie die Options-Zeilen unter Allgemein
+   (`.setting-row-label--plain` / `.general-language-trigger--plain`: 1rem, 400). Farbe über
+   `--color-text-app`, damit alle Themes ohne eigenen Override stimmen. */
+.account-settings-subscription-value {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 400;
+  color: var(--color-text-app);
+}
+
+.account-settings-subscription-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.account-subscription-modal {
+  grid-template-columns: 1fr;
+  width: min(980px, 100%);
+  height: min(760px, calc(100vh - 2rem));
+}
+
+.settings-overlay.account-subscription-overlay {
+  z-index: 60;
+}
+
+.account-subscription-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  min-height: 0;
+}
+
+.account-subscription-plan-card {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  align-content: start;
+  min-height: 100%;
+}
+
+.account-subscription-plan-actions {
+  margin-top: auto;
+}
+
+@media (max-width: 980px) {
+  .account-subscription-plans-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.account-settings-email-block {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.account-settings-email-block > label {
+  font-size: var(--fs-md);
+  color: #334155;
+}
+
+.account-settings-email-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.account-settings-input-shell--email {
+  flex: 1;
+  min-width: min(220px, 100%);
+}
+
+.account-settings-input-shell--email.is-valid-email input {
+  padding-right: 2.5rem;
+}
+
+.account-settings-email-valid-mark {
+  position: absolute;
+  right: 0.72rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* check_2.svg: Stroke → Grün (#22c55e) */
+.account-settings-email-check-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(52%) sepia(62%) saturate(602%) hue-rotate(93deg) brightness(96%)
+    contrast(89%);
+}
+
+.account-settings-email-save {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 44px;
+  padding-left: 1.15rem;
+  padding-right: 1.15rem;
+  white-space: nowrap;
+}
+
+.account-settings-panel p.account-settings-email-success {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #15803d;
+}
+
+.account-settings-panel p.account-settings-email-error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #b91c1c;
+}
+
+.account-settings-panel p.account-settings-email-pending {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #b45309;
+}
+
+.admin-users-list {
+  margin-top: 0.1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.admin-users-panel {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-token-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin-top: 0.5rem;
+}
+
+.admin-token-table-scroll > .admin-token-usage-table {
+  width: max-content;
+  min-width: 100%;
+  margin-top: 0;
+}
+
+.admin-token-user-log .admin-token-table-scroll {
+  margin-top: 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+
+.admin-token-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  margin-top: 0.5rem;
+}
+
+.admin-token-usage-table th,
+.admin-token-usage-table td {
+  padding: 0.42rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+
+.admin-token-usage-table thead th {
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.admin-token-usage-num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-token-metric-value,
+.admin-token-metric-cost {
+  display: block;
+}
+
+.admin-token-metric-cost {
+  margin-top: 0.2rem;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-cost-footnote {
+  margin: 0.35rem 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-model {
+  font-size: var(--fs-xs);
+  word-break: break-all;
+}
+
+.admin-token-usage-foot td {
+  border-bottom: none;
+  padding-top: 0.65rem;
+}
+
+.admin-token-section-heading {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin: 1.35rem 0 0.35rem;
+}
+
+.admin-token-section-heading:first-child {
+  margin-top: 0;
+}
+
+.admin-token-section-hint {
+  font-size: var(--fs-md);
+  color: var(--color-muted, #64748b);
+  margin: 0 0 0.75rem;
+  line-height: 1.45;
+}
+
+.admin-token-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.admin-token-filter-active-badge {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-accent-strong, #0f766e);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-2xs);
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.admin-token-filters-panel {
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-token-filters-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 0.4rem 0.65rem;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .admin-token-filters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-token-filter-select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.admin-token-filter-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.35;
+}
+
+.admin-token-filter-reset {
+  justify-self: start;
+}
+
+.admin-token-user-log-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.admin-token-user-log {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft, #f8fafc);
+  overflow: hidden;
+}
+
+.admin-token-user-log > summary {
+  list-style: none;
+}
+
+.admin-token-user-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-token-user-log-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+}
+
+.admin-token-user-log-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.admin-token-user-log-summary-email {
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-token-user-log-summary-stats {
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary, #475569);
+}
+
+.admin-token-user-log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 0.85rem 0.35rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.admin-token-user-log-day-label {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.admin-token-user-log-day-input {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+
+.admin-token-user-log-loading,
+.admin-token-user-log-empty,
+.admin-token-user-log-error {
+  margin: 0.55rem 0.85rem;
+}
+
+.admin-token-log-detail-table {
+  margin: 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  font-size: var(--fs-sm);
+}
+
+.admin-token-log-detail-table th,
+.admin-token-log-detail-table td {
+  padding: 0.38rem 0.45rem;
+}
+
+.admin-feedback-panel {
+  display: grid;
+  gap: 0.4rem;
+  min-height: 0;
+  min-width: 0;
+}
+
+.admin-feedback-sections {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.admin-feedback-section {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft, #f8fafc);
+  overflow: hidden;
+}
+
+.admin-feedback-section > summary {
+  list-style: none;
+}
+
+.admin-feedback-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-feedback-section-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+
+.admin-feedback-section[open] > .admin-feedback-section-summary {
+  border-bottom-color: var(--color-border, #e2e8f0);
+}
+
+.admin-feedback-section-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.45rem;
+  font-size: var(--fs-md);
+  color: var(--color-text-secondary, #475569);
+  transition: transform 0.15s ease;
+}
+
+.admin-feedback-section[open] > .admin-feedback-section-summary::before {
+  transform: rotate(90deg);
+}
+
+.admin-feedback-section-title {
+  font-weight: 700;
+  font-size: var(--fs-base);
+  color: var(--color-text-app);
+}
+
+.admin-feedback-section-count {
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary, #475569);
+}
+
+.admin-feedback-section-empty {
+  margin: 0;
+  padding: 0.15rem 0;
+}
+
+.admin-feedback-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.35rem;
+}
+
+.admin-feedback-list--section {
+  margin-top: 0;
+  padding: 0.65rem 0.7rem 0.75rem;
+}
+
+.admin-feedback-card {
+  margin: 0;
+}
+
+.admin-feedback-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.admin-feedback-person {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.admin-feedback-name {
+  margin: 0;
+  font-weight: 700;
+  color: var(--color-text-app);
+  font-size: var(--fs-base);
+  line-height: 1.25;
+}
+
+.admin-feedback-email-line {
+  margin: 0.2rem 0 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.admin-feedback-header-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.admin-feedback-time {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+}
+
+.admin-feedback-delete-button.admin-feedback-delete-button {
+  font-size: var(--fs-xs);
+  padding: 0.26rem 0.55rem;
+  border-radius: var(--radius-xs);
+  border-color: color-mix(in srgb, var(--color-danger-text) 42%, var(--color-border));
+  color: var(--color-danger-text);
+  background: color-mix(in srgb, var(--color-danger-text) 10%, transparent);
+}
+
+.admin-feedback-delete-button.admin-feedback-delete-button:hover:not(:disabled) {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg-soft);
+  color: var(--color-danger-text);
+}
+
+.admin-feedback-userid {
+  margin: 0 0 0.45rem;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.admin-feedback-body {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--color-text-app);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+
+.admin-feedback-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.admin-feedback-display-id {
+  margin: 0.35rem 0 0.15rem;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+  letter-spacing: 0.02em;
+}
+
+.admin-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.admin-feedback-resolved {
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, #22c55e 35%, var(--color-border-subtle, #e2e8f0));
+  background: color-mix(in srgb, #22c55e 8%, var(--color-surface-soft, #f8fafc));
+}
+
+.admin-feedback-resolved-label {
+  margin: 0 0 0.25rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #15803d;
+}
+
+.admin-feedback-resolved-message {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+}
+
+.admin-feedback-resolved-meta {
+  margin: 0.35rem 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.admin-feedback-resolve-modal {
+  width: min(520px, 94vw);
+}
+
+.admin-feedback-resolve-id {
+  margin: 0 0 0.35rem;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--color-accent, #6366f1);
+}
+
+.admin-feedback-resolve-preview {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft, #f8fafc);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+}
+
+.admin-feedback-resolve-textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle, #e2e8f0);
+  background: var(--color-surface-soft, #f8fafc);
+  color: var(--color-text-app);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.admin-feedback-resolve-form .rename-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* Schlichtes Detail-Modal (Klick auf den Feedback-Abschluss-Toast, siehe ToastProvider/toast.css) —
+   zeigt den gemeldeten Text und die Antwort. */
+.feedback-resolution-notice-modal {
+  width: min(460px, 94vw);
+}
+
+.feedback-resolution-detail-body {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.feedback-resolution-detail-label {
+  margin: 0.7rem 0 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.feedback-resolution-detail-label:first-child {
+  margin-top: 0;
+}
+
+.feedback-resolution-detail-text {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  color: var(--color-text-app);
+  white-space: pre-wrap;
+}
+
+:root[data-theme='dark'] .admin-feedback-section {
+  border-color: var(--color-border);
+  background: var(--color-surface-soft);
+}
+
+:root[data-theme='dark'] .admin-feedback-section[open] > .admin-feedback-section-summary {
+  border-bottom-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-feedback-resolved {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: rgba(22, 101, 52, 0.2);
+}
+
+:root[data-theme='dark'] .admin-feedback-resolved-label {
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .admin-feedback-resolve-preview,
+:root[data-theme='dark'] .admin-feedback-resolve-textarea {
+  border-color: var(--color-border);
+  background: var(--input-field-bg);
+  color: var(--color-text-app);
+}
+
+.admin-users-warning {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: #fff1f2;
+  color: #9f1239;
+  font-size: var(--fs-sm);
+  border: 1px solid #fecdd3;
+}
+
+.admin-users-hint {
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-sm);
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.admin-system-prompts-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-system-prompts-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-system-prompt-block {
+  margin: 0;
+}
+
+.admin-system-prompt-title {
+  margin: 0 0 0.35rem;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.admin-system-prompt-hint {
+  margin: 0 0 0.5rem;
+  font-size: var(--fs-sm);
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.admin-system-prompt-textarea {
+  width: 100%;
+  min-height: 200px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  resize: vertical;
+}
+
+.admin-system-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.admin-user-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-user-left {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-user-meta {
+  min-width: 0;
+}
+
+.admin-user-name-line {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-user-name {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.admin-user-profile-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-user-profile-input {
+  width: min(140px, 100%);
+  padding: 0.38rem 0.5rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  font-size: var(--fs-sm);
+}
+
+.admin-user-must-pw-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-user-must-pw-label input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.admin-user-delete-button {
+  border-color: color-mix(in srgb, var(--color-danger-text) 38%, var(--color-border)) !important;
+  color: var(--color-danger-text) !important;
+  background: color-mix(in srgb, var(--color-danger-text) 10%, transparent) !important;
+}
+
+.admin-user-delete-button:hover:enabled {
+  border-color: var(--color-danger-border) !important;
+  background: var(--color-danger-bg-soft) !important;
+}
+
+.admin-delete-email-label {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: #334155;
+  margin: 0.55rem 0 0.28rem;
+}
+
+.admin-delete-confirm-button.ui-button-primary {
+  background: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+  color: #fff;
+}
+
+.admin-delete-confirm-button.ui-button-primary:hover:enabled {
+  filter: brightness(0.96);
+}
+
+.admin-user-email {
+  margin: 0.05rem 0 0;
+  color: #64748b;
+  font-size: var(--fs-sm);
+  word-break: break-all;
+}
+
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.admin-user-subscription-label {
+  font-size: var(--fs-xs);
+  color: #64748b;
+  margin: 0;
+}
+
+.admin-user-subscription-select {
+  min-width: 9rem;
+  max-width: min(14rem, 100%);
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  font-size: var(--fs-md);
+}
+
+.admin-subscriptions-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-subscriptions-create {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.admin-subscriptions-field-label {
+  font-size: var(--fs-md);
+  color: #334155;
+  font-weight: 500;
+}
+
+.admin-subscriptions-create-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.admin-subscriptions-name-input {
+  flex: 1;
+  min-width: min(200px, 100%);
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid #e2e8f0;
+  font-size: var(--fs-md);
+}
+
+.admin-subscriptions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.admin-subscriptions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-subscriptions-name {
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.admin-subscriptions-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.admin-subscriptions-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: var(--fs-xs);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.admin-subscriptions-delete {
+  flex-shrink: 0;
+}
+
+.admin-subscriptions-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.admin-user-empty {
+  margin: 0;
+  padding: 0.7rem 0 0.45rem;
+  color: #64748b;
+  font-size: var(--fs-md);
+}
+
+.admin-ai-form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-ai-form label {
+  font-size: var(--fs-md);
+  color: #334155;
+}
+
+.admin-ai-info {
+  margin: 0;
+  color: #2f855a;
+  font-size: var(--fs-sm);
+}
+
+.settings-overlay .rename-form input {
+  background: var(--input-field-bg);
+  color: var(--input-field-text);
+  border: none;
+  border-bottom: 1px solid var(--input-field-border-idle);
+}
+
+.settings-overlay .rename-form input::placeholder {
+  color: var(--input-field-placeholder);
+}
+
+.settings-overlay .rename-form input:focus-visible {
+  border-bottom-color: transparent;
+  background-color: var(--input-field-bg);
+  background-image: var(--accent-gradient-line);
+  background-size: 100% 1px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  box-shadow: var(--input-field-shadow-focus);
+}
+
+.settings-overlay .rename-actions button:not(.ui-button) {
+  background: var(--color-surface);
+  color: var(--color-text-app);
+  border: 1px solid var(--color-border-strong);
+}
+
+.settings-overlay .rename-actions button:not(.ui-button):hover:enabled {
+  border-color: var(--interactive-hover-border);
+  background: var(--interactive-hover-bg);
+}
+
+.settings-overlay input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Laptop / niedrige Viewport-Höhe: Modal vollständig sichtbar, Inhalt scrollt im Body */
+@media (max-height: 820px) {
+  .settings-overlay {
+    align-items: flex-start;
+    padding: max(0.5rem, env(safe-area-inset-top)) 0.75rem max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .settings-modal {
+    height: min(720px, calc(100dvh - 1rem));
+    max-height: calc(100dvh - 1rem);
+    margin-inline: auto;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 861px) {
+  .settings-modal {
+    width: min(960px, calc(100vw - 1.5rem));
+  }
+}
+
+@media (max-width: 860px) {
+  .settings-overlay {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .settings-modal {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .settings-modal:not(.settings-modal--mobile-nav) {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-modal.settings-modal--mobile-nav {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .settings-mobile-slide-track {
+    display: flex;
+    flex: 1;
+    width: 200%;
+    min-height: 0;
+    transform: translate3d(0, 0, 0);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .settings-mobile-slide-track.is-showing-detail {
+    transform: translate3d(-50%, 0, 0);
+  }
+
+  .settings-modal.settings-modal--mobile-nav .settings-sidebar {
+    flex: 0 0 50%;
+    width: 50%;
+    max-width: 50%;
+    max-height: none;
+    height: auto;
+    align-self: stretch;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: max(0.9rem, env(safe-area-inset-top)) 0.85rem 0.8rem;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .settings-modal.settings-modal--mobile-nav .settings-content {
+    flex: 0 0 50%;
+    width: 50%;
+    max-width: 50%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .settings-sidebar-mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    margin-bottom: 0.45rem;
+  }
+
+  .settings-sidebar-mobile-heading {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--color-text-app);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .settings-modal:not(.settings-modal--mobile-nav) .settings-sidebar {
+    max-height: min(42vh, 340px);
+    max-height: min(42dvh, 340px);
+    overflow-y: auto;
+    padding: max(0.9rem, env(safe-area-inset-top)) 0.85rem 0.8rem;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .settings-mobile-slide-track {
+      transition: none;
+    }
+  }
+
+  .settings-titlebar {
+    padding: 0.85rem 0.95rem;
+  }
+
+  .settings-title-row {
+    align-items: flex-start;
+  }
+
+  .settings-title-row--with-back {
+    align-items: center;
+  }
+
+  .settings-save-indicator {
+    position: static;
+    transform: none;
+    margin-right: 0.35rem;
+  }
+
+  .settings-body {
+    padding: 0.9rem 0.95rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .settings-card {
+    border-radius: var(--radius-lg);
+    padding: 0.9rem 0.85rem;
+  }
+
+  .setting-row,
+  .admin-user-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .setting-row-control,
+  .general-language-trigger {
+    width: 100%;
+  }
+
+  /* Sprache-Trigger bleibt Text + Pfeil, auch mobil kein volles Block-Element (siehe oben). */
+  .general-language-trigger--plain {
+    width: auto;
+  }
+
+  .personalize-theme-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rename-modal {
+    width: min(94vw, 430px);
+    margin: 0 0.75rem calc(env(safe-area-inset-bottom) + 0.75rem);
+    border-radius: var(--radius-xl);
+  }
+
+  .rename-actions {
+    justify-content: stretch;
+  }
+
+  .rename-actions button {
+    flex: 1;
+  }
+}
+
+:root[data-theme='dark'] .settings-modal {
+  border-color: var(--color-border);
+  background: var(--settings-modal-bg);
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .settings-sidebar {
+  border-right-color: var(--color-border);
+  background: var(--settings-sidebar-bg);
+}
+
+:root[data-theme='dark'] .settings-sidebar h2,
+:root[data-theme='dark'] .settings-sidebar-mobile-heading,
+:root[data-theme='dark'] .settings-titlebar h1,
+:root[data-theme='dark'] .settings-title-row-heading,
+:root[data-theme='dark'] .personalize-subtitle,
+:root[data-theme='dark'] .billing-settings-subtitle {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .settings-menu-item--logout,
+:root[data-theme='dark'] .settings-menu-item--logout:hover:enabled {
+  color: var(--color-danger-text, #fca5a5);
+}
+
+:root[data-theme='dark'] .settings-menu-item--logout:hover:enabled {
+  background: var(--color-danger-bg-soft, rgba(127, 29, 29, 0.35));
+}
+
+:root[data-theme='dark'] .settings-section-divider {
+  background: var(--color-border);
+}
+
+:root[data-theme='dark'] .chat-setting-copy h3 {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .chat-setting-copy p {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .ios-switch-track {
+  background: #4b5563;
+  border-color: #6b7280;
+}
+
+:root[data-theme='dark'] .ios-switch.is-on .ios-switch-track {
+  background: #6756f5;
+  border-color: #8c82ff;
+}
+
+:root[data-theme='dark'] .settings-titlebar {
+  border-bottom-color: var(--color-border);
+  background: var(--settings-modal-bg);
+}
+
+:root[data-theme='dark'] .settings-body {
+  background: var(--settings-body-bg);
+}
+
+:root[data-theme='dark'] .settings-card {
+  border-color: var(--color-border-strong);
+  background: var(--settings-card-bg);
+}
+
+:root[data-theme='dark'] .settings-card p,
+:root[data-theme='dark'] .settings-list {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .admin-users-list,
+:root[data-theme='dark'] .admin-user-row {
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-user-name {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .admin-user-email,
+:root[data-theme='dark'] .admin-user-empty {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-user-subscription-label {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-user-subscription-select {
+  border-color: var(--interactive-hover-border-dark);
+  background: var(--input-field-bg);
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .admin-subscriptions-field-label {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .admin-subscriptions-name-input {
+  border-color: var(--interactive-hover-border-dark);
+  background: var(--input-field-bg);
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .admin-subscriptions-row {
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-subscriptions-name {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .admin-subscriptions-meta {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-ai-form label {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .admin-ai-info {
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .admin-users-warning {
+  background: rgba(190, 24, 93, 0.16);
+  color: #fecdd3;
+  border-color: rgba(244, 114, 182, 0.35);
+}
+
+:root[data-theme='dark'] .admin-users-hint {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-user-profile-input {
+  border-color: var(--interactive-hover-border-dark);
+  background: var(--input-field-bg);
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .admin-user-must-pw-label {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-delete-email-label {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .admin-token-filters-panel {
+  background: color-mix(in srgb, var(--color-bg-app) 52%, transparent);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-token-filter-active-badge {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.14);
+}
+
+:root[data-theme='dark'] .admin-token-filter-hint {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .admin-token-user-log {
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
+}
+
+:root[data-theme='dark'] .admin-token-log-detail-table {
+  border-top-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .admin-token-user-log .admin-token-table-scroll {
+  border-top-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .account-settings-form label {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .account-settings-email-block > label {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .account-settings-panel p,
+:root[data-theme='dark'] .account-settings-saving {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-success {
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-error {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'] .account-settings-panel p.account-settings-email-pending {
+  color: #fcd34d;
+}
+
+:root[data-theme='dark'] .account-settings-subscription-block {
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .account-subscription-usage-card,
+:root[data-theme='dark'] .account-subscription-usage-meta {
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-soft, #1e293b) 88%, transparent);
+}
+
+:root[data-theme='dark'] .account-subscription-usage-card-headline {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .account-subscription-usage-card-subline,
+:root[data-theme='dark'] .account-subscription-usage-detail-row dt {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'] .account-subscription-usage-detail-row dd {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .account-settings-subscription-hint {
+  color: var(--color-text-muted);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-modal,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-sidebar,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-titlebar,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-body,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-card,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .rename-modal {
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-modal {
+  border-color: rgba(244, 114, 182, 0.28);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-titlebar,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-body {
+  border-color: rgba(244, 114, 182, 0.2);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-sidebar h2,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-sidebar-mobile-heading,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-titlebar h1,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-title-row-heading,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .personalize-subtitle,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .billing-settings-subtitle,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-section-title,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .setting-row-label,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-setting-copy h3,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-user-name {
+  color: #f8fafc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-card p,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-list,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-setting-copy p,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-user-email,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-user-empty,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-ai-form label,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-form label,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-saving {
+  color: #d1d5db;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-success {
+  color: #86efac;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-error {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .account-settings-panel p.account-settings-email-pending {
+  color: #fcd34d;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item--logout {
+  color: #fca5a5;
+  background: transparent;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item--logout:hover:enabled {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-section-divider,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-users-list,
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .admin-user-row {
+  border-color: rgba(244, 114, 182, 0.22);
+  background-color: transparent;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .general-language-trigger {
+  --squircle-fill: rgba(72, 22, 52, 0.26);
+  color: #f8fafc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-form input {
+  border-bottom-color: var(--input-field-border-idle);
+  background: var(--input-field-bg);
+  color: var(--input-field-text);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button:not(.ui-button) {
+  border-color: rgba(249, 168, 212, 0.35);
+  background: rgba(72, 22, 52, 0.48);
+  color: #f8fafc;
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay .rename-actions button:not(.ui-button):hover:enabled {
+  border-color: rgba(249, 168, 212, 0.52);
+  background: rgba(236, 72, 153, 0.32);
+}
+
+:root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-overlay input::placeholder {
+  color: #9ca3af;
+}
+
+/* `.personalize-theme-tile` und `.personalize-accent-swatch` sind hier bewusst ausgenommen: beide
+   sind flächenlos und zeigen ihre Auswahl über Radio-Kreis bzw. Ring, nicht über eine Kachelfläche. */
+
+/* Mobile Einstellungen: keine Listen-Hervorhebung (Hover + aktiver Eintrag). Steht nach allen Theme-Regeln. */
+@media (max-width: 860px) {
+  .settings-menu-item {
+    appearance: none;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    outline: none;
+  }
+
+  button.settings-menu-item,
+  button.settings-menu-item:hover,
+  button.settings-menu-item:active,
+  button.settings-menu-item:focus,
+  button.settings-menu-item:focus-visible {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .settings-menu-item:hover:enabled,
+  .settings-menu-item.is-active {
+    background: transparent;
+    border-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: var(--color-text-app);
+  }
+
+  .settings-menu-item:focus,
+  .settings-menu-item:focus-visible,
+  .settings-menu-item:active {
+    outline: none;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-theme='dark'] .settings-menu-item:hover:enabled,
+  :root[data-theme='dark'] .settings-menu-item.is-active {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-text-app);
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item:hover:enabled,
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item.is-active {
+    background: transparent;
+    border-color: transparent;
+    color: #f8fafc;
+  }
+
+  .settings-menu-item--logout,
+  .settings-menu-item--logout:hover:enabled,
+  .settings-menu-item--logout.is-active {
+    color: var(--color-danger-text, #b91c1c);
+  }
+
+  :root[data-theme='dark'] .settings-menu-item--logout,
+  :root[data-theme='dark'] .settings-menu-item--logout:hover:enabled {
+    color: var(--color-danger-text, #fca5a5);
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item--logout,
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .settings-menu-item--logout:hover:enabled {
+    color: #fca5a5;
+  }
+
+  button.settings-menu-item--logout:hover:enabled,
+  button.settings-menu-item--logout:active {
+    background: var(--color-danger-bg-soft, rgba(254, 226, 226, 0.45)) !important;
+  }
+
+  :root[data-theme='dark'] button.settings-menu-item--logout:hover:enabled,
+  :root[data-theme='dark'] button.settings-menu-item--logout:active {
+    background: var(--color-danger-bg-soft, rgba(127, 29, 29, 0.35)) !important;
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] button.settings-menu-item--logout:hover:enabled {
+    background: rgba(248, 113, 113, 0.22) !important;
+  }
+}
+
+.introduction-settings-panel,
+.introduction-editor {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.introduction-section-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background: var(--settings-modal-bg, #fff);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.introduction-section-title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--color-text-app, #0f172a);
+}
+
+.introduction-section-subtitle {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.introduction-settings-lead {
+  max-width: 42rem;
+}
+
+.introduction-modal {
+  width: min(520px, 100%);
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.introduction-modal-body {
+  padding: 1rem 1.25rem 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+
+.introduction-settings-meta {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: #64748b;
+}
+
+.introduction-settings-meta--muted {
+  font-style: italic;
+}
+
+.introduction-settings-feedback {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: #059669;
+}
+
+.introduction-editor-mode-switch {
+  --introduction-mode-pill-gap: 0.2rem;
+  --introduction-mode-pill-inset: 0.22rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--introduction-mode-pill-gap);
+  padding: var(--introduction-mode-pill-inset);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--input-field-bg, #f8fafc);
+  width: 100%;
+}
+
+.introduction-editor-mode-pill {
+  position: absolute;
+  top: var(--introduction-mode-pill-inset);
+  left: var(--introduction-mode-pill-inset);
+  width: calc((100% - (var(--introduction-mode-pill-inset) * 2) - var(--introduction-mode-pill-gap)) / 2);
+  height: calc(100% - (var(--introduction-mode-pill-inset) * 2));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 14%, var(--input-field-bg, #f8fafc));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.introduction-editor-mode-switch.is-questionnaire .introduction-editor-mode-pill {
+  transform: translateX(calc(100% + var(--introduction-mode-pill-gap)));
+}
+
+.introduction-editor-mode-btn {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  padding: 0.48rem 0.75rem;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition:
+    color 180ms ease,
+    font-weight 180ms ease;
+}
+
+.introduction-editor-mode-btn:hover:enabled:not(.is-active) {
+  color: var(--color-text-secondary, #475569);
+}
+
+.introduction-editor-mode-btn.is-active {
+  color: var(--color-accent, #6366f1);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .introduction-editor-mode-pill {
+    transition-duration: 80ms;
+  }
+}
+
+.introduction-editor-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.introduction-editor-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary, #475569);
+}
+
+.introduction-editor-textarea-shell textarea.ui-textarea {
+  min-height: 140px;
+}
+
+.introduction-editor-textarea-shell textarea.ui-textarea.introduction-editor-textarea--compact {
+  min-height: 118px;
+}
+
+.introduction-editor-questionnaire {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.introduction-editor-questionnaire .introduction-editor-field,
+.introduction-editor-questionnaire .account-settings-input-shell {
+  min-width: 0;
+}
+
+textarea.ui-textarea.introduction-editor-answer-textarea {
+  line-height: 1.45;
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+}
+
+.introduction-editor-char-count {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted, #94a3b8);
+  text-align: right;
+}
+
+.introduction-editor-actions,
+.introduction-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.introduction-modal-footer {
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  justify-content: flex-end;
+  background: var(--settings-modal-bg, #fff);
+}
+
+:root[data-theme='dark'] .introduction-section-header {
+  background: var(--settings-modal-bg);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .introduction-section-title {
+  color: var(--color-text-app);
+}
+
+:root[data-theme='dark'] .introduction-section-subtitle,
+:root[data-theme='dark'] .introduction-settings-lead {
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme='dark'] .introduction-modal-footer {
+  background: var(--settings-modal-bg);
+  border-color: var(--color-border);
+}
+
+:root[data-theme='dark'] .introduction-editor-mode-switch {
+  border-color: var(--color-border);
+  background: var(--input-field-bg);
+}
+
+:root[data-theme='dark'] .introduction-editor-mode-pill {
+  background: color-mix(in srgb, var(--color-accent, #6366f1) 18%, var(--input-field-bg));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme='dark'] .introduction-editor-mode-btn.is-active {
+  color: var(--color-accent, #818cf8);
+}
+
+:root[data-theme='dark'] .introduction-editor-label {
+  color: var(--color-text-secondary);
+}

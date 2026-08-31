@@ -1,0 +1,312 @@
+
+/* —— Home-Dashboard (Hauptbereich, wenn kein Chat aktiv & Lernpfade vorhanden sind) —— */
+
+.chat-main.is-home-dashboard-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-home-dashboard-active .chat-main-toolbar {
+  display: none !important;
+}
+
+.chat-main.is-home-dashboard-active .chat-home-dashboard {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+}
+
+.chat-home-dashboard {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+  padding: clamp(1.5rem, 2vw + 1rem, 3rem) clamp(1.25rem, 2vw + 0.75rem, 2.5rem);
+  text-align: left;
+}
+
+.chat-home-dashboard .chat-empty-title {
+  text-align: left;
+  justify-self: start;
+  margin: 0;
+  font-size: clamp(1.15rem, 0.7rem + 0.85vw, 1.8rem) !important;
+}
+
+/*
+ * Läuft bei jedem Mount des Dashboards (nicht an `is-page-enter` gekoppelt, da die Ansicht auch
+ * nach anfänglichem Laden der Lernpfade oder erneutem Navigieren dorthin erscheinen kann).
+ */
+.chat-home-dashboard > * {
+  opacity: 0;
+  animation: chat-ui-enter-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-home-dashboard > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.chat-home-dashboard > *:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.chat-home-dashboard > *:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.chat-home-dashboard > *:nth-child(4) {
+  animation-delay: 190ms;
+}
+
+.chat-home-dashboard > *:nth-child(5) {
+  animation-delay: 240ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-home-dashboard > * {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.chat-home-dashboard-subtitle {
+  margin: 0 0 0.9rem;
+  font-size: var(--fs-base);
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-home-continue-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-elevated, #ffffff);
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+/*
+ * `button:hover:enabled` in base.css (Typ-Selektor + zwei Pseudoklassen) ist spezifischer als eine
+ * reine Klassen-Regel wie `.chat-home-continue-card:hover` und würde deren Hover-Styles sonst
+ * überschreiben — deshalb hier zusätzlich `button` + `:enabled` mitgeben, um das zuverlässig zu
+ * schlagen.
+ */
+button.chat-home-continue-card:hover:enabled {
+  /*
+   * `.chat-home-continue-card` hat einen deckenden `background` (Kartenoptik) — `backdrop-filter`
+   * wirkt nur auf das, was HINTER einem Element sichtbar ist, bei einer deckenden Fläche gibt es
+   * da nichts zu filtern (Effekt bleibt unsichtbar). Deshalb hier `filter`, das die Fläche des
+   * Elements selbst abdunkelt.
+   */
+  background: var(--color-surface-elevated, #ffffff);
+  border-color: var(--color-border, #e2e8f0);
+  filter: brightness(0.94);
+}
+
+.chat-home-continue-card-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.chat-home-continue-card-label {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-home-continue-card-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--color-text-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-home-continue-card-meta {
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-home-continue-card-side {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chat-home-continue-card-arrow {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--color-text-muted, #64748b);
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transform: rotate(180deg);
+}
+
+.chat-home-due-flashcards-hint {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+/* Höhere Spezifität als `button:hover:enabled` in base.css nötig, siehe Kommentar oben bei .chat-home-continue-card. */
+button.chat-home-due-flashcards-hint:hover:enabled {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+}
+
+.chat-home-due-flashcards-hint-icon {
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  background: var(--color-accent, #6366f1);
+  -webkit-mask-image: url('../assets/icons/cards-filled.svg');
+  mask-image: url('../assets/icons/cards-filled.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.chat-home-due-flashcards-hint-text {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--color-text-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-home-due-flashcards-hint-arrow {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background: var(--color-text-muted, #64748b);
+  -webkit-mask-image: url('../assets/icons/chevron-left.svg');
+  mask-image: url('../assets/icons/chevron-left.svg');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transform: rotate(180deg);
+}
+
+.chat-home-paths-section {
+  width: 100%;
+  margin-top: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-home-paths-heading {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.chat-home-paths-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chat-home-path-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+  opacity: 0;
+  animation: chat-ui-enter-in 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(260ms + var(--chat-home-path-enter-index, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-home-path-row {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Höhere Spezifität als `button:hover:enabled` in base.css nötig, siehe Kommentar oben bei .chat-home-continue-card. */
+button.chat-home-path-row:hover:enabled {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: brightness(1.08);
+  -webkit-backdrop-filter: brightness(1.08);
+}
+
+.chat-home-path-row-ring {
+  flex-shrink: 0;
+  transform: scale(0.76);
+}
+
+.chat-home-path-row-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.chat-home-path-row-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-home-path-row-meta {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted, #64748b);
+}

@@ -1,0 +1,233 @@
+import type { ChatMessage } from '../types'
+import { getSecretSafetyInstruction } from './chatSecretSafety'
+import { userMessageRequestsDirectAnswer } from './chatDirectAnswerInstruction'
+import { userMessageWantsDocumentSummary } from './documentAttachmentIntent'
+import { userMessageWantsFolderSources } from './folderSourceIntent'
+import { stripComposerAttachmentBlocksForRouting } from '../utils/chatRoutingText'
+import { messageContainsCompleteThinkingClarifyBlock } from '../utils/thinkingClarify'
+import { detectLiveWebHeuristic } from './instantAnalyze'
+import { userMessageAsksAboutPriorSubscriptionUsage } from './chatSubscriptionUsageMarker'
+import { enrichThinkingAnalyzeDocumentCoverage, type ThinkingAnalyzeResult } from './thinkingAnalyze'
+import { resolveThinkingLayoutHint, resolveThinkingOutputTier } from './thinkingOutputTier'
+import { buildThinkingReviewBriefingForGateway, type ThinkingReviewResult } from './thinkingReview'
+
+/** OpenAI-Kette für alle Thinking-Schritte (Analyze, Entwurf, Review, Generate). */
+/** Fallback, wenn Gemini Instant global aus ist. */
+export const THINKING_OPENAI_MODEL_CHAIN = ['gpt-5-mini', 'gpt-4o-mini'] as const
+
+const FILE_BLOCK_RE = /\[Datei:\s*[^\]]+\]/i
+
+export function userMessageHasThinkingFileAttachment(content: string): boolean {
+  return FILE_BLOCK_RE.test(content)
+}
+
+/** Kurze Folgenachricht nach einer fertigen Thinking-Antwort (kein erneutes Interview). */
+export function isThinkingContinuationFollowUp(
+  userMessage: string,
+  messages: ChatMessage[],
+): boolean {
+  const trimmed = userMessage.trim()
+  if (!trimmed || trimmed.length > 140) {
+    return false
+  }
+  for (let i = messages.length - 2; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role === 'assistant') {
+      if (messageContainsCompleteThinkingClarifyBlock(m.content)) {
+        return false
+      }
+      return m.content.trim().length > 400
+    }
+  }
+  return false
+}
+
+function applyThinkingLiveWebHeuristic(
+  userMessage: string,
+  analyze: ThinkingAnalyzeResult,
+): ThinkingAnalyzeResult {
+  const trimmed = userMessage.trim()
+  const hasFile = userMessageHasThinkingFileAttachment(trimmed)
+  if (hasFile && analyze.task_type === 'document_summary') {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+  if (userMessageAsksAboutPriorSubscriptionUsage(trimmed)) {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+
+  const h = detectLiveWebHeuristic(trimmed)
+  if (h.needs) {
+    return {
+      ...analyze,
+      needs_live_web: true,
+      web_query: analyze.web_query.trim() || h.webQuery,
+      web_reason:
+        analyze.web_reason.trim() ||
+        (h.hasLegalCue && !h.hasMarketCue
+          ? 'Aktuelle Rechtslage / Gesetzesinfos'
+          : 'Aktuelle Fakten (z. B. Kurs, Preis, News)'),
+    }
+  }
+
+  if (!analyze.needs_live_web) {
+    return { ...analyze, web_query: '', web_reason: '' }
+  }
+  if (!analyze.web_query.trim()) {
+    return { ...analyze, needs_live_web: false, web_query: '', web_reason: '' }
+  }
+  return analyze
+}
+
+export function applyThinkingAnalyzeHeuristics(
+  userMessage: string,
+  analyze: ThinkingAnalyzeResult,
+  opts?: {
+    isContinuationFollowUp?: boolean
+    hasVisionAttachment?: boolean
+    hasDocumentFileAttachment?: boolean
+    availableFolderFileNames?: string[]
+  },
+): ThinkingAnalyzeResult {
+  const trimmed = userMessage.trim()
+  const hasFile =
+    userMessageHasThinkingFileAttachment(trimmed) || opts?.hasDocumentFileAttachment === true
+  const routingText = stripComposerAttachmentBlocksForRouting(trimmed)
+  const hasVision = opts?.hasVisionAttachment === true
+  const folderFileNames = opts?.availableFolderFileNames ?? []
+
+  let result: ThinkingAnalyzeResult
+
+  if (
+    hasFile &&
+    userMessageWantsDocumentSummary(routingText, true) &&
+    analyze.task_type !== 'document_summary'
+  ) {
+    result = {
+      ...analyze,
+      task_type: 'document_summary',
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (opts?.isContinuationFollowUp) {
+    result = {
+      ...analyze,
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (userMessageRequestsDirectAnswer(trimmed)) {
+    result = {
+      ...analyze,
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if ((hasFile || hasVision) && analyze.task_type === 'document_summary') {
+    result = {
+      ...analyze,
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (
+    !hasFile &&
+    folderFileNames.length > 0 &&
+    userMessageWantsFolderSources(trimmed, folderFileNames)
+  ) {
+    result = {
+      ...analyze,
+      task_type: 'document_summary',
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else if (hasVision && analyze.task_type === 'other') {
+    result = {
+      ...analyze,
+      task_type: 'document_summary',
+      needs_clarification: false,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+      intent: analyze.intent.trim() || 'Bildanhang auswerten',
+    }
+  } else if (!analyze.needs_clarification) {
+    result = {
+      ...analyze,
+      clarify_rounds_planned: 0,
+      missing_dimensions: [],
+    }
+  } else {
+    result = {
+      ...analyze,
+      clarify_rounds_planned: 1,
+      missing_dimensions: analyze.missing_dimensions.slice(0, 1),
+    }
+  }
+
+  const withCoverage = enrichThinkingAnalyzeDocumentCoverage(
+    userMessage,
+    applyThinkingLiveWebHeuristic(userMessage, result),
+  )
+  const output_tier = resolveThinkingOutputTier(withCoverage, userMessage)
+  const withTier = { ...withCoverage, output_tier }
+  return {
+    ...withTier,
+    layout_hint: resolveThinkingLayoutHint(withTier, userMessage),
+  }
+}
+
+export function buildThinkingDraftBriefingForGateway(draft: string): string {
+  const body = draft.trim()
+  if (!body) {
+    return ''
+  }
+  const clipped = body.length > 14_000 ? `${body.slice(0, 14_000)}\n… [Entwurf gekürzt]` : body
+  return [
+    'Thinking — Interner Entwurf (Grundlage für die sichtbare Antwort; nicht wörtlich kopieren wenn Lücken gemeldet):',
+    clipped,
+  ].join('\n')
+}
+
+export function buildThinkingPipelineBriefingForGateway(params: {
+  draft: string
+  review: ThinkingReviewResult
+}): string {
+  const parts = [
+    buildThinkingDraftBriefingForGateway(params.draft),
+    buildThinkingReviewBriefingForGateway(params.review),
+  ].filter(Boolean)
+  return parts.join('\n\n')
+}
+
+export function buildThinkingDraftSystemPrompt(): string {
+  return [
+    'Du erstellst einen INTERNEN ausführlichen Entwurf für den Straton-Thinking-Modus (Gemini 3.1 Flash Lite).',
+    'Der Nutzer sieht diesen Text nicht direkt — er wird später formatiert und veröffentlicht.',
+    'Nutze die Aufgabenanalyse: vollständige inhaltliche Lösung, alle wichtigen Schritte/Fakten, passend zu task_type.',
+    'Struktur grob mit ##-Überschriften; zwischen Hauptteilen `---`.',
+    'Kein Meta («Hier ist dein Entwurf»), kein Clarify-Block, keine Anpassungsfrage am Ende.',
+    'Bei Dokumenten/Anhängen: **integriertes Lernskript** — alle Themen/Fragen inhaltlich ausarbeiten; bei Arbeitsblättern **ohne** «Aufgabe:/Lösung:»-Labels.',
+    'VERBOTEN im Entwurf: «Das Dossier thematisiert…», reine Themenlisten, «Aufgabe:»/«Lösung (Muster):»-Paare, Aufgaben nur aufzählen.',
+    'Antworte nur mit dem Entwurf-Markdown (kein JSON).',
+  ].join('\n')
+}
+
+export function buildThinkingReviewSystemPrompt(): string {
+  return [
+    getSecretSafetyInstruction(),
+    'Du prüfst einen internen Thinking-Entwurf gegen die Nutzeranfrage und die Aufgabenanalyse.',
+    'Antworte ausschließlich mit einem JSON-Objekt (kein Markdown):',
+    '- fits_intent (boolean): erfüllt der Entwurf die Anfrage inhaltlich?',
+    '- gaps (string[], max 6): konkrete Lücken oder Fehler',
+    '- rewrite_hints (string, max 600 Zeichen): was die finale sichtbare Antwort noch verbessern muss',
+    '- summary (string, max 280 Zeichen): ein Satz Urteil',
+    'Sei streng bei leeren, generischen oder falschen Entwürfen.',
+    'Bei Zusammenfassung / layout_hint cards: fits_intent false, wenn nur «Dossier deckt/thematisiert/listet…» ohne Fakten aus dem Anhang.',
+    'Bei layout_hint cards oder document_summary: fits_intent false, wenn 3+ parallele Kategorien als Bullet-Liste oder rohe Markdown-Tabelle statt ```cards```.',
+    'rewrite_hints bei cards-Pflicht: explizit «```cards``` mit tone/badges je Kategorie» fordern.',
+    'Bei Arbeitsblatt/Übungen: fits_intent false, wenn nur «Aufgabe/Lösung»-Format statt integriertem Lerninhalt, oder Themen nicht ausgearbeitet.',
+    'fits_intent false bei abgeschnittenem Text (Callout/Lückentext/Frage ohne Antwort, Satz endet mitten im Wort).',
+    'gaps/rewrite_hints: fehlende **Inhalte**, **fehlende Aufgabenlösungen** und **unvollständige Abschnitte** nachfordern; mehr ```cards``` statt Fliesstext.',
+  ].join('\n')
+}

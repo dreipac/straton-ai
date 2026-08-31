@@ -1,0 +1,256 @@
+import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useDocumentThemeVariant } from '../../../hooks/useDocumentThemeVariant'
+import settingsIcon from '../../../assets/icons/settings-outlined.svg'
+import sidebarIcon from '../../../assets/icons/sidebar.svg'
+import statusIcon from '../../../assets/icons/status.svg'
+import type { LearnGenerationMode, LearningPathSummary } from '../services/learn.persistence'
+import { getDisplayPathTitle, isPendingLearningPathId } from '../utils/learnPageHelpers'
+import { hapticLightImpact } from '../../../utils/haptics'
+
+type ProfileLite = {
+  avatar_url?: string | null
+  first_name?: string | null
+  last_name?: string | null
+  is_superadmin?: boolean | null
+} | null
+
+export type LearnPageSidebarProps = {
+  isSidebarCollapsed: boolean
+  onToggleSidebar: () => void
+  onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
+  isCreateLearningPathDisabled?: boolean
+  isCreateLearningPathBusy?: boolean
+  onCreateLearningPathDisabledClick?: () => void
+  onOpenSettings: () => void
+  learningPaths: LearningPathSummary[]
+  enteringPathIds?: ReadonlySet<string>
+  activePathId: string
+  openPathMenuId?: string | null
+  onSelectLearningPath: (pathId: string) => void
+  onLearningPathContextMenu: (event: ReactMouseEvent, pathId: string) => void
+  onNavigateToChat: () => void
+  profile: ProfileLite
+  displayName: string
+  avatarFallback: string
+  subscriptionPlanName: string | null
+}
+
+export function LearnPageSidebar(props: LearnPageSidebarProps) {
+  const {
+    isSidebarCollapsed,
+    onToggleSidebar,
+    onCreateLearningPath,
+    isCreateLearningPathDisabled = false,
+    isCreateLearningPathBusy = false,
+    onCreateLearningPathDisabledClick,
+    onOpenSettings,
+    learningPaths,
+    enteringPathIds,
+    activePathId,
+    openPathMenuId = null,
+    onSelectLearningPath,
+    onLearningPathContextMenu,
+    onNavigateToChat,
+    profile,
+    displayName,
+    avatarFallback,
+    subscriptionPlanName,
+  } = props
+
+  const themeVariant = useDocumentThemeVariant()
+  const logoSrc = useMemo(() => {
+    const base = import.meta.env.BASE_URL
+    return themeVariant === 'pink-glass'
+      ? `${base}assets/logo/Straton-pink.png`
+      : `${base}assets/logo/Straton.png`
+  }, [themeVariant])
+
+  const expandFromCollapsed = () => {
+    hapticLightImpact()
+    onToggleSidebar()
+  }
+
+  // Superadmin: Auswahl KI vs. Platzhalter (Test ohne API-Kosten) beim Erstellen eines Lernpfads.
+  const canChooseGenerationMode = profile?.is_superadmin === true
+  const [isCreateModeMenuOpen, setIsCreateModeMenuOpen] = useState(false)
+
+  const handleCreateClick = () => {
+    if (isCreateLearningPathDisabled) {
+      onCreateLearningPathDisabledClick?.()
+      return
+    }
+    if (canChooseGenerationMode) {
+      setIsCreateModeMenuOpen((prev) => !prev)
+      return
+    }
+    onCreateLearningPath('ai')
+  }
+
+  const handleChooseCreateMode = (mode: LearnGenerationMode) => {
+    setIsCreateModeMenuOpen(false)
+    onCreateLearningPath(mode)
+  }
+
+  return (
+    <aside className={`chat-sidebar ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
+      <div className="chat-sidebar-top">
+        <div className="chat-sidebar-header-row">
+          {isSidebarCollapsed ? (
+            <button type="button" className="sidebar-logo-button" aria-label="Sidebar ausfahren" onClick={expandFromCollapsed}>
+              <img className="ui-icon chat-brand-logo chat-brand-logo-collapsed" src={logoSrc} alt="" aria-hidden="true" />
+            </button>
+          ) : (
+            <>
+              <div className="chat-brand">
+                <img className="ui-icon chat-brand-logo" src={logoSrc} alt="" aria-hidden="true" />
+                <h2>Lernbereich</h2>
+              </div>
+              <button type="button" className="sidebar-toggle-button" aria-label="Sidebar einklappen" onClick={() => onToggleSidebar()}>
+                <img className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon" src={sidebarIcon} alt="" aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
+        <div className="learn-sidebar-top-actions">
+          <div className="learn-new-path-wrap">
+            <button
+              type="button"
+              className={`ui-button ui-button-primary learn-sidebar-action-button${
+                isCreateLearningPathDisabled ? ' is-disabled' : ''
+              }${isCreateLearningPathBusy ? ' is-busy' : ''}`}
+              aria-disabled={isCreateLearningPathDisabled}
+              aria-busy={isCreateLearningPathBusy || undefined}
+              aria-expanded={canChooseGenerationMode ? isCreateModeMenuOpen : undefined}
+              onClick={handleCreateClick}
+              aria-label={isSidebarCollapsed ? 'Lernpfad erstellen' : undefined}
+            >
+              <span className="learn-sidebar-button-plus" aria-hidden="true">
+                +
+              </span>
+              {!isSidebarCollapsed ? <span className="learn-new-path-label">Lernpfad erstellen</span> : null}
+            </button>
+            {isCreateModeMenuOpen ? (
+              <>
+                <div
+                  className="learn-create-mode-backdrop"
+                  onClick={() => setIsCreateModeMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="learn-create-mode-menu" role="menu" aria-label="Lernpfad-Erstellmodus">
+                  <button
+                    type="button"
+                    className="learn-create-mode-option"
+                    role="menuitem"
+                    onClick={() => handleChooseCreateMode('ai')}
+                  >
+                    <span className="learn-create-mode-option-title">KI</span>
+                    <span className="learn-create-mode-option-meta">Normaler Lernpfad mit KI-Generierung</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="learn-create-mode-option"
+                    role="menuitem"
+                    onClick={() => handleChooseCreateMode('placeholder')}
+                  >
+                    <span className="learn-create-mode-option-title">Platzhalter</span>
+                    <span className="learn-create-mode-option-meta">Testablauf ohne API-Kosten</span>
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            className="ui-button ui-button-secondary learn-sidebar-action-button"
+            onClick={onNavigateToChat}
+            aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
+          >
+            <span className="learn-sidebar-button-plus" aria-hidden="true">
+              +
+            </span>
+            {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Chat</span> : null}
+          </button>
+        </div>
+        <button type="button" onClick={onOpenSettings} aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}>
+          <img className="ui-icon chat-sidebar-top-button-icon" src={settingsIcon} alt="" aria-hidden="true" />
+          {!isSidebarCollapsed ? 'Einstellungen' : null}
+        </button>
+      </div>
+
+      {!isSidebarCollapsed ? (
+        <div className="chat-thread-list">
+          <p className="thread-list-info">Lernpfade</p>
+          {learningPaths.map((path, index) => (
+            <div
+              key={path.sidebarListKey ?? path.id}
+              style={{ '--chat-thread-enter-index': index } as CSSProperties}
+              className={[
+                'chat-thread-row',
+                path.id === activePathId ? 'is-active' : '',
+                path.id === openPathMenuId ? 'has-open-menu' : '',
+                enteringPathIds?.has(path.id) ? 'is-entering' : '',
+                path.isPending ? 'is-pending' : '',
+                path.isRemoving ? 'is-removing' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              <button
+                type="button"
+                className={`chat-thread-item ${path.id === activePathId ? 'is-active' : ''}`}
+                disabled={isPendingLearningPathId(path.id) || path.isRemoving}
+                onClick={() => {
+                  if (path.isRemoving) {
+                    return
+                  }
+                  void onSelectLearningPath(path.id)
+                }}
+                onContextMenu={(event) => onLearningPathContextMenu(event, path.id)}
+              >
+                <span className="chat-thread-title">{getDisplayPathTitle(path.title)}</span>
+                {path.generationMode === 'placeholder' ? (
+                  <span className="learn-path-test-badge" aria-label="Platzhalter-Lernpfad (Test)">
+                    Test
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="chat-sidebar-bottom">
+        <div className={`learn-sidebar-account-combined${isSidebarCollapsed ? ' learn-sidebar-account-combined--profile-only' : ''}`}>
+          {!isSidebarCollapsed ? (
+            <button type="button" className="learn-mode-switch-button" onClick={onNavigateToChat}>
+              <img className="ui-icon chat-sidebar-top-button-icon" src={statusIcon} alt="" aria-hidden="true" />
+              <span className="learn-mode-switch-copy">
+                <span className="learn-mode-switch-title">Standardmodus</span>
+                <span className="learn-mode-switch-subtitle">Bereich wechseln</span>
+              </span>
+            </button>
+          ) : null}
+          <div className="account-profile-row">
+            <div className="account-profile chat-sidebar-profile-card">
+              {profile?.avatar_url ? (
+                <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+              ) : (
+                <div className="account-avatar-fallback">{avatarFallback}</div>
+              )}
+              {!isSidebarCollapsed ? (
+                <div className="account-meta">
+                  <div className="account-name-row">
+                    <p className="account-value">{displayName}</p>
+                    {profile?.is_superadmin ? <span className="account-admin-badge">Admin</span> : null}
+                  </div>
+                  {subscriptionPlanName ? <p className="account-subscription">{subscriptionPlanName}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  )
+}

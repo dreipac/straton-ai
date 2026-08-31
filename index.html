@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/logo/favicon-v4.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/logo/apple-touch-icon-v4.png" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual"
+    />
+    <!-- PWA / iOS: Inhalt bis unter Statusleiste & Dynamic Island; kein festes «Füll-Grau» -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Wird beim Start per JS an Theme angeglichen (#f3f5f9 / #0b0f14); Default Dark. -->
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="manifest" href="/manifest.webmanifest?v=4" />
+    <title>straton-ai</title>
+  </head>
+  <body>
+    <div id="root" class="app-boot-placeholder" aria-hidden="true"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

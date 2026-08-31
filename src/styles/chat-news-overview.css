@@ -1,0 +1,363 @@
+
+/* —— Updates & Neuigkeiten (Hauptbereich) —— */
+
+.chat-main.is-news-overview-active .chat-panel {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.chat-main.is-news-overview-active .chat-main-toolbar {
+  display: none !important;
+}
+
+.chat-main.is-news-overview-active .chat-news-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+}
+
+.chat-news-overview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 0.5rem 0 1.2rem;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+@keyframes chat-news-overview-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.chat-news-overview-inner {
+  /* Exakt dieselbe Breite (und damit Position) wie die *Nachrichtenspalte* des Chats
+     (`.chat-messages-inner` in chat.css: `width: min(980px, 100%); padding: 0 1.25rem;`) — nicht
+     die viel schmalere Eingabebox (`.chat-composer-stack`, 500–760px), die hier in einem früheren
+     Anlauf fälschlich als Referenz diente. 980px ist zugleich der Wert, den auch der Lernpfad für
+     seine Seitenbreite nutzt (`.learn-page-grid`, `max-width: 980px` in learn.css) — alle drei
+     Bereiche teilen sich also dieselbe Zahl. Ein früherer Versuch mit eigenem, asymmetrisch
+     gepolstertem Gutter für das Datums-Badge machte den Inhalt zusätzlich schmaler und nach
+     rechts verschoben; das Badge sitzt deshalb inline vor dem Titel (siehe
+     `.chat-news-overview-post-date-badge`) statt aussen zu hängen. */
+  --news-date-col: clamp(2.5rem, 1vw + 2.2rem, 2.75rem);
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 0.5rem 1.25rem 0;
+  box-sizing: border-box;
+}
+
+.chat-news-overview:not(.is-entering) .chat-news-overview-inner {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+}
+
+.chat-news-overview.is-entering .chat-news-overview-inner {
+  animation: chat-news-overview-enter 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-news-overview.is-mobile-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: var(--color-surface-app, #fff);
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 0 calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Gleiches horizontales Padding wie `.chat-messages-inner` bei `@media (max-width: 860px)`
+   (chat.css) — derselbe Breakpoint, an dem `.chat-news-overview.is-mobile-fullscreen` aktiv wird
+   (`COMPACT_MOBILE_SIDEBAR_MAX_PX`, chatPageConstants.ts). */
+.chat-news-overview.is-mobile-fullscreen .chat-news-overview-inner {
+  padding-right: 0.65rem;
+  padding-left: 0.65rem;
+}
+
+.chat-news-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+/* Gleiches Gewicht wie der Lernpfad-Titel (`.learn-page-title-text` in learn.css, ebenfalls 500). */
+.chat-news-overview-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 0.5vw + 1rem, 1.35rem);
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+
+.chat-news-overview-add-btn {
+  flex-shrink: 0;
+  min-height: 2.05rem !important;
+  padding: 0.35rem 0.85rem !important;
+  font-size: var(--fs-sm) !important;
+}
+
+/* Gleicher Tab-Look wie die Lernpfad-Reiter (`.learn-top-tabs`/`.learn-top-tab` in learn.css):
+   dünne Grundlinie über die volle Breite plus dickerer, akzentfarbener Abschnitt unter dem
+   aktiven Tab. Aktuell nur ein Jahrgang, daher ein einzelner (immer aktiver) Tab — er nimmt
+   bewusst nur ein Viertel der Breite ein (linksbündig), der Rest der Grundlinie bleibt frei für
+   künftige Jahrgänge. */
+.chat-news-overview-tabs {
+  --news-tab-count: 4;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  margin-bottom: 0.65rem;
+  position: relative;
+}
+
+.chat-news-overview-tabs::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-border) 85%, transparent);
+}
+
+.chat-news-overview-tabs::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent, #6366f1);
+  left: calc(var(--news-active-tab-index, 0) * (100% / var(--news-tab-count)));
+  right: calc(100% - (var(--news-active-tab-index, 0) + 1) * (100% / var(--news-tab-count)));
+}
+
+.chat-news-overview-tab {
+  appearance: none;
+  flex: 0 0 25%;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  padding: 0.2rem 0 0.62rem;
+  margin: 0;
+  font: inherit;
+  font-size: var(--fs-base);
+  font-weight: 400;
+  text-align: center;
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+
+.chat-news-overview-tab:hover:enabled {
+  background: transparent;
+  border-color: transparent;
+}
+
+.chat-news-overview-tab:hover:enabled:not(.is-active) {
+  color: var(--color-text-primary, #fff);
+}
+
+.chat-news-overview-tab.is-active {
+  color: var(--color-text-primary, var(--color-accent, #6366f1));
+}
+
+.chat-news-overview-body {
+  margin-top: clamp(1.25rem, 1.5vw + 0.85rem, 1.75rem);
+}
+
+.chat-news-overview-empty {
+  margin: 0.85rem 0 0;
+  font-size: var(--fs-md);
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-news-overview-error {
+  margin: 0.5rem 0 0;
+}
+
+/* Bewusst ohne Card-Look: die Posts stehen direkt auf dem Hintergrund, nur eine dezente
+   Trennlinie zwischen den Einträgen statt Rahmen/Box je Post. */
+.chat-news-overview-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-news-overview-post {
+  padding: 1.15rem 0;
+}
+
+.chat-news-overview-post + .chat-news-overview-post {
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+}
+
+.chat-news-overview-list .chat-news-overview-post:first-child {
+  padding-top: 0;
+}
+
+/* Datum als Kalender-Badge: Tag im angerundeten Quadrat, Monat darunter.
+   Standard/schmal (auch Mobile): inline direkt vor dem Titel, im normalen Fluss von
+   `.chat-news-overview-post-head` (dessen `align-items: flex-start` das Quadrat an der
+   Titel-Oberkante ausrichtet) — hier ist neben der auf Chat-Breite (980px, siehe
+   `.chat-news-overview-inner`) fixierten Spalte kein Platz für ein aussen hängendes Badge, ohne
+   sie zu verschieben oder zu verschmälern.
+   Ab einer breiten `.chat-main`-Spalte (`@container` weiter unten) hängt es dagegen — wie ursprünglich
+   gewünscht — links ausserhalb der Beitragsfläche, in dem dann übrigen Rand-Platz zwischen
+   `.chat-news-overview-inner` (bleibt bei 980px, unverändert) und dem `.chat-main`-Rand. */
+.chat-news-overview-post-date-badge {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--news-date-col);
+}
+
+/* Genug Rand-Platz links von der 980px-Spalte für Badge + Abstand (siehe `--news-date-col` in
+   `.chat-news-overview-inner`) erst ab `.chat-main` >= ~1120px: (1120 - 980) / 2 = 70px Rand pro
+   Seite, mehr als die ~44px Badge-Breite + Abstand brauchen. `.chat-news-overview-post-head`
+   liefert den Positionierungs-Kontext (statt z. B. `.chat-news-overview-post-content`), damit das
+   Badge immer an der Titelzeile ausgerichtet bleibt, auch wenn ein Bild (`.chat-news-overview-post-media`)
+   darüber steht. */
+@container straton-chat-main (min-width: 70rem) {
+  .chat-news-overview-post-head {
+    position: relative;
+  }
+
+  .chat-news-overview-post-date-badge {
+    position: absolute;
+    top: 0;
+    right: calc(100% + 0.85rem);
+  }
+}
+
+.chat-news-overview-post-date-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated, #f7f9fc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--color-text-app, #0f172a);
+}
+
+.chat-news-overview-post-date-month {
+  margin-top: 0.35rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text-muted, #64748b);
+}
+
+.chat-news-overview-post-media {
+  margin-bottom: 0.75rem;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-border, #e2e8f0) 35%, transparent);
+}
+
+.chat-news-overview-post-media img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.chat-news-overview-post-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.chat-news-overview-post-head-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-news-overview-post-admin-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.chat-news-overview-post-admin-btn {
+  padding: 0.42rem 0.72rem;
+  font-size: var(--fs-xs);
+}
+
+.chat-news-overview-post-delete-btn {
+  border: 1px solid color-mix(in srgb, var(--color-danger-text, #ef4444) 35%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0.42rem 0.72rem;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  background: transparent;
+  color: var(--color-danger-text, #ef4444);
+  cursor: pointer;
+}
+
+.chat-news-overview-post-delete-btn:hover:enabled {
+  background: color-mix(in srgb, var(--color-danger-text, #ef4444) 10%, transparent);
+}
+
+.chat-news-overview-post-delete-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.chat-news-overview-post-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-text-app, #0f172a);
+}
+
+.chat-news-overview-post-body {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  color: var(--color-text-secondary, #475569);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .chat-news-overview-post-media img {
+    max-height: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-news-overview:not(.is-entering) .chat-news-overview-inner {
+    opacity: 1;
+    transform: none;
+  }
+
+  .chat-news-overview-inner {
+    animation: none !important;
+  }
+}
