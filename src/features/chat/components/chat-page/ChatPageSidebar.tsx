@@ -47,7 +47,7 @@ type ChatPageSidebarProps = {
   isSettingsWorkspaceOpen: boolean
   isNewChatPending: boolean
   newChatTourRef: RefObject<HTMLButtonElement | null>
-  learnTourRef: RefObject<HTMLDivElement | null>
+  learnTourRef: RefObject<HTMLButtonElement | null>
   profileMenuRef: RefObject<HTMLDivElement | null>
   sidebarNewChatTouch: GlassPillTouch
   renderThreadRow: (thread: ChatThread, threadIndex: number) => ReactNode
@@ -215,10 +215,11 @@ export function ChatPageSidebar({
           {showLearningPathsInSidebar ? (
             <div className="learn-new-path-wrap">
               <button
+                ref={learnTourRef}
                 type="button"
                 className={`ui-button ui-button-primary learn-sidebar-action-button${
                   isLearnPathCreateDisabled ? ' is-disabled' : ''
-                }`}
+                }${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
                 aria-disabled={isLearnPathCreateDisabled}
                 aria-expanded={canChooseCreatePathMode ? isCreatePathModeMenuOpen : undefined}
                 onClick={handleCreatePathClick}
@@ -283,8 +284,6 @@ export function ChatPageSidebar({
           <div className="chat-thread-list">
             {showLearningPathsInSidebar ? (
               <ChatLearningPathsSidebarSection
-                sectionRef={learnTourRef}
-                tourHighlight={chatTourEligible}
                 learningPaths={learningPaths}
                 activePathId={activeLearnPathId}
                 openMenuPathId={openLearningPathMenuId}

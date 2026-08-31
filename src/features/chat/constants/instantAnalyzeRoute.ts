@@ -161,6 +161,16 @@ const PDF_EXPORT_TEXT_RE =
 const PDF_EXPORT_VERB_RE =
   /\b(?:erstell|generier|exportier|mach).{0,40}\bpdf\b|\bpdf.{0,40}\b(?:erstell|generier|exportier)\b/i
 
+/**
+ * Generisches «verfasse/schreibe/erstelle … in einem Dokument» OHNE genanntes Format
+ * (kein «Word»/«PDF»/«Excel»/«PowerPoint» — die haben oben eigene, präzisere Regexe, die zuerst
+ * geprüft werden). Default bei Treffer: Word, weil identischer Markdown-Body wie PDF und zusätzlich
+ * leicht weiterbearbeitbar. Braucht ein Erzeuger-Verb in der Nähe, sonst False-Positives bei
+ * «was steht in diesem Dokument» (siehe DOCUMENT_ATTACHMENT_READ_RE, hat bei Anhang Vorrang).
+ */
+const GENERIC_DOCUMENT_EXPORT_VERB_RE =
+  /\b(?:erstell|generier|exportier|verfass|schreib|formulier|mach).{0,40}dokument\b|dokument\b.{0,40}\b(?:erstell|generier|exportier|verfass)\b/i
+
 const EXCEL_EXPORT_TEXT_RE =
   /\b(?:excel[\s-]?(?:datei|tabelle|export)|xlsx|spreadsheet|tabelle\s+exportieren)\b/i
 const EXCEL_EXPORT_VERB_RE =
@@ -267,7 +277,8 @@ export function userRequestsDocumentExport(userMessage: string): boolean {
     EXCEL_EXPORT_TEXT_RE.test(t) ||
     EXCEL_EXPORT_VERB_RE.test(t) ||
     PPTX_EXPORT_TEXT_RE.test(t) ||
-    PPTX_EXPORT_VERB_RE.test(t)
+    PPTX_EXPORT_VERB_RE.test(t) ||
+    GENERIC_DOCUMENT_EXPORT_VERB_RE.test(t)
   )
 }
 
@@ -319,6 +330,9 @@ export function detectRouteHeuristic(
   }
   if (PPTX_EXPORT_TEXT_RE.test(t) || PPTX_EXPORT_VERB_RE.test(t)) {
     return { category: 'document', action: 'pptx_generate' }
+  }
+  if (GENERIC_DOCUMENT_EXPORT_VERB_RE.test(t)) {
+    return { category: 'document', action: 'word_generate' }
   }
   if (
     DIAGRAM_STRUCTURE_TEXT_RE.test(t) ||

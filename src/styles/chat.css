@@ -9227,6 +9227,17 @@
   pointer-events: auto;
 }
 
+/**
+ * Überschreibt gezielt nur .learn-chapter-hint-popover-icon-badge img (learn.css) — die Basisklasse
+ * zwingt jedes Icon per filter auf Weiss, richtig fürs Lernkapitel-Hint (dessen Icon absichtlich
+ * einfarbig auf dem Akzent-Verlauf sitzt). Die Onboarding-Tour will dasselbe Karten-Layout, aber das
+ * Icon in seiner echten Vollfarbe — deshalb hier zurückgesetzt statt die geteilte Klasse zu ändern.
+ */
+.chat-onboarding-popover-icon-badge img {
+  filter: none;
+  opacity: 1;
+}
+
 .chat-onboarding-popover-copy {
   flex: 1;
   min-width: 0;

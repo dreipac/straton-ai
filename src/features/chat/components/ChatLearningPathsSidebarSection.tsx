@@ -1,12 +1,10 @@
-import { useState, type CSSProperties, type RefObject, type MouseEvent as ReactMouseEvent } from 'react'
+import { useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { LearningPathSummary } from '../../learn/services/learn.persistence'
 import { getDisplayPathTitle, isPendingLearningPathId } from '../../learn/utils/learnPageHelpers'
 import { ChatSidebarSectionHeader } from './ChatSidebarSectionHeader'
 import { LearningPathProgressRing } from './LearningPathProgressRing'
 
 type ChatLearningPathsSidebarSectionProps = {
-  sectionRef?: RefObject<HTMLDivElement | null>
-  tourHighlight?: boolean
   learningPaths: LearningPathSummary[]
   activePathId: string | null
   onSelectLearningPath: (pathId: string) => void
@@ -15,8 +13,6 @@ type ChatLearningPathsSidebarSectionProps = {
 }
 
 export function ChatLearningPathsSidebarSection({
-  sectionRef,
-  tourHighlight = false,
   learningPaths,
   activePathId,
   onSelectLearningPath,
@@ -26,10 +22,7 @@ export function ChatLearningPathsSidebarSection({
   const [isSectionExpanded, setIsSectionExpanded] = useState(true)
 
   return (
-    <div
-      ref={sectionRef}
-      className={`chat-learning-paths-sidebar-section${tourHighlight ? ' chat-onboarding-tour-block' : ''}`}
-    >
+    <div className="chat-learning-paths-sidebar-section">
       <ChatSidebarSectionHeader
         title="Lernpfade"
         isExpanded={isSectionExpanded}

@@ -55,6 +55,14 @@ function parseOutline(raw: unknown): PdfOutlineV1 | null {
       blocks.push({ type: 'heading', level: lv, text })
     } else if (t === 'paragraph') {
       blocks.push({ type: 'paragraph', text: typeof b.text === 'string' ? b.text : '' })
+    } else if (t === 'list') {
+      if (!Array.isArray(b.items)) return null
+      const items = b.items
+        .map((it) => (typeof it === 'string' ? it : String(it ?? '')))
+        .map((it) => it.trim())
+        .filter(Boolean)
+      if (items.length === 0) return null
+      blocks.push({ type: 'list', ordered: b.ordered === true, items })
     } else if (t === 'table') {
       if (!Array.isArray(b.rows) || b.rows.length === 0) return null
       const rows: string[][] = []

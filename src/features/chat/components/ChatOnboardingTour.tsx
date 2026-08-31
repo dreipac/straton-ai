@@ -12,13 +12,13 @@ type ChatOnboardingTourProps = {
 
 const STEPS = [
   {
-    title: 'Neuer Chat',
-    body: 'Hier startest du jederzeit ein neues Gespräch mit Straton — pro Thema oder Aufgabe ein eigener Chat.',
+    title: 'Lernpfad erstellen',
+    body: 'Hier legst du einen neuen Lernpfad an.',
     action: 'Weiter',
   },
   {
-    title: 'Lernpfade',
-    body: 'Hier findest du deine Lernpfade in der Sidebar und kannst neue anlegen.',
+    title: 'Neuer Chat',
+    body: 'Hier startest du jederzeit ein neues Gespräch mit Straton — pro Thema oder Aufgabe ein eigener Chat.',
     action: 'Fertig',
   },
 ] as const
@@ -35,7 +35,7 @@ export function ChatOnboardingTour({
   const pendingCompleteRef = useRef(false)
 
   const getTargetEl = useCallback(() => {
-    return stepIndex === 0 ? newChatButtonRef.current : learnButtonRef.current
+    return stepIndex === 0 ? learnButtonRef.current : newChatButtonRef.current
   }, [stepIndex, newChatButtonRef, learnButtonRef])
 
   const updateGeometry = useCallback(() => {
@@ -206,7 +206,10 @@ export function ChatOnboardingTour({
         }}
       >
         <div className="learn-chapter-hint-popover-body">
-          <div className="learn-chapter-hint-popover-icon-badge" aria-hidden="true">
+          <div
+            className="learn-chapter-hint-popover-icon-badge chat-onboarding-popover-icon-badge"
+            aria-hidden="true"
+          >
             <img src={infoIcon} alt="" width={18} height={18} />
           </div>
           <div className="chat-onboarding-popover-copy">

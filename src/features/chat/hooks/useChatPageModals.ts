@@ -185,8 +185,15 @@ export function useChatPageModals({
   }, [closeIntroductionModal, introductionDraft, updateUserIntroduction])
 
   const deferIntroductionModal = useCallback(() => {
+    // Wie beim Speichern muss introduction_completed persistiert werden — sonst bleibt
+    // tourBlockedByIntroduction (useChatPageFeatureFlags.ts) dauerhaft aktiv und die
+    // Onboarding-Tour mit Backdrop startet nie, bis die Einführung doch noch ausgefüllt wird.
+    void updateUserIntroduction({ introduction_completed: true }).catch(() => {
+      // Einführungsstatus ist unkritisch — bei Fehlschlag bleibt die App nutzbar, die
+      // Einführung erscheint dann beim nächsten Login erneut.
+    })
     closeIntroductionModal()
-  }, [closeIntroductionModal])
+  }, [closeIntroductionModal, updateUserIntroduction])
 
   useEffect(() => {
     setIntroductionDraft(introductionValueFromProfile(profile))

@@ -499,7 +499,7 @@ export function ChatPage() {
   })
 
   const newChatTourRef = useRef<HTMLButtonElement | null>(null)
-  const learnTourRef = useRef<HTMLDivElement | null>(null)
+  const learnTourRef = useRef<HTMLButtonElement | null>(null)
   const hasHandledInitialLearnLandingRef = useRef(false)
 
   useEffect(() => {

@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'npm
 export type PdfBlock =
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
   | { type: 'paragraph'; text: string }
+  | { type: 'list'; ordered?: boolean; items: string[] }
   | { type: 'table'; rows: string[][]; header?: boolean }
 
 export type PdfOutlineV1 = {
@@ -84,6 +85,41 @@ function drawLines(
   return { ...next, y: next.y - BLOCK_GAP }
 }
 
+const LIST_MARKER_WIDTH = 16
+const LIST_MARKER_GAP = 6
+
+function drawList(ctx: LayoutCtx, items: string[], ordered: boolean): LayoutCtx {
+  let next = ctx
+  const textX = MARGIN_X + LIST_MARKER_WIDTH + LIST_MARKER_GAP
+  const maxWidth = CONTENT_WIDTH - LIST_MARKER_WIDTH - LIST_MARKER_GAP
+  const lineHeight = BODY_SIZE * 1.35
+  items.forEach((item, index) => {
+    const marker = ordered ? `${index + 1}.` : '•'
+    const lines = wrapText(item, maxWidth, next.fontRegular, BODY_SIZE)
+    lines.forEach((line, lineIdx) => {
+      next = ensureSpace(next, lineHeight + LINE_GAP)
+      if (lineIdx === 0) {
+        next.page.drawText(marker, {
+          x: MARGIN_X,
+          y: next.y - BODY_SIZE,
+          size: BODY_SIZE,
+          font: next.fontRegular,
+          color: rgb(0.12, 0.14, 0.18),
+        })
+      }
+      next.page.drawText(line, {
+        x: textX,
+        y: next.y - BODY_SIZE,
+        size: BODY_SIZE,
+        font: next.fontRegular,
+        color: rgb(0.12, 0.14, 0.18),
+      })
+      next = { ...next, y: next.y - lineHeight - LINE_GAP }
+    })
+  })
+  return { ...next, y: next.y - BLOCK_GAP }
+}
+
 function drawTable(ctx: LayoutCtx, rows: string[][], header: boolean): LayoutCtx {
   if (rows.length === 0) return ctx
   const colCount = Math.max(...rows.map((r) => r.length))
@@ -155,6 +191,8 @@ export async function buildPdfFromOutline(outline: PdfOutlineV1): Promise<Uint8A
         fontRegular,
         rgb(0.12, 0.14, 0.18),
       )
+    } else if (block.type === 'list') {
+      ctx = drawList(ctx, block.items, block.ordered === true)
     } else if (block.type === 'table') {
       ctx = drawTable(ctx, block.rows, block.header === true)
     }

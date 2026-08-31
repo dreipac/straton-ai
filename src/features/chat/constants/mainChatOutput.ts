@@ -3,7 +3,7 @@
  * Senkt Output-Kosten; gleichen Wert nutzt die Edge für OpenAI (`max_completion_tokens`/`max_tokens`).
  */
 /** Instant: adaptiver Umfang (einfach kurz, komplex tiefer); Obergrenze für lange Diagnosen. */
-export const MAIN_CHAT_MAX_OUTPUT_TOKENS = 2048
+export const MAIN_CHAT_MAX_OUTPUT_TOKENS = 6144
 
 /** Instant — Aufgabentyp summary: ausführliche Kapitel-Zusammenfassungen (Schulblätter mit vielen Aufgaben). */
 export const MAIN_CHAT_SUMMARY_MAX_OUTPUT_TOKENS = 16384
