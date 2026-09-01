@@ -422,6 +422,49 @@ export function proposeMerge(args: {
   return proposal
 }
 
+/**
+ * Vorschlag zum Zusammenlegen, so wie der Konsolidierer ihn formuliert hat.
+ *
+ * Der Unterschied zu `proposeMerge` ist nicht technisch, sondern die Herkunft der Behauptung, und
+ * genau die steht in `evidence`:
+ *  - `proposeMerge` stuetzt sich auf Wortueberlappung — nachrechenbar, aber blind fuer zwei Namen
+ *    ohne gemeinsames Wort.
+ *  - Hier hat ein Modell geurteilt, dass zwei Begriffe dasselbe MEINEN. Das findet mehr und laesst
+ *    sich nicht nachrechnen; deshalb wird die Frage vom Modell selbst formuliert (es kennt den
+ *    Grund) und der Nutzer entscheidet wie bei jeder Verschmelzung (I6).
+ *
+ * Die IDs sind vom Aufrufer bereits gegen den Graphen geprueft — eine halluzinierte ID darf hier
+ * nicht mehr ankommen.
+ */
+export function proposeMergeFromInsight(args: {
+  userId: string
+  pathId: string
+  keepConceptId: string
+  mergeConceptId: string
+  question: string
+  rationale: string
+  nowIso: string
+}): StructureProposal {
+  const proposal: StructureProposal = {
+    userId: args.userId,
+    pathId: args.pathId,
+    operation: 'mergeConcepts',
+    payload: { keepConceptId: args.keepConceptId, mergeConceptId: args.mergeConceptId },
+    evidence: { source: 'konsolidierer' },
+    question: args.question,
+    rationale:
+      args.rationale.trim() ||
+      'Beide beschreiben offenbar dieselbe Sache. Wenn ich sie zusammenlege, gilt der vorsichtigere ' +
+        'der beiden Werte.',
+    requiresConfirmation: true,
+    status: 'pending',
+    surfaceContext: 'mapReview',
+    expiresAt: expiryFrom(args.nowIso),
+  }
+  assertProposalSafe(proposal)
+  return proposal
+}
+
 /** Vorschlag fuer eine entdeckte Voraussetzungskante — umkehrbar, laeuft automatisch. */
 export function proposeEdge(args: {
   userId: string

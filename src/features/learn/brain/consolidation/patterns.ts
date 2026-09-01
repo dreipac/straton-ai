@@ -239,9 +239,22 @@ export function upsertPattern(args: {
   existing: ErrorPattern | null
   userId: string
   nowIso: string
+  /**
+   * Der Name, den der Konsolidierer fuer dieses Muster vorgeschlagen hat — nur fuer die TAUFE.
+   *
+   * `nameFor` baut „Verwechselt <Objekt>" aus der halbstrukturierten Form. Das ist richtig, aber
+   * steif; der Rollenauftrag verlangt einen Satz, den die Person ueber sich selbst versteht.
+   * Deshalb darf das Modell den Namen setzen — aber nur einmal, bei der Entstehung.
+   *
+   * I12 bleibt dabei unberuehrt, und zwar durch die Reihenfolge unten: ein bestehender Name
+   * gewinnt IMMER, auch gegen einen besseren Vorschlag. Ein Muster, das sich umbenennt, weil das
+   * Modell heute anders formuliert als letzte Woche, waere fuer den Nutzer ein neues Muster.
+   */
+  preferredName?: string
 }): ErrorPattern {
   const { candidate, existing, userId, nowIso } = args
-  const name = existing?.name ?? nameFor(candidate)
+  const suggested = args.preferredName?.trim().slice(0, 120) ?? ''
+  const name = existing?.name ?? (suggested.length > 0 ? suggested : nameFor(candidate))
 
   if (existing) {
     assertPatternNameStable(existing.name, name)

@@ -424,6 +424,80 @@ Wissensfrage. `parseAufbereiterResult` prueft deshalb nur, dass eine Wissensfrag
 eine Herkunftsangabe hat, nicht ob die Einordnung stimmt. Diese Grenze zu kennen ist besser, als
 sie mit Stichwortlisten zu verwischen.
 
+### 11. Ein Konzept zweimal, mit zwei Beherrschungswerten
+
+**Der Befund.** Im Pfad standen Konzepte doppelt — gleicher Name, verschiedene Werte. Die
+Datenbank kann das gar nicht anders: `learn_concepts` ist auf `(path_id, slug)` eindeutig, also
+waren es nie zwei Zeilen desselben Konzepts, sondern zwei verschiedene Konzepte mit demselben
+Namen. **Die Identitaet eines Konzepts ist der Slug, sichtbar ist der Name — und der Name wurde
+nirgends geprueft.**
+
+Der Zwilling entsteht in der abschnittsweisen Ingestion. Jeder Abschnitt geht einzeln an den
+Kartografen, ohne zu wissen, was die anderen gefunden haben. Der Slug ist dabei eine freie
+Erfindung des Modells (der Auftrag verlangt nur „kebab-case"), der Name dagegen ist gebunden: er
+MUSS der Begriff sein, der im Beleg woertlich vorkommt. Behandelt ein Dossier dasselbe Thema auf
+Seite 3 und Seite 11, liefern beide Abschnitte verlaesslich denselben NAMEN und verschiedene
+SLUGS. `mergeConceptGraphs` verglich nur Slugs und liess beide durch.
+
+Dass die Werte auseinanderlaufen, ist danach kein zweiter Fehler, sondern I1 bei der Arbeit: zwei
+Knoten, zwei Lernerbilder, keine Kante dazwischen, also keine Propagation. Der Planer sieht einen
+unberuehrten Knoten und fragt nach etwas, das die Person laengst beantwortet hat.
+
+**Zwei Reparaturen, absichtlich verschieden streng.**
+
+*Verhindern* — `mergeConceptGraphs` dedupliziert jetzt zusaetzlich ueber den normalisierten Namen.
+Das ist ein EXAKTER Vergleich, keine Aehnlichkeitsschaetzung: zwei nur aehnliche Namen duerfen
+hier nicht stillschweigend zusammenfallen, denn das waere eine inhaltliche Entscheidung. Die
+Kanten des eingeschmolzenen Zwillings werden auf den ueberlebenden Knoten umgehaengt — ohne das
+verloeren sie ihr Ziel und fielen weg. Nebenbei geschlossen: der Einzelabschnitts-Pfad lief bis
+dahin ganz ohne Deduplizierung, und weder `parseConceptGraphFromText` noch
+`parseCartographerResult` faengt doppelte Slugs vollstaendig ab — eine Modellantwort mit zwei
+gleichen Slugs haette die Eindeutigkeit verletzt und damit den GANZEN Einfuegevorgang scheitern
+lassen, der Pfad waere ohne jedes Konzept geblieben.
+
+*Aufraeumen* — die Konsolidierung wird jetzt tatsaechlich gestartet (`services/
+brainConsolidationRun.ts`, angestossen am Sitzungsende in `useBrainPath.refreshAfterSession`).
+Sie war vollstaendig gebaut und nie gelaufen: Ausloeser, Wertregeln, Kandidatensuche,
+Vorschlagsbau, Persistenz, Bestaetigungsdialog und Ruecknahmeprotokoll standen da, aber
+`evaluateTrigger` hatte keine Aufrufstelle und die Rolle „konsolidierer" wurde nie gefragt —
+derselbe Zustand, in dem der Kartograf vor Eintrag 10 war. Das ist der eigentliche Befund hinter
+dem Symptom: es gab keinen Mechanismus, der aufraeumt, also wurde es mit jedem Material
+schlimmer statt besser.
+
+**Warum die Rolle trotz deterministischer Fassung gebraucht wird.** `findMergeCandidates`
+vergleicht Wortmengen (Jaccard, Schwelle 0.6). Das trifft den haeufigsten Fall — identische oder
+fast identische Namen, also genau die bereits gespeicherten Zwillinge — und ist dabei
+nachrechenbar. Es findet „Steuerprogression" neben „Progressive Besteuerung" NICHT, weil kein
+Wort geteilt wird. Genau diese Faelle sind der Grund fuer den Konsolidierer. Beide Quellen
+speisen dieselbe Auswahl, und der belegbare Namenstreffer bekommt den knappen Platz zuerst.
+
+**Was der Lauf tut, nach der Unterscheidung aus Kapitel 8.2** — umkehrbar gegen zerstoererisch,
+nicht gross gegen klein:
+
+| Operation | Weg | Obergrenze je Lauf |
+|---|---|---|
+| Verschmelzen | Frage an den Nutzer (I6), Anzeige nur ausserhalb der Sitzung (I7) | 2 |
+| Voraussetzungskante | automatisch angewandt, protokolliert mit Ruecknahme | 2 |
+| Aufspalten | nur gezaehlt — kein Ausfuehrungsweg vorhanden | — |
+
+Die Obergrenzen sind keine Vorsicht, sondern Rechenwerk am Nutzer: eine Verschmelzungsfrage ist
+eine Entscheidung ueber das eigene Material, und fuenf davon nebeneinander werden nicht fuenfmal
+beantwortet, sondern einmal weggeklickt — was nach Kapitel 3.7 ein dauerhaftes Nein ist.
+
+**Die Sperrmenge** (`suppressionKeys`) verhindert das Wiederkommen: jeder je gestellte Vorschlag
+sperrt sein Paar, unabhaengig vom Ausgang. Ohne sie waere das Nein des Nutzers folgenlos — die
+Kandidatensuche ist deterministisch und faende denselben Kandidaten alle sechs Stunden erneut.
+Zusaetzlich gesperrt sind Paare mit einer Voraussetzungskante zwischen ihnen: gerade enge
+Nachbarn („Einnahmen des Bundes" / „Einnahmen des Bundes berechnen") haben hohe Wortueberlappung
+UND eine echte Abhaengigkeit, und eine Verschmelzung wuerde die dauerhaft loeschen.
+
+**Der Prompt des Konsolidierers** sagte bisher nicht, was in `payload` gehoert (`"payload":{}`) —
+seine Verschmelzungsvorschlaege waeren also selbst dann unbrauchbar gewesen, wenn ihn jemand
+gefragt haette. Er nennt jetzt beide Konzept-IDs; `readInsights` prueft sie gegen den echten
+Graphen und verwirft, was erfunden ist. Cache-Schluessel auf `-v2` gehoben, beide Kopien
+woertlich gleich.
+
+
 ---
 
 ## Zwei Entscheidungen, die nicht einzeln geaendert werden duerfen
@@ -459,8 +533,12 @@ Ehrlich benannt, damit sie niemanden ueberraschen:
   „niemand schafft B, der A nicht hat" — mit einem geteilten Strukturlayer waere die Aussage
   statistisch belastbarer. Bis dahin ist die Schwelle bewusst hoch gesetzt (sechs gepaarte
   Beobachtungen, 40 Prozent Unterschied in der Fehlerquote).
-- **Der Konsolidierer wird nicht automatisch angestossen.** `evaluateTrigger` sagt, *ob* ein Lauf
-  faellig ist; wer ihn ausloest, ist noch nicht verdrahtet — das gehoert an den Sitzungsbeginn.
+- **Aufspalten wird erkannt, aber nicht vorgeschlagen.** `findSplitCandidates` laeuft im
+  Konsolidierungslauf mit und landet in dessen Zusammenfassung; ein Vorschlag entsteht daraus
+  nicht. Der Grund ist kein Zoegern, sondern ein fehlender Ausfuehrungsweg: eine Aufspaltung muss
+  zwei NEUE Konzepte anlegen, und wie die Haelften heissen, weiss nur, wer das Material gelesen
+  hat. Weder `services/` kann das ausfuehren noch haette die Zustimmung des Nutzers einen
+  Empfaenger. Eine Frage zu stellen, deren Ja folgenlos bleibt, waere schlimmer als zu schweigen.
 - **„Spaeter" ueberlebt keinen Seitenwechsel.** Die Zurueckweisung wirkt sofort auf die Auswahl
   des Planers, wird aber nicht gespeichert. Das ist vertretbar, weil „spaeter" „jetzt nicht"
   heisst und der naechste Besuch ein neues Jetzt ist — eine dauerhafte Ablage braeuchte eine
@@ -481,7 +559,10 @@ Ehrlich benannt, damit sie niemanden ueberraschen:
 2. **Vertikaler Durchstich am echten Bildschirm**: ein Pfad mit eingelesenem Material, eine
    Sitzung von der Jetzt-Karte bis zur Abschlussbilanz. Der Kreislauf ist verdrahtet; was fehlt,
    ist ein Lauf mit echten Modellantworten.
-3. **Konsolidierung anstossen** am Sitzungsbeginn — `evaluateTrigger` sagt, *ob* ein Lauf faellig
-   ist; wer ihn ausloest, ist weiterhin nicht verdrahtet.
-4. **Rollen-Qualitaetstests** gegen echte Modelle, sobald der Durchstich Daten liefert.
-5. **Kostensteuerung**, sobald der Echtbetrieb zeigt, welche Rolle wie viel kostet.
+3. **Ersten Konsolidierungslauf beobachten** — er braucht acht Evidenzgewicht (rund acht
+   bewertete Aufgaben) und laeuft dann am Sitzungsende. Interessant ist, ob die
+   Verschmelzungsfragen die richtigen Paare treffen.
+4. **Aufspaltung ausfuehrbar machen** — die Erkennung steht, der Weg zum Anlegen der beiden
+   Haelften fehlt (siehe „Bekannte Grenzen").
+5. **Rollen-Qualitaetstests** gegen echte Modelle, sobald der Durchstich Daten liefert.
+6. **Kostensteuerung**, sobald der Echtbetrieb zeigt, welche Rolle wie viel kostet.

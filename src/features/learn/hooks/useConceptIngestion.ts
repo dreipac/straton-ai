@@ -188,7 +188,16 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
             args.materials,
             { maxChunks: 8, maxChars: 6000 },
           )
-          graph = await ingestContext(ctx, topicHint || 'Material')
+          /*
+           * Auch der Einzelabschnitt laeuft durch die Zusammenfuehrung, obwohl es nichts
+           * zusammenzufuehren gibt. Sie ist die einzige Stelle, an der Slug- UND Namensdoppelungen
+           * entfernt werden — und weder `parseConceptGraphFromText` noch `parseCartographerResult`
+           * tun das vollstaendig. Ohne diesen Durchlauf koennte eine einzelne Antwort mit zwei
+           * gleichen Slugs die Eindeutigkeit von `learn_concepts` verletzen und damit den GANZEN
+           * Einfuegevorgang scheitern lassen: der Pfad haette dann gar kein Konzeptnetz.
+           */
+          const single = await ingestContext(ctx, topicHint || 'Material')
+          graph = single ? mergeConceptGraphs([single]) : null
         } else {
           const graphs: IngestedGraph[] = []
           for (let i = 0; i < sections.length && !cancelled; i += INGEST_CONCURRENCY) {

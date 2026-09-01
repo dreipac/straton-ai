@@ -613,11 +613,18 @@ Nenne nur, was die Daten zeigen, nicht was du fuer sinnvoll haeltst.
 - Aufspalten: ein Konzept umfasst erkennbar zwei verschiedene Faehigkeiten.
 Schlage nichts vor, wofuer du keinen Beleg in den gelieferten Daten nennen kannst.
 
+Die IDs im payload stammen WOERTLICH aus der gelieferten Konzeptliste. Eine erfundene oder
+abgewandelte ID macht den Vorschlag unbrauchbar — er wird dann verworfen, nicht nachgebessert.
+Bei "merge_concepts" ist keepConceptId der Knoten, dessen Name die Sache genauer trifft; der
+andere geht in ihm auf.
+
 Antwortformat
 {"patterns":[{"name":"...","kind":"confused|omitted|misapplied|overlooked","object":"...",
 "observationIds":["..."]}],
-"proposals":[{"operation":"merge_concepts"|"split_concept","payload":{},"question":"...",
-"rationale":"...","evidence":{}}]}`,
+"proposals":[{"operation":"merge_concepts","payload":{"keepConceptId":"...","mergeConceptId":"..."},
+"question":"...","rationale":"...","evidence":{}},
+{"operation":"split_concept","payload":{"conceptId":"..."},"question":"","rationale":"...",
+"evidence":{}}]}`,
 
   erklaerer: `${COMMON_HEADER}
 
@@ -653,7 +660,7 @@ export const BRAIN_PROMPT_CACHE_KEYS: Record<BrainRole, string> = {
   pruefer: 'straton-brain-pruefer-v1',
   generator: 'straton-brain-generator-v7',
   kontrolleur: 'straton-brain-kontrolleur-v7',
-  konsolidierer: 'straton-brain-konsolidierer-v1',
+  konsolidierer: 'straton-brain-konsolidierer-v2',
   erklaerer: 'straton-brain-erklaerer-v1',
 }
 

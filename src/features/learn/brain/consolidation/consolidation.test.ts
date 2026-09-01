@@ -639,3 +639,84 @@ describe('Protokollpflicht (Kapitel 8.4)', () => {
     expect(undo.mergedConceptSnapshot).toBeDefined()
   })
 })
+
+describe('upsertPattern — der Name des Konsolidierers (Kapitel 10, Invariante I12)', () => {
+  const beobachtung = (id: string, conceptId: string, tag: string) => ({
+    id,
+    conceptId,
+    kind: 'confused' as const,
+    object: 'Netz- und Broadcast-Adresse',
+    rawDescription: 'hat die beiden vertauscht',
+    subject: 'Netzwerke',
+    occurredAt: `2026-08-${tag}T09:00:00.000Z`,
+  })
+
+  const kandidat = () =>
+    groupObservations([
+      beobachtung('o1', 'c1', '01'),
+      beobachtung('o2', 'c2', '02'),
+      beobachtung('o3', 'c1', '03'),
+      beobachtung('o4', 'c3', '04'),
+    ])[0]
+
+  it('tauft ein NEUES Muster auf den Namen des Modells', () => {
+    const pattern = upsertPattern({
+      candidate: kandidat(),
+      existing: null,
+      userId: 'u1',
+      nowIso: '2026-09-01T10:00:00.000Z',
+      preferredName: 'Verwechselt Netz- und Broadcast-Adresse',
+    })
+    expect(pattern.name).toBe('Verwechselt Netz- und Broadcast-Adresse')
+  })
+
+  it('faellt ohne Vorschlag auf die feste Satzform zurueck', () => {
+    const pattern = upsertPattern({
+      candidate: kandidat(),
+      existing: null,
+      userId: 'u1',
+      nowIso: '2026-09-01T10:00:00.000Z',
+    })
+    expect(pattern.name).toBe(nameFor(kandidat()))
+  })
+
+  it('behandelt einen leeren Vorschlag wie keinen', () => {
+    const pattern = upsertPattern({
+      candidate: kandidat(),
+      existing: null,
+      userId: 'u1',
+      nowIso: '2026-09-01T10:00:00.000Z',
+      preferredName: '   ',
+    })
+    expect(pattern.name).toBe(nameFor(kandidat()))
+  })
+
+  it('aendert den Namen eines BESTEHENDEN Musters nicht — auch nicht fuer einen besseren (I12)', () => {
+    const bestehend: ErrorPattern = {
+      id: 'p1',
+      userId: 'u1',
+      name: 'Verwechselt Adressen',
+      kind: 'confused',
+      object: 'Netz- und Broadcast-Adresse',
+      scope: 'domainSpecific',
+      subjects: ['Netzwerke'],
+      distinctConceptCount: 2,
+      occurrenceCount: 3,
+      distinctDayCount: 3,
+      surfaced: true,
+      userDisputed: false,
+      mergedIntoId: null,
+      firstSeenAt: '2026-07-01T00:00:00.000Z',
+      lastSeenAt: '2026-08-01T00:00:00.000Z',
+    }
+
+    const pattern = upsertPattern({
+      candidate: kandidat(),
+      existing: bestehend,
+      userId: 'u1',
+      nowIso: '2026-09-01T10:00:00.000Z',
+      preferredName: 'Ein viel schoenerer Name',
+    })
+    expect(pattern.name).toBe('Verwechselt Adressen')
+  })
+})

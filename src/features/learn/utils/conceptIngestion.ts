@@ -272,21 +272,68 @@ function mergeSourceRef(a: IngestedSourceRef, b: IngestedSourceRef): IngestedSou
 
 /**
  * Mehrere Teil-Konzeptnetze (aus der abschnittsweisen Map-Reduce-Ingestion) zu EINEM Netz zusammenfuehren.
- *  - Konzepte werden per Slug dedupliziert: laengere Beschreibung gewinnt, hoechste Schwierigkeit gewinnt,
- *    Quellen-Referenzen werden vereinigt; die Reihenfolge (≈ Dokumentreihenfolge) bleibt erhalten.
+ *  - Konzepte werden dedupliziert — per Slug UND per Name: laengere Beschreibung gewinnt, hoechste
+ *    Schwierigkeit gewinnt, Quellen-Referenzen werden vereinigt; die Reihenfolge (≈ Dokumentreihenfolge)
+ *    bleibt erhalten.
  *  - Bei Ueberschreiten von CONCEPT_INGESTION_MAX_CONCEPTS werden die zuletzt gesehenen Konzepte verworfen.
  *  - Kanten werden vereinigt, auf ueberlebende Slugs gefiltert, Selbst-/Doppelkanten entfernt.
+ *
+ * Warum der Name als ZWEITER Schluessel noetig ist
+ * -----------------------------------------------
+ * Die Ingestion liest abschnittsweise, und jeder Abschnitt geht einzeln an den Kartografen — ohne
+ * zu wissen, welche Konzepte die anderen Abschnitte bereits gefunden haben. Der Slug ist dabei eine
+ * freie Erfindung des Modells (der Auftrag verlangt nur „kebab-case"), der Name dagegen ist
+ * gebunden: er MUSS der Begriff sein, der im Beleg woertlich vorkommt. Behandelt ein Dossier
+ * dasselbe Thema auf Seite 3 und Seite 11, liefern beide Abschnitte deshalb verlaesslich denselben
+ * NAMEN und typischerweise verschiedene SLUGS.
+ *
+ * Die Folge einer reinen Slug-Deduplizierung war ein Zwillingspaar in der Datenbank: fuer
+ * `learn_concepts` zwei Zeilen (die Eindeutigkeit greift auf `(path_id, slug)`), fuer den Nutzer
+ * zweimal derselbe Name — mit zwei getrennten Lernerbildern und damit zwei auseinanderlaufenden
+ * Beherrschungswerten, weil Evidenz nach Invariante I1 nur am eigenen Knoten zaehlt.
+ *
+ * Verglichen wird der NORMALISIERTE Name (`normalizeConceptSlug`), nicht der rohe: „Steuereinnahmen"
+ * und „steuereinnahmen." sind derselbe Begriff. Das ist bewusst ein exakter Vergleich und keine
+ * Aehnlichkeitsschaetzung — zwei nur AEHNLICHE Namen duerfen hier nicht stillschweigend
+ * zusammenfallen, denn das waere eine inhaltliche Entscheidung. Die trifft der Konsolidierer, und
+ * er trifft sie als Frage an den Nutzer (Invariante I6).
  */
 export function mergeConceptGraphs(graphs: IngestedGraph[]): IngestedGraph {
   const bySlug = new Map<string, IngestedConcept>()
   const order: string[] = []
+  /** Normalisierter Name -> Slug des Knotens, der ihn zuerst getragen hat. */
+  const slugByName = new Map<string, string>()
+  /**
+   * Eingelieferter Slug -> ueberlebender Slug. Ohne diese Abbildung verloeren die Kanten der
+   * eingeschmolzenen Zwillinge ihr Ziel und wuerden im Kantendurchlauf ersatzlos weggefiltert —
+   * die Voraussetzungen des Zwillings waeren damit verschwunden, obwohl sein Inhalt erhalten blieb.
+   */
+  const canonicalBySlug = new Map<string, string>()
+
+  const rememberName = (name: string, slug: string) => {
+    const key = normalizeConceptSlug(name)
+    // Nie ueberschreiben: ein bereits vergebener Namensschluessel zeigt auf den frueheren Knoten,
+    // und genau der ist der ueberlebende.
+    if (key && !slugByName.has(key)) {
+      slugByName.set(key, slug)
+    }
+  }
 
   for (const graph of graphs) {
     for (const concept of graph.concepts) {
-      const existing = bySlug.get(concept.slug)
+      // Der Slug hat Vorrang: er ist der Schluessel, unter dem die Datenbank spaeter eindeutig ist.
+      // Erst wenn er neu ist, entscheidet der Name darueber, ob hier ein Zwilling ankommt.
+      const nameKey = normalizeConceptSlug(concept.name)
+      const canonicalSlug = bySlug.has(concept.slug)
+        ? concept.slug
+        : ((nameKey ? slugByName.get(nameKey) : undefined) ?? concept.slug)
+      canonicalBySlug.set(concept.slug, canonicalSlug)
+
+      const existing = bySlug.get(canonicalSlug)
       if (!existing) {
-        bySlug.set(concept.slug, { ...concept })
-        order.push(concept.slug)
+        bySlug.set(canonicalSlug, { ...concept })
+        order.push(canonicalSlug)
+        rememberName(concept.name, canonicalSlug)
         continue
       }
       existing.name = existing.name.length >= concept.name.length ? existing.name : concept.name
@@ -303,6 +350,10 @@ export function mergeConceptGraphs(graphs: IngestedGraph[]): IngestedGraph {
         existing.origin = 'material'
         existing.sourceQuote = concept.sourceQuote
       }
+      // Beide Schreibweisen zeigen ab jetzt auf denselben Knoten — auch die, die durch die
+      // Laengenregel oben gerade zum neuen Anzeigenamen geworden ist.
+      rememberName(concept.name, canonicalSlug)
+      rememberName(existing.name, canonicalSlug)
     }
   }
 
@@ -314,15 +365,19 @@ export function mergeConceptGraphs(graphs: IngestedGraph[]): IngestedGraph {
   const seenEdges = new Set<string>()
   for (const graph of graphs) {
     for (const edge of graph.edges) {
-      if (!keptSet.has(edge.fromSlug) || !keptSet.has(edge.toSlug) || edge.fromSlug === edge.toSlug) {
+      // Auf den ueberlebenden Knoten umhaengen. Zeigten beide Enden auf Zwillinge desselben
+      // Knotens, wird daraus eine Selbstkante — die faellt hier korrekt weg.
+      const fromSlug = canonicalBySlug.get(edge.fromSlug) ?? edge.fromSlug
+      const toSlug = canonicalBySlug.get(edge.toSlug) ?? edge.toSlug
+      if (!keptSet.has(fromSlug) || !keptSet.has(toSlug) || fromSlug === toSlug) {
         continue
       }
-      const key = `${edge.fromSlug}|${edge.toSlug}|${edge.type}`
+      const key = `${fromSlug}|${toSlug}|${edge.type}`
       if (seenEdges.has(key)) {
         continue
       }
       seenEdges.add(key)
-      edges.push({ fromSlug: edge.fromSlug, toSlug: edge.toSlug, type: edge.type })
+      edges.push({ fromSlug, toSlug, type: edge.type })
     }
   }
 

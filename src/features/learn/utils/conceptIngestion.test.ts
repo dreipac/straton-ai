@@ -243,3 +243,105 @@ describe('mergeConceptGraphs', () => {
     expect(m.concepts[0].slug).toBe('c0')
   })
 })
+
+describe('mergeConceptGraphs — Namensdoppelungen (Zwillinge aus verschiedenen Abschnitten)', () => {
+  const concept = (over: Partial<IngestedGraph['concepts'][number]> & { slug: string; name: string }) => ({
+    description: '',
+    difficulty: 3,
+    sourceRef: {},
+    origin: 'ai_supplement' as const,
+    sourceQuote: '',
+    ...over,
+  })
+
+  it('legt zwei Konzepte mit gleichem Namen, aber verschiedenen Slugs zusammen', () => {
+    const abschnittA: IngestedGraph = {
+      concepts: [concept({ slug: 'steuerpflicht-minderjaehrige', name: 'Steuerpflicht Minderjähriger', description: 'kurz' })],
+      edges: [],
+    }
+    const abschnittB: IngestedGraph = {
+      concepts: [
+        concept({
+          slug: 'minderjaehrige-steuerpflicht',
+          name: 'Steuerpflicht Minderjähriger',
+          description: 'eine deutlich ausfuehrlichere Beschreibung',
+          difficulty: 5,
+        }),
+      ],
+      edges: [],
+    }
+
+    const m = mergeConceptGraphs([abschnittA, abschnittB])
+    expect(m.concepts).toHaveLength(1)
+    // Der zuerst gesehene Slug ueberlebt — er ist der Schluessel, unter dem die DB eindeutig ist.
+    expect(m.concepts[0].slug).toBe('steuerpflicht-minderjaehrige')
+    // Und die Verschmelzungsregeln gelten wie bei Slug-Gleichheit.
+    expect(m.concepts[0].description).toBe('eine deutlich ausfuehrlichere Beschreibung')
+    expect(m.concepts[0].difficulty).toBe(5)
+  })
+
+  it('vergleicht den Namen normalisiert: Gross-/Kleinschreibung und Zeichensetzung trennen nicht', () => {
+    const a: IngestedGraph = { concepts: [concept({ slug: 'a1', name: 'Steuereinnahmen' })], edges: [] }
+    const b: IngestedGraph = { concepts: [concept({ slug: 'b1', name: '  steuereinnahmen.  ' })], edges: [] }
+
+    expect(mergeConceptGraphs([a, b]).concepts).toHaveLength(1)
+  })
+
+  it('legt NICHT zusammen, was nur aehnlich heisst — das entscheidet der Konsolidierer mit Rueckfrage', () => {
+    const a: IngestedGraph = { concepts: [concept({ slug: 'a1', name: 'Steuerprogression' })], edges: [] }
+    const b: IngestedGraph = { concepts: [concept({ slug: 'b1', name: 'Progressive Besteuerung' })], edges: [] }
+
+    expect(mergeConceptGraphs([a, b]).concepts).toHaveLength(2)
+  })
+
+  it('haengt die Kanten des eingeschmolzenen Zwillings auf den ueberlebenden Knoten um', () => {
+    const a: IngestedGraph = {
+      concepts: [concept({ slug: 'grundlage', name: 'Grundlage' }), concept({ slug: 'thema-alt', name: 'Thema' })],
+      edges: [{ fromSlug: 'grundlage', toSlug: 'thema-alt', type: 'prerequisite' }],
+    }
+    const b: IngestedGraph = {
+      concepts: [concept({ slug: 'thema-neu', name: 'Thema' }), concept({ slug: 'folge', name: 'Folge' })],
+      edges: [{ fromSlug: 'thema-neu', toSlug: 'folge', type: 'prerequisite' }],
+    }
+
+    const m = mergeConceptGraphs([a, b])
+    expect(m.concepts.map((c) => c.slug)).toEqual(['grundlage', 'thema-alt', 'folge'])
+    expect(m.edges).toEqual([
+      { fromSlug: 'grundlage', toSlug: 'thema-alt', type: 'prerequisite' },
+      { fromSlug: 'thema-alt', toSlug: 'folge', type: 'prerequisite' },
+    ])
+  })
+
+  it('wirft eine Kante weg, die durch das Umhaengen zur Selbstkante wuerde', () => {
+    const a: IngestedGraph = {
+      concepts: [concept({ slug: 'thema-a', name: 'Thema' }), concept({ slug: 'thema-b', name: 'Thema' })],
+      edges: [{ fromSlug: 'thema-a', toSlug: 'thema-b', type: 'related' }],
+    }
+
+    const m = mergeConceptGraphs([a])
+    expect(m.concepts).toHaveLength(1)
+    expect(m.edges).toEqual([])
+  })
+
+  it('dedupliziert auch innerhalb EINES Teilnetzes (eine Modellantwort, zwei gleiche Namen)', () => {
+    const eineAntwort: IngestedGraph = {
+      concepts: [
+        concept({ slug: 'bundesfinanzen', name: 'Bundesfinanzen' }),
+        concept({ slug: 'finanzen-des-bundes', name: 'Bundesfinanzen' }),
+      ],
+      edges: [],
+    }
+
+    expect(mergeConceptGraphs([eineAntwort]).concepts).toHaveLength(1)
+  })
+
+  it('folgt dem laengeren Anzeigenamen: ein spaeterer Zwilling dieses Namens faellt ebenfalls hinein', () => {
+    const a: IngestedGraph = { concepts: [concept({ slug: 'a1', name: 'Steuern' })], edges: [] }
+    const b: IngestedGraph = { concepts: [concept({ slug: 'a1', name: 'Steuern des Bundes' })], edges: [] }
+    const c: IngestedGraph = { concepts: [concept({ slug: 'c1', name: 'Steuern des Bundes' })], edges: [] }
+
+    const m = mergeConceptGraphs([a, b, c])
+    expect(m.concepts).toHaveLength(1)
+    expect(m.concepts[0].name).toBe('Steuern des Bundes')
+  })
+})

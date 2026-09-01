@@ -31,6 +31,7 @@ import { loadKnowledgeGraph, loadLearnerImages, loadPathOrder } from '../service
 import { loadActiveGoal } from '../services/brainGoals.persistence'
 import { loadLastTaskFormats } from '../services/brainEvidence.persistence'
 import { loadErrorPatterns, loadPendingProposals } from '../services/brainConsolidation.persistence'
+import { runConsolidationIfDue } from '../services/brainConsolidationRun'
 
 /** Feste Sitzungslaenge (UI-Spezifikation 4.2 und 17: Vorschlag 5 bis 7). */
 export const DEFAULT_SESSION_SIZE = 6
@@ -198,7 +199,30 @@ export function useBrainPath(args: UseBrainPathArgs): BrainPathState {
     // „Spaeter" von vor der Sitzung darf den Planer danach nicht mehr binden.
     setDeferredConceptIds(new Set())
     await load()
-  }, [load])
+
+    /*
+     * Konsolidierung (Kapitel 8.1) — hier und nicht frueher.
+     *
+     * Das Sitzungsende ist die einzige Stelle, an der beides zutrifft: das Evidenzgewicht ist
+     * gerade gestiegen (jede bewertete Aufgabe hat ueber `addEvidenceWeight` eingezahlt), und der
+     * Nutzer lernt nicht mehr — Invariante I7 verbietet Strukturfragen mitten in der Sitzung.
+     *
+     * NICHT abgewartet: der Lauf fragt ein Modell und kann Sekunden dauern. Die
+     * Sitzungszusammenfassung darf darauf nicht warten. Kam etwas dabei heraus, wird der
+     * Pfadzustand danach von selbst nachgeladen — dann steht die neue Frage in der
+     * Einsichten-Karte, ohne dass der Nutzer irgendwo hin muss.
+     *
+     * `runConsolidationIfDue` entscheidet selbst, ob ueberhaupt etwas zu tun ist (Gewichtsschwelle,
+     * Cooldown), wirft nie und laeuft im Normalfall gar nicht erst an.
+     */
+    if (userId && pathId) {
+      void runConsolidationIfDue({ userId, pathId }).then((result) => {
+        if (result.ran && (result.mergeQuestions > 0 || result.autoEdges > 0)) {
+          setReloadToken((token) => token + 1)
+        }
+      })
+    }
+  }, [load, userId, pathId])
 
   const conceptNames = useMemo(
     () => new Map(data.concepts.map((concept) => [concept.id, concept.name])),

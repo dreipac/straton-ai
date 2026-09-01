@@ -40,7 +40,9 @@ src/features/learn/brain/
 ├── consolidation/              Schicht 6 — Konsolidierung
 │   ├── trigger.ts              Evidenzgewicht, Wartezeit, Cooldown
 │   ├── patterns.ts             Fehlermuster gruppieren, taufen, anzeigen
-│   └── restructure.ts          Wertregeln, Entdeckung, Vorschlaege, Protokoll
+│   ├── restructure.ts          Wertregeln, Entdeckung, Vorschlaege, Protokoll
+│   ├── plan.ts                 was ein Lauf vorschlaegt: Sperrmenge, Obergrenzen
+│   └── consolidator.ts         Bruecke zur Rolle (semantische Doppelungen, Musternamen)
 │
 ├── coldstart/
 │   └── frontSearch.ts          adaptive Suche nach der Front
@@ -152,7 +154,9 @@ src/features/chat/services/chatPrefill.ts           „Im Chat dazu fragen" — 
 | eine Aufgabe freigeben willst | `production/quality.ts` → `buildControlVerdict`, `assertTaskCleared` |
 | ein Ziel setzen willst | `planner/goal.ts` → `assessGoal`, `describeFeasibility` |
 | den Pfad aufbauen willst | `path/ordering.ts` → `buildBaseOrder` |
-| konsolidieren willst | `consolidation/trigger.ts` → `evaluateTrigger` |
+| konsolidieren willst | `services/brainConsolidationRun.ts` → `runConsolidationIfDue` (Ablauf), `consolidation/plan.ts` (Auswahl) |
+| wissen willst, ob ein Lauf faellig ist | `consolidation/trigger.ts` → `evaluateTrigger` |
+| verstehen willst, warum ein Vorschlag NICHT kommt | `consolidation/plan.ts` → `suppressionKeys`, `MAX_MERGE_QUESTIONS_PER_RUN` |
 | ein Modell tauschen willst | Admin-Menue „Gehirn-Agenten" — kein Code |
 | wissen willst, ob ein Konzept in den Stapel gehoert | `planner/responsibility.ts` → `responsibilityFor` |
 | einen Erklaertext ausliefern willst | `production/explanations.ts` → `assertExplanationCleared` |
@@ -221,16 +225,18 @@ if (result.event.verdict.cause) {
   await recordErrorObservation({ ..., cause: result.event.verdict.cause })
 }
 
-// 6 — Konsolidierung anstossen, wenn genug Evidenz aufgelaufen ist
-const state = await addEvidenceWeight({ userId, pathId, weight: result.event.evidenceWeight })
-if (evaluateTrigger(state, nowIso).shouldRun) { /* Konsolidierer starten */ }
+// 6 — Evidenzgewicht buchen; der Lauf selbst haengt am Sitzungsende
+await addEvidenceWeight({ userId, pathId, weight: result.event.evidenceWeight })
+
+// ... und am Ende der Sitzung (useBrainPath.refreshAfterSession), nie mittendrin (I7):
+void runConsolidationIfDue({ userId, pathId })   // prueft den Ausloeser selbst, wirft nie
 ```
 
 ---
 
 ## Testaufbau
 
-476 Tests fuer das Gehirn, verteilt auf 23 Dateien.
+618 Tests fuer das Gehirn, verteilt auf 28 Dateien.
 
 | Datei | Schwerpunkt |
 |---|---|
@@ -250,7 +256,9 @@ if (evaluateTrigger(state, nowIso).shouldRun) { /* Konsolidierer starten */ }
 | `utils/documentParser.test.ts` | was die Texterkennung ueber den Textlayer hinaus beitraegt |
 | `production/prefetch.test.ts` | ueberholte Vorproduktion wird verworfen |
 | `coldstart/frontSearch.test.ts` | Suchraumhalbierung **ohne** Lernerbild-Aenderung |
-| `consolidation/consolidation.test.ts` | Ausloeser, Wertregeln, Entdeckung, Protokoll |
+| `consolidation/consolidation.test.ts` | Ausloeser, Wertregeln, Entdeckung, Protokoll, Musternamen |
+| `consolidation/plan.test.ts` | Sperrmenge, Obergrenzen, drei Wege der drei Operationen |
+| `consolidation/consolidator.test.ts` | erfundene IDs, Verschmelzung ohne Frage (I6) |
 | `path/ordering.test.ts` | Positionen bleiben stehen, Nenner bleibt stabil |
 | `agents/agents.test.ts` | Rollentrennung, Vertraege, Systemanweisungen |
 | `agents/modelRoutingConsistency.test.ts` | die drei Kopien der Konfiguration |

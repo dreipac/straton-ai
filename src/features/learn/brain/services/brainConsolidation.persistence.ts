@@ -213,6 +213,42 @@ export async function loadPendingProposals(args: {
   })
 }
 
+/**
+ * Alles, was zu diesem Pfad je vorgeschlagen wurde — unabhaengig vom Ausgang.
+ *
+ * Eingabe der Sperrmenge in `consolidation/plan.ts`. Ohne sie waere das Nein des Nutzers
+ * folgenlos: der naechste Lauf faende denselben Kandidaten wieder (die Kandidatensuche ist
+ * deterministisch) und stellte dieselbe Frage erneut, alle paar Stunden. Geladen werden nur
+ * Operation und Nutzlast — mehr braucht die Sperre nicht, und ein schlanker Select haelt die
+ * Abfrage auch bei langer Historie billig.
+ */
+export async function loadProposalHistory(args: {
+  userId: string
+  pathId: string
+  limit?: number
+}): Promise<{ operation: StructureProposal['operation']; payload: Record<string, unknown> }[]> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('learn_structure_proposals')
+    .select('operation, payload')
+    .eq('user_id', args.userId)
+    .eq('path_id', args.pathId)
+    .order('created_at', { ascending: false })
+    .limit(args.limit ?? 500)
+
+  if (error) {
+    throw toReadableError(error)
+  }
+
+  return (data ?? []).map((row) => {
+    const r = row as Record<string, unknown>
+    return {
+      operation: operationFromDb(String(r.operation)),
+      payload: (r.payload ?? {}) as Record<string, unknown>,
+    }
+  })
+}
+
 /** Die Antwort des Nutzers auf einen Vorschlag festhalten. */
 export async function decideProposal(args: {
   proposalId: string
