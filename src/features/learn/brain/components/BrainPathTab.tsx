@@ -16,9 +16,11 @@ import type { BrainPathState } from '../hooks/useBrainPath'
 import type { MapQuestionResponse } from '../ui/insightsView'
 import { buildInsightsCard } from '../ui/insightsView'
 import { buildNodePanel, buildNowCard, groupIntoTopics, type BrainValueTerm } from '../ui/pathView'
+import type { SprintCardView } from '../ui/sprintView'
 import { BrainInsightsCard } from './BrainInsightsCard'
 import { BrainNodePanel } from './BrainNodePanel'
 import { BrainNowCard, BrainNowCardEmpty } from './BrainNowCard'
+import { BrainSprintNotice } from './BrainSprintNotice'
 import { BrainTopicList } from './BrainTopicList'
 
 export type BrainPathTabProps = {
@@ -36,6 +38,19 @@ export type BrainPathTabProps = {
   onRespondMapQuestion: (proposalId: string, answer: MapQuestionResponse['answer']) => void
   /** Letzter Prueferbefund je Konzept, im Klartext (Kapitel 3.6, Punkt 4). */
   findingsByConcept?: Map<string, string>
+  /*
+   * Der Sprint-Hinweis (Kapitel 6.3). Fertig berechnet von aussen statt hier: der Zustand „fuer
+   * diesmal ausgeschlagen" muss einen Tabwechsel ueberleben, dieser Tab wird dabei aber
+   * abgeraeumt. Die Ansicht selbst haengt am Fuss der Jetzt-Karte und gehoert deshalb hierher.
+   */
+  sprintCard: SprintCardView
+  /** Den vorgeschlagenen Umfang uebernehmen — oder zusaetzliche Konzepte hereinnehmen. */
+  onApplySprintScope: (conceptIds: string[]) => void
+  /** Den vollen Umfang behalten — die Tiefe sinkt trotzdem (Leiter des Verzichts). */
+  onKeepFullSprintScope: () => void
+  /** Das Rueckhol-Angebot fuer diesmal ausschlagen. */
+  onDismissSprintOffer: () => void
+  isBusy?: boolean
 }
 
 export function BrainPathTab(props: BrainPathTabProps) {
@@ -98,9 +113,10 @@ export function BrainPathTab(props: BrainPathTabProps) {
         images: data.images,
         order: data.order,
         currentConceptId,
+        goal: data.goal,
         nowIso,
       }),
-    [data.concepts, data.images, data.order, currentConceptId, nowIso],
+    [data.concepts, data.images, data.order, currentConceptId, data.goal, nowIso],
   )
 
   const insights = useMemo(
@@ -155,15 +171,30 @@ export function BrainPathTab(props: BrainPathTabProps) {
 
   return (
     <div className="brain-path">
-      {nowCard ? (
-        <BrainNowCard
-          card={nowCard}
-          onStart={() => props.onStartSession(nowCard.conceptId)}
-          onDefer={() => props.onDeferConcept(nowCard.conceptId)}
+      {/*
+        * Die Klammer ist noetig, damit der Gitterabstand von `.brain-path` sich nicht zwischen
+        * Jetzt-Karte und Sprint-Band legt: das Band liegt dicht darunter (siehe
+        * `BrainSprintNotice`), der Abstand zum naechsten Baustein bleibt der normale.
+        */}
+      <div className="brain-now-stack">
+        {nowCard ? (
+          <BrainNowCard
+            card={nowCard}
+            onStart={() => props.onStartSession(nowCard.conceptId)}
+            onDefer={() => props.onDeferConcept(nowCard.conceptId)}
+          />
+        ) : (
+          <BrainNowCardEmpty hasConcepts={data.concepts.length > 0} />
+        )}
+
+        <BrainSprintNotice
+          card={props.sprintCard}
+          onApplyScope={props.onApplySprintScope}
+          onKeepAll={props.onKeepFullSprintScope}
+          onDismiss={props.onDismissSprintOffer}
+          isBusy={props.isBusy}
         />
-      ) : (
-        <BrainNowCardEmpty hasConcepts={data.concepts.length > 0} />
-      )}
+      </div>
 
       <div className="brain-path-body">
         <BrainTopicList

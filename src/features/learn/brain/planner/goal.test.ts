@@ -21,6 +21,7 @@ function goal(overrides: Partial<LearningGoal> = {}): LearningGoal {
     dueAt: '2026-08-23T10:00:00.000Z',
     conceptIds: ['c1', 'c2', 'c3'],
     minutesPerDay: 40,
+    targetDepth: 'apply',
     status: 'active',
     ...overrides,
   }

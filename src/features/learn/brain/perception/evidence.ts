@@ -228,12 +228,22 @@ export function unverifiedConceptIds(
 }
 
 /** Naechste sinnvolle Anwendungstiefe fuer ein Konzept: eine Stufe ueber der belegten. */
-export function nextDepthFor(image: LearnerConceptImage): ApplicationDepth {
+export function nextDepthFor(image: LearnerConceptImage, maxDepth?: ApplicationDepth): ApplicationDepth {
   const order: ApplicationDepth[] = ['recognize', 'apply', 'transfer']
   const currentRank = depthRank(image.depth)
   // Erst festigen, dann steigern: unter 0.7 Beherrschung bleibt die Stufe, wo sie ist.
   if (image.mastery < 0.7) {
     return image.depth
   }
-  return order[Math.min(order.length - 1, currentRank + 1)]
+  /*
+   * `maxDepth` ist die Zieltiefe des laufenden Ziels (Kapitel 6.3). Ohne sie steigt ein Konzept
+   * automatisch weiter, sobald es traegt — im Sprint verbrennt das genau die Minuten, die dort
+   * fehlen, an einer Stufe, die in der Zeit ohnehin nicht zu halten ist.
+   *
+   * Sie DECKELT nur und senkt nie: ein Konzept, das bereits auf einer hoeheren Stufe belegt ist,
+   * wird nicht kuenstlich zurueckgestuft. Sonst wuerde ein knapper Termin bereits erarbeitete
+   * Tiefe entwerten, und das waere aus Sicht der Person schlicht ein Rueckschritt.
+   */
+  const ceiling = maxDepth ? Math.max(currentRank, depthRank(maxDepth)) : order.length - 1
+  return order[Math.min(order.length - 1, ceiling, currentRank + 1)]
 }

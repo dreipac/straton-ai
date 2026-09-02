@@ -63,7 +63,7 @@ export function BrainNodeEditor(props: BrainNodeEditorProps) {
 
   return (
     <ModalShell isOpen className="brain-dialog-overlay" onRequestClose={props.onClose}>
-      <section className="brain-dialog" role="dialog" aria-modal="true" aria-label="Knoten bearbeiten">
+      <section className="ui-dialog-card brain-dialog" role="dialog" aria-modal="true" aria-label="Knoten bearbeiten">
         <ModalHeader title="Knoten bearbeiten" onClose={props.onClose} closeLabel="Schliessen" />
 
         <div className="brain-dialog-body">

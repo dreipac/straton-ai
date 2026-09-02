@@ -27,6 +27,7 @@ import type {
 import { CONSOLIDATED_MASTERY, effectiveConfidence, effectiveMastery } from '../memory/learnerImage'
 import { prerequisitesOf } from '../memory/knowledgeGraph'
 import { assessGoal, describeFeasibility } from '../planner/goal'
+import { sprintScopeOf } from '../planner/sprint'
 import { responsibilityFor } from '../planner/responsibility'
 
 /** Ab dieser Sicherheit gilt eine Einschaetzung als belastbar genug fuer „gefestigt". */
@@ -48,6 +49,16 @@ export type PathHeaderView = {
   /** Kurzstatistik als fertiger Satz: „15 Konzepte · 7 gefestigt · 2 faellig". */
   summary: string
   goalChip: GoalChipView
+  /**
+   * Worauf sich `progress` bezieht.
+   *
+   * Im Sprint zaehlt der Ring den ZIELUMFANG, nicht den ganzen Pfad — sonst stuende er bei 50
+   * Prozent, obwohl das Ziel vollstaendig erreicht ist. Weil die Bezugsgroesse damit wechselt,
+   * darf sie nicht stillschweigend wechseln: `scopeNote` sagt sie an.
+   *
+   * Leer, solange sich der Ring auf den ganzen Pfad bezieht.
+   */
+  scopeNote: string
 }
 
 export type GoalChipView =
@@ -80,11 +91,19 @@ export function buildPathHeader(args: {
 }): PathHeaderView {
   const { concepts, images, goal, nowIso } = args
 
+  /*
+   * Im Sprint bezieht sich der Ring auf den Zielumfang (Kapitel 6.3, Sonderfall). Ausserhalb
+   * eines Sprints bleibt es beim ganzen Pfad — ein Ziel mit Vorlauf ist eine Gewichtung, keine
+   * neue Bezugsgroesse, und ein Ring, der bei jeder Zielaenderung springt, waere unbrauchbar.
+   */
+  const sprintScope = sprintScopeOf(goal, nowIso)
+  const counted = sprintScope ? concepts.filter((concept) => sprintScope.has(concept.id)) : concepts
+
   let masterySum = 0
   let settledCount = 0
   let dueCount = 0
 
-  for (const concept of concepts) {
+  for (const concept of counted) {
     const image = images.get(concept.id)
     if (!image || image.directEvidenceCount === 0) {
       continue
@@ -99,7 +118,7 @@ export function buildPathHeader(args: {
     }
   }
 
-  const conceptCount = concepts.length
+  const conceptCount = counted.length
   const progress = conceptCount > 0 ? masterySum / conceptCount : 0
 
   return {
@@ -109,6 +128,7 @@ export function buildPathHeader(args: {
     dueCount,
     summary: `${conceptCount} Konzepte · ${settledCount} gefestigt · ${dueCount} fällig`,
     goalChip: buildGoalChip({ images, goal, nowIso }),
+    scopeNote: sprintScope ? `${conceptCount} von ${concepts.length} im Umfang` : '',
   }
 }
 
@@ -257,6 +277,17 @@ export type NodeView = {
   indented: boolean
   mastery: number
   confidence: number
+  /**
+   * Liegt bis zum Termin ausserhalb des Zielumfangs (Sprint, Kapitel 6.3).
+   *
+   * Bewusst ein eigenes Merkmal und KEIN sechster `NodeState`: „ausserhalb des Umfangs" ist
+   * orthogonal zum Lernzustand. Ein Konzept kann gleichzeitig faellig und ausserhalb des
+   * Umfangs sein — als Zustand ausgedrueckt verschluckte das eine das andere, und der
+   * Faelligkeitspunkt verschwaende.
+   *
+   * Der Knoten bleibt vollstaendig bedienbar; er ist zurueckgenommen, nicht gesperrt.
+   */
+  outOfScope: boolean
 }
 
 export type TopicView = {
@@ -311,6 +342,8 @@ export function buildNode(args: {
   isCurrent: boolean
   /** Konzepte, die die Konsolidierung seit dem letzten Besuch ergaenzt hat. */
   newConceptIds?: Set<string>
+  /** Der Zielumfang, wenn er im Sprint gilt — sonst weglassen. */
+  sprintScope?: Set<string>
   nowIso: string
 }): NodeView {
   const state = nodeStateFor({ image: args.image, isCurrent: args.isCurrent, nowIso: args.nowIso })
@@ -336,6 +369,7 @@ export function buildNode(args: {
     indented: isInsert,
     mastery: args.image ? effectiveMastery(args.image, args.nowIso) : 0,
     confidence: args.image ? effectiveConfidence(args.image, args.nowIso) : 0,
+    outOfScope: args.sprintScope ? !args.sprintScope.has(args.concept.id) : false,
   }
 }
 
@@ -360,8 +394,11 @@ export function groupIntoTopics(args: {
   order: PathOrderEntry[]
   currentConceptId: string | null
   newConceptIds?: Set<string>
+  /** Das laufende Ziel — nur fuer die Zurueckstellung ausserhalb des Sprintumfangs. */
+  goal?: LearningGoal | null
   nowIso: string
 }): TopicView[] {
+  const sprintScope = sprintScopeOf(args.goal ?? null, args.nowIso)
   const positionById = new Map(args.order.map((entry) => [entry.conceptId, entry.position]))
   const orderById = new Map(args.order.map((entry) => [entry.conceptId, entry]))
 
@@ -396,6 +433,7 @@ export function groupIntoTopics(args: {
         order: orderById.get(concept.id),
         isCurrent: concept.id === args.currentConceptId,
         ...(args.newConceptIds ? { newConceptIds: args.newConceptIds } : {}),
+        ...(sprintScope ? { sprintScope } : {}),
         nowIso: args.nowIso,
       }),
     )
@@ -403,15 +441,21 @@ export function groupIntoTopics(args: {
 
   return titleOrder.map((title) => {
     const nodes = byTitle.get(title)!
-    const settledCount = nodes.filter((node) => node.state === 'settled').length
+    /*
+     * Der Themenzaehler misst nur, was bis zum Termin dran ist. Stuende dort „2 von 8", waehrend
+     * sechs davon bewusst zurueckgestellt sind, laese sich der Sprint als Rueckstand — genau die
+     * Entmutigung, die das Zuschneiden vermeiden soll.
+     */
+    const inScope = nodes.filter((node) => !node.outOfScope)
+    const settledCount = inScope.filter((node) => node.state === 'settled').length
     const containsCurrent = nodes.some((node) => node.state === 'current')
     return {
       title,
       nodes,
       settledCount,
       status: containsCurrent
-        ? `${settledCount} von ${nodes.length} · hier bist du gerade`
-        : `${settledCount} von ${nodes.length}`,
+        ? `${settledCount} von ${inScope.length} · hier bist du gerade`
+        : `${settledCount} von ${inScope.length}`,
       containsCurrent,
       expandedByDefault: containsCurrent,
     }

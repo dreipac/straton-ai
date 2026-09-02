@@ -9,8 +9,9 @@
  * Rein — kein DOM, kein I/O.
  */
 
-import type { BrainConcept, LearnerConceptImage } from '../types'
+import type { BrainConcept, LearnerConceptImage, LearningGoal } from '../types'
 import { buildReviewQueue, isReviewEligible, type ReviewQueueEntry } from '../planner/responsibility'
+import { sprintScopeOf } from '../planner/sprint'
 
 export type ReviewItemView = {
   conceptId: string
@@ -68,6 +69,8 @@ export const SHORT_SESSION_ITEMS = 3
 export function buildReviewOverview(args: {
   images: Iterable<LearnerConceptImage>
   concepts: BrainConcept[]
+  /** Das laufende Ziel — nur, um den Leerzustand im Sprint erklaeren zu koennen. */
+  goal?: LearningGoal | null
   nowIso: string
 }): ReviewOverviewView {
   const nameById = new Map(args.concepts.map((concept) => [concept.id, concept.name]))
@@ -94,7 +97,8 @@ export function buildReviewOverview(args: {
     canStartShort: items.length > 0,
     explainer: REVIEW_EXPLAINER,
     isEmpty: items.length === 0,
-    emptyForecast: items.length === 0 ? buildEmptyForecast(all, args.nowIso) : '',
+    emptyForecast:
+      items.length === 0 ? buildEmptyForecast(all, args.nowIso, args.goal ?? null) : '',
   }
 }
 
@@ -109,7 +113,25 @@ export function buildReviewOverview(args: {
  * Beruecksichtigt werden nur stapelfaehige Konzepte (Kapitel 6.7). Ein Konzept, das in den Pfad
  * gehoert, hier anzukuendigen waere ein Termin, den der Stapel nie einloest.
  */
-export function buildEmptyForecast(images: Iterable<LearnerConceptImage>, nowIso: string): string {
+export function buildEmptyForecast(
+  images: Iterable<LearnerConceptImage>,
+  nowIso: string,
+  goal: LearningGoal | null = null,
+): string {
+  /*
+   * Im Sprint bleibt dieser Bereich die ganze Zeit leer, und das ist kein Defekt, sondern
+   * Arithmetik: das kuerzeste Intervall, das `nextReviewIntervalDays` fuer ein gefestigtes
+   * Konzept vergibt, ist groesser als das Fenster bis zum Termin. Ohne diesen Satz liest sich
+   * der Leerzustand wie „alles erledigt" — und genau der Eindruck waere im Sprint gefaehrlich.
+   */
+  if (sprintScopeOf(goal, nowIso)) {
+    return (
+      'Bis zum Termin kommt hier nichts. Mein kuerzester Abstand zwischen zwei Durchgaengen ist ' +
+      'groesser als dein Fenster — im Sprint bekommt jedes Konzept genau einen Durchgang. Setz ' +
+      'nach dem Termin ein zweites Ziel, dann faengt die Wiederholung an.'
+    )
+  }
+
   const now = new Date(nowIso).getTime()
   const upcoming: number[] = []
 

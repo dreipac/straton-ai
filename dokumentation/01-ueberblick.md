@@ -257,6 +257,37 @@ Verzicht:
 
 Gekuerzt wird dort, wo am meisten Zeit frei wird, nicht dort, wo es am wenigsten wehtut.
 
+### Der Sprint — ein Termin in Tagen
+
+**Code:** `planner/sprint.ts`, `ui/sprintView.ts`
+
+Bis drei Tage vor dem Termin gilt ein Sonderfall, denn dort ist der Verzicht nicht mehr
+vermeidbar. Er folgt einer festen **Leiter**, und die Reihenfolge ist die Aussage:
+
+1. Alles auf Zieltiefe — geht das auf, gibt es keinen Sprint.
+2. Alles auf **Erkennen** — es faellt kein Konzept weg, nur die Anwendungsstufe.
+3. Erst dann **weniger Konzepte**, Wurzeln zuerst (transitive Reichweite im Voraussetzungsnetz).
+
+Geschnitten wird ausschliesslich der **Zielumfang**, nie das Konzeptnetz: „in zwei Tagen nicht
+geschafft" und „gibt es nicht" duerfen nicht dasselbe sein. Was herausfaellt, bleibt im Netz und
+kommt nach dem Termin dran.
+
+**Zwei unabhaengige Grenzen, die kleinere gewinnt.** Die *Zeitgrenze* ist die eingetragene Zeit
+geteilt durch den Aufwand je Konzept. Die *Breitengrenze* (20 Konzepte bis zwei Tage, 30 bei
+drei) ist von der Uhr unabhaengig — vierzig neue Begriffe bleiben auch in sechs Stunden nicht
+haengen. Genannt wird immer die Grenze, gegen die der genannte Ausweg auch wirkt: „mehr Zeit"
+darf nur dastehen, wenn mehr Zeit den Rest tatsaechlich freischaltet.
+
+**Der Umfang ist eine Reihenfolge, keine Mauer.** Solange im Umfang etwas offen ist, plant der
+Planer nur Umfang; ist dort nichts mehr offen, laeuft der Pfad von selbst mit dem Rest weiter.
+Gemessen wird an der Beherrschung (`estimateConceptMinutes > 0`), nie an Sitzungszeit oder
+Aufgabenzahl — Fleiss schaltet nichts frei, Belege schon (I1).
+
+**Zwei getrennte Warnungen**, weil sie zwei Zeitraeume betreffen: die *Tiefe* betrifft die
+Pruefung („Wiedererkennen, kein Anwenden"), die *Haltbarkeit* die Zeit danach. Die Zahlen dafuer
+stammen aus dem eigenen Verfallsmodell (`applyDecay`), nicht aus einer Faustformel — eine
+Warnung, die strenger rechnet als das System selbst, waere Panikmache.
+
 ---
 
 ## Schicht 5 — Produktion (Generator, Kontrolleur)

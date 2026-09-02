@@ -500,6 +500,109 @@ woertlich gleich.
 
 ---
 
+### 12. Ein Termin in zwei Tagen — der Sprint
+
+**Die Lage.** Die Einrichtung fragt in Schritt 3 nach Termin und Zeit pro Tag, und die
+Rueckwaertsrechnung stand vollstaendig da. Fuer einen Termin in zwei Tagen half sie trotzdem
+nicht:
+
+1. **Die Einrichtung schwieg.** Die Machbarkeit kann in Schritt 3 nicht gerechnet werden — das
+   Konzeptnetz entsteht erst in Schritt 4. Der Moment, in dem die Warnung wirkt, blieb leer.
+2. **Das Ziel schnitt nichts zu.** `assessGoal` rechnete den Verzicht aus
+   (`downgradedConceptIds`), angewandt wurde er nie. Der Umfang blieb „alles", und der Planer
+   arbeitete vierzig Konzepte gleichmaessig dringlich ab — statt zwanzig fertig zu machen,
+   bekam man vierzig halb.
+3. **Es gab keine Zieltiefe.** `assessGoal` nahm ueberall `apply` an, und `nextDepthFor` hob ein
+   Konzept automatisch auf `apply`, sobald es 0.7 erreichte. Im Sprint verbrannte das genau die
+   Minuten, die dort fehlen.
+4. **Im Zwei-Tage-Fenster gibt es keine Wiederholung — strukturell.** Ein an Tag 1 auf 0.75
+   gebrachtes Konzept bekommt `nextReviewAt` = +6 Tage; bei 0.5 bis 0.7 sind es +2 bis +4. Der
+   Stapel ist an Tag 2 leer, und weil die Mindestreserve nur aus dem *faelligen* Stapel gefuellt
+   wird, besteht auch die zweite Sitzung zu 100 Prozent aus neuem Stoff. Jedes Konzept bekommt
+   genau einen Durchgang. Das ist keine Luecke, sondern die Aufloesung der Terminierung: die
+   kleinste Einheit ist ein Tag.
+
+**Was gebaut wurde.** Ein Sprint-Modus als Zustand des bestehenden Ziels, kein zweiter Pfad.
+Die Leiter des Verzichts, die zwei Grenzen und die beiden getrennten Warnungen stehen in
+`01-ueberblick.md`; hier nur, was daran eine Entscheidung war.
+
+**Das Netz bleibt vollstaendig, geschnitten wird das Ziel.** Der Termin steht technisch vor der
+Ingestion fest — der Kartograf koennte also weniger Konzepte anlegen. Dagegen sprechen drei
+Dinge: dasselbe Dokument ergaebe je nach Pruefungsdatum eine andere Karte (I11, I4), ein
+verschobener Termin liesse ein dauerhaft verarmtes Netz zurueck, und ein erneutes Einlesen
+erzeugte genau die Zwillinge aus Eintrag 11. Der sichtbare Effekt ist derselbe — nur bleiben die
+uebrigen Konzepte nach der Pruefung erhalten.
+
+**Der Umfang ist eine Reihenfolge, keine Mauer.** Waere er eine Mauer, wuerde ausgebremst, wer
+schneller ist als geplant. „Offen" misst `needsWorkForGoal` und damit dieselbe Definition, die
+`assessGoal` fuer `openConceptCount` benutzt. Der naheliegende Test „meldet eine Dringlichkeit"
+waere falsch gewesen: `rootCauseUrgency` liefert auch fuer ein laengst sitzendes Konzept noch
+einen winzigen Wert (aus der Differenz von Beherrschung und Sicherheit), der Umfang waere damit
+nie erledigt und der Pfad liefe nie von selbst weiter.
+
+**Die Vorrangregel gilt nur im Sprint.** Ein Ziel mit vier Wochen Vorlauf bleibt eine Gewichtung
+(`goalUrgency`) und darf den Rest des Pfads nicht verdecken. Die Mindestreserve ist auch im
+Sprint nicht eingeschraenkt (I9).
+
+**Der Ein-Tages-Fall weicht bewusst von der Minutenrechnung ab.** Bei einem Tag gilt die
+Breitengrenze (20) auch dann, wenn die eingetragene Zeit weniger hergibt — wer am Vortag
+anfaengt, sitzt nicht die eingetragene Stunde. Ungefaehrlich ist das nur, weil der Umfang eine
+Reihenfolge ist; die Karte beziffert die echten Stunden.
+
+**„Zurueckgestellt" ist ein Merkmal, kein Knotenzustand.** Als sechster `NodeState` haette es
+den Lernzustand verschluckt — ein Konzept kann gleichzeitig faellig und ausserhalb des Umfangs
+sein. Der Knoten bleibt vollstaendig bedienbar: zurueckgenommen, nicht gesperrt.
+
+**Der Fortschrittsring wechselt im Sprint die Bezugsgroesse** — sonst stuende er bei 50 Prozent,
+obwohl das Ziel erreicht ist. Weil eine heimlich wechselnde Bezugsgroesse schlimmer waere als
+eine unguenstige, sagt `scopeNote` sie an: „20 von 40 im Umfang".
+
+**Der Hinweis ist keine zweite Karte, sondern ein Band, das unter der Jetzt-Karte
+hervorschaut.** Zwei Karten uebereinander waeren zwei gleichrangige Angebote, und der Hinweis ist
+keins: er sagt, WORAUS die Jetzt-Karte gerade schoepft. Die Karte selbst bleibt deshalb unberuehrt
+— eigenstaendig, rundum abgerundet, mit ihrem Schatten. Das Band (`.brain-sprint-notice-slot`,
+dieselbe 0-zu-Inhalt-Technik wie beim Aufklappen eines Themas) schiebt sich um genau einen
+Kartenradius unter sie und liegt hinter ihr. Daraus folgt alles Weitere: die Oberkante ist flach
+und randlos, weil sie hinter der Karte liegt; an den Seiten bleibt keine Luft, weil das Band die
+runden Kartenecken von hinten ausfuellt; einen eigenen Schatten traegt es nicht, denn der Schatten
+der Karte faellt auf das Band und nicht umgekehrt. `.brain-now-stack` klammert beide, damit der
+Gitterabstand von `.brain-path` sich nicht dazwischenlegt, und haelt in `--brain-card-radius` den
+Wert, den Einschub, Rundung und obere Polsterung teilen muessen.
+
+Die Uebergangskante traegt einen flachen Schatten, und zwar als `box-shadow` der KARTE, solange
+das Band offen ist. Ein Verlauf auf dem Band waere ueber die ganze Breite eine gerade Linie
+gewesen und an den runden Kartenecken sichtbar daran vorbeigelaufen; ein `box-shadow` folgt der
+Rundung von selbst. Er ersetzt den normalen Kartenschatten statt ihn zu ergaenzen — der weiche
+Umgebungsschatten lag ohnehin hinter dem Band —, und derselbe Wert gilt in allen Themen: die
+dunklen nehmen der Karte ihren Schatten sonst weg, diese eine Kante braucht ihn aber ueberall.
+
+**Der Hinweis hat eine eigene Ueberschrift** (`title` in `SprintCardView`) statt den ersten Satz
+gross zu setzen. Der erste Satz beginnt mit einer Zahl („20 von 40 Konzepten …"); gross gesetzt
+liest er sich nicht als Ueberschrift, sondern als Fliesstext, der zufaellig hervorgehoben wurde.
+Die Ueberschrift traegt Groesse, Gewicht und Farbe des Jetzt-Karten-Titels eine Stufe kleiner, der
+Rest ist Fliesstext in der Sekundaerfarbe.
+
+Berechnet wird der Hinweis trotzdem in `LearnPage` und nur als fertige Ansicht hereingereicht: das
+„Nicht jetzt" des Rueckhol-Angebots soll einen Tabwechsel ueberleben, der Pfad-Tab wird dabei aber
+abgeraeumt.
+
+**Beide Antworten auf den Vorschlag senken die Zieltiefe** — auch „alles behalten". Stufe 2 der
+Leiter gilt unabhaengig davon, ob jemand ein Konzept hergeben will, und die gesenkte Tiefe ist
+zugleich die Merkung, DASS geantwortet wurde. Kein zusaetzliches Feld, das mit dem Ziel
+auseinanderlaufen koennte.
+
+**Derselbe Hinweis steht ein zweites Mal, als Bestaetigung vor der Erzeugung.** Der Text in
+Schritt 3 der Einrichtung (`sprintWarning`, `LearnSetupPanel.tsx`, ueber `describeSprintDeadline`)
+ist Feedback waehrend der Termin eingetippt wird — leicht zu ueberlesen, weil er neben einem
+Eingabefeld steht statt im Weg. `LearnSprintConfirmModal.tsx` macht ihn zur aktiven Bestaetigung:
+faellt der Termin in den Sprint-Bereich, haelt „Einrichtung abschließen" hier an, bevor
+`onFinishSetup` (und damit die Erzeugung) ueberhaupt aufgerufen wird — „Anpassen" fuehrt nur zurueck
+in Schritt 3. Es ist derselbe `describeSprintDeadline`-Text, nicht `describeSprintScope`/
+`describeRetention`: vor der Erzeugung existiert noch kein Konzept-Netz, an dem sich ein Umfang
+berechnen liesse.
+
+---
+
 ## Zwei Entscheidungen, die nicht einzeln geaendert werden duerfen
 
 Das Bezugsdokument warnt an einer Stelle ausdruecklich davor, und die Warnung gilt im Code genauso:
@@ -539,6 +642,15 @@ Ehrlich benannt, damit sie niemanden ueberraschen:
   zwei NEUE Konzepte anlegen, und wie die Haelften heissen, weiss nur, wer das Material gelesen
   hat. Weder `services/` kann das ausfuehren noch haette die Zustimmung des Nutzers einen
   Empfaenger. Eine Frage zu stellen, deren Ja folgenlos bleibt, waere schlimmer als zu schweigen.
+- **Im Sprint gibt es keine Wiederholung.** Das kuerzeste Intervall, das
+  `nextReviewIntervalDays` fuer ein gefestigtes Konzept vergibt, ist groesser als ein Fenster von
+  drei Tagen — jedes Konzept bekommt genau einen Durchgang. Der Leerzustand des
+  Wiederholen-Bereichs sagt das jetzt, statt „alles erledigt" zu suggerieren. Behoben waere es
+  erst mit Abstaenden unterhalb eines Tages, und das ruehrt an die Zuordnungsgrenze aus Kapitel
+  6.7 — deshalb bewusst nicht mit erledigt.
+- **Das Rueckhol-Angebot wird nicht persistiert.** „Nicht jetzt" gilt fuer die aktuelle Ansicht.
+  Das ist Absicht: das Angebot ist kein Vorschlag mit Frist, sondern eine Beobachtung ueber den
+  aktuellen Stand — wer morgen wieder vorne liegt, soll es wieder bekommen.
 - **„Spaeter" ueberlebt keinen Seitenwechsel.** Die Zurueckweisung wirkt sofort auf die Auswahl
   des Planers, wird aber nicht gespeichert. Das ist vertretbar, weil „spaeter" „jetzt nicht"
   heisst und der naechste Besuch ein neues Jetzt ist — eine dauerhafte Ablage braeuchte eine
@@ -553,8 +665,8 @@ Ehrlich benannt, damit sie niemanden ueberraschen:
 
 ## Naechste Schritte, in sinnvoller Reihenfolge
 
-1. **Migrationen einspielen** und den ersten Lauf beobachten. Inzwischen sind es sieben, davon
-   drei aus Fassung 1.1. Bis dahin laeuft die Gehirn-Oberflaeche in einen Ladefehler — sie ist
+1. **Migrationen einspielen** und den ersten Lauf beobachten. Inzwischen sind es acht, davon
+   vier aus Fassung 1.1 (zuletzt `…_learn_goal_target_depth.sql`). Bis dahin laeuft die Gehirn-Oberflaeche in einen Ladefehler — sie ist
    gebaut, aber nichts steht hinter ihr.
 2. **Vertikaler Durchstich am echten Bildschirm**: ein Pfad mit eingelesenem Material, eine
    Sitzung von der Jetzt-Karte bis zur Abschlussbilanz. Der Kreislauf ist verdrahtet; was fehlt,

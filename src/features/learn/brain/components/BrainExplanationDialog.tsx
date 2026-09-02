@@ -28,7 +28,7 @@ export function BrainExplanationDialog({ state, onAskInChat, onClose }: BrainExp
 
   return (
     <ModalShell isOpen className="brain-dialog-overlay" onRequestClose={onClose}>
-      <section className="brain-dialog" role="dialog" aria-modal="true" aria-label={`Erklärung ${state.conceptName}`}>
+      <section className="ui-dialog-card brain-dialog" role="dialog" aria-modal="true" aria-label={`Erklärung ${state.conceptName}`}>
         <ModalHeader title={state.conceptName} onClose={onClose} closeLabel="Schliessen" />
 
         <div className="brain-dialog-body">

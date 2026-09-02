@@ -437,7 +437,9 @@ textarea.ui-textarea.ui-textarea--auto-grow {
    `.settings-modal`, `.rename-modal`, `.billing-manage-dialog` und `.security-password-done-dialog`
    (alle in settings.css) vier Mal fast identisch dupliziert — nur Breite/Padding/Radius/Text-Align
    unterschieden sich. Jetzt einmal hier; die vier Klassen setzen nur noch diese Modifier.
-   Für neue Dialoge: `.ui-dialog-card` einfach zusätzlich zur eigenen Klasse vergeben. */
+   Für neue Dialoge: `.ui-dialog-card` einfach zusätzlich zur eigenen Klasse vergeben — dieselbe
+   Liste trägt auch die Öffnen-/Schließen-Animation (`.modal-fade`, settings.css): ein Dialog, der
+   hier mitläuft, bekommt beides automatisch, ohne dass dort etwas nachgepflegt werden muss. */
 .ui-dialog-card,
 .settings-modal,
 .rename-modal,

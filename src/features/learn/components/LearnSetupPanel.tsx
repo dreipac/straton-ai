@@ -1,12 +1,14 @@
-import { useState, type DragEvent } from 'react'
+import { useMemo, useState, type DragEvent } from 'react'
 import deleteIcon from '../../../assets/icons/delete.svg'
 import fileIcon from '../../../assets/icons/file.svg'
 import setupPng from '../../../assets/png/setup.png'
 import starIcon from '../../../assets/icons/star.svg'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
+import { daysUntilDue, describeSprintDeadline } from '../brain/planner/sprint'
 import type { UploadedMaterial } from '../services/learn.persistence'
 import { getMaterialTypeBadge } from '../utils/learnPageHelpers'
+import { LearnSprintConfirmModal } from './LearnSprintConfirmModal'
 
 export type LearnSetupPanelProps = {
   /**
@@ -69,6 +71,42 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
     onBackToStep2,
     allowContinueWithoutMaterials = false,
   } = props
+
+  /*
+   * Der Sprint-Hinweis (Kapitel 6.3, Sonderfall knapper Termin).
+   *
+   * Er steht hier und nicht erst im Ziel-Chip, weil er genau in dem Moment wirkt, in dem der
+   * Termin eingetippt wird — danach ist die Einrichtung durch. Er kommt ohne das Konzept-Netz
+   * aus (das entsteht erst in Schritt 4) und sagt deshalb nur, was aus Termin und Zeit schon
+   * feststeht: erreichbare Tiefe und fehlender Wiederholungsabstand. Was das fuer das konkrete
+   * Material heisst, folgt danach im Pfad.
+   */
+  const sprintWarning = useMemo(() => {
+    if (!goalDueAt) {
+      return ''
+    }
+    const nowIso = new Date().toISOString()
+    // Derselbe Tagesende-Bezug wie beim Anlegen des Ziels — sonst waere „bis Freitag" in
+    // Wahrheit „bis Freitag null Uhr" und der Hinweis waere um einen Tag zu streng.
+    const days = daysUntilDue(new Date(`${goalDueAt}T23:59:59`).toISOString(), nowIso)
+    return describeSprintDeadline(days, goalMinutesPerDay)
+  }, [goalDueAt, goalMinutesPerDay])
+
+  /*
+   * Die Bestaetigung (Kapitel 6.3): bei knappem Termin haelt „Einrichtung abschließen" hier an,
+   * statt sofort zu erzeugen. `onFinishSetup` wird ausschliesslich ueber diesen Zustand
+   * ausgeloest, nie direkt vom Knopf — sonst gaebe es zwei Wege zur Erzeugung, von denen einer
+   * das Modal umgeht.
+   */
+  const [isSprintConfirmOpen, setIsSprintConfirmOpen] = useState(false)
+
+  function handleFinishSetupClick() {
+    if (sprintWarning) {
+      setIsSprintConfirmOpen(true)
+      return
+    }
+    onFinishSetup()
+  }
 
   const [isFileDragOver, setIsFileDragOver] = useState(false)
 
@@ -296,12 +334,17 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
                 />
               </label>
             </div>
+            {sprintWarning ? (
+              <p className="learn-setup-goal-warning" aria-live="polite">
+                {sprintWarning}
+              </p>
+            ) : null}
             <div className="learn-setup-actions">
               <SecondaryButton type="button" onClick={onBackToStep2}>
                 Zurück
               </SecondaryButton>
               {/* Das Ziel ist optional (Kapitel 7) — der Knopf schliesst auch ohne Eingabe ab. */}
-              <PrimaryButton type="button" onClick={onFinishSetup}>
+              <PrimaryButton type="button" onClick={handleFinishSetupClick}>
                 Einrichtung abschließen
               </PrimaryButton>
             </div>
@@ -351,6 +394,16 @@ export function LearnSetupPanel(props: LearnSetupPanelProps) {
           </div>
         ) : null}
       </div>
+
+      <LearnSprintConfirmModal
+        isOpen={isSprintConfirmOpen}
+        warning={sprintWarning}
+        onAdjust={() => setIsSprintConfirmOpen(false)}
+        onConfirm={() => {
+          setIsSprintConfirmOpen(false)
+          onFinishSetup()
+        }}
+      />
     </section>
   )
 }

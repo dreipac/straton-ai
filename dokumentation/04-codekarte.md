@@ -22,6 +22,7 @@ src/features/learn/brain/
 ├── planner/                    Schicht 4 — Exekutive (kein Modell)
 │   ├── urgency.ts              die vier konkurrierenden Ansprueche
 │   ├── goal.ts                 Ziel-Objekt und Machbarkeitsrechnung
+│   ├── sprint.ts               knapper Termin: Leiter des Verzichts, zwei Grenzen
 │   ├── planner.ts              deterministische Auswahl, Mindestreserve, „Spaeter"
 │   ├── responsibility.ts       Grenze Wiederholung ↔ Pfad (6.7, neu in 1.1)
 │   └── explanation.ts          Erklaerpflicht — der eine Satz
@@ -89,6 +90,7 @@ src/features/learn/brain/
 │   ├── BrainNodePanel.tsx      die drei Werte, Herkunft, Befund, Aktionen
 │   ├── BrainNodeEditor.tsx     Handkorrektur inkl. Verschmelzungsdialog (I6)
 │   ├── BrainGoalDialog.tsx     Ziel setzen mit Machbarkeitsaussage
+│   ├── BrainSprintNotice.tsx   Umfangsvorschlag als Band unter der Jetzt-Karte (6.3)
 │   ├── BrainExplanationDialog.tsx  quellengebundener Erklaertext
 │   ├── BrainInsightsCard.tsx   Beobachtungen und Kartenfragen
 │   ├── BrainSession.tsx        Lernsitzung im Vollbild
@@ -153,6 +155,8 @@ src/features/chat/services/chatPrefill.ts           „Im Chat dazu fragen" — 
 | eine Aufgabe erzeugen willst | `production/formats.ts` → `selectFormat`, dann `agents/client.ts` |
 | eine Aufgabe freigeben willst | `production/quality.ts` → `buildControlVerdict`, `assertTaskCleared` |
 | ein Ziel setzen willst | `planner/goal.ts` → `assessGoal`, `describeFeasibility` |
+| wissen willst, was bei knappem Termin noch hineinpasst | `planner/sprint.ts` → `planSprintScope` |
+| wissen willst, ob der Zielumfang Vorrang hat | `planner/sprint.ts` → `sprintScopeOf` |
 | den Pfad aufbauen willst | `path/ordering.ts` → `buildBaseOrder` |
 | konsolidieren willst | `services/brainConsolidationRun.ts` → `runConsolidationIfDue` (Ablauf), `consolidation/plan.ts` (Auswahl) |
 | wissen willst, ob ein Lauf faellig ist | `consolidation/trigger.ts` → `evaluateTrigger` |
@@ -236,7 +240,7 @@ void runConsolidationIfDue({ userId, pathId })   // prueft den Ausloeser selbst,
 
 ## Testaufbau
 
-618 Tests fuer das Gehirn, verteilt auf 28 Dateien.
+663 Tests fuer das Gehirn, verteilt auf 30 Dateien.
 
 | Datei | Schwerpunkt |
 |---|---|
@@ -248,6 +252,8 @@ void runConsolidationIfDue({ userId, pathId })   // prueft den Ausloeser selbst,
 | `perception/chatSignals.test.ts` | I2 doppelt: Delta **und** Zustand |
 | `planner/planner.test.ts` | Determinismus, Mindestreserve, Konfliktloesung |
 | `planner/goal.test.ts` | Machbarkeit, ehrliche Aussage statt Zuspruch |
+| `planner/sprint.test.ts` | Leiter des Verzichts, welche Grenze genannt wird, Tragweitenordnung |
+| `ui/sprintView.test.ts` | wann die Sprintkarte erscheint, Vorschlag gegen Rueckhol-Angebot |
 | `planner/explanation.test.ts` | I8, kein Fachjargon, Glaettungsgrenzen |
 | `production/quality.test.ts` | Gegenloesen, Torwaechter, Antwortvergleich |
 | `preparation/derive.test.ts` | drei Arten im Arbeitsheft, Lehrtext, Recherchebedarf |

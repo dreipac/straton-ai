@@ -282,3 +282,38 @@ describe('Leerzustand des Stapels (Kapitel 8)', () => {
     expect(view.emptyForecast).toContain('in 3 Tagen')
   })
 })
+
+describe('Leerzustand im Sprint (Kapitel 6.3)', () => {
+  it('erklaert, warum bis zum Termin nichts kommt — statt „alles erledigt" zu suggerieren', () => {
+    /*
+     * Im Sprint bleibt der Bereich zwangslaeufig leer: das kuerzeste Intervall, das
+     * `nextReviewIntervalDays` fuer ein gefestigtes Konzept vergibt, ist groesser als das
+     * Fenster bis zum Termin. Ohne diesen Satz laese sich der Leerzustand als Endzustand.
+     */
+    const view = buildReviewOverview({
+      images: [],
+      concepts: [],
+      goal: {
+        id: 'g1',
+        userId: 'u1',
+        pathId: 'p1',
+        title: 'Pruefung',
+        dueAt: new Date(new Date(NOW).getTime() + 2 * 86_400_000).toISOString(),
+        conceptIds: ['a'],
+        minutesPerDay: 60,
+        targetDepth: 'recognize',
+        status: 'active',
+      },
+      nowIso: NOW,
+    })
+
+    expect(view.isEmpty).toBe(true)
+    expect(view.emptyForecast).toContain('Bis zum Termin kommt hier nichts')
+    expect(view.emptyForecast).toContain('einen Durchgang')
+  })
+
+  it('bleibt ohne Sprint bei der gewohnten Vorschau', () => {
+    const view = buildReviewOverview({ images: [], concepts: [], goal: null, nowIso: NOW })
+    expect(view.emptyForecast).toContain('Der Pfad ist gerade der bessere Ort')
+  })
+})

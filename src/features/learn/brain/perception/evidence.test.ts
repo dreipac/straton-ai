@@ -197,4 +197,24 @@ describe('naechste Anwendungstiefe', () => {
     const image = { ...emptyImage('a', 3), mastery: 0.95, depth: 'transfer' as const }
     expect(nextDepthFor(image)).toBe('transfer')
   })
+
+  it('steigt nicht ueber die Zieltiefe des Ziels hinaus', () => {
+    // Der Sprintfall: das Konzept traegt, aber „Anwenden" ist in der Zeit nicht zu halten.
+    const image = { ...emptyImage('a', 3), mastery: 0.85, depth: 'recognize' as const }
+    expect(nextDepthFor(image, 'recognize')).toBe('recognize')
+  })
+
+  it('stuft eine bereits belegte Stufe nicht zurueck', () => {
+    /*
+     * Wer „Anwenden" schon belegt hat, faellt durch einen knappen Termin nicht auf „Erkennen"
+     * zurueck — das waere aus Sicht der Person ein Rueckschritt fuer etwas, das sie kann.
+     */
+    const image = { ...emptyImage('a', 3), mastery: 0.85, depth: 'apply' as const }
+    expect(nextDepthFor(image, 'recognize')).toBe('apply')
+  })
+
+  it('verhaelt sich ohne Zieltiefe wie zuvor', () => {
+    const image = { ...emptyImage('a', 3), mastery: 0.85, depth: 'recognize' as const }
+    expect(nextDepthFor(image)).toBe('apply')
+  })
 })

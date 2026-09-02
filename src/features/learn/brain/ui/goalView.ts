@@ -97,6 +97,8 @@ export function buildGoalPreview(args: {
     }
   }
 
+  const targetDepth = draft.targetDepth ?? 'apply'
+
   const goal: LearningGoal = {
     id: 'draft',
     userId: args.userId,
@@ -105,10 +107,10 @@ export function buildGoalPreview(args: {
     dueAt: draft.dueAt,
     conceptIds: draft.conceptIds,
     minutesPerDay: draft.minutesPerDay,
+    targetDepth,
     status: 'active',
   }
 
-  const targetDepth = draft.targetDepth ?? 'apply'
   const assessment = assessGoal({ goal, images: args.images, targetDepth, nowIso: args.nowIso })
 
   return {

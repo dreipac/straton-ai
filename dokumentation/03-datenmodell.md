@@ -237,6 +237,13 @@ Wiederholung ueber verschiedene Konzepte **und** ueber Zeit.
 | `due_at` | Termin |
 | `concept_ids` | Umfang |
 | `minutes_per_day` | verfuegbare Zeit |
+| `target_depth` | Anwendungstiefe, auf die der Umfang soll (Vorgabe `apply`) |
+
+Die vierte Angabe kam mit dem Sprint dazu. Sie ist die einzige Stellschraube, die man senken
+kann, **ohne dass etwas wegfaellt** — deshalb zieht `planner/sprint.ts` sie vor dem Umfang
+(„erst flacher, dann weniger"). Vorher stand `apply` fest im Code; `nextDepthFor` hob ein
+Konzept ausserdem automatisch eine Stufe an, sobald es 0.7 erreichte. Bei einem Termin in zwei
+Tagen verbrannte das genau die Minuten, die dort fehlen.
 
 ```sql
 create unique index learn_goals_one_active_per_path

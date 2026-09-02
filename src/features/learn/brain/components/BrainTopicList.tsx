@@ -19,6 +19,9 @@ const BADGE_LABEL: Record<NodeBadge, string> = {
   due: 'fällig',
 }
 
+/** Zurueckgestellt: bis zum Termin ausserhalb des Zielumfangs — sichtbar, aber nicht dran. */
+const OUT_OF_SCOPE_LABEL = 'nach dem Termin'
+
 const STATE_LABEL: Record<NodeView['state'], string> = {
   open: 'offen',
   current: 'jetzt dran',
@@ -71,26 +74,38 @@ export function BrainTopicList(props: BrainTopicListProps) {
                     <li
                       key={node.conceptId}
                       className={`brain-node brain-node--${node.state}${node.indented ? ' is-indented' : ''}${
-                        node.conceptId === selectedConceptId ? ' is-selected' : ''
-                      }`}
+                        node.outOfScope ? ' is-out-of-scope' : ''
+                      }${node.conceptId === selectedConceptId ? ' is-selected' : ''}`}
                     >
                       <button
                         type="button"
                         className="brain-node-button"
                         onClick={() => onSelectNode(node.conceptId)}
-                        aria-label={`${node.name}, ${STATE_LABEL[node.state]}`}
+                        aria-label={`${node.name}, ${STATE_LABEL[node.state]}${
+                          node.outOfScope ? `, ${OUT_OF_SCOPE_LABEL}` : ''
+                        }`}
                         tabIndex={isOpen ? 0 : -1}
                       >
                         <span className="brain-node-dot" aria-hidden="true" />
                         <span className="brain-node-body">
                           <span className="brain-node-name">{node.name}</span>
-                          {node.badges.length > 0 ? (
+                          {node.badges.length > 0 || node.outOfScope ? (
                             <span className="brain-node-badges">
                               {node.badges.map((badge) => (
                                 <span key={badge} className={`brain-node-badge brain-node-badge--${badge}`}>
                                   {BADGE_LABEL[badge]}
                                 </span>
                               ))}
+                              {/*
+                                * Zurueckgestellt heisst zurueckgestellt, nicht gesperrt: der Knoten
+                                * bleibt anwaehlbar und bedienbar. Die Marke sagt nur, dass er bis
+                                * zum Termin nicht von selbst drankommt.
+                                */}
+                              {node.outOfScope ? (
+                                <span className="brain-node-badge brain-node-badge--deferred">
+                                  {OUT_OF_SCOPE_LABEL}
+                                </span>
+                              ) : null}
                             </span>
                           ) : null}
                           {/*

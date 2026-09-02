@@ -345,7 +345,7 @@ export function LearnWorksheetModal(props: LearnWorksheetModalProps) {
 
   return (
     <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
-      <section className="learn-flashcards-modal learn-worksheet-modal" role="dialog" aria-modal="true" aria-label="Lernblatt">
+      <section className="ui-dialog-card learn-flashcards-modal learn-worksheet-modal" role="dialog" aria-modal="true" aria-label="Lernblatt">
         <header className="learn-flashcards-modal-header">
           <h2>Lernblatt</h2>
           <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">

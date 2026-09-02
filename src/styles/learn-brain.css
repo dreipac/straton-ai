@@ -179,6 +179,142 @@
 }
 
 /* --------------------------------------------------------------------------
+   Sprint-Hinweis (6.3) — das Band, das unter der Jetzt-Karte hervorschaut
+   --------------------------------------------------------------------------
+
+   Die Jetzt-Karte bleibt unangetastet: eigenstaendig, rundum abgerundet, mit ihrem Schatten. Der
+   Hinweis schiebt sich als eigenes Band UNTER sie — oben flach, unten rund.
+
+   Er schiebt sich dabei um genau einen Kartenradius hinein (`margin-top`, negativ) und die Karte
+   liegt darueber (`z-index`). Das ist der Grund fuer die flache Oberkante: sie liegt hinter der
+   Karte und soll dort nichts abrunden. Zugleich schliesst das die Luft an den Seiten — ohne den
+   Einschub bliebe neben den runden Kartenecken der Hintergrund stehen. Das Band uebernimmt die
+   Ecken der Karte von hinten.
+
+   Einen eigenen Schatten traegt es nicht. Der Schatten der Karte faellt auf das Band, nicht
+   umgekehrt; zwei Schatten waeren zwei gleichrangige Flaechen, und der Hinweis ist kein zweites
+   Angebot.
+
+   `.brain-now-stack` klammert beide, damit der Gitterabstand von `.brain-path` (rund 1rem) sich
+   nicht dazwischenlegt. */
+
+.brain-now-stack {
+  /* Einmal benannt statt dreimal wiederholt — Einschub, Rundung und Polsterung muessen exakt
+     denselben Wert benutzen wie `.brain-now-card`, sonst passt die Form nicht mehr. */
+  --brain-card-radius: clamp(14px, 0.6vw + 12px, 20px);
+  display: grid;
+}
+
+/* Die Karte deckt den eingeschobenen Teil des Bands ab — sonst laege das Band ueber ihr. */
+.brain-now-stack > .brain-now-card {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Der Hauch Schatten an der Kante, an der die Karte in das Band uebergeht.
+ *
+ * Als `box-shadow` der KARTE, nicht als Verlauf auf dem Band: nur so folgt er ihrer runden
+ * Unterkante. Ein Verlauf waere ueber die ganze Breite eine gerade Linie und liefe an den Ecken
+ * sichtbar an der Rundung vorbei.
+ *
+ * Er ersetzt den normalen Kartenschatten, statt ihn zu ergaenzen — der weiche Umgebungsschatten
+ * lag ohnehin hinter dem Band. Ein Wert fuer alle Themen: die dunklen Themen nehmen der Karte
+ * ihren Schatten sonst weg, diese eine Kante braucht ihn aber ueberall.
+ */
+.brain-now-stack:has(> .brain-sprint-notice-slot.is-open) > .brain-now-card {
+  box-shadow: 0 5px 9px -5px var(--color-shadow-strong);
+}
+
+/* Dieselbe 0-zu-Inhalt-Technik, Dauer und Kurve wie beim Aufklappen eines Themas
+   (`.brain-node-list-panel`): der Slot bleibt im DOM und waechst, statt zu springen. */
+.brain-sprint-notice-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: 0;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+
+/* Der Einschub entsteht erst beim Oeffnen: geschlossen wuerde er den naechsten Baustein
+   hochziehen. */
+.brain-sprint-notice-slot.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: calc(-1 * var(--brain-card-radius));
+}
+
+.brain-sprint-notice-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Oben flach und ohne Rand — diese Kante liegt hinter der Karte. Unten die Kartenrundung (die
+   `clamp()`-Radien sind die dokumentierte Ausnahme von der `--radius-*`-Skala). Die obere
+   Polsterung traegt den Einschub mit, damit der Text nicht unter der Karte beginnt.
+
+   Untereinander statt nebeneinander: Text, darunter die Knoepfe, beide links. Nebeneinander
+   musste der Satz sich den Platz mit den Knoepfen teilen und brach schon auf dem Desktop um. */
+.brain-sprint-notice {
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--brain-card-radius) var(--brain-card-radius);
+  background: color-mix(in srgb, var(--color-border) 26%, var(--color-surface));
+  padding: calc(0.62rem + var(--brain-card-radius)) clamp(0.88rem, 0.85vw + 0.62rem, 1.28rem) 0.7rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.brain-sprint-notice-text {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+/* Dieselbe Schriftstaerke und Farbe wie der Lernpfad-Titel im Seitenkopf
+   (`.learn-page-title-text`) und wie der Titel der Jetzt-Karte darueber — nur eine Stufe kleiner,
+   weil das Band der Karte untergeordnet ist. */
+.brain-sprint-notice-title {
+  margin: 0 0 0.1rem;
+  color: var(--color-text-app);
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.brain-sprint-notice-body {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.brain-sprint-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-self: start;
+}
+
+/* Ein Tick schmaler als der globale Knopf-Look (`.ui-button`, `padding: 0.44rem 0.62rem`): das
+   Band ist die untergeordnete Flaeche, seine Knoepfe duerfen entsprechend kompakter wirken. Nur
+   die seitliche Polsterung sinkt, nicht die Hoehe — sonst waere die Treffflaeche kleiner. */
+.brain-sprint-notice-actions .ui-button {
+  padding-left: 0.48rem;
+  padding-right: 0.48rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Der Hinweis ist dann einfach da oder nicht da — kein Wachsen aus der Karte. */
+  .brain-sprint-notice-slot {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Themenliste (3.4) und Knotenzustaende (3.5)
    -------------------------------------------------------------------------- */
 
@@ -548,6 +684,25 @@
   border-color: var(--color-danger-border);
   color: var(--color-danger-text);
   background: var(--color-danger-bg-soft);
+}
+
+/* Zurueckgestellt: bis zum Termin ausserhalb des Sprintumfangs. Bewusst leise — es ist kein
+   Zustand des Wissens, sondern eine Aussage ueber die Reihenfolge. */
+.brain-node-badge--deferred {
+  border-style: dashed;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Der Knoten bleibt vollstaendig bedienbar; er tritt nur zurueck. Kein `pointer-events: none`
+   und kein `disabled` — wer ihn selbst lernen will, kann das jederzeit. */
+.brain-node.is-out-of-scope .brain-node-body {
+  opacity: 0.55;
+}
+
+.brain-node.is-out-of-scope:hover .brain-node-body,
+.brain-node.is-out-of-scope.is-selected .brain-node-body {
+  opacity: 1;
 }
 
 /* --------------------------------------------------------------------------
@@ -920,6 +1075,7 @@
   background: var(--color-surface);
   box-shadow: none;
 }
+
 
 :root[data-theme='dark'] .brain-node--settled .brain-node-dot {
   background: var(--color-success-spinner-soft);
@@ -1632,12 +1788,11 @@
 
 /* Werterklaerung (3.6): bewusst deutlich kleiner als `.brain-dialog` — ein bis zwei Saetze
    brauchen kein 46rem breites Modal, das wirkt neben dem eigentlichen Panel ueberdimensioniert. */
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die
+   Eigenheiten dieses konkreten Dialogs. */
 .brain-info-dialog {
   width: min(22rem, 100%);
   border-radius: var(--radius-xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: 0 12px 32px var(--color-shadow-soft);
   padding: 0.9rem 1rem 1.05rem;
   display: grid;
   gap: 0.5rem;
@@ -1678,15 +1833,14 @@
   color: var(--color-text-secondary);
 }
 
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die
+   Eigenheiten dieses konkreten Dialogs. */
 .brain-dialog {
   width: min(46rem, 100%);
   max-height: min(86vh, 52rem);
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-2xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: 0 12px 32px var(--color-shadow-soft);
   overflow: hidden;
 }
 

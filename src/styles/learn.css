@@ -1422,12 +1422,11 @@
   padding: 0.35rem;
 }
 
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die
+   Eigenheiten dieses konkreten Dialogs. */
 .learn-material-choice-modal {
   width: min(440px, calc(100vw - 0.8rem));
   border-radius: var(--radius-2xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
 
@@ -1450,13 +1449,12 @@
   justify-content: flex-end;
 }
 
+/* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die
+   Eigenheiten dieses konkreten Dialogs. */
 .learn-flashcards-modal {
   width: min(760px, calc(100vw - 0.8rem));
   max-height: calc(var(--straton-app-height) - 0.8rem);
   border-radius: var(--radius-2xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -3196,6 +3194,29 @@ textarea.ui-textarea.learn-worksheet-answer-field--compact {
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
+}
+
+/* Sprint-Hinweis: erscheint nur bei knappem Termin (<= 3 Tage). Bewusst kein Warn-Rot —
+   die Aussage ist eine Auskunft ueber Erreichbares, kein Fehler des Nutzers. */
+.learn-setup-goal-warning {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+
+/* Derselbe Hinweis wie oben, jetzt als Bestaetigung vor der Erzeugung (`LearnSprintConfirmModal`).
+   Rahmen/Hintergrund/Schatten kommen aus `.ui-dialog-card`, Breite/Kopf aus `.rename-modal` — hier
+   nur der Fliesstext. */
+.learn-sprint-confirm-text {
+  margin: 0 0 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-md);
+  line-height: 1.5;
 }
 
 .learn-file-upload-block {

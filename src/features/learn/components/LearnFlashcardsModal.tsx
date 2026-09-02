@@ -215,7 +215,7 @@ function LearnFlashcardsDesktopModal(props: LearnFlashcardsModalProps) {
 
   return (
     <ModalShell isOpen={isVisible} className="learn-flashcards-modal-overlay" onRequestClose={onClose}>
-      <section className="learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Lernkarten">
+      <section className="ui-dialog-card learn-flashcards-modal" role="dialog" aria-modal="true" aria-label="Lernkarten">
         <header className="learn-flashcards-modal-header">
           <h2>Lernkarten</h2>
           <button type="button" className="settings-close-button" onClick={onClose} aria-label="Schließen">

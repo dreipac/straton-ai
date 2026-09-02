@@ -86,6 +86,7 @@ import { BrainReviewTab } from '../features/learn/brain/components/BrainReviewTa
 import { BrainReviewStack } from '../features/learn/brain/components/BrainReviewStack'
 import { BrainReviewCompletion } from '../features/learn/brain/components/BrainReviewCompletion'
 import { BrainGoalDialog } from '../features/learn/brain/components/BrainGoalDialog'
+import { buildSprintCard } from '../features/learn/brain/ui/sprintView'
 import { BrainNodeEditor } from '../features/learn/brain/components/BrainNodeEditor'
 import { BrainExplanationDialog } from '../features/learn/brain/components/BrainExplanationDialog'
 import { BrainValueInfoDialog } from '../features/learn/brain/components/BrainValueInfoDialog'
@@ -105,7 +106,7 @@ import {
   decideProposal,
   disputePattern,
 } from '../features/learn/brain/services/brainConsolidation.persistence'
-import { closeGoal, setGoal } from '../features/learn/brain/services/brainGoals.persistence'
+import { closeGoal, setGoal, updateGoalScope } from '../features/learn/brain/services/brainGoals.persistence'
 import {
   applyAddPrerequisite,
   applyConceptMerge,
@@ -1883,14 +1884,45 @@ export function LearnPage({
 
   const brainExplanation = useBrainExplanation({ sourceExcerptFor: brainSourceExcerptFor })
 
+  /*
+   * Der Sprint-Hinweis (Kapitel 6.3). Gezeigt wird er am Fuss der Jetzt-Karte (`BrainPathTab`) —
+   * er sagt, WORAUS diese Karte gerade schoepft. Berechnet wird er hier, weil das „Nicht jetzt"
+   * unten einen Tabwechsel ueberleben soll und der Pfad-Tab dabei abgeraeumt wird.
+   *
+   * „Nicht jetzt" beim Rueckhol-Angebot.
+   *
+   * Bewusst nur fuer diese Ansicht gemerkt und nicht persistiert: das Angebot ist kein Vorschlag
+   * mit Frist, sondern eine Beobachtung ueber den aktuellen Stand. Wer morgen wieder vorne liegt,
+   * soll es wieder angeboten bekommen — ein dauerhaftes Nein waere hier ein Nachteil ohne Nutzen.
+   */
+  const [isSprintOfferDismissed, setIsSprintOfferDismissed] = useState(false)
+
+  const brainSprintNotice = useMemo(() => {
+    const card = buildSprintCard({
+      concepts: brainPath.data.concepts,
+      edges: brainPath.data.edges,
+      images: brainPath.data.images,
+      goal: brainPath.data.goal,
+      nowIso: new Date().toISOString(),
+    })
+    return isSprintOfferDismissed && card.kind === 'headroom' ? { kind: 'none' as const } : card
+  }, [
+    brainPath.data.concepts,
+    brainPath.data.edges,
+    brainPath.data.images,
+    brainPath.data.goal,
+    isSprintOfferDismissed,
+  ])
+
   const brainReviewOverview = useMemo(
     () =>
       buildReviewOverview({
         images: brainPath.data.images.values(),
         concepts: brainPath.data.concepts,
+        goal: brainPath.data.goal,
         nowIso: new Date().toISOString(),
       }),
-    [brainPath.data.images, brainPath.data.concepts],
+    [brainPath.data.images, brainPath.data.concepts, brainPath.data.goal],
   )
 
   const brainReviewCompletion = useMemo(
@@ -1951,6 +1983,39 @@ export function LearnPage({
     },
     [brainPath.data.concepts, brainPath.data.images],
   )
+
+  /*
+   * Sprint (Kapitel 6.3): der Nutzer beantwortet den Umfangsvorschlag.
+   *
+   * Beide Antworten setzen die Zieltiefe auf `recognize` — auch „alles behalten". Das ist Stufe 2
+   * der Leiter des Verzichts („erst flacher, dann weniger") und gilt unabhaengig davon, ob jemand
+   * ein Konzept hergeben will. Es ist zugleich die Merkung, DASS geantwortet wurde: solange dort
+   * noch `apply` steht, zeigt `buildSprintCard` den Vorschlag erneut.
+   */
+  const handleSprintScope = useCallback(
+    (conceptIds: string[]) => {
+      const goalId = brainPath.data.goal?.id
+      if (!goalId || conceptIds.length === 0) {
+        return
+      }
+      void runBrainAction(() => updateGoalScope({ goalId, conceptIds, targetDepth: 'recognize' }))
+    },
+    [brainPath.data.goal?.id, runBrainAction],
+  )
+
+  const handleKeepFullScope = useCallback(() => {
+    const goalId = brainPath.data.goal?.id
+    if (!goalId) {
+      return
+    }
+    void runBrainAction(() =>
+      updateGoalScope({
+        goalId,
+        conceptIds: brainPath.data.concepts.map((concept) => concept.id),
+        targetDepth: 'recognize',
+      }),
+    )
+  }, [brainPath.data.goal?.id, brainPath.data.concepts, runBrainAction])
 
   /** „Im Chat dazu fragen" (Kapitel 3.6) — der Chat ist der Erklaermotor, nicht die Sitzung. */
   const handleBrainAskInChat = useCallback(
@@ -4597,6 +4662,17 @@ export function LearnPage({
                   ) : (
                     <BrainPathTab
                       state={brainPath}
+                      /*
+                       * Der Sprint-Hinweis waechst unten aus der Jetzt-Karte heraus und wird
+                       * deshalb dort gerendert. Berechnet wird er trotzdem hier: „fuer diesmal
+                       * ausgeschlagen" muss einen Tabwechsel ueberleben, der Pfad-Tab wird dabei
+                       * aber abgeraeumt.
+                       */
+                      sprintCard={brainSprintNotice}
+                      onApplySprintScope={handleSprintScope}
+                      onKeepFullSprintScope={handleKeepFullScope}
+                      onDismissSprintOffer={() => setIsSprintOfferDismissed(true)}
+                      isBusy={isBrainActionBusy}
                       onStartSession={() => void brainSession.start(brainPath.plan?.tasks ?? [])}
                       /* „Spaeter" (Kapitel 3.3): der Planer waehlt neu und begruendet erneut. */
                       onDeferConcept={brainPath.deferConcept}
@@ -4913,7 +4989,7 @@ export function LearnPage({
           onRequestClose={() => setLearnMaterialChoiceTarget(null)}
         >
           <section
-            className="learn-material-choice-modal"
+            className="ui-dialog-card learn-material-choice-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="learn-material-choice-title"

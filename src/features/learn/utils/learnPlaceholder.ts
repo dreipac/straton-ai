@@ -6,6 +6,8 @@ import type {
   LearnWorksheetItem,
   SyllabusEntry,
 } from '../services/learn.persistence'
+import type { LearnerConceptImage } from '../brain/types'
+import { emptyImage } from '../brain/memory/learnerImage'
 import type { IngestedGraph } from './conceptIngestion'
 import type { Curriculum } from './curriculumGeneration'
 
@@ -334,4 +336,65 @@ export function buildPlaceholderCurriculum(topic: string): Curriculum {
       steps: spec.concepts.map((c) => ({ title: c.label, conceptSlugs: [c.slug] })),
     })),
   }
+}
+
+function isoDaysAgo(days: number, nowIso: string): string {
+  return new Date(new Date(nowIso).getTime() - days * 86_400_000).toISOString()
+}
+
+/**
+ * Zwei Konzepte des Platzhalter-Netzes direkt als gefestigt und faellig markieren — Testdaten fuer
+ * den Tab Wiederholen (Kapitel 6.7), ohne dass dafuer erst wirklich gelernt und tagelang gewartet
+ * werden muesste. Ausschliesslich fuer den Platzhalter-Pfad gedacht (Admin-Test).
+ *
+ * Beide Beispiele erfuellen `isReviewEligible` UND `isDue` (`planner/responsibility.ts`):
+ * Beherrschung und Sicherheit hoch genug fuer den Stapel, `nextReviewAt` in der Vergangenheit.
+ * Unterschiedlich ist nur, wie lange das Konzept schon nicht mehr angefasst wurde — genau die
+ * Groesse, an der `describeDueReason` zwischen „X Tage nicht angefasst" und „planmaessige
+ * Auffrischung" unterscheidet. Zwei Beispiele zeigen damit beide Formulierungen auf einen Blick,
+ * statt zweimal denselben Satz.
+ */
+export function buildPlaceholderReviewImages(
+  concepts: { id: string; slug: string }[],
+  nowIso: string,
+): LearnerConceptImage[] {
+  const bySlug = new Map(concepts.map((concept) => [concept.slug, concept]))
+
+  const overdue = bySlug.get('grundbegriffe')
+  const dueToday = bySlug.get('formeln')
+
+  const images: LearnerConceptImage[] = []
+  if (overdue) {
+    images.push({
+      ...emptyImage(overdue.id, 1),
+      mastery: 0.78,
+      confidence: 0.72,
+      depth: 'recognize',
+      directEvidenceCount: 4,
+      directEvidenceWeight: 4,
+      coldStart: false,
+      everConsolidated: true,
+      // Lange her: `describeDueReason` sagt „16 Tage nicht angefasst".
+      lastDirectEvidenceAt: isoDaysAgo(16, nowIso),
+      lastSeenAt: isoDaysAgo(16, nowIso),
+      nextReviewAt: isoDaysAgo(1, nowIso),
+    })
+  }
+  if (dueToday) {
+    images.push({
+      ...emptyImage(dueToday.id, 3),
+      mastery: 0.83,
+      confidence: 0.76,
+      depth: 'recognize',
+      directEvidenceCount: 3,
+      directEvidenceWeight: 3,
+      coldStart: false,
+      everConsolidated: true,
+      // Kuerzlich gesehen, aber der Turnus ist um: `describeDueReason` sagt „planmaessige Auffrischung".
+      lastDirectEvidenceAt: isoDaysAgo(4, nowIso),
+      lastSeenAt: isoDaysAgo(4, nowIso),
+      nextReviewAt: isoDaysAgo(0.1, nowIso),
+    })
+  }
+  return images
 }

@@ -130,23 +130,38 @@
   flex-shrink: 0;
 }
 
+/*
+ * Modal-Animation — global, fuer jeden Dialog ueber `ModalShell`.
+ *
+ * Die Box-Auswahl ist bewusst DIESELBE Liste wie die Karten-Basis in `ui.css`
+ * (`.ui-dialog-card, .settings-modal, .rename-modal, .billing-manage-dialog,
+ * .security-password-done-dialog`) — keine zweite, unabhaengig gepflegte Liste. Vorher lief hier
+ * eine eigene, kuerzere Aufzaehlung mit, die zwei der fuenf Klassen (`.billing-manage-dialog`,
+ * `.security-password-done-dialog`) gar nicht kannte: die bekamen nur das Ueberblenden der
+ * Flaeche, keine Bewegung. Ein neuer Dialog bekommt beides in einem Schritt, indem er
+ * `ui-dialog-card` zu seiner eigenen Klasse dazuschreibt (siehe Kommentar dort) — nichts hier
+ * muss dafuer mitwachsen.
+ *
+ * Reines Skalieren, kein Verschieben: eine „Pop"-Erscheinung waechst aus der Mitte heraus, ein
+ * Verschieben waere ein Hereingleiten. Hin und zurueck ist dieselbe Transition auf denselben zwei
+ * Eigenschaften, nur die Zielwerte wechseln mit `.is-open` — das Schliessen ist damit von selbst
+ * exakt die Umkehrung des Oeffnens, keine zweite, eigens gebaute Animation.
+ */
 .modal-fade {
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity 200ms ease;
 }
 
+.modal-fade .ui-dialog-card,
 .modal-fade .settings-modal,
 .modal-fade .rename-modal,
-.modal-fade .invite-chat-modal,
-.modal-fade .chat-end-sharing-confirm-modal,
-.modal-fade .account-subscription-modal,
-.modal-fade .news-feed-modal,
-.modal-fade .news-composer-modal {
+.modal-fade .billing-manage-dialog,
+.modal-fade .security-password-done-dialog {
   opacity: 0;
-  transform: translateY(10px) scale(0.985);
+  transform: scale(0.92);
   transition:
-    opacity 220ms ease,
-    transform 220ms ease;
+    opacity 200ms ease,
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .modal-fade:not(.is-open) {
@@ -157,15 +172,24 @@
   opacity: 1;
 }
 
+.modal-fade.is-open .ui-dialog-card,
 .modal-fade.is-open .settings-modal,
 .modal-fade.is-open .rename-modal,
-.modal-fade.is-open .invite-chat-modal,
-.modal-fade.is-open .chat-end-sharing-confirm-modal,
-.modal-fade.is-open .account-subscription-modal,
-.modal-fade.is-open .news-feed-modal,
-.modal-fade.is-open .news-composer-modal {
+.modal-fade.is-open .billing-manage-dialog,
+.modal-fade.is-open .security-password-done-dialog {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-fade,
+  .modal-fade .ui-dialog-card,
+  .modal-fade .settings-modal,
+  .modal-fade .rename-modal,
+  .modal-fade .billing-manage-dialog,
+  .modal-fade .security-password-done-dialog {
+    transition: none;
+  }
 }
 
 /* Rahmen/Hintergrund/Schatten/Textfarbe kommen aus `.ui-dialog-card` (ui.css) — hier nur noch die

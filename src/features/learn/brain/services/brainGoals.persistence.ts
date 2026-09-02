@@ -11,7 +11,7 @@
  */
 
 import { getSupabaseClient } from '../../../../integrations/supabase/client'
-import type { LearningGoal } from '../types'
+import type { ApplicationDepth, LearningGoal } from '../types'
 import { toReadableError } from './brainErrors'
 
 type GoalRow = {
@@ -22,12 +22,20 @@ type GoalRow = {
   due_at: string
   concept_ids: string[] | null
   minutes_per_day: number
+  target_depth: string | null
   status: string
 }
 
 function mapGoalRow(row: GoalRow): LearningGoal {
   const status =
     row.status === 'achieved' || row.status === 'expired' || row.status === 'cancelled' ? row.status : 'active'
+  /*
+    * Unbekannte Tiefen fallen auf 'apply' zurueck — den Wert, den die Rueckwaertsrechnung vor
+    * Einfuehrung der Spalte fest annahm. Ein Bestandsziel verhaelt sich damit unveraendert.
+    */
+  const targetDepth: ApplicationDepth =
+    row.target_depth === 'recognize' || row.target_depth === 'transfer' ? row.target_depth : 'apply'
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -36,6 +44,7 @@ function mapGoalRow(row: GoalRow): LearningGoal {
     dueAt: row.due_at,
     conceptIds: row.concept_ids ?? [],
     minutesPerDay: row.minutes_per_day,
+    targetDepth,
     status,
   }
 }
@@ -45,7 +54,7 @@ export async function loadActiveGoal(pathId: string): Promise<LearningGoal | nul
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('learn_goals')
-    .select('id, user_id, path_id, title, due_at, concept_ids, minutes_per_day, status')
+    .select('id, user_id, path_id, title, due_at, concept_ids, minutes_per_day, target_depth, status')
     .eq('path_id', pathId)
     .eq('status', 'active')
     .maybeSingle()
@@ -70,6 +79,7 @@ export async function setGoal(args: {
   dueAt: string
   conceptIds: string[]
   minutesPerDay: number
+  targetDepth?: ApplicationDepth
 }): Promise<LearningGoal> {
   const supabase = getSupabaseClient()
 
@@ -92,9 +102,10 @@ export async function setGoal(args: {
       due_at: args.dueAt,
       concept_ids: args.conceptIds,
       minutes_per_day: args.minutesPerDay,
+      target_depth: args.targetDepth ?? 'apply',
       status: 'active',
     })
-    .select('id, user_id, path_id, title, due_at, concept_ids, minutes_per_day, status')
+    .select('id, user_id, path_id, title, due_at, concept_ids, minutes_per_day, target_depth, status')
     .single()
 
   if (error) {
@@ -109,6 +120,7 @@ export async function updateGoalScope(args: {
   conceptIds?: string[]
   minutesPerDay?: number
   dueAt?: string
+  targetDepth?: ApplicationDepth
 }): Promise<void> {
   const supabase = getSupabaseClient()
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -120,6 +132,9 @@ export async function updateGoalScope(args: {
   }
   if (args.dueAt) {
     patch.due_at = args.dueAt
+  }
+  if (args.targetDepth) {
+    patch.target_depth = args.targetDepth
   }
 
   const { error } = await supabase.from('learn_goals').update(patch).eq('id', args.goalId)

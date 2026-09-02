@@ -111,6 +111,7 @@ describe('Lernpfad-Kopf (Kapitel 3.1)', () => {
       dueAt: '2026-08-21T10:00:00.000Z',
       conceptIds: ['a', 'b'],
       minutesPerDay: 40,
+      targetDepth: 'apply',
       status: 'active',
     }
     const header = buildPathHeader({
@@ -358,5 +359,108 @@ describe('Knoten-Panel (Kapitel 3.6)', () => {
     ])
     // Der entscheidende Satz: niedrige Sicherheit ist keine zweite Note.
     expect(VALUE_EXPLANATION[1].text).toContain('nicht, dass du es nicht kannst')
+  })
+})
+
+describe('Sprint: Bezugsgroesse und Zurueckstellung (Kapitel 6.3)', () => {
+  const NOW_SPRINT = '2026-09-02T08:00:00.000Z'
+  const IN_TWO_DAYS = '2026-09-04T08:00:00.000Z'
+
+  function sprintGoal(conceptIds: string[]): LearningGoal {
+    return {
+      id: 'g1',
+      userId: 'u1',
+      pathId: 'p1',
+      title: 'Pruefung',
+      dueAt: IN_TWO_DAYS,
+      conceptIds,
+      minutesPerDay: 60,
+      targetDepth: 'recognize',
+      status: 'active',
+    }
+  }
+
+  const all = [concept('a'), concept('b'), concept('c'), concept('d')]
+
+  /*
+   * Eigener Bausatz statt des `settled` weiter oben: dessen Termin liegt vor NOW_SPRINT, das
+   * Konzept waere hier also „faellig" statt „gefestigt" — und dann pruefte der Test etwas
+   * anderes, als er behauptet.
+   */
+  function settledNow(id: string): LearnerConceptImage {
+    return {
+      ...emptyImage(id, 3),
+      mastery: 0.85,
+      confidence: 0.7,
+      directEvidenceCount: 6,
+      directEvidenceWeight: 6,
+      everConsolidated: true,
+      lastSeenAt: NOW_SPRINT,
+      lastDirectEvidenceAt: NOW_SPRINT,
+      nextReviewAt: '2026-09-10T08:00:00.000Z',
+    }
+  }
+
+  it('rechnet den Ring im Sprint ueber den Zielumfang und sagt die Bezugsgroesse an', () => {
+    /*
+     * Ohne diesen Bezug stuende der Ring bei 50 Prozent, obwohl das Ziel vollstaendig erreicht
+     * ist — der Nutzer saehe einen Rueckstand, den es nicht gibt.
+     */
+    const images = new Map([
+      ['a', settledNow('a')],
+      ['b', settledNow('b')],
+    ])
+    const header = buildPathHeader({
+      concepts: all,
+      images,
+      goal: sprintGoal(['a', 'b']),
+      nowIso: NOW_SPRINT,
+    })
+
+    expect(header.conceptCount).toBe(2)
+    expect(header.scopeNote).toBe('2 von 4 im Umfang')
+    expect(header.progress).toBeGreaterThan(0.8)
+  })
+
+  it('laesst die Bezugsgroesse ohne Sprint unveraendert', () => {
+    const header = buildPathHeader({
+      concepts: all,
+      images: new Map([['a', settledNow('a')]]),
+      goal: null,
+      nowIso: NOW_SPRINT,
+    })
+    expect(header.conceptCount).toBe(4)
+    expect(header.scopeNote).toBe('')
+  })
+
+  it('stellt Knoten ausserhalb des Umfangs zurueck, ohne ihren Zustand zu verschlucken', () => {
+    const order: PathOrderEntry[] = []
+    const topics = groupIntoTopics({
+      concepts: all,
+      images: new Map([['a', settledNow('a')]]),
+      order,
+      currentConceptId: null,
+      goal: sprintGoal(['a', 'b']),
+      nowIso: NOW_SPRINT,
+    })
+
+    const nodes = topics.flatMap((topic) => topic.nodes)
+    expect(nodes.find((node) => node.conceptId === 'a')?.outOfScope).toBe(false)
+    expect(nodes.find((node) => node.conceptId === 'c')?.outOfScope).toBe(true)
+    // Der Lernzustand bleibt unberuehrt — „zurueckgestellt" ist kein Zustand, sondern ein Merkmal.
+    expect(nodes.find((node) => node.conceptId === 'a')?.state).toBe('settled')
+  })
+
+  it('zaehlt den Themenstatus nur ueber das, was bis zum Termin dran ist', () => {
+    const topics = groupIntoTopics({
+      concepts: all,
+      images: new Map([['a', settledNow('a')]]),
+      order: [],
+      currentConceptId: null,
+      goal: sprintGoal(['a', 'b']),
+      nowIso: NOW_SPRINT,
+    })
+    // Zwei im Umfang, davon einer gefestigt — nicht „1 von 4".
+    expect(topics[0]?.status).toBe('1 von 2')
   })
 })

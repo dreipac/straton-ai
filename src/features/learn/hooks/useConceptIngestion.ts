@@ -5,7 +5,8 @@ import { sectionMaterials } from '../utils/materialSectioning'
 import { aiBackoffDelayMs, isTransientAiFailure, sleep } from '../utils/aiRetry'
 import type { LearnGenerationMode, UploadedMaterial } from '../services/learn.persistence'
 import type { Concept, ConceptEdge } from '../engine/types'
-import { buildPlaceholderConceptGraph, placeholderDelay } from '../utils/learnPlaceholder'
+import { buildPlaceholderConceptGraph, buildPlaceholderReviewImages, placeholderDelay } from '../utils/learnPlaceholder'
+import { upsertLearnerImages } from '../brain/services/brainMemory.persistence'
 import {
   buildConceptIngestionPrompt,
   parseConceptGraphFromText,
@@ -237,6 +238,21 @@ export function useConceptIngestion(args: UseConceptIngestionArgs) {
         if (cancelled) {
           return
         }
+
+        // Nur im Platzhalter-Modus (Admin-Test): zwei Konzepte direkt als faellig markieren, damit
+        // der Tab Wiederholen ohne echtes Lernen und Warten zu sehen ist (siehe learnPlaceholder.ts).
+        if (args.generationMode === 'placeholder' && args.userId) {
+          const reviewImages = buildPlaceholderReviewImages(saved.concepts, new Date().toISOString())
+          if (reviewImages.length > 0) {
+            try {
+              await upsertLearnerImages(args.userId, reviewImages)
+            } catch (error) {
+              // Rein kosmetisch fuer den Testmodus — ein Fehlschlag hier darf den Pfad nicht blockieren.
+              console.error('Lernbereich: Platzhalter-Wiederholung konnte nicht angelegt werden', error)
+            }
+          }
+        }
+
         args.onGraphReady(saved)
         args.onStatus('ready')
       } catch (error) {

@@ -88,6 +88,15 @@ export type GoalFeasibility = {
   /** Reicht auch der Verzicht nicht, ist das Ziel in der Form nicht erreichbar. */
   achievableWithDowngrade: boolean
   estimates: ConceptWorkEstimate[]
+  /**
+   * Die Tiefe, gegen die gerechnet wurde.
+   *
+   * Steht im Ergebnis, damit `describeFeasibility` sie nicht erneut erraten muss. Vorher stand
+   * dort ein fester Vorgabewert 'apply' — der war falsch, sobald ein Ziel eine eigene Tiefe
+   * traegt, und der Fehler waere still gewesen: der Satz haette „statt auf Anwenden" behauptet,
+   * wo gar nie auf Anwenden gerechnet wurde.
+   */
+  targetDepth: ApplicationDepth
 }
 
 const MS_PER_DAY = 86_400_000
@@ -106,7 +115,8 @@ export function assessGoal(args: {
   nowIso: string
 }): GoalFeasibility {
   const { goal, images, nowIso } = args
-  const targetDepth = args.targetDepth ?? 'apply'
+  // Die Tiefe gehoert zum Ziel; der Parameter uebersteuert sie nur fuer den Entwurf im Dialog.
+  const targetDepth = args.targetDepth ?? goal.targetDepth
 
   const now = new Date(nowIso).getTime()
   const due = new Date(goal.dueAt).getTime()
@@ -137,6 +147,7 @@ export function assessGoal(args: {
       downgradedConceptIds: [],
       achievableWithDowngrade: true,
       estimates,
+      targetDepth,
     }
   }
 
@@ -175,6 +186,7 @@ export function assessGoal(args: {
     downgradedConceptIds: downgraded,
     achievableWithDowngrade: remaining <= minutesAvailable,
     estimates,
+    targetDepth,
   }
 }
 
@@ -192,7 +204,7 @@ const DEPTH_LABEL: Record<ApplicationDepth, string> = {
  */
 export function describeFeasibility(
   feasibility: GoalFeasibility,
-  targetDepth: ApplicationDepth = 'apply',
+  targetDepth: ApplicationDepth = feasibility.targetDepth,
 ): string {
   const { openConceptCount, daysLeft, downgradedConceptIds } = feasibility
   const scope = `${openConceptCount} ${openConceptCount === 1 ? 'Konzept' : 'Konzepte'}`

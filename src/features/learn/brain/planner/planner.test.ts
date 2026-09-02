@@ -148,6 +148,7 @@ describe('Wiederholungs-Mindestreserve (Invariante I9)', () => {
     dueAt: '2026-08-20T10:00:00.000Z',
     conceptIds: ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8'],
     minutesPerDay: 60,
+    targetDepth: 'apply',
     status: 'active',
   }
 
@@ -248,6 +249,7 @@ describe('Konfliktloesung', () => {
       dueAt: '2026-08-19T10:00:00.000Z',
       conceptIds: ['b'],
       minutesPerDay: 60,
+      targetDepth: 'apply',
       status: 'active',
     }
     const plan = planSession(
@@ -455,5 +457,83 @@ describe('Zurueckgewiesene Konzepte (Kapitel 3.3)', () => {
     )
     expect(plan.reviewCandidatesAvailable).toBe(0)
     expect(plan.tasks.every((task) => task.conceptId !== 'a')).toBe(true)
+  })
+})
+
+describe('Vorrang des Zielumfangs im Sprint (Kapitel 6.3)', () => {
+  const ids = ['s1', 's2', 's3', 's4', 's5', 's6']
+  const allConcepts = ids.map((id) => concept(id))
+
+  function sprintGoal(overrides: Partial<LearningGoal> = {}): LearningGoal {
+    return {
+      id: 'g1',
+      userId: 'u1',
+      pathId: 'p1',
+      title: 'Pruefung uebermorgen',
+      // Zwei Tage — innerhalb des Sprintfensters.
+      dueAt: '2026-08-20T10:00:00.000Z',
+      conceptIds: ['s1', 's2'],
+      minutesPerDay: 60,
+      targetDepth: 'recognize',
+      status: 'active',
+      ...overrides,
+    }
+  }
+
+  it('plant nur Zielkonzepte, solange dort etwas offen ist', () => {
+    const plan = planSession(
+      baseInput({ concepts: allConcepts, goal: sprintGoal(), sessionSize: 6, coldStartGains: gains }),
+    )
+    expect(plan.tasks.length).toBeGreaterThan(0)
+    for (const task of plan.tasks) {
+      expect(['s1', 's2']).toContain(task.conceptId)
+    }
+  })
+
+  /** Ohne Informationsgewinn meldet ein frisches Konzept gar nichts — dann gibt es nichts zu ordnen. */
+  const gains = new Map(ids.map((id) => [id, 0.5]))
+
+  it('macht von selbst weiter, sobald der Umfang erledigt ist', () => {
+    // Beide Zielkonzepte sitzen — sie melden keine Dringlichkeit mehr.
+    const images = new Map([
+      ['s1', { ...emptyImage('s1', 3), mastery: 0.95, confidence: 0.9, directEvidenceCount: 6, lastSeenAt: NOW }],
+      ['s2', { ...emptyImage('s2', 3), mastery: 0.95, confidence: 0.9, directEvidenceCount: 6, lastSeenAt: NOW }],
+    ])
+    const plan = planSession(
+      baseInput({ concepts: allConcepts, images, goal: sprintGoal(), sessionSize: 3, coldStartGains: gains }),
+    )
+
+    expect(plan.tasks.length).toBeGreaterThan(0)
+    // Der Pfad laeuft weiter — mit Konzepten ausserhalb des Umfangs.
+    expect(plan.tasks.some((task) => !['s1', 's2'].includes(task.conceptId))).toBe(true)
+  })
+
+  it('greift nicht bei einem Ziel mit Vorlauf — dort gewichtet das Ziel nur', () => {
+    const plan = planSession(
+      baseInput({
+        concepts: allConcepts,
+        // Vier Wochen Vorlauf: kein Sprint.
+        goal: sprintGoal({ dueAt: '2026-09-15T10:00:00.000Z' }),
+        sessionSize: 6,
+        coldStartGains: gains,
+      }),
+    )
+    expect(plan.tasks.some((task) => !['s1', 's2'].includes(task.conceptId))).toBe(true)
+  })
+
+  it('bleibt bei der Sprinttiefe stehen, statt auf Anwenden zu steigern', () => {
+    /*
+     * Das schmale Fenster, in dem sich die Deckelung zeigt: ab 0.7 steigert `nextDepthFor` die
+     * Stufe, bis 0.75 gilt das Konzept fuer das Ziel noch als offen. Ohne Zieltiefe waere die
+     * naechste Aufgabe hier „Anwenden" — Zeit, die der Sprint nicht hat.
+     */
+    const images = new Map([
+      ['s1', { ...emptyImage('s1', 3), mastery: 0.72, confidence: 0.5, directEvidenceCount: 3, lastSeenAt: NOW }],
+    ])
+    const plan = planSession(
+      baseInput({ concepts: allConcepts, images, goal: sprintGoal(), sessionSize: 2 }),
+    )
+    const task = plan.tasks.find((entry) => entry.conceptId === 's1')
+    expect(task?.depth).toBe('recognize')
   })
 })

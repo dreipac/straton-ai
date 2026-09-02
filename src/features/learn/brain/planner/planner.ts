@@ -26,6 +26,7 @@ import type {
   TaskFormat,
 } from '../types'
 import { assertReviewReserveHeld } from '../invariants'
+import { needsWorkForGoal, sprintScopeOf } from './sprint'
 import { effectiveMastery } from '../memory/learnerImage'
 import { findRootCauses } from '../memory/knowledgeGraph'
 import { nextDepthFor } from '../perception/evidence'
@@ -248,6 +249,33 @@ export function planSession(input: PlanSessionInput): SessionPlan {
     b.urgency !== a.urgency ? b.urgency - a.urgency : a.conceptId < b.conceptId ? -1 : 1,
   )
 
+  /*
+   * Vorrang des Zielumfangs im Sprint (Kapitel 6.3, Sonderfall knapper Termin).
+   *
+   * Der geschnittene Umfang ist eine REIHENFOLGE, keine Mauer: solange im Umfang etwas offen
+   * ist, kommt nur Umfang; ist dort nichts mehr offen, geht der Pfad von selbst mit dem Rest
+   * weiter. Damit wird niemand ausgebremst, der schneller ist als geplant — und niemand bekommt
+   * Randbegriffe zwischen die Zielkonzepte gemischt, solange die Zeit knapp ist.
+   *
+   * „Offen" misst `needsWorkForGoal` — dieselbe Definition, die `assessGoal` fuer
+   * `openConceptCount` benutzt. „Meldet eine Dringlichkeit" waere hier falsch: ein sitzendes
+   * Konzept liefert ueber `rootCauseUrgency` weiterhin einen winzigen Wert, und der Umfang
+   * waere damit nie erledigt.
+   *
+   * Die Mindestreserve ist bewusst NICHT eingeschraenkt (I9): eine faellige Wiederholung kostet
+   * eine kurze Abfrage und bewahrt Gelerntes davor, waehrend des Sprints wegzurutschen.
+   */
+  const sprintScope = sprintScopeOf(goal, nowIso)
+  const openInScope =
+    sprintScope && goal
+      ? ranking.filter(
+          (entry) =>
+            sprintScope.has(entry.conceptId) &&
+            needsWorkForGoal(images.get(entry.conceptId), goal.targetDepth, nowIso),
+        )
+      : []
+  const eligible = openInScope.length > 0 ? openInScope : ranking
+
   const sessionSize = Math.max(0, Math.trunc(input.sessionSize))
 
   /*
@@ -278,7 +306,7 @@ export function planSession(input: PlanSessionInput): SessionPlan {
     taken.add(entry.conceptId)
   }
 
-  for (const entry of ranking) {
+  for (const entry of eligible) {
     if (chosen.length >= sessionSize) {
       break
     }
@@ -300,7 +328,11 @@ export function planSession(input: PlanSessionInput): SessionPlan {
      * Sie sind kurz und mechanisch — eine Transferaufgabe aus dem Stapel waere weder das eine
      * noch das andere und wuerde den Faden der Sitzung reissen.
      */
-    const depth = fromReserve ? REVIEW_STACK_DEPTH : image ? nextDepthFor(image) : 'recognize'
+    const depth = fromReserve
+      ? REVIEW_STACK_DEPTH
+      : image
+        ? nextDepthFor(image, goal?.targetDepth)
+        : 'recognize'
     const spec = selectFormat({
       depth,
       /*

@@ -277,6 +277,13 @@ export type LearningGoal = {
   conceptIds: string[]
   /** Verfuegbare Zeit — wie viel realistisch pro Tag. */
   minutesPerDay: number
+  /**
+   * Anwendungstiefe, auf die der Umfang gebracht werden soll.
+   *
+   * Die vierte Angabe, und die einzige, die man senken kann, ohne dass etwas wegfaellt. Bei
+   * knappem Termin steht hier `recognize` — erst flacher, dann weniger (siehe `planner/sprint.ts`).
+   */
+  targetDepth: ApplicationDepth
   status: 'active' | 'achieved' | 'expired' | 'cancelled'
 }
 
