@@ -549,6 +549,36 @@
   color: var(--color-text-secondary, #94a3b8);
 }
 
+/*
+ * Gehirn-Lernsitzung (`LearnPage.tsx`, `isLearnMobileLayout`): „ein einziger Vollbildwechsel"
+ * (straton-ui-spezifikation.md Kapitel 4) auf Mobil als Sheet, das fast bis zum oberen Rand
+ * reicht — nur ein schmaler Streifen der Seite bleibt sichtbar, kein echtes Vollbild wie
+ * `.profile-full-sheet-panel` (das hat `border-radius: 0`, hier bleibt die obere Rundung). Die
+ * Kopfzeile der Sitzung (`.brain-session-head`) traegt bereits ihren eigenen Titel + Schliessen-
+ * Knopf — deshalb ohne `title`/`showCloseButton` am Sheet selbst, nur der Ziehgriff bleibt.
+ */
+.rename-bottom-sheet-panel.brain-session-sheet-panel {
+  min-height: calc(var(--straton-app-height) - 1.75rem);
+  max-height: calc(var(--straton-app-height) - 1.75rem);
+}
+
+.brain-session-sheet-body {
+  padding-top: 0.1rem;
+  /*
+   * `.content-bottom-sheet-body` (Basisklasse, oben) ist selbst ein Flex-Item der Sheet-Spalte
+   * (`.rename-bottom-sheet-panel`, `display: flex; flex-direction: column`) — ohne `min-width: 0`
+   * greift hier genau derselbe „automatische Mindestbreite"-Mechanismus wie bei den verschachtelten
+   * Grids in `.brain-session*` (`learn-brain.css`): jede Ebene der Verschachtelung braucht ihn
+   * einzeln, sonst reicht eine einzige vergessene Ebene, um wieder in die Breite zu ziehen.
+   */
+  min-width: 0;
+  /* Sicherheitsnetz zusaetzlich zu den Umbruch-/`min-width: 0`-Regeln in `learn-brain.css`: quer
+     scrollen soll hier nie moeglich sein, unabhaengig vom Aufgabeninhalt. `.content-bottom-sheet-
+     body` (die Basisklasse) setzt bewusst kein `overflow-x` — andere Sheets sollen es behalten
+     koennen —, deshalb hier lokal auf dieser Modifier-Klasse. */
+  overflow-x: hidden;
+}
+
 .first-login-password-sheet-body {
   padding-top: 0;
 }

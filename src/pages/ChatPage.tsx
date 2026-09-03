@@ -265,6 +265,20 @@ export function ChatPage() {
     ? (searchParams.get('settingsSection') as SettingsSectionId)
     : 'general'
   const isSettingsWorkspaceOpen = Boolean(user && isSettingsFromUrl && !isLearnWorkspaceOpen)
+  /**
+   * Jede Vollbild-Überlagerung des Chat-Hauptbereichs auf Mobile — an EINER Stelle gepflegt statt
+   * (wie zuvor) einzeln in `isHomeDashboardOpen`, `showMobileChatTopBar` und der Sichtbarkeit von
+   * `mainMobileBottomDock` dupliziert. Genau das war der Bug: die Bottom-Nav (`.chat-mobile-bottom-dock`,
+   * `z-index: 81`, `position: fixed`) fehlte in dieser Liste an der Dock-Stelle und lag dadurch über
+   * Updates/News (`z-index: 15`) — sichtbar als „alte Navbar unten drüber".
+   */
+  const isAnyMobileOverlayOpen =
+    isLearnWorkspaceOpen ||
+    isFolderOverviewOpen ||
+    isFriendsOverviewOpen ||
+    isNewsOverviewOpen ||
+    isDueFlashcardsOpen ||
+    isSettingsWorkspaceOpen
   /* Fade-Animation beim Öffnen/Schliessen (gleiches Zwei-Schritt-Muster wie Admin/News in
      `useChatPageModals.ts`): "mounted" hält die Fläche beim Schliessen noch für die Dauer der
      Ausblend-Animation im DOM, statt abrupt zu verschwinden; "visible" wird beim Öffnen erst einen
@@ -308,12 +322,7 @@ export function ChatPage() {
   const isHomeDashboardOpen = Boolean(
     user &&
       !activeThreadId &&
-      !isLearnWorkspaceOpen &&
-      !isFolderOverviewOpen &&
-      !isFriendsOverviewOpen &&
-      !isNewsOverviewOpen &&
-      !isDueFlashcardsOpen &&
-      !isSettingsWorkspaceOpen &&
+      !isAnyMobileOverlayOpen &&
       !learningPathsSidebar.isLoading &&
       learningPathsSidebar.learningPaths.length > 0,
   )
@@ -1250,12 +1259,7 @@ export function ChatPage() {
     collaboration.showFloatingChatToolbar &&
     isChatToolbarMobile &&
     !isMobileFoldersOpen &&
-    !isFolderOverviewOpen &&
-    !isFriendsOverviewOpen &&
-    !isNewsOverviewOpen &&
-    !isLearnWorkspaceOpen &&
-    !isDueFlashcardsOpen &&
-    !isSettingsWorkspaceOpen
+    !isAnyMobileOverlayOpen
 
   const mobileTopBar = (
     <ChatPageMobileTopBar
@@ -1488,7 +1492,7 @@ export function ChatPage() {
             onPendingCreateLearningPathHandled={handlePendingCreateLearningPathHandled}
           />
         ) : null}
-        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen ? (
+        {isCompactMobileSidebarLayout && user && isMobileFoldersOpen && chatFoldersFeatureEnabled && !isAnyMobileOverlayOpen ? (
           <ChatFoldersMobilePanel
             folders={chatFolders.folders}
             threadsByFolderId={chatFolders.threadsByFolderId}
@@ -1569,13 +1573,18 @@ export function ChatPage() {
             onAcceptRequest={friendsState.acceptRequest}
             onDeclineRequest={friendsState.declineRequest}
             onCancelRequest={friendsState.cancelRequest}
+            onOpenSidebar={toggleMobileSidebarFromBottomNav}
           />
         ) : null}
         {isNewsOverviewOpen ? (
-          <ChatNewsOverview isAdmin={profile?.is_superadmin === true} isCompactMobile={isCompactMobileSidebarLayout} />
+          <ChatNewsOverview
+            isAdmin={profile?.is_superadmin === true}
+            isCompactMobile={isCompactMobileSidebarLayout}
+            onOpenSidebar={toggleMobileSidebarFromBottomNav}
+          />
         ) : null}
         {showMobileChatTopBar ? mobileTopBar : null}
-        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen ? (
+        {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isAnyMobileOverlayOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
             participantsAnchorRef={collaboration.participantsAnchorRef}
@@ -1692,7 +1701,7 @@ export function ChatPage() {
         onEndSharingSheetExitComplete={collaboration.handleEndSharingSheetExitComplete}
         onParticipantsSheetExitComplete={collaboration.handleParticipantsSheetExitComplete}
       />
-      {isHomeDashboardOpen || showMobileChatTopBar ? null : mainMobileBottomDock}
+      {isHomeDashboardOpen || showMobileChatTopBar || isAnyMobileOverlayOpen ? null : mainMobileBottomDock}
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
         onClick={() => {

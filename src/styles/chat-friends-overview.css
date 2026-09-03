@@ -80,7 +80,7 @@
   position: absolute;
   inset: 0;
   z-index: 15;
-  background: var(--color-surface-app, #fff);
+  background: var(--color-bg-app, #fff);
   padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 0 calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
 
@@ -321,16 +321,28 @@
 }
 
 @media (max-width: 860px) {
+  /*
+   * Gleicher Look wie die Lernpfad-Tabs auf Desktop: durchgezogene Grundlinie über die volle
+   * Breite (`::before`) + dickere, abgerundete Akzentlinie, die zum aktiven Tab gleitet (`::after`,
+   * per `--learn-active-tab-index`/`--learn-tab-count`, siehe `ChatFriendsOverview.tsx`) — NICHT
+   * die feste Bottom-Pill-Navigation, in die `.learn-top-tabs` bei dieser Breite sonst umschaltet
+   * (learn.css, gehört zum Lernbereich-Menü, nicht zu Freunde). Deshalb hier praktisch 1:1 die
+   * Desktop-Werte erneut gesetzt statt punktuell überschrieben — die höhere Selektor-Spezifität
+   * (zwei Klassen) gewinnt gegen die einfache `.learn-top-tabs`-Regel aus learn.css.
+   */
   .chat-friends-overview-tabs.learn-top-tabs {
-    position: static;
+    position: relative;
     inset: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
     z-index: auto;
-    margin-top: 0.15rem;
+    margin-top: 0.18rem;
     margin-bottom: 0.48rem;
     padding: 0;
     display: flex;
-    flex-wrap: wrap;
-    gap: 1.1rem;
+    flex-wrap: nowrap;
+    gap: 0;
     grid-template-columns: none;
     border: none;
     border-radius: 0;
@@ -344,8 +356,35 @@
   }
 
   .chat-friends-overview-tabs.learn-top-tabs::before {
-    content: none;
-    display: none;
+    content: '';
+    position: absolute;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--color-border) 85%, transparent);
+    transform: none;
+    box-shadow: none;
+  }
+
+  .chat-friends-overview-tabs.learn-top-tabs::after {
+    content: '';
+    position: absolute;
+    top: auto;
+    bottom: -1px;
+    height: 4px;
+    border-radius: var(--radius-full);
+    background: var(--color-accent, #ec4899);
+    left: calc(var(--learn-active-tab-index, 0) * (100% / var(--learn-tab-count, 3)));
+    right: calc(100% - (var(--learn-active-tab-index, 0) + 1) * (100% / var(--learn-tab-count, 3)));
+    width: auto;
+    z-index: 1;
+    transition:
+      left 320ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      right 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
   }
 
   .chat-friends-overview-tabs.learn-top-tabs.is-touch-active {
@@ -353,50 +392,52 @@
   }
 
   .chat-friends-overview-tabs .learn-top-tab {
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 0;
     padding: 0.2rem 0 0.62rem;
     border: none;
-    border-bottom: 2px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+    border-bottom: none;
     border-radius: 0;
     box-shadow: none;
     font-size: var(--fs-base);
-    font-weight: 600;
-    text-align: left;
+    font-weight: 400;
+    text-align: center;
     display: inline-flex;
     flex-direction: row;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 0.35rem;
     position: static;
     background: transparent;
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted, #64748b);
     animation: none;
   }
 
   .chat-friends-overview-tabs .learn-top-tab.is-active {
-    color: var(--color-accent, #ec4899);
-    border-bottom-color: var(--color-accent, #ec4899);
+    color: var(--color-text-primary, var(--color-accent, #ec4899));
+    border-bottom: none;
     background: transparent;
   }
 
+  /* Kein `nowrap` — bei schmalen, gleich breiten Spalten (`flex: 1 1 0`) soll ein langes Label wie
+     "Ausstehende Anfragen" auf zwei Zeilen umbrechen dürfen statt über den Nachbar-Tab zu laufen. */
   .chat-friends-overview-tabs .learn-top-tab-label {
     display: inline;
-    -webkit-box-orient: initial;
-    -webkit-line-clamp: unset;
     overflow: visible;
     max-width: none;
-    font-size: var(--fs-base);
-    font-weight: 600;
-    line-height: 1.2;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: 1.25;
     letter-spacing: normal;
-    white-space: nowrap;
+    white-space: normal;
     word-break: normal;
-    hyphens: manual;
     color: inherit;
   }
 
-  .chat-friends-overview-tabs .learn-top-tab.is-active .learn-top-tab-label {
-    color: var(--color-accent, #ec4899);
+  .chat-friends-overview-tabs .learn-top-tab-label-row {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .chat-friends-card--pending {

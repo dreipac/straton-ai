@@ -177,46 +177,7 @@ export function ChatPageSidebar({
                 </button>
               ) : null}
             </div>
-            {isCompactMobileSidebarLayout ? (
-              <div className="chat-sidebar-top-icon-row">
-                <button
-                  type="button"
-                  className="chat-sidebar-top-icon-btn"
-                  onClick={onOpenNews}
-                  aria-label={`Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`}
-                >
-                  <span
-                    className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
-                    aria-hidden="true"
-                  />
-                  {newsUnreadCount > 0 ? (
-                    <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
-                      {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
-                    </span>
-                  ) : null}
-                </button>
-                {showFriendsInSidebar ? (
-                  <button
-                    type="button"
-                    className="chat-sidebar-top-icon-btn"
-                    onClick={onOpenFriends}
-                    aria-label={`Freunde${
-                      friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''
-                    }`}
-                  >
-                    <span
-                      className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
-                      aria-hidden="true"
-                    />
-                    {friendsIncomingCount > 0 ? (
-                      <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
-                        {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
-                      </span>
-                    ) : null}
-                  </button>
-                ) : null}
-              </div>
-            ) : (
+            {!isCompactMobileSidebarLayout ? (
               <button
                 type="button"
                 className="sidebar-toggle-button"
@@ -230,8 +191,55 @@ export function ChatPageSidebar({
                   aria-hidden="true"
                 />
               </button>
-            )}
+            ) : null}
           </div>
+        ) : null}
+
+        {/* Mobile: Updates & Freunde als vollwertige Menüpunkte direkt unter dem Logo — gleicher
+            Look (Icon + Label + Badge) wie im Desktop-"Mehr"-Flyout, hier aber immer sichtbar statt
+            eingeklappt. Ersetzt die vorherigen reinen Icon-Buttons oben rechts neben dem Logo. */}
+        {isCompactMobileSidebarLayout && !isSidebarCollapsed ? (
+          <nav className="chat-sidebar-mobile-top-menu" aria-label="Updates & Freunde">
+            <button
+              type="button"
+              className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--news${
+                isNewsOverviewOpen ? ' is-active' : ''
+              }`}
+              onClick={onOpenNews}
+            >
+              <span className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon" aria-hidden="true" />
+              <span className="chat-sidebar-nav-label-row">
+                Updates & Neuigkeiten
+                {newsUnreadCount > 0 ? (
+                  <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                    {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+            {showFriendsInSidebar ? (
+              <button
+                type="button"
+                className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--friends${
+                  isFriendsOverviewOpen ? ' is-active' : ''
+                }`}
+                onClick={onOpenFriends}
+              >
+                <span
+                  className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
+                  aria-hidden="true"
+                />
+                <span className="chat-sidebar-nav-label-row">
+                  Freunde
+                  {friendsIncomingCount > 0 ? (
+                    <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                      {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            ) : null}
+          </nav>
         ) : null}
         {isSidebarCollapsed ? (
           <button

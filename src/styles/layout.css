@@ -1975,7 +1975,8 @@
    * unverändert im `else`-Zweig in ChatPageSidebar.tsx) nur noch zwei Pills in einer Reihe —
    * Profil (Bild + Vorname, öffnet das bestehende Profil-Sheet mit Einstellungen/Administrator/
    * Logout) und "+" (öffnet `chat-sidebar-create-sheet-body` unten, primary). Updates & Freunde
-   * sitzen stattdessen oben im Header (`.chat-sidebar-top-icon-row`, siehe unten).
+   * sitzen stattdessen als eigene Menüpunkte unter dem Logo (`.chat-sidebar-mobile-top-menu`,
+   * siehe unten) — nicht mehr als reine Icon-Buttons neben dem Logo.
    * `.chat-sidebar-profile-badge.chat-sidebar-profile-card` bleibt für die Profil-Pill unverändert
    * wiederverwendet (gleicher Glas-Look, gleiches Theming).
    */
@@ -2043,41 +2044,14 @@
     background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
   }
 
-  /* Updates & Freunde oben im Sidebar-Header (ersetzt den Zuklapp-Button, der auf Mobile weg ist —
-     siehe `ChatPageSidebar.tsx`, gleicher Header-Slot). */
-  .chat-sidebar-top-icon-row {
+  /* Updates & Freunde unter dem Logo — volle Menüpunkte (Icon + Label), gleicher Look wie das
+     Desktop-"Mehr"-Flyout (`.chat-sidebar-footer-subnav-button`, layout.css weiter oben), hier aber
+     ohne die Aufklapp-Animation des Flyouts: auf Mobile immer sichtbar statt eingeklappt. */
+  .chat-sidebar-mobile-top-menu {
     display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    flex-shrink: 0;
-  }
-
-  .chat-sidebar-top-icon-btn {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    flex-shrink: 0;
-    border: none;
-    border-radius: var(--radius-full);
-    background: transparent;
-  }
-
-  .chat-sidebar-top-icon-btn:hover:enabled,
-  .chat-sidebar-top-icon-btn:active:enabled {
-    background: var(--interactive-hover-bg);
-  }
-
-  .chat-sidebar-top-icon-btn .chat-sidebar-news-badge {
-    position: absolute;
-    top: 0.1rem;
-    right: 0.1rem;
-    min-width: 1rem;
-    height: 1rem;
-    padding: 0 0.2rem;
-    font-size: var(--fs-2xs);
+    flex-direction: column;
+    gap: 0.1rem;
+    margin: 0.2rem 0 0.35rem;
   }
 
   /* Sheet mit den zwei Erstellen-Karten (Lernpfad/Chat), geöffnet über die "+"-Pill. */

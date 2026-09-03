@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import sidebarIcon from '../../../assets/icons/sidebar.svg'
+import { MaskIcon } from '../../../components/ui/MaskIcon'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 import { NEWS_FEED_REFRESH_EVENT } from '../constants/newsFeed'
@@ -10,6 +12,8 @@ import { NewsPostComposerModal } from './NewsPostComposerModal'
 type ChatNewsOverviewProps = {
   isAdmin: boolean
   isCompactMobile: boolean
+  /** Nur auf Mobile genutzt — öffnet die Sidebar (gleicher Button/Handler wie Chat-Topbar/Home-Dashboard). */
+  onOpenSidebar: () => void
 }
 
 /** Datum als Tag/Monat für das Kalender-Badge links neben dem Beitrag — bewusst ohne Uhrzeit. */
@@ -31,7 +35,7 @@ function formatNewsDateParts(iso: string): { day: string; month: string; full: s
  * `ChatFriendsOverview`. Bewusst ohne Tabs/Card-Look: Titel oben, darunter die Posts direkt auf dem
  * Hintergrund (nur Titel, Datum, Text).
  */
-export function ChatNewsOverview({ isAdmin, isCompactMobile }: ChatNewsOverviewProps) {
+export function ChatNewsOverview({ isAdmin, isCompactMobile, onOpenSidebar }: ChatNewsOverviewProps) {
   const prefersReducedMotionRef = useRef(
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   )
@@ -133,7 +137,19 @@ export function ChatNewsOverview({ isAdmin, isCompactMobile }: ChatNewsOverviewP
     >
       <div className="chat-news-overview-inner">
         <header className="chat-news-overview-header">
-          <h2 className="chat-news-overview-title">Updates & Neuigkeiten</h2>
+          <div className="chat-news-overview-header-start">
+            {isCompactMobile ? (
+              <button
+                type="button"
+                className="chat-mobile-top-bar-pill chat-mobile-top-bar-pill--sidebar"
+                aria-label="Sidebar öffnen"
+                onClick={onOpenSidebar}
+              >
+                <MaskIcon src={sidebarIcon} className="chat-mobile-top-bar-sidebar-icon" />
+              </button>
+            ) : null}
+            <h2 className="chat-news-overview-title">Updates & Neuigkeiten</h2>
+          </div>
           {isAdmin ? (
             <PrimaryButton type="button" className="chat-news-overview-add-btn" onClick={openCreateComposer}>
               Feed posten

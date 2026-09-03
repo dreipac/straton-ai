@@ -723,6 +723,19 @@
   min-width: 0;
 }
 
+/*
+ * Auf Mobil steckt das Panel bereits in einem Sheet (`BrainPathTab`, `panelClassName=
+ * "brain-node-panel-sheet-panel"`, `mobile.css`) — das Sheet selbst ist die Flaeche (Rand, Radius,
+ * Schatten). Eine zweite Karte DARIN waere eine Karte in einer Karte; deshalb hier flach: kein
+ * eigener Rand/Hintergrund/Schatten/Polsterung mehr, nur noch der Inhalt. */
+.brain-node-panel-sheet-panel .brain-node-panel {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  box-shadow: none;
+}
+
 .brain-node-panel-head {
   display: flex;
   align-items: flex-start;
@@ -1106,17 +1119,27 @@
   gap: 0.9rem;
   width: 100%;
   padding: 0.4rem 0 1.2rem;
+  /* Grid-Spalten sizen sich sonst am Inhalt (`auto`), nicht am verfuegbaren Platz — ein langes,
+     unumbrochenes Wort in der Aufgabe wuerde dann nicht die Zeile umbrechen, sondern die ganze
+     Sitzung (und mit ihr das Sheet) in die Breite ziehen. `min-width: 0` erzwingt stattdessen das
+     Schrumpfen auf die tatsaechliche Breite, `.brain-session-prompt` unten uebernimmt das Umbrechen. */
+  min-width: 0;
 }
 
 .brain-session-head {
   display: grid;
   gap: 0.55rem;
+  /* Grid-Item ohne eigene Breitenangabe: derselbe „min-width: auto"-Grund wie bei `.brain-session`
+     oben, nur eine Ebene tiefer — sonst zieht die Kopfzeile (Titel + Balken) das Sheet trotz der
+     Regeln dort noch in die Breite, weil JEDE Ebene der Verschachtelung das erneut braucht. */
+  min-width: 0;
 }
 
 .brain-session-head-row {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  min-width: 0;
 }
 
 /*
@@ -1142,6 +1165,7 @@
 .brain-session-segments {
   display: flex;
   gap: 0.25rem;
+  min-width: 0;
 }
 
 .brain-session-segment {
@@ -1182,6 +1206,7 @@
   border-radius: var(--radius-sm);
   background: var(--color-surface-soft);
   border-left: 3px dashed var(--color-border-strong);
+  min-width: 0;
 }
 
 .brain-session-badge-label {
@@ -1199,6 +1224,9 @@
 .brain-session-body {
   display: grid;
   gap: 0.7rem;
+  /* Derselbe Grund wie bei `.brain-session` oben: ohne das hier waere DIESE Spalte (Frage, Optionen,
+     Eingabefeld) die eigentliche Quelle eines zu breiten Layouts, nicht die aeussere. */
+  min-width: 0;
 }
 
 .brain-session-body--waiting {
@@ -1213,6 +1241,11 @@
   font-size: var(--fs-lg);
   line-height: 1.55;
   color: var(--color-text-app);
+  /* Die eigentliche Umbruch-Regel: ein langes Wort/eine Zahl ohne Leerzeichen bricht dann in der
+     Zeile um, statt die Box (und mit `min-width: 0` oben sonst nur die Spalte) zu sprengen. Erbt
+     an Absaetze/Listen darunter weiter, `overflow-wrap` ist eine vererbte Eigenschaft. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /*
@@ -1239,6 +1272,7 @@
   padding: 0;
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .brain-session-option {
@@ -1251,6 +1285,7 @@
   font-size: var(--fs-md);
   padding: 0.6rem 0.75rem;
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 
 .brain-session-option.is-selected {
@@ -1261,6 +1296,8 @@
 
 .brain-session-input {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -1329,6 +1366,7 @@
   padding: 0.75rem 0.85rem;
   border-radius: var(--radius-md);
   background: var(--color-surface-soft);
+  min-width: 0;
 }
 
 /* Dezenter Farbton je Ergebnis — dieselben Tonwerte wie die Balken oben (`.brain-session-segment`,
@@ -1378,6 +1416,23 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* Derselbe Breakpoint wie der Rest der mobilen Lernbereich-Oberflaeche (`learn.css`). Titel und
+   Balken sind auf dem breiteren Desktop-Layout bemessen — auf einem Telefon-Screen wirken sie
+   unnoetig gross, gerade neben dem Schliessen-Knopf in derselben Zeile. */
+@media (max-width: 860px) {
+  .brain-session-title {
+    font-size: var(--fs-lg);
+  }
+
+  .brain-session-segments {
+    gap: 0.18rem;
+  }
+
+  .brain-session-segment {
+    height: 3px;
+  }
 }
 
 .brain-summary {

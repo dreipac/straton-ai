@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import sidebarIcon from '../../../assets/icons/sidebar.svg'
 import userAddIcon from '../../../assets/icons/userAdd.svg'
+import { MaskIcon } from '../../../components/ui/MaskIcon'
 import { PrimaryButton } from '../../../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../../../components/ui/buttons/SecondaryButton'
 import {
@@ -11,6 +13,9 @@ import {
 import type { ChatFriendsOverviewTab } from '../types'
 import { AddFriendModal } from './AddFriendModal'
 import { ChatInvitationsPanel } from './ChatInvitationsPanel'
+
+/** Reihenfolge der Tabs im Markup — bestimmt `--learn-active-tab-index` für die Akzentlinie. */
+const FRIENDS_TAB_ORDER: ChatFriendsOverviewTab[] = ['friends', 'pending', 'invitations']
 
 type ChatFriendsOverviewProps = {
   tab: ChatFriendsOverviewTab
@@ -27,6 +32,8 @@ type ChatFriendsOverviewProps = {
   onAcceptRequest: (requestId: string) => Promise<void>
   onDeclineRequest: (requestId: string) => Promise<void>
   onCancelRequest: (requestId: string) => Promise<void>
+  /** Nur auf Mobile genutzt — öffnet die Sidebar (gleicher Button/Handler wie News-Übersicht). */
+  onOpenSidebar: () => void
 }
 
 function FriendAvatar({
@@ -57,6 +64,7 @@ export function ChatFriendsOverview({
   onAcceptRequest,
   onDeclineRequest,
   onCancelRequest,
+  onOpenSidebar,
 }: ChatFriendsOverviewProps) {
   const prefersReducedMotionRef = useRef(
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -96,9 +104,20 @@ export function ChatFriendsOverview({
       <div className="chat-friends-overview-inner">
         <header className="chat-friends-overview-header">
           <div className="chat-friends-overview-title-row">
-            <span className="chat-friends-overview-icon" aria-hidden="true">
-              <img className="ui-icon" src={userAddIcon} alt="" />
-            </span>
+            {isCompactMobile ? (
+              <button
+                type="button"
+                className="chat-mobile-top-bar-pill chat-mobile-top-bar-pill--sidebar"
+                aria-label="Sidebar öffnen"
+                onClick={onOpenSidebar}
+              >
+                <MaskIcon src={sidebarIcon} className="chat-mobile-top-bar-sidebar-icon" />
+              </button>
+            ) : (
+              <span className="chat-friends-overview-icon" aria-hidden="true">
+                <img className="ui-icon" src={userAddIcon} alt="" />
+              </span>
+            )}
             <h2 className="chat-friends-overview-title">Freunde</h2>
           </div>
           <PrimaryButton
@@ -110,7 +129,16 @@ export function ChatFriendsOverview({
           </PrimaryButton>
         </header>
 
-        <nav className="chat-friends-overview-tabs learn-top-tabs" aria-label="Freunde Tabs">
+        <nav
+          className="chat-friends-overview-tabs learn-top-tabs"
+          aria-label="Freunde Tabs"
+          style={
+            {
+              '--learn-active-tab-index': FRIENDS_TAB_ORDER.indexOf(tab),
+              '--learn-tab-count': FRIENDS_TAB_ORDER.length,
+            } as CSSProperties
+          }
+        >
           <button
             type="button"
             className={`learn-top-tab learn-top-tab--path${tab === 'friends' ? ' is-active' : ''}`}
@@ -124,7 +152,7 @@ export function ChatFriendsOverview({
             onClick={() => onTabChange('pending')}
           >
             <span className="learn-top-tab-label-row">
-              <span className="learn-top-tab-label">Ausstehende Anfragen</span>
+              <span className="learn-top-tab-label">Ausstehend</span>
               {incomingCount > 0 ? (
                 <span className="chat-friends-tab-badge" aria-label={`${incomingCount} eingehend`}>
                   {incomingCount > 9 ? '9+' : incomingCount}

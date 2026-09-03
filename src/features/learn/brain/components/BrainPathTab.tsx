@@ -11,7 +11,8 @@
  * mitnehmen kann.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { ContentBottomSheet, type ContentBottomSheetHandle } from '../../../../components/ui/bottom-sheet/ContentBottomSheet'
 import type { BrainPathState } from '../hooks/useBrainPath'
 import type { MapQuestionResponse } from '../ui/insightsView'
 import { buildInsightsCard } from '../ui/insightsView'
@@ -25,6 +26,12 @@ import { BrainTopicList } from './BrainTopicList'
 
 export type BrainPathTabProps = {
   state: BrainPathState
+  /**
+   * „Oeffnet sich beim Antippen eines Knotens — rechts auf Desktop, als Sheet von unten auf Mobil"
+   * (`BrainNodePanel`-Dateikopf, Kapitel 3.6). Steuert, ob das Knoten-Panel als seitlicher/unten
+   * wachsender Slot (Desktop/Tablet) oder als eigenes Sheet (Mobil) erscheint.
+   */
+  isMobile: boolean
   onStartSession: (conceptId: string) => void
   /** „Spaeter" — die Ablehnung ist selbst ein Signal (Kapitel 3.3). */
   onDeferConcept: (conceptId: string) => void
@@ -88,6 +95,30 @@ export function BrainPathTab(props: BrainPathTabProps) {
    * Abweichung; der Rest ergibt sich.
    */
   const [toggledTitles, setToggledTitles] = useState<Set<string>>(new Set())
+
+  /*
+   * Auf Mobil ist das Panel ein `ContentBottomSheet` statt des in-flow wachsenden Slots — dessen
+   * Schliess-Animation laeuft ueber `requestClose()` (siehe `ContentBottomSheet`-Dateikopf), nicht
+   * ueber direktes Nullen von `selectedConceptId`. Beide Wege muenden am Ende in `onExitComplete`
+   * bzw. direkt hier, je nachdem, welcher aktiv ist.
+   */
+  const nodeSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+
+  function closeNodePanel() {
+    if (props.isMobile) {
+      nodeSheetRef.current?.requestClose()
+      return
+    }
+    setSelectedConceptId(null)
+  }
+
+  function handleSelectNode(conceptId: string) {
+    if (selectedConceptId === conceptId) {
+      closeNodePanel()
+      return
+    }
+    setSelectedConceptId(conceptId)
+  }
 
   /*
    * `nowIso` einmal je Datenstand statt bei jedem Rendern: sonst koennte ein Knoten zwischen zwei
@@ -212,23 +243,23 @@ export function BrainPathTab(props: BrainPathTabProps) {
               return next
             })
           }
-          onSelectNode={(conceptId) =>
-            setSelectedConceptId((current) => (current === conceptId ? null : conceptId))
-          }
+          onSelectNode={handleSelectNode}
         />
 
-        {/*
-         * Der Slot bleibt immer im DOM und wandert nur per Klasse zwischen zu und offen — dasselbe
-         * Muster wie `.brain-node-list-panel` bei den Themen (siehe `BrainTopicList`), damit das
-         * Panel mit derselben Animation erscheint, mit der auch ein Thema aufklappt, und die
-         * Themenliste-Spalte im selben Zug sichtbar schrumpft statt hart umzuspringen.
-         */}
-        <div
-          className={`brain-node-panel-slot${selectedConceptId ? ' is-open' : ''}`}
-          aria-hidden={!selectedConceptId}
-          inert={!selectedConceptId}
-        >
-          <div className="brain-node-panel-slot-inner">
+        {props.isMobile ? (
+          /*
+           * Mobil: „als Sheet von unten" (Kapitel 3.6) statt des seitlichen/wachsenden Slots.
+           * `open` bleibt waehrend der Schliess-Animation `true` — `closeNodePanel` nullt
+           * `selectedConceptId` erst in `onExitComplete`, wenn das Sheet schon unten ist.
+           */
+          <ContentBottomSheet
+            ref={nodeSheetRef}
+            open={selectedConceptId !== null}
+            onExitComplete={() => setSelectedConceptId(null)}
+            showCloseButton={false}
+            showHandle
+            panelClassName="brain-node-panel-sheet-panel"
+          >
             {selectedPanel ? (
               <BrainNodePanel
                 panel={selectedPanel}
@@ -237,11 +268,37 @@ export function BrainPathTab(props: BrainPathTabProps) {
                 onExplain={props.onExplainConcept}
                 onAskInChat={props.onAskInChat}
                 onEdit={props.onEditConcept}
-                onClose={() => setSelectedConceptId(null)}
+                onClose={closeNodePanel}
               />
             ) : null}
+          </ContentBottomSheet>
+        ) : (
+          /*
+           * Der Slot bleibt immer im DOM und wandert nur per Klasse zwischen zu und offen —
+           * dasselbe Muster wie `.brain-node-list-panel` bei den Themen (siehe `BrainTopicList`),
+           * damit das Panel mit derselben Animation erscheint, mit der auch ein Thema aufklappt,
+           * und die Themenliste-Spalte im selben Zug sichtbar schrumpft statt hart umzuspringen.
+           */
+          <div
+            className={`brain-node-panel-slot${selectedConceptId ? ' is-open' : ''}`}
+            aria-hidden={!selectedConceptId}
+            inert={!selectedConceptId}
+          >
+            <div className="brain-node-panel-slot-inner">
+              {selectedPanel ? (
+                <BrainNodePanel
+                  panel={selectedPanel}
+                  onShowValueInfo={props.onShowValueInfo}
+                  onPractise={props.onPractiseConcept}
+                  onExplain={props.onExplainConcept}
+                  onAskInChat={props.onAskInChat}
+                  onEdit={props.onEditConcept}
+                  onClose={closeNodePanel}
+                />
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <BrainInsightsCard

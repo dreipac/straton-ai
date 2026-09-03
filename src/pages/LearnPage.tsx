@@ -24,12 +24,14 @@ import paperFilledIcon from '../assets/icons/paper-filled.svg'
 import statisticsOutlinedIcon from '../assets/icons/statistics-outlined.svg'
 import statisticsFilledIcon from '../assets/icons/statistics-filled.svg'
 import { RenameBottomSheet, type RenameBottomSheetHandle } from '../components/ui/bottom-sheet/RenameBottomSheet'
+import { ContentBottomSheet, type ContentBottomSheetHandle } from '../components/ui/bottom-sheet/ContentBottomSheet'
 import { PopoverMenu } from '../components/ui/menu/PopoverMenu'
 import { MenuItem } from '../components/ui/menu/MenuItem'
 import { ModalShell } from '../components/ui/modal/ModalShell'
 import { ModalHeader } from '../components/ui/modal/ModalHeader'
 import { MaskIcon } from '../components/ui/MaskIcon'
 import { isMobileViewport } from '../utils/mobile'
+import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { PrimaryButton } from '../components/ui/buttons/PrimaryButton'
 import { SecondaryButton } from '../components/ui/buttons/SecondaryButton'
 import { useAuth } from '../features/auth/context/useAuth'
@@ -457,7 +459,17 @@ export function LearnPage({
       previousLearnTabIndexRef.current = activeLearnTabIndex
     }
   }, [activeLearnTabIndex])
-  const [isMobileTabsTouchActive, setIsMobileTabsTouchActive] = useState(false)
+  /*
+   * Mobil passen nur 3 Tabs nebeneinander (oben, wie Desktop, statt der frueheren Bottom-Nav).
+   * Das Fenster haengt rein vom aktiven Tab ab: auf "Lernpfad" zeigt es [Lernpfad, Wiederholen,
+   * Material], bei jedem anderen Tab [Wiederholen, Material, Statistiken] — "Lernpfad" faellt dann
+   * aus dem sichtbaren Fenster, ein eigener Pfeil-Button davor fuehrt zurueck (siehe JSX unten).
+   * `mobileLearnTabIndex` ist der Index INNERHALB des sichtbaren Fensters (0-2), fuer die
+   * gleitende Akzentlinie unter den mobil sichtbaren Tabs — nicht zu verwechseln mit
+   * `activeLearnTabIndex` (0-3), der fuer die Desktop-Akzentlinie ueber alle vier Tabs gilt.
+   */
+  const isMobileLearnTabWindowShifted = activeLearnTab !== 'path'
+  const mobileLearnTabIndex = isMobileLearnTabWindowShifted ? activeLearnTabIndex - 1 : activeLearnTabIndex
   const [isCompletedWorksheetsOpen, setIsCompletedWorksheetsOpen] = useState(false)
   const [isMobileSidebarButtonTouchActive, setIsMobileSidebarButtonTouchActive] = useState(false)
   const [flashcardsModalFocusCardId, setFlashcardsModalFocusCardId] = useState<string | null>(null)
@@ -489,8 +501,6 @@ export function LearnPage({
    */
   const [isPathTitleEditing, setIsPathTitleEditing] = useState(false)
   const [pathTitleDraft, setPathTitleDraft] = useState('')
-  const mobileTabsTouchStartRef = useRef<number>(0)
-  const mobileTabsReleaseTimerRef = useRef<number | null>(null)
   const mobileSidebarButtonTouchStartRef = useRef<number>(0)
   const mobileSidebarButtonReleaseTimerRef = useRef<number | null>(null)
   const chapterModalCloseTimerRef = useRef<number | null>(null)
@@ -502,27 +512,6 @@ export function LearnPage({
   const worksheetModalCloseTimerRef = useRef<number | null>(null)
   const settingsCloseTimerRef = useRef<number | null>(null)
   const MOBILE_TABS_TOUCH_MIN_MS = 220
-  
-  function handleMobileTabsTouchStart() {
-    mobileTabsTouchStartRef.current = Date.now()
-    if (mobileTabsReleaseTimerRef.current) {
-      window.clearTimeout(mobileTabsReleaseTimerRef.current)
-      mobileTabsReleaseTimerRef.current = null
-    }
-    setIsMobileTabsTouchActive(true)
-  }
-
-  function handleMobileTabsTouchEnd() {
-    const elapsed = Date.now() - mobileTabsTouchStartRef.current
-    const remaining = Math.max(0, MOBILE_TABS_TOUCH_MIN_MS - elapsed)
-    if (mobileTabsReleaseTimerRef.current) {
-      window.clearTimeout(mobileTabsReleaseTimerRef.current)
-    }
-    mobileTabsReleaseTimerRef.current = window.setTimeout(() => {
-      setIsMobileTabsTouchActive(false)
-      mobileTabsReleaseTimerRef.current = null
-    }, remaining)
-  }
 
   function handleMobileSidebarButtonTouchStart() {
     mobileSidebarButtonTouchStartRef.current = Date.now()
@@ -547,9 +536,6 @@ export function LearnPage({
 
   useEffect(() => {
     return () => {
-      if (mobileTabsReleaseTimerRef.current) {
-        window.clearTimeout(mobileTabsReleaseTimerRef.current)
-      }
       if (mobileSidebarButtonReleaseTimerRef.current) {
         window.clearTimeout(mobileSidebarButtonReleaseTimerRef.current)
       }
@@ -3270,6 +3256,52 @@ export function LearnPage({
     topicSessions,
   ])
 
+  /*
+   * Sitzungs-Sheet auf Mobil (Kapitel 4: „ein einziger Vollbildwechsel"). Auf Mobil wird dieser
+   * Wechsel als Sheet inszeniert, das fast bis zum oberen Rand reicht — nur ein schmaler Streifen
+   * der Seite bleibt sichtbar —, statt die Karte in-flow zu ersetzen.
+   *
+   * Nur „Zurueck zum Pfad" nach der Bilanz beendet das Sheet wirklich (`reset()` setzt `phase` auf
+   * `'idle'`, erst dann wird `isBrainSummaryOpen || isBrainSessionOpen` `false`) — das laeuft ueber
+   * `requestClose()`, damit es weich zufaehrt: der eigentliche Zustandswechsel (Reset/Refresh)
+   * passiert erst in `onExitComplete`, wenn die Schliess-Animation fertig ist.
+   *
+   * „Abbrechen" mitten in der Sitzung ist dagegen KEIN Schliessen: `useBrainSession.abort` setzt
+   * `phase` auf `'finished'`, nicht auf `'idle'` (siehe dortiger Kommentar — nichts wird verworfen,
+   * es geht direkt in die Bilanz). Das Sheet bleibt also offen, nur sein Inhalt wechselt von
+   * `BrainSession` zu `BrainSessionSummary`. Wuerde `handleAbortBrainSession` hier trotzdem
+   * `requestClose()` ausloesen, bliebe das Sheet (durch `open` weiterhin `true`) unsichtbar, aber
+   * fuer immer im DOM haengen — sein Backdrop blockiert dann jede Beruehrung, und sein
+   * Scroll-Lock (`document.documentElement.style.overflow`) wird nie wieder aufgehoben: genau das
+   * vom Nutzer gemeldete „eingefroren, Lernpfad leer". Deshalb ruft `onAbort` `brainSession.abort`
+   * direkt auf, ohne den Sheet-Schliessweg.
+   *
+   * Vor den beiden fruehen Rueckgaben unten (Ladezustand, kein Nutzer) platziert — Hooks duerfen
+   * nicht bedingt aufgerufen werden (Rules of Hooks).
+   */
+  const isLearnMobileLayout = useIsMobileViewport()
+  const brainSessionSheetRef = useRef<ContentBottomSheetHandle | null>(null)
+  const pendingBrainSessionCloseRef = useRef<(() => void) | null>(null)
+
+  function handleAbortBrainSession() {
+    brainSession.abort()
+  }
+
+  function handleBrainSessionBackToPath() {
+    const finish = () => {
+      brainSession.reset()
+      // „Bei der Rueckkehr in den Pfad muss die veraenderte Struktur SOFORT sichtbar sein"
+      // (Kapitel 4.9) — deshalb neu einlesen statt weiterzeigen.
+      void brainPath.refreshAfterSession()
+    }
+    if (isLearnMobileLayout) {
+      pendingBrainSessionCloseRef.current = finish
+      brainSessionSheetRef.current?.requestClose()
+      return
+    }
+    finish()
+  }
+
   if (isLoading) {
     return embedded ? (
       <div className="learn-workspace-embedded learn-loading">Lade Lernbereich...</div>
@@ -4539,15 +4571,36 @@ export function LearnPage({
                  * `BrainSession` traegt ihren eigenen Titel (Konzeptname) und Fortschrittsbalken.
                  */}
                 {isBrainSessionOpen ? null : (
+                <div className="learn-top-tabs-row">
+                  {/*
+                   * Nur auf Mobile sichtbar (CSS) — Lernpfad ist dann aus dem 3er-Fenster
+                   * herausgeschoben (siehe `.learn-top-tabs` unten), dieser Button fuehrt direkt
+                   * zurueck. Eigener Klick-Bereich, keine Dekoration auf dem "Wiederholen"-Tab.
+                   */}
+                  {isMobileLearnTabWindowShifted ? (
+                    <button
+                      type="button"
+                      className="learn-top-tabs-back-arrow"
+                      aria-label="Zurück zu Lernpfad"
+                      onClick={() => setActiveLearnTab('path')}
+                    >
+                      <span className="learn-top-tabs-back-arrow-icon" aria-hidden="true" />
+                    </button>
+                  ) : null}
                 <nav
-                  className={`learn-top-tabs${isMobileTabsTouchActive ? ' is-touch-active' : ''}`}
+                  className="learn-top-tabs"
                   aria-label="Lernbereich Tabs"
-                  style={{ '--learn-active-tab-index': activeLearnTabIndex } as CSSProperties}
+                  style={
+                    {
+                      '--learn-active-tab-index': activeLearnTabIndex,
+                      '--learn-mobile-active-tab-index': mobileLearnTabIndex,
+                    } as CSSProperties
+                  }
                   data-tab-direction={learnTabDirection}
-                  onTouchStart={handleMobileTabsTouchStart}
-                  onTouchEnd={handleMobileTabsTouchEnd}
-                  onTouchCancel={handleMobileTabsTouchEnd}
+                  data-mobile-tab-window={isMobileLearnTabWindowShifted ? 1 : 0}
                 >
+                  <div className="learn-top-tabs-viewport">
+                  <div className="learn-top-tabs-track">
                   <button
                     type="button"
                     className={`learn-top-tab learn-top-tab--path${activeLearnTab === 'path' ? ' is-active' : ''}`}
@@ -4630,7 +4683,10 @@ export function LearnPage({
                     />
                     <span className="learn-top-tab-label">Statistiken</span>
                   </button>
+                  </div>
+                  </div>
                 </nav>
+                </div>
                 )}
                 {showRequiredWorksheetHint && activeLearnTab !== 'worksheets' && requiredWorksheetHintContent ? (
                   <p className="learn-worksheet-required-hint">{requiredWorksheetHintContent}</p>
@@ -4641,27 +4697,62 @@ export function LearnPage({
                    * Uebergangsansicht fuer Pfade ohne Graph ist entfernt. `BrainPathTab` zeigt
                    * seinen eigenen Ladezustand, solange der Wissensgraph noch nicht da ist.
                    */
-                  isBrainSummaryOpen ? (
-                    <BrainSessionSummary
-                      summary={brainSessionSummary}
-                      onBackToPath={() => {
-                        brainSession.reset()
-                        // „Bei der Rueckkehr in den Pfad muss die veraenderte Struktur SOFORT
-                        // sichtbar sein" (Kapitel 4.9) — deshalb neu einlesen statt weiterzeigen.
-                        void brainPath.refreshAfterSession()
-                      }}
-                    />
-                  ) : isBrainSessionOpen ? (
-                    <BrainSession
-                      state={brainSession.state}
-                      view={brainSessionView}
-                      onAnswer={(answer, options) => void brainSession.answer(answer, options)}
-                      onNext={() => void brainSession.next()}
-                      onAbort={brainSession.abort}
-                    />
+                  isBrainSummaryOpen || isBrainSessionOpen ? (
+                    isLearnMobileLayout ? (
+                      /*
+                       * Auf Mobil als Sheet, das fast bis zum oberen Rand reicht (siehe
+                       * `handleBrainSessionBackToPath` oben) — `open` bleibt waehrend der ganzen
+                       * Schliess-Animation `true`, weil der eigentliche Zustandswechsel erst in
+                       * `onExitComplete` passiert. `handleAbortBrainSession` schliesst das Sheet
+                       * NICHT (siehe dortiger Kommentar) — es wechselt nur den Inhalt auf die
+                       * Bilanz.
+                       */
+                      <ContentBottomSheet
+                        ref={brainSessionSheetRef}
+                        open
+                        onExitComplete={() => {
+                          pendingBrainSessionCloseRef.current?.()
+                          pendingBrainSessionCloseRef.current = null
+                        }}
+                        showCloseButton={false}
+                        showHandle
+                        closeOnBackdrop={false}
+                        panelClassName="brain-session-sheet-panel"
+                        bodyClassName="brain-session-sheet-body"
+                      >
+                        {isBrainSummaryOpen ? (
+                          <BrainSessionSummary
+                            summary={brainSessionSummary}
+                            onBackToPath={handleBrainSessionBackToPath}
+                          />
+                        ) : (
+                          <BrainSession
+                            state={brainSession.state}
+                            view={brainSessionView}
+                            onAnswer={(answer, options) => void brainSession.answer(answer, options)}
+                            onNext={() => void brainSession.next()}
+                            onAbort={handleAbortBrainSession}
+                          />
+                        )}
+                      </ContentBottomSheet>
+                    ) : isBrainSummaryOpen ? (
+                      <BrainSessionSummary
+                        summary={brainSessionSummary}
+                        onBackToPath={handleBrainSessionBackToPath}
+                      />
+                    ) : (
+                      <BrainSession
+                        state={brainSession.state}
+                        view={brainSessionView}
+                        onAnswer={(answer, options) => void brainSession.answer(answer, options)}
+                        onNext={() => void brainSession.next()}
+                        onAbort={handleAbortBrainSession}
+                      />
+                    )
                   ) : (
                     <BrainPathTab
                       state={brainPath}
+                      isMobile={isLearnMobileLayout}
                       /*
                        * Der Sprint-Hinweis waechst unten aus der Jetzt-Karte heraus und wird
                        * deshalb dort gerendert. Berechnet wird er trotzdem hier: „fuer diesmal

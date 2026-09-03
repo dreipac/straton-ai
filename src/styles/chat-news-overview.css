@@ -70,7 +70,7 @@
   position: absolute;
   inset: 0;
   z-index: 15;
-  background: var(--color-surface-app, #fff);
+  background: var(--color-bg-app, #fff);
   padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 0 calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
 
@@ -89,6 +89,15 @@
   gap: 1rem;
   margin-bottom: 0.85rem;
   flex-wrap: wrap;
+}
+
+/* Mobile: Sidebar-Button links, Titel direkt rechts davon (Reihe) — auf Desktop nur der Titel,
+   `.chat-mobile-top-bar-pill--sidebar` ist ohnehin nur in dessen Breakpoint definiert. */
+.chat-news-overview-header-start {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
 }
 
 /* Gleiches Gewicht wie der Lernpfad-Titel (`.learn-page-title-text` in learn.css, ebenfalls 500). */
