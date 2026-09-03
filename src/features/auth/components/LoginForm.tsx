@@ -38,7 +38,7 @@ export function LoginForm() {
   return (
     <form className="form-panel" onSubmit={handleSubmit}>
       <h1 className="auth-login-heading">Login</h1>
-      <p className="auth-login-lead">Melde dich mit deinem Konto an.</p>
+      <p className="auth-login-lead">Melde dich bei Straton an.</p>
 
       <div className="auth-login-field">
         <label htmlFor="email">E-Mail</label>

@@ -5,6 +5,8 @@ import cornerTopRight from '../assets/png/login-pattern-top-right.png'
 import cornerBottomLeft from '../assets/png/login-pattern-bottom-left.png'
 import { RegisterForm } from '../features/auth/components/RegisterForm'
 import { useAuth } from '../features/auth/context/useAuth'
+import { useAuthPageChrome } from '../features/auth/hooks/useAuthPageChrome'
+import { useAuthKeyboardInset } from '../features/auth/hooks/useAuthKeyboardInset'
 
 /** Gleicher Rahmen wie LoginPage — nur mit dem echten Registrierungsformular (nur per Einladungslink nutzbar). */
 export function RegisterPage() {
@@ -16,6 +18,9 @@ export function RegisterPage() {
       ? `${base}assets/logo/Straton-pink.png`
       : `${base}assets/logo/Straton.png`
   }, [themeVariant])
+
+  useAuthPageChrome(!user)
+  useAuthKeyboardInset()
 
   if (isLoading) {
     return null

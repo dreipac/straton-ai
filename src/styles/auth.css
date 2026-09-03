@@ -18,15 +18,23 @@
 
 /* Login: heller Hintergrund, Ecken-Muster (aus straton-login.png) oben rechts / unten links,
    Card mittig — unabhängig vom App-Theme (Einstellungen), aber abhängig von den System-/
-   Browser-Farbeinstellungen (prefers-color-scheme), siehe Dunkelmodus-Block weiter unten. */
+   Browser-Farbeinstellungen (prefers-color-scheme), siehe Dunkelmodus-Block weiter unten.
+
+   Bewusst `position: fixed; inset: 0` — nicht nur `relative` — und zwar dauerhaft, nicht per
+   Fokus-Zustand umgeschaltet: die Seite selbst ist der stabile Rahmen, an dem `.auth-login-corner`
+   hängt (siehe dort). Wenn die Tastatur öffnet, scrollt NUR `.auth-login-stack` innerhalb dieses
+   Rahmens (siehe `overflow-y: auto` unten) — die Ecken-Muster bleiben unberührt, weil sie relativ
+   zur (unveränderten) Box dieses Elements positioniert sind, nicht zu dessen Scroll-Inhalt.
+   Voraussetzung: `interactive-widget=overlays-content` in index.html, sonst würde der Browser den
+   Layout-Viewport selbst verschieben und dieser Rahmen liefe der Tastatur hinterher. */
 .auth-login-page {
-  position: relative;
-  min-height: var(--straton-app-height);
+  position: fixed;
+  inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: clamp(1.25rem, 4vw, 2.5rem);
   background: #f5f6f8;
 
@@ -107,6 +115,14 @@
   align-items: center;
   width: min(26rem, 100%);
   gap: clamp(1.1rem, 3vw, 1.6rem);
+  /* `margin: auto` statt `align-items/justify-content: center` am Elternelement — zentriert
+     genauso, lässt sich aber bei Überlänge (Tastatur offen) vollständig durchscrollen, statt oben
+     und unten gleichermaßen abgeschnitten zu werden. */
+  margin: auto;
+  /* Von useAuthKeyboardInset gesetzt, solange ein Feld fokussiert und von der Tastatur verdeckt
+     ist — schiebt das Formular hoch, ohne dass `.auth-login-page` selbst sich bewegt. */
+  padding-bottom: var(--auth-keyboard-inset, 0px);
+  transition: padding-bottom 0.2s ease;
 }
 
 /* Registrierung: breiter als Login, damit Vorname/Nachname nebeneinander Platz haben. */
@@ -435,82 +451,46 @@
     width: clamp(130px, 44vw, 260px);
   }
 
+  /* Kein Card-Look auf Mobil — Formular liegt direkt auf dem Seitenhintergrund. */
   .auth-login-card {
-    padding: 1.5rem 1.35rem;
-    border-radius: var(--radius-2xl);
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  /* Nur das Logo, groß und zentriert — die Wordmark daneben entfällt auf Mobil. */
+  .auth-login-wordmark {
+    display: none;
+  }
+
+  .auth-login-logo {
+    height: clamp(88px, 28vw, 132px);
+  }
+
+  /* Titel und Untertitel links bündig statt zentriert. */
+  .auth-login-heading,
+  .auth-login-lead {
+    text-align: left;
   }
 }
 
-/* iOS/PWA Login: weniger Rubber-Band; gleicher Grundton wie Login; Scroll im #root.
-   Bei Fokus in Eingabefeldern (Tastatur): html wieder normal, damit Viewport/iOS mitscrollen kann. */
-html.auth-login-scroll-lock {
-  overscroll-behavior: none;
-  background-color: #f5f6f8;
-}
-
+/* iOS/PWA Login: kein grauer/weißer Blitz an Overscroll-Rändern oder während die Safari-Toolbar
+   ein-/ausblendet. Bewusst KEIN Fokus-Zustand mehr (kein `.auth-login-keyboard-active`, kein
+   Umschalten von `position`) — `.auth-login-page` selbst ist jetzt immer `fixed` und übernimmt die
+   eigentliche Tastatur-Reaktion (siehe `.auth-login-stack` + `useAuthKeyboardInset`). Diese Klasse
+   ist nur noch reine Hintergrund-/Rubber-Band-Kosmetik von `html`/`body` dahinter. */
+html.auth-login-scroll-lock,
 html.auth-login-scroll-lock body {
   overscroll-behavior: none;
   background-color: #f5f6f8;
 }
 
-html.auth-login-scroll-lock:not(.auth-login-keyboard-active) {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-html.auth-login-scroll-lock:not(.auth-login-keyboard-active) body {
-  overflow: hidden;
-  height: 100%;
-  width: 100%;
-}
-
-html.auth-login-scroll-lock:not(.auth-login-keyboard-active) #root {
-  height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-}
-
-html.auth-login-scroll-lock.auth-login-keyboard-active {
-  position: static;
-  height: auto;
-  min-height: 100%;
-  overflow: visible;
-}
-
-html.auth-login-scroll-lock.auth-login-keyboard-active body {
-  overflow: auto;
-  height: auto;
-  min-height: var(--straton-app-height);
-  position: static;
-  inset: auto;
-  width: auto;
-  max-height: none;
-}
-
-html.auth-login-scroll-lock.auth-login-keyboard-active #root {
-  height: auto;
-  min-height: var(--straton-app-height);
-  overflow: visible;
-  max-height: none;
-}
-
-/* Mobil/PWA: gleicher Grund wie Login-Card-Hintergrund — vermeidet farbigen Streifen unter Home-Indicator */
+/* Mobil/PWA: gleicher Grund wie Login-Hintergrund — vermeidet farbigen Streifen unter Home-Indicator */
 @media (max-width: 768px) {
   html.auth-login-scroll-lock,
   html.auth-login-scroll-lock body {
-    background-color: #f5f6f8;
-  }
-
-  html.auth-login-scroll-lock:not(.auth-login-keyboard-active) #root {
-    background-color: #f5f6f8;
-  }
-
-  html.auth-login-scroll-lock.auth-login-keyboard-active #root {
     background-color: #f5f6f8;
   }
 }

@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useDocumentThemeVariant } from '../hooks/useDocumentThemeVariant'
 import { Navigate } from 'react-router-dom'
 import cornerTopRight from '../assets/png/login-pattern-top-right.png'
 import cornerBottomLeft from '../assets/png/login-pattern-bottom-left.png'
 import { LoginForm } from '../features/auth/components/LoginForm'
 import { useAuth } from '../features/auth/context/useAuth'
+import { useAuthPageChrome } from '../features/auth/hooks/useAuthPageChrome'
+import { useAuthKeyboardInset } from '../features/auth/hooks/useAuthKeyboardInset'
 
 export function LoginPage() {
   const { user, profile, isLoading } = useAuth()
@@ -16,57 +18,8 @@ export function LoginPage() {
       : `${base}assets/logo/Straton.png`
   }, [themeVariant])
 
-  /* iOS/PWA: Seite nicht wegrutschen / grauen Hintergrund zeigen; bei Tastatur-Fokus wieder normal */
-  useEffect(() => {
-    if (user) {
-      return undefined
-    }
-
-    const html = document.documentElement
-    let blurTimeout: ReturnType<typeof setTimeout> | null = null
-
-    const clearBlurTimeout = () => {
-      if (blurTimeout != null) {
-        clearTimeout(blurTimeout)
-        blurTimeout = null
-      }
-    }
-
-    const setKeyboardActive = (active: boolean) => {
-      html.classList.toggle('auth-login-keyboard-active', active)
-    }
-
-    const handleFocusIn = (event: FocusEvent) => {
-      const el = event.target
-      if (el instanceof HTMLElement && el.matches('input, textarea, select')) {
-        clearBlurTimeout()
-        setKeyboardActive(true)
-      }
-    }
-
-    const handleFocusOut = () => {
-      clearBlurTimeout()
-      blurTimeout = window.setTimeout(() => {
-        blurTimeout = null
-        const active = document.activeElement
-        if (!(active instanceof HTMLElement && active.matches('input, textarea, select'))) {
-          setKeyboardActive(false)
-        }
-      }, 120)
-    }
-
-    html.classList.add('auth-login-scroll-lock')
-
-    document.addEventListener('focusin', handleFocusIn)
-    document.addEventListener('focusout', handleFocusOut)
-
-    return () => {
-      clearBlurTimeout()
-      document.removeEventListener('focusin', handleFocusIn)
-      document.removeEventListener('focusout', handleFocusOut)
-      html.classList.remove('auth-login-scroll-lock', 'auth-login-keyboard-active')
-    }
-  }, [user])
+  useAuthPageChrome(!user)
+  useAuthKeyboardInset()
 
   if (isLoading) {
     return null
