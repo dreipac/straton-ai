@@ -6,6 +6,10 @@ import { MaskIcon } from '../../../components/ui/MaskIcon'
 import { MenuRadioItem } from '../../../components/ui/menu/MenuItem'
 import { PopoverMenu } from '../../../components/ui/menu/PopoverMenu'
 import { PopoverSubmenu } from '../../../components/ui/menu/PopoverSubmenu'
+import {
+  ContentBottomSheet,
+  type ContentBottomSheetHandle,
+} from '../../../components/ui/bottom-sheet/ContentBottomSheet'
 import { preventIosBlurOnlyTapWhenChatInputFocused } from '../../../utils/chatComposerFocusTap'
 import { chatToolbarMobileMediaQuery, isChatToolbarMobileViewport } from '../../../utils/mobile'
 import {
@@ -16,7 +20,6 @@ import {
 } from '../constants/chatComposerModels'
 import {
   chatComposerSelectionLabel,
-  isChatComposerModelId,
   type ChatComposerSelection,
 } from '../constants/chatComposerSelection'
 import { CHAT_THINKING_MODE_OPTIONS } from '../constants/chatThinkingMode'
@@ -74,13 +77,6 @@ function pickerRootClass(value: ChatComposerSelection): string {
 
 const tileTriggerClass = 'chat-model-picker-trigger chat-composer-tile-btn chat-composer-tile-btn--pill'
 
-function parseSelection(raw: string): ChatComposerSelection | null {
-  if (raw === 'normal' || raw === 'thinking' || isChatComposerModelId(raw)) {
-    return raw
-  }
-  return null
-}
-
 function useChatToolbarMobilePicker(): boolean {
   const [mobile, setMobile] = useState(() =>
     typeof window !== 'undefined' ? isChatToolbarMobileViewport() : false,
@@ -105,55 +101,105 @@ function useChatToolbarMobilePicker(): boolean {
 }
 
 /**
- * Native `<select>` auf Mobile (≤860px) — System-Picker statt Popover. Die Websuche fehlt hier
- * bewusst: ein System-Menü kann keine Untermenüs.
+ * Sheet auf Mobile (≤860px) statt Popover-Dropdown: gleicher Inhalt (Modus, Modell, Web-Suche) wie
+ * `ChatComposerModeDropdown`, nur als Bottom Sheet — dort passt anders als im nativen `<select>`
+ * auch die Websuche mit rein (kein Untermenü nötig, alle Optionen stehen einfach untereinander).
  */
-function ChatComposerModeNativeSelect({
+function ChatComposerModeSheet({
   value,
   onChange,
   disabled,
   blockedModelIds = [],
+  webSearchMode,
+  onWebSearchModeChange,
 }: ChatComposerModePickerProps) {
+  const [open, setOpen] = useState(false)
+  const sheetRef = useRef<ContentBottomSheetHandle | null>(null)
   const currentLabel = chatComposerSelectionLabel(value)
-  const icon = selectionIcon(value)
+  const currentIcon = selectionIcon(value)
+
+  function pick(selection: ChatComposerSelection) {
+    onChange(selection)
+    sheetRef.current?.requestClose()
+  }
+
+  function pickWebSearchMode(mode: ChatWebSearchMode) {
+    onWebSearchModeChange(mode)
+    sheetRef.current?.requestClose()
+  }
 
   return (
     <div className={pickerRootClass(value)}>
-      <span className={`chat-composer-native-select-wrap ${tileTriggerClass}`}>
-        <MaskIcon src={icon.src} color={icon.color} className="chat-model-picker-trigger-icon" />
-        <span className="chat-model-picker-label" aria-hidden="true">
-          {currentLabel}
-        </span>
+      <button
+        type="button"
+        className={tileTriggerClass}
+        disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Modus: ${currentLabel}. Auswahl öffnen`}
+        onPointerDown={preventIosBlurOnlyTapWhenChatInputFocused}
+        onClick={() => setOpen(true)}
+      >
+        <MaskIcon src={currentIcon.src} color={currentIcon.color} className="chat-model-picker-trigger-icon" />
+        <span className="chat-model-picker-label">{currentLabel}</span>
         <span className="chat-model-picker-chevron" aria-hidden="true" />
-        <select
-          className="chat-composer-native-select"
-          value={value}
-          disabled={disabled}
-          aria-label={`Modus: ${currentLabel}`}
-          onChange={(event) => {
-            const next = parseSelection(event.target.value)
-            if (next) {
-              onChange(next)
-            }
-            event.currentTarget.blur()
-          }}
-        >
-          <optgroup label="Modus">
-            {CHAT_THINKING_MODE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Modell">
-            {CHAT_COMPOSER_MODELS.map((option) => (
-              <option key={option.id} value={option.id} disabled={blockedModelIds.includes(option.id)}>
-                {option.label}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-      </span>
+      </button>
+      <ContentBottomSheet
+        ref={sheetRef}
+        open={open}
+        onExitComplete={() => setOpen(false)}
+        title="Modus & Modell"
+        bodyClassName="chat-model-picker-sheet-body"
+      >
+        <div className="chat-model-picker-group-label" aria-hidden="true">
+          Modus
+        </div>
+        {CHAT_THINKING_MODE_OPTIONS.map((option) => (
+          <MenuRadioItem
+            key={option.id}
+            checked={value === option.id}
+            iconSrc={stratonIconSrc}
+            onClick={() => pick(option.id)}
+          >
+            {option.label}
+          </MenuRadioItem>
+        ))}
+
+        <div className="chat-model-picker-group-label" aria-hidden="true">
+          Modell
+        </div>
+        {CHAT_COMPOSER_MODELS.map((option) => {
+          const isBlocked = blockedModelIds.includes(option.id)
+          const icon = modelIcon(option)
+          return (
+            <MenuRadioItem
+              key={option.id}
+              checked={value === option.id}
+              disabled={isBlocked}
+              iconSrc={icon.src}
+              iconColor={icon.color}
+              title={isBlocked ? 'In deinem Abo nicht verfügbar' : undefined}
+              onClick={() => pick(option.id)}
+            >
+              {option.label}
+            </MenuRadioItem>
+          )
+        })}
+
+        <div className="chat-model-picker-group-label" aria-hidden="true">
+          Web-Suche
+        </div>
+        {CHAT_WEB_SEARCH_MODE_OPTIONS.map((option) => (
+          <MenuRadioItem
+            key={option.id}
+            checked={option.id === webSearchMode}
+            iconSrc={webIconSrc}
+            onClick={() => pickWebSearchMode(option.id)}
+          >
+            {option.label}
+          </MenuRadioItem>
+        ))}
+      </ContentBottomSheet>
     </div>
   )
 }
@@ -164,10 +210,10 @@ function ChatComposerModeNativeSelect({
  * nur ohne automatische Modellwahl.
  */
 export function ChatComposerModePicker(props: ChatComposerModePickerProps) {
-  const isMobileNative = useChatToolbarMobilePicker()
+  const isMobile = useChatToolbarMobilePicker()
 
-  if (isMobileNative) {
-    return <ChatComposerModeNativeSelect {...props} />
+  if (isMobile) {
+    return <ChatComposerModeSheet {...props} />
   }
 
   return <ChatComposerModeDropdown {...props} />

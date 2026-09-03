@@ -12,6 +12,7 @@ import {
   type ReactNode,
   type Ref,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 export type ContentBottomSheetHandle = {
   requestClose: () => void
@@ -218,7 +219,15 @@ export const ContentBottomSheet = forwardRef<ContentBottomSheetHandle, ContentBo
       panelRefProp.current = node
     }
 
-    return (
+    /*
+     * Portal nach `document.body`: manche Aufrufstellen sitzen tief in einem Ast, der auf Mobile
+     * ein `transform` trägt (z. B. `.chat-main`/`.chat-sidebar` für die Slide-Animationen) — das
+     * macht diesen Ast zum Containing Block für `position: fixed`-Nachfahren UND (bei `overflow:
+     * hidden` dort) zur Clip-Grenze. Ohne Portal würde das Sheet dann nur innerhalb dieses Asts
+     * sichtbar sein statt über dem ganzen Bildschirm. Für bereits body-nahe Aufrufstellen ist der
+     * Portal ein reines No-op (visuell/funktional identisch).
+     */
+    return createPortal(
       <div className={`rename-bottom-sheet-root${isShown ? ' is-shown' : ''}`} role="presentation">
         <div
           className="rename-bottom-sheet-backdrop"
@@ -267,7 +276,8 @@ export const ContentBottomSheet = forwardRef<ContentBottomSheetHandle, ContentBo
             </div>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body,
     )
   },
 )

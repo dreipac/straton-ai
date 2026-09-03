@@ -282,7 +282,6 @@ export function ChatWindow({
 
   const userMessageLongPress = useUserMessageLongPress(composer.isMobileComposer)
   const mobileComposerSendTouch = useGlassPillTouchFeedback()
-  const mobileComposerMessageBoxTouch = useGlassPillTouchFeedback()
   const mobileSendStartedWithTouchRef = useRef(false)
   const [mobileDuringIconReady, setMobileDuringIconReady] = useState(false)
   const { push: pushToast } = useToast()
@@ -384,10 +383,6 @@ export function ChatWindow({
       {composerSendButton}
     </div>
   )
-
-  const composerInputRowTouchHandlers = composer.isMobileComposer
-    ? mobileComposerMessageBoxTouch.touchHandlers
-    : undefined
 
   function handleComposerSendClick(event: ReactMouseEvent<HTMLButtonElement>) {
     if (!cancelWhileSending) {
@@ -787,8 +782,6 @@ export function ChatWindow({
             leftActions={composerLeftActions}
             sendActions={composerSendActions}
             composerReplyQuoteSlot={composerReplyQuoteSlot}
-            composerInputRowTouchHandlers={composerInputRowTouchHandlers}
-            messageBoxTouchStateClass={mobileComposerMessageBoxTouch.touchStateClass}
             onPreviewImage={imageLightbox.setImageLightboxSrc}
           />
           <p className="chat-input-hint">
@@ -893,8 +886,6 @@ export function ChatWindow({
           leftActions={composerLeftActions}
           sendActions={composerSendActions}
           composerReplyQuoteSlot={composerReplyQuoteSlot}
-          composerInputRowTouchHandlers={composerInputRowTouchHandlers}
-          messageBoxTouchStateClass={mobileComposerMessageBoxTouch.touchStateClass}
           onPreviewImage={imageLightbox.setImageLightboxSrc}
         />
         {!composer.isMobileComposer ? thinkingCreditsHintEl : null}

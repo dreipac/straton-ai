@@ -41,8 +41,6 @@ export type ChatPageOverlaysProps = {
   threads: ChatThread[]
   chatFolders: ChatFoldersState
   chatFoldersFeatureEnabled: boolean
-  chatTourEligible: boolean
-  isLearnPathsButtonDisabled: boolean
   profileFullSheetRef: RefObject<ProfileFullSheetHandle | null>
   betaNoticeSheetRef: RefObject<ContentBottomSheetHandle | null>
   mobileSheetMode: 'closed' | 'profile' | 'settings'
@@ -90,9 +88,7 @@ export type ChatPageOverlaysProps = {
   onOpenAdmin: () => void
   onCloseBetaNotice: () => void
   onBetaNoticeSheetExitComplete: () => void
-  onNavigateLearn: () => void
   onLogout: () => void | Promise<void>
-  onShowLearnUnavailable: () => void
   onCloseThreadMenu: () => void
   onCloseFolderMenu: () => void
   onOpenFolderMove: (threadId: string) => void
@@ -140,8 +136,6 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     threads,
     chatFolders,
     chatFoldersFeatureEnabled,
-    chatTourEligible,
-    isLearnPathsButtonDisabled,
     profileFullSheetRef,
     betaNoticeSheetRef,
     mobileSheetMode,
@@ -189,9 +183,7 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
     onOpenAdmin,
     onCloseBetaNotice,
     onBetaNoticeSheetExitComplete,
-    onNavigateLearn,
     onLogout,
-    onShowLearnUnavailable,
     onCloseThreadMenu,
     onCloseFolderMenu,
     onOpenFolderMove,
@@ -268,29 +260,6 @@ export function ChatPageOverlays(props: ChatPageOverlaysProps) {
                     </span>
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className={`profile-full-sheet-row${chatTourEligible ? ' chat-onboarding-tour-block' : ''}${
-                    isLearnPathsButtonDisabled ? ' is-disabled' : ''
-                  }`}
-                  aria-disabled={isLearnPathsButtonDisabled}
-                  onClick={() => {
-                    if (isLearnPathsButtonDisabled) {
-                      onShowLearnUnavailable()
-                      return
-                    }
-                    setMobileSheetMode('closed')
-                    onNavigateLearn()
-                  }}
-                >
-                  <span className="profile-full-sheet-row-label">
-                    Lernpfade
-                    <span className="ui-pill-badge ui-pill-badge--blue">Beta</span>
-                  </span>
-                  <span className="profile-full-sheet-row-chevron" aria-hidden="true">
-                    ›
-                  </span>
-                </button>
                 {profile?.is_superadmin ? (
                   <button type="button" className="profile-full-sheet-row" onClick={onOpenAdmin}>
                     <span className="profile-full-sheet-row-label">Administrator</span>

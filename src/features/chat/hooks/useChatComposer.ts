@@ -354,7 +354,7 @@ export function useChatComposer({
     setPendingAttachments((prev) => prev.filter((item) => item.id !== id))
   }
 
-  function buildComposerInputRowClass(centered: boolean, touchStateClass?: string) {
+  function buildComposerInputRowClass(centered: boolean) {
     return [
       'chat-input-row',
       centered ? 'is-centered' : '',
@@ -362,8 +362,6 @@ export function useChatComposer({
       isMobileCompactComposer ? 'chat-input-row--mobile-compact' : '',
       chatThinkingMode === 'thinking' ? 'chat-input-row--thinking-mode' : '',
       isSending ? 'is-sending' : '',
-      isMobileComposer ? 'tap-spring-surface' : '',
-      isMobileComposer ? touchStateClass : '',
     ]
       .filter(Boolean)
       .join(' ')

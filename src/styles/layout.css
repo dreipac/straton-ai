@@ -1970,6 +1970,195 @@
     display: none;
   }
 
+  /*
+   * Mobile Sidebar-Fußzeile: statt der Einstellungen-/Administrator-/"Mehr"-Buttons (Desktop,
+   * unverändert im `else`-Zweig in ChatPageSidebar.tsx) nur noch zwei Pills in einer Reihe —
+   * Profil (Bild + Vorname, öffnet das bestehende Profil-Sheet mit Einstellungen/Administrator/
+   * Logout) und "+" (öffnet `chat-sidebar-create-sheet-body` unten, primary). Updates & Freunde
+   * sitzen stattdessen oben im Header (`.chat-sidebar-top-icon-row`, siehe unten).
+   * `.chat-sidebar-profile-badge.chat-sidebar-profile-card` bleibt für die Profil-Pill unverändert
+   * wiederverwendet (gleicher Glas-Look, gleiches Theming).
+   */
+  .chat-sidebar-footer-dock.chat-sidebar-footer-dock--pills {
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    /* Etwas mehr Luft nach unten als die Desktop-Fußzeile — sonst kleben die Pills am unteren Rand. */
+    padding-bottom: calc(0.9rem + env(safe-area-inset-bottom));
+  }
+
+  .chat-sidebar-mobile-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    border: none;
+    border-radius: var(--radius-full);
+    background: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* Primary: gleicher Akzent-Verlauf wie vorher der schwebende FAB, statt des neutralen Glas-Looks
+     der Profil-Pill — hebt den einzigen Erstellen-Einstieg sichtbar von "nur Navigation" ab. */
+  .chat-sidebar-mobile-pill--create {
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
+    color: var(--accent-fab-fg, #ffffff);
+    box-shadow:
+      0 6px 18px rgba(15, 23, 42, 0.2),
+      0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  }
+
+  /* `MaskIcon`/`.mask-icon` (ui.css) malt Größe/Maske bereits selbst — hier nur die Größe; die
+     Farbe folgt automatisch der `color` der Pille oben (`currentColor`-Fallback in `.mask-icon`). */
+  .chat-sidebar-mobile-pill-icon--create {
+    --ui-icon-size: 20px;
+  }
+
+  :root[data-theme='dark'] .chat-sidebar-mobile-pill {
+    background: rgba(36, 44, 58, 0.55);
+  }
+
+  :root[data-theme='dark'] .chat-sidebar-mobile-pill--create {
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow:
+      0 8px 22px rgba(0, 0, 0, 0.38),
+      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  }
+
+  :root[data-theme='dark'][data-theme-variant='pink-glass'] .chat-sidebar-mobile-pill {
+    background: rgba(62, 16, 38, 0.54);
+  }
+
+  :root[data-theme='dark'][data-theme-variant='black'] .chat-sidebar-mobile-pill {
+    background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
+  }
+
+  /* Updates & Freunde oben im Sidebar-Header (ersetzt den Zuklapp-Button, der auf Mobile weg ist —
+     siehe `ChatPageSidebar.tsx`, gleicher Header-Slot). */
+  .chat-sidebar-top-icon-row {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    flex-shrink: 0;
+  }
+
+  .chat-sidebar-top-icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+    border: none;
+    border-radius: var(--radius-full);
+    background: transparent;
+  }
+
+  .chat-sidebar-top-icon-btn:hover:enabled,
+  .chat-sidebar-top-icon-btn:active:enabled {
+    background: var(--interactive-hover-bg);
+  }
+
+  .chat-sidebar-top-icon-btn .chat-sidebar-news-badge {
+    position: absolute;
+    top: 0.1rem;
+    right: 0.1rem;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0 0.2rem;
+    font-size: var(--fs-2xs);
+  }
+
+  /* Sheet mit den zwei Erstellen-Karten (Lernpfad/Chat), geöffnet über die "+"-Pill. */
+  .chat-sidebar-create-sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .chat-sidebar-create-card {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.65rem;
+    min-height: 3rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-elevated);
+    color: var(--color-text-app);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    text-align: left;
+    transition: filter 160ms ease;
+  }
+
+  button.chat-sidebar-create-card:hover:enabled,
+  button.chat-sidebar-create-card:active:enabled {
+    background: var(--color-surface-elevated);
+    filter: brightness(0.96);
+  }
+
+  .chat-sidebar-create-card.is-disabled {
+    opacity: 0.55;
+  }
+
+  .chat-sidebar-create-card--primary {
+    border-color: transparent;
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
+    color: var(--accent-fab-fg, #ffffff);
+  }
+
+  button.chat-sidebar-create-card--primary:hover:enabled,
+  button.chat-sidebar-create-card--primary:active:enabled {
+    background: var(--accent-gradient);
+    background-size: 150% 150%;
+    background-position: 42% 38%;
+    filter: brightness(0.96);
+  }
+
+  .chat-sidebar-create-card-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    background: currentColor;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+
+  .chat-sidebar-create-card-icon--learn {
+    -webkit-mask-image: url('../assets/icons/learn-filled.svg');
+    mask-image: url('../assets/icons/learn-filled.svg');
+  }
+
+  .chat-sidebar-create-card-icon--chat {
+    -webkit-mask-image: url('../assets/icons/chat-filled.svg');
+    mask-image: url('../assets/icons/chat-filled.svg');
+  }
+
+  .chat-sidebar-create-card-label {
+    line-height: 1.1;
+  }
+
   .chat-main {
     min-height: 0;
     height: 100%;

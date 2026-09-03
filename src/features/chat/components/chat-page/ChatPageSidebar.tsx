@@ -22,7 +22,6 @@ type ChatPageSidebarProps = {
   profile: UserProfile | null
   isSidebarCollapsed: boolean
   isCompactMobileSidebarLayout: boolean
-  isMobileSidebarOpen: boolean
   logoSrc: string
   displayName: string
   greetingName: string
@@ -63,6 +62,7 @@ type ChatPageSidebarProps = {
   onCloseFriends: () => void
   onOpenAdmin: () => void
   onToggleCompactProfileSheet: () => void
+  onOpenCreateSheet: () => void
   onSelectLearningPath: (pathId: string) => void
   onCreateLearningPath: (generationMode?: LearnGenerationMode) => void
   openLearningPathMenuId?: string | null
@@ -115,6 +115,7 @@ export function ChatPageSidebar({
   onCloseFriends,
   onOpenAdmin,
   onToggleCompactProfileSheet,
+  onOpenCreateSheet,
     onSelectLearningPath,
     onCreateLearningPath,
     openLearningPathMenuId = null,
@@ -176,25 +177,60 @@ export function ChatPageSidebar({
                 </button>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="sidebar-toggle-button"
-              aria-label={
-                isCompactMobileSidebarLayout
-                  ? 'Sidebar schließen'
-                  : isSidebarCollapsed
-                    ? 'Sidebar ausfahren'
-                    : 'Sidebar einklappen'
-              }
-              onClick={onSidebarHeaderToggle}
-            >
-              <img
-                className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon"
-                src={sidebarIcon}
-                alt=""
-                aria-hidden="true"
-              />
-            </button>
+            {isCompactMobileSidebarLayout ? (
+              <div className="chat-sidebar-top-icon-row">
+                <button
+                  type="button"
+                  className="chat-sidebar-top-icon-btn"
+                  onClick={onOpenNews}
+                  aria-label={`Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`}
+                >
+                  <span
+                    className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
+                    aria-hidden="true"
+                  />
+                  {newsUnreadCount > 0 ? (
+                    <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                      {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                    </span>
+                  ) : null}
+                </button>
+                {showFriendsInSidebar ? (
+                  <button
+                    type="button"
+                    className="chat-sidebar-top-icon-btn"
+                    onClick={onOpenFriends}
+                    aria-label={`Freunde${
+                      friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''
+                    }`}
+                  >
+                    <span
+                      className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
+                      aria-hidden="true"
+                    />
+                    {friendsIncomingCount > 0 ? (
+                      <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                        {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="sidebar-toggle-button"
+                aria-label={isSidebarCollapsed ? 'Sidebar ausfahren' : 'Sidebar einklappen'}
+                onClick={onSidebarHeaderToggle}
+              >
+                <img
+                  className="ui-icon chat-sidebar-top-button-icon sidebar-toggle-icon"
+                  src={sidebarIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
+              </button>
+            )}
           </div>
         ) : null}
         {isSidebarCollapsed ? (
@@ -211,68 +247,70 @@ export function ChatPageSidebar({
           </button>
         ) : null}
 
-        <div className="learn-sidebar-top-actions">
-          {showLearningPathsInSidebar ? (
-            <div className="learn-new-path-wrap">
-              <button
-                ref={learnTourRef}
-                type="button"
-                className={`ui-button ui-button-primary learn-sidebar-action-button${
-                  isLearnPathCreateDisabled ? ' is-disabled' : ''
-                }${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
-                aria-disabled={isLearnPathCreateDisabled}
-                aria-expanded={canChooseCreatePathMode ? isCreatePathModeMenuOpen : undefined}
-                onClick={handleCreatePathClick}
-                aria-label={isSidebarCollapsed ? 'Lernpfad erstellen' : undefined}
-              >
-                <MaskIcon src={addIcon} className="learn-sidebar-button-plus" />
-                {!isSidebarCollapsed ? <span className="learn-new-path-label">Lernpfad erstellen</span> : null}
-              </button>
-              {isCreatePathModeMenuOpen ? (
-                <>
-                  <div
-                    className="learn-create-mode-backdrop"
-                    onClick={() => setIsCreatePathModeMenuOpen(false)}
-                    aria-hidden="true"
-                  />
-                  <div className="learn-create-mode-menu" role="menu" aria-label="Lernpfad-Erstellmodus">
-                    <button
-                      type="button"
-                      className="learn-create-mode-option"
-                      role="menuitem"
-                      onClick={() => handleChooseCreatePathMode('ai')}
-                    >
-                      <span className="learn-create-mode-option-title">KI</span>
-                      <span className="learn-create-mode-option-meta">Normaler Lernpfad mit KI-Generierung</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="learn-create-mode-option"
-                      role="menuitem"
-                      onClick={() => handleChooseCreatePathMode('placeholder')}
-                    >
-                      <span className="learn-create-mode-option-title">Platzhalter</span>
-                      <span className="learn-create-mode-option-meta">Testablauf ohne API-Kosten</span>
-                    </button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          ) : null}
+        {!isCompactMobileSidebarLayout ? (
+          <div className="learn-sidebar-top-actions">
+            {showLearningPathsInSidebar ? (
+              <div className="learn-new-path-wrap">
+                <button
+                  ref={learnTourRef}
+                  type="button"
+                  className={`ui-button ui-button-primary learn-sidebar-action-button${
+                    isLearnPathCreateDisabled ? ' is-disabled' : ''
+                  }${chatTourEligible ? ' chat-onboarding-tour-block' : ''}`}
+                  aria-disabled={isLearnPathCreateDisabled}
+                  aria-expanded={canChooseCreatePathMode ? isCreatePathModeMenuOpen : undefined}
+                  onClick={handleCreatePathClick}
+                  aria-label={isSidebarCollapsed ? 'Lernpfad erstellen' : undefined}
+                >
+                  <MaskIcon src={addIcon} className="learn-sidebar-button-plus" />
+                  {!isSidebarCollapsed ? <span className="learn-new-path-label">Lernpfad erstellen</span> : null}
+                </button>
+                {isCreatePathModeMenuOpen ? (
+                  <>
+                    <div
+                      className="learn-create-mode-backdrop"
+                      onClick={() => setIsCreatePathModeMenuOpen(false)}
+                      aria-hidden="true"
+                    />
+                    <div className="learn-create-mode-menu" role="menu" aria-label="Lernpfad-Erstellmodus">
+                      <button
+                        type="button"
+                        className="learn-create-mode-option"
+                        role="menuitem"
+                        onClick={() => handleChooseCreatePathMode('ai')}
+                      >
+                        <span className="learn-create-mode-option-title">KI</span>
+                        <span className="learn-create-mode-option-meta">Normaler Lernpfad mit KI-Generierung</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="learn-create-mode-option"
+                        role="menuitem"
+                        onClick={() => handleChooseCreatePathMode('placeholder')}
+                      >
+                        <span className="learn-create-mode-option-title">Platzhalter</span>
+                        <span className="learn-create-mode-option-meta">Testablauf ohne API-Kosten</span>
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
 
-          <button
-            ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
-            type="button"
-            className={`ui-button ui-button-secondary learn-sidebar-action-button${
-              chatTourEligible ? ' chat-onboarding-tour-block' : ''
-            }`}
-            onClick={() => void onCreateNewChat()}
-            aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
-          >
-            <MaskIcon src={addIcon} className="learn-sidebar-button-plus" />
-            {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Chat</span> : null}
-          </button>
-        </div>
+            <button
+              ref={isCompactMobileSidebarLayout ? undefined : newChatTourRef}
+              type="button"
+              className={`ui-button ui-button-secondary learn-sidebar-action-button${
+                chatTourEligible ? ' chat-onboarding-tour-block' : ''
+              }`}
+              onClick={() => void onCreateNewChat()}
+              aria-label={isSidebarCollapsed ? 'Neuer Chat' : undefined}
+            >
+              <MaskIcon src={addIcon} className="learn-sidebar-button-plus" />
+              {!isSidebarCollapsed ? <span className="learn-new-path-label">Neuer Chat</span> : null}
+            </button>
+          </div>
+        ) : null}
 
         {learnFeatureInfoVisible && !isSidebarCollapsed ? (
           <p className="chat-learn-feature-info chat-learn-feature-info--sidebar">Noch nicht verfügbar</p>
@@ -330,243 +368,299 @@ export function ChatPageSidebar({
           </div>
         ) : null}
 
-        <div className="chat-sidebar-footer-dock">
-          <div className="chat-sidebar-bottom">
-            <div className="chat-sidebar-footer-divider" aria-hidden="true" />
+        {isCompactMobileSidebarLayout ? (
+          <div className="chat-sidebar-footer-dock chat-sidebar-footer-dock--pills">
+            <div
+              ref={profileMenuRef}
+              className="account-profile chat-sidebar-profile-badge chat-sidebar-profile-card chat-sidebar-mobile-pill chat-sidebar-mobile-pill--profile"
+              role="button"
+              tabIndex={0}
+              onClick={onToggleCompactProfileSheet}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onToggleCompactProfileSheet()
+                }
+              }}
+            >
+              {profile?.avatar_url ? (
+                <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+              ) : (
+                <div className="account-avatar-fallback">{avatarFallback}</div>
+              )}
+              <div className="account-meta">
+                <div className="account-name-row">
+                  <p className="account-value">{greetingName}</p>
+                </div>
+              </div>
+            </div>
 
             <button
               type="button"
-              className={`chat-sidebar-footer-nav-button chat-sidebar-footer-settings-button${
-                isSettingsWorkspaceOpen ? ' is-active' : ''
-              }`}
-              onClick={() => {
-                setIsSettingsIconFlipped((prev) => !prev)
-                onOpenSettings()
+              ref={(node) => {
+                newChatTourRef.current = node
+                learnTourRef.current = node
               }}
-              aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
+              className={[
+                'chat-sidebar-mobile-pill',
+                'chat-sidebar-mobile-pill--create',
+                'new-chat-touch-btn',
+                sidebarNewChatTouch.touchStateClass,
+                chatTourEligible ? 'chat-onboarding-tour-block' : '',
+                isNewChatPending ? 'is-new-chat-pending' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              aria-label="Neu erstellen"
+              aria-busy={isNewChatPending ? true : undefined}
+              onClick={onOpenCreateSheet}
+              {...sidebarNewChatTouch.touchHandlers}
             >
-              <span
-                className={`chat-sidebar-footer-nav-icon chat-sidebar-footer-settings-icon${
-                  isSettingsIconFlipped ? ' is-flipped' : ''
-                }`}
-                aria-hidden="true"
+              <MaskIcon
+                src={addIcon}
+                className="chat-sidebar-mobile-pill-icon--create new-chat-touch-btn__icon"
               />
-              {!isSidebarCollapsed ? 'Einstellungen' : null}
             </button>
+          </div>
+        ) : (
+          <div className="chat-sidebar-footer-dock">
+            <div className="chat-sidebar-bottom">
+              <div className="chat-sidebar-footer-divider" aria-hidden="true" />
 
-            {profile?.is_superadmin ? (
               <button
                 type="button"
-                className="chat-sidebar-footer-nav-button chat-sidebar-footer-admin-button"
-                onClick={onOpenAdmin}
-                aria-label={isSidebarCollapsed ? 'Administrator' : undefined}
+                className={`chat-sidebar-footer-nav-button chat-sidebar-footer-settings-button${
+                  isSettingsWorkspaceOpen ? ' is-active' : ''
+                }`}
+                onClick={() => {
+                  setIsSettingsIconFlipped((prev) => !prev)
+                  onOpenSettings()
+                }}
+                aria-label={isSidebarCollapsed ? 'Einstellungen' : undefined}
               >
-                <span className="chat-sidebar-footer-nav-icon chat-sidebar-footer-admin-icon" aria-hidden="true" />
-                {!isSidebarCollapsed ? 'Administrator' : null}
+                <span
+                  className={`chat-sidebar-footer-nav-icon chat-sidebar-footer-settings-icon${
+                    isSettingsIconFlipped ? ' is-flipped' : ''
+                  }`}
+                  aria-hidden="true"
+                />
+                {!isSidebarCollapsed ? 'Einstellungen' : null}
               </button>
-            ) : null}
 
-            {isSidebarCollapsed ? (
-              <>
+              {profile?.is_superadmin ? (
                 <button
                   type="button"
-                  className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--news${
-                    isNewsOverviewOpen ? ' is-active' : ''
-                  }${newsUnreadCount > 0 ? ' is-collapsed-badge' : ''}`}
-                  onClick={onOpenNews}
-                  aria-label={`Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`}
+                  className="chat-sidebar-footer-nav-button chat-sidebar-footer-admin-button"
+                  onClick={onOpenAdmin}
+                  aria-label={isSidebarCollapsed ? 'Administrator' : undefined}
                 >
-                  <span
-                    className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
-                    aria-hidden="true"
-                  />
-                  {newsUnreadCount > 0 ? (
-                    <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
-                      {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
-                    </span>
-                  ) : null}
+                  <span className="chat-sidebar-footer-nav-icon chat-sidebar-footer-admin-icon" aria-hidden="true" />
+                  {!isSidebarCollapsed ? 'Administrator' : null}
                 </button>
-                {showFriendsInSidebar ? (
+              ) : null}
+
+              {isSidebarCollapsed ? (
+                <>
                   <button
                     type="button"
-                    className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--friends${
-                      isFriendsOverviewOpen ? ' is-active' : ''
-                    }${friendsIncomingCount > 0 ? ' is-collapsed-badge' : ''}`}
-                    onClick={onOpenFriends}
-                    aria-label={`Freunde${
-                      friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''
-                    }`}
+                    className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--news${
+                      isNewsOverviewOpen ? ' is-active' : ''
+                    }${newsUnreadCount > 0 ? ' is-collapsed-badge' : ''}`}
+                    onClick={onOpenNews}
+                    aria-label={`Updates & Neuigkeiten${newsUnreadCount > 0 ? `, ${newsUnreadCount} ungelesen` : ''}`}
                   >
                     <span
-                      className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
+                      className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
                       aria-hidden="true"
                     />
-                    {friendsIncomingCount > 0 ? (
-                      <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
-                        {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
-                      </span>
-                    ) : null}
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="chat-sidebar-footer-nav-button chat-sidebar-footer-more-button"
-                  aria-expanded={isFooterMoreExpanded}
-                  onClick={() => {
-                    setIsFooterMoreExpanded((prev) => {
-                      const next = !prev
-                      if (!next && isFriendsOverviewOpen) {
-                        onCloseFriends()
-                      }
-                      if (!next && isNewsOverviewOpen) {
-                        onCloseNews()
-                      }
-                      return next
-                    })
-                  }}
-                >
-                  <span
-                    className={`chat-sidebar-footer-more-dots${isFooterMoreExpanded ? ' is-open' : ''}`}
-                    aria-hidden="true"
-                  >
-                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--l" />
-                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--c" />
-                    <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--r" />
-                  </span>
-                  <span className="chat-sidebar-nav-label-row">
-                    Mehr
-                    {newsUnreadCount > 0 && !isFooterMoreExpanded ? (
-                      <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesene Updates`}>
+                    {newsUnreadCount > 0 ? (
+                      <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
                         {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
                       </span>
                     ) : null}
-                  </span>
-                </button>
-                <div className={`chat-sidebar-footer-more-panel${isFooterMoreExpanded ? ' is-open' : ''}`}>
-                  <div className="chat-sidebar-footer-more-panel-inner">
+                  </button>
+                  {showFriendsInSidebar ? (
                     <button
                       type="button"
-                      className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--news${
-                        isNewsOverviewOpen ? ' is-active' : ''
+                      className={`chat-sidebar-footer-nav-button chat-sidebar-nav-button--friends${
+                        isFriendsOverviewOpen ? ' is-active' : ''
+                      }${friendsIncomingCount > 0 ? ' is-collapsed-badge' : ''}`}
+                      onClick={onOpenFriends}
+                      aria-label={`Freunde${
+                        friendsIncomingCount > 0 ? `, ${friendsIncomingCount} eingehende Anfragen` : ''
                       }`}
-                      onClick={onOpenNews}
                     >
                       <span
-                        className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
+                        className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
                         aria-hidden="true"
                       />
-                      <span className="chat-sidebar-nav-label-row">
-                        Updates & Neuigkeiten
-                        {newsUnreadCount > 0 ? (
-                          <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
-                            {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
-                          </span>
-                        ) : null}
-                      </span>
+                      {friendsIncomingCount > 0 ? (
+                        <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                          {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                        </span>
+                      ) : null}
                     </button>
-                    {showFriendsInSidebar ? (
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="chat-sidebar-footer-nav-button chat-sidebar-footer-more-button"
+                    aria-expanded={isFooterMoreExpanded}
+                    onClick={() => {
+                      setIsFooterMoreExpanded((prev) => {
+                        const next = !prev
+                        if (!next && isFriendsOverviewOpen) {
+                          onCloseFriends()
+                        }
+                        if (!next && isNewsOverviewOpen) {
+                          onCloseNews()
+                        }
+                        return next
+                      })
+                    }}
+                  >
+                    <span
+                      className={`chat-sidebar-footer-more-dots${isFooterMoreExpanded ? ' is-open' : ''}`}
+                      aria-hidden="true"
+                    >
+                      <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--l" />
+                      <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--c" />
+                      <span className="chat-sidebar-footer-more-dot chat-sidebar-footer-more-dot--r" />
+                    </span>
+                    <span className="chat-sidebar-nav-label-row">
+                      Mehr
+                      {newsUnreadCount > 0 && !isFooterMoreExpanded ? (
+                        <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesene Updates`}>
+                          {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <div className={`chat-sidebar-footer-more-panel${isFooterMoreExpanded ? ' is-open' : ''}`}>
+                    <div className="chat-sidebar-footer-more-panel-inner">
                       <button
                         type="button"
-                        className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--friends${
-                          isFriendsOverviewOpen ? ' is-active' : ''
+                        className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--news${
+                          isNewsOverviewOpen ? ' is-active' : ''
                         }`}
-                        onClick={onOpenFriends}
+                        onClick={onOpenNews}
                       >
                         <span
-                          className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
+                          className="chat-sidebar-footer-nav-icon chat-sidebar-footer-news-icon"
                           aria-hidden="true"
                         />
                         <span className="chat-sidebar-nav-label-row">
-                          Freunde
-                          {friendsIncomingCount > 0 ? (
-                            <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
-                              {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                          Updates & Neuigkeiten
+                          {newsUnreadCount > 0 ? (
+                            <span className="chat-sidebar-news-badge" aria-label={`${newsUnreadCount} ungelesen`}>
+                              {newsUnreadCount > 9 ? '9+' : newsUnreadCount}
                             </span>
                           ) : null}
                         </span>
                       </button>
-                    ) : null}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="chat-sidebar-footer-divider" aria-hidden="true" />
-
-            <div className="account-profile-row">
-              <div
-                ref={profileMenuRef}
-                className={`account-profile${
-                  isCompactMobileSidebarLayout
-                    ? ' chat-sidebar-profile-badge chat-sidebar-profile-card'
-                    : ' chat-sidebar-profile-flat'
-                }`}
-                role={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 'button' : undefined}
-                tabIndex={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 0 : undefined}
-                onClick={
-                  isCompactMobileSidebarLayout && !isSidebarCollapsed ? onToggleCompactProfileSheet : undefined
-                }
-                onKeyDown={
-                  isCompactMobileSidebarLayout && !isSidebarCollapsed
-                    ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          onToggleCompactProfileSheet()
-                        }
-                      }
-                    : undefined
-                }
-              >
-                {profile?.avatar_url ? (
-                  <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
-                ) : (
-                  <div className="account-avatar-fallback">{avatarFallback}</div>
-                )}
-                {!isSidebarCollapsed ? (
-                  <div className="account-meta">
-                    <div className="account-name-row">
-                      <p className="account-value">
-                        {isCompactMobileSidebarLayout ? greetingName : displayName}
-                      </p>
-                      {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
-                        <span className="ui-pill-badge ui-pill-badge--red">Admin</span>
+                      {showFriendsInSidebar ? (
+                        <button
+                          type="button"
+                          className={`chat-sidebar-footer-subnav-button chat-sidebar-footer-subnav-button--friends${
+                            isFriendsOverviewOpen ? ' is-active' : ''
+                          }`}
+                          onClick={onOpenFriends}
+                        >
+                          <span
+                            className="chat-sidebar-footer-nav-icon chat-sidebar-footer-friends-icon"
+                            aria-hidden="true"
+                          />
+                          <span className="chat-sidebar-nav-label-row">
+                            Freunde
+                            {friendsIncomingCount > 0 ? (
+                              <span className="chat-sidebar-news-badge" aria-label={`${friendsIncomingCount} eingehend`}>
+                                {friendsIncomingCount > 9 ? '9+' : friendsIncomingCount}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
                       ) : null}
                     </div>
-                    {subscriptionPlanName ? (
-                      <p className="account-subscription">{subscriptionPlanName}</p>
-                    ) : null}
                   </div>
-                ) : null}
+                </>
+              )}
+
+              <div className="chat-sidebar-footer-divider" aria-hidden="true" />
+
+              <div className="account-profile-row">
+                <div
+                  ref={profileMenuRef}
+                  className={`account-profile${
+                    isCompactMobileSidebarLayout
+                      ? ' chat-sidebar-profile-badge chat-sidebar-profile-card'
+                      : ' chat-sidebar-profile-flat'
+                  }`}
+                  role={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 'button' : undefined}
+                  tabIndex={isCompactMobileSidebarLayout && !isSidebarCollapsed ? 0 : undefined}
+                  onClick={
+                    isCompactMobileSidebarLayout && !isSidebarCollapsed ? onToggleCompactProfileSheet : undefined
+                  }
+                  onKeyDown={
+                    isCompactMobileSidebarLayout && !isSidebarCollapsed
+                      ? (event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            onToggleCompactProfileSheet()
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  {profile?.avatar_url ? (
+                    <img className="account-avatar" src={profile.avatar_url} alt="Profilbild" />
+                  ) : (
+                    <div className="account-avatar-fallback">{avatarFallback}</div>
+                  )}
+                  {!isSidebarCollapsed ? (
+                    <div className="account-meta">
+                      <div className="account-name-row">
+                        <p className="account-value">
+                          {isCompactMobileSidebarLayout ? greetingName : displayName}
+                        </p>
+                        {profile?.is_superadmin && !isCompactMobileSidebarLayout ? (
+                          <span className="ui-pill-badge ui-pill-badge--red">Admin</span>
+                        ) : null}
+                      </div>
+                      {subscriptionPlanName ? (
+                        <p className="account-subscription">{subscriptionPlanName}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
+            <button
+              type="button"
+              ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
+              className={[
+                'mobile-new-chat-fab',
+                'new-chat-touch-btn',
+                sidebarNewChatTouch.touchStateClass,
+                chatTourEligible ? 'chat-onboarding-tour-block' : '',
+                isNewChatPending ? 'is-new-chat-pending' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              aria-label="Neuer Chat"
+              aria-busy={isNewChatPending ? true : undefined}
+              onClick={() => void onCreateNewChat()}
+              {...sidebarNewChatTouch.touchHandlers}
+            >
+              <span
+                className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
+                aria-hidden="true"
+              />
+              <span className="mobile-new-chat-fab-label">Neuer Chat</span>
+            </button>
           </div>
-          <button
-            type="button"
-            ref={isCompactMobileSidebarLayout ? newChatTourRef : undefined}
-            className={[
-              'mobile-new-chat-fab',
-              'new-chat-touch-btn',
-              sidebarNewChatTouch.touchStateClass,
-              chatTourEligible ? 'chat-onboarding-tour-block' : '',
-              isNewChatPending ? 'is-new-chat-pending' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="Neuer Chat"
-            aria-busy={isNewChatPending ? true : undefined}
-            onClick={() => void onCreateNewChat()}
-            {...sidebarNewChatTouch.touchHandlers}
-          >
-            <span
-              className="chat-sidebar-new-chat-icon chat-sidebar-top-button-icon mobile-new-chat-fab-icon new-chat-touch-btn__icon"
-              aria-hidden="true"
-            />
-            <span className="mobile-new-chat-fab-label">Neuer Chat</span>
-          </button>
-        </div>
+        )}
       </div>
     </aside>
   )

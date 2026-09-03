@@ -17,8 +17,6 @@ type ChatComposerFormProps = {
   leftActions: ReactNode
   sendActions: ReactNode
   composerReplyQuoteSlot: ReactNode
-  composerInputRowTouchHandlers?: Record<string, unknown>
-  messageBoxTouchStateClass?: string
   onPreviewImage: (src: string) => void
 }
 
@@ -31,8 +29,6 @@ export function ChatComposerForm({
   leftActions,
   sendActions,
   composerReplyQuoteSlot,
-  composerInputRowTouchHandlers,
-  messageBoxTouchStateClass,
   onPreviewImage,
 }: ChatComposerFormProps) {
   const {
@@ -62,11 +58,7 @@ export function ChatComposerForm({
         onRemoveAttachment={removeAttachment}
         onPreviewImage={onPreviewImage}
       />
-      <form
-        className={buildComposerInputRowClass(centered, messageBoxTouchStateClass)}
-        onSubmit={handleSubmit}
-        {...composerInputRowTouchHandlers}
-      >
+      <form className={buildComposerInputRowClass(centered)} onSubmit={handleSubmit}>
         <input
           ref={fileInputRef}
           type="file"

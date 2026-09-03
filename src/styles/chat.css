@@ -5486,12 +5486,14 @@
 }
 
 /* Vom Abo gesperrte Modelle: Zeile bleibt lesbar, aber sichtbar nicht anwählbar. */
-.chat-model-picker-dropdown .thread-menu-item:disabled {
+.chat-model-picker-dropdown .thread-menu-item:disabled,
+.chat-model-picker-sheet-body .thread-menu-item:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Trennt die Verarbeitungswege (Smart Instant, Thinking) von der Modellliste. */
+/* Trennt die Verarbeitungswege (Smart Instant, Thinking) von der Modellliste — im Dropdown wie im
+   mobilen Sheet (`.chat-model-picker-sheet-body`, siehe ChatComposerModePicker.tsx). */
 .chat-model-picker-group-label {
   margin: 0.4rem 0.5rem 0.2rem;
   font-size: var(--fs-2xs);
@@ -5501,14 +5503,22 @@
   color: var(--color-text-secondary);
 }
 
-.chat-model-picker-dropdown .thread-menu-item {
+.chat-model-picker-group-label:first-child {
+  margin-top: 0;
+}
+
+.chat-model-picker-dropdown .thread-menu-item,
+.chat-model-picker-sheet-body .thread-menu-item {
   appearance: none;
   -webkit-appearance: none;
 }
 
 .chat-model-picker-dropdown .thread-menu-item:focus,
 .chat-model-picker-dropdown .thread-menu-item:focus-visible,
-.chat-model-picker-dropdown .thread-menu-item:active {
+.chat-model-picker-dropdown .thread-menu-item:active,
+.chat-model-picker-sheet-body .thread-menu-item:focus,
+.chat-model-picker-sheet-body .thread-menu-item:focus-visible,
+.chat-model-picker-sheet-body .thread-menu-item:active {
   outline: none;
   border-color: transparent;
   background: transparent;
@@ -5516,31 +5526,48 @@
 }
 
 /* Der gewählte Eintrag bleibt grün markiert, der Hover darüber ist bewusst neutral. */
-.chat-model-picker-dropdown .thread-menu-item.is-selected {
+.chat-model-picker-dropdown .thread-menu-item.is-selected,
+.chat-model-picker-sheet-body .thread-menu-item.is-selected {
   background: color-mix(in srgb, #22c55e 14%, #f8fafc);
   color: #16a34a;
 }
 
-.chat-model-picker-dropdown .thread-menu-item:hover:enabled {
+.chat-model-picker-dropdown .thread-menu-item:hover:enabled,
+.chat-model-picker-sheet-body .thread-menu-item:hover:enabled {
   background: #f8fafc;
   color: #334155;
 }
 
-:root[data-theme='dark'] .chat-model-picker-dropdown .thread-menu-item.is-selected {
+:root[data-theme='dark'] .chat-model-picker-dropdown .thread-menu-item.is-selected,
+:root[data-theme='dark'] .chat-model-picker-sheet-body .thread-menu-item.is-selected {
   background: color-mix(in srgb, #22c55e 18%, #1a2230);
   color: #4ade80;
 }
 
-:root[data-theme='dark'] .chat-model-picker-dropdown .thread-menu-item:hover:enabled {
+:root[data-theme='dark'] .chat-model-picker-dropdown .thread-menu-item:hover:enabled,
+:root[data-theme='dark'] .chat-model-picker-sheet-body .thread-menu-item:hover:enabled {
   background: #252b35;
   color: #e5e7eb;
 }
 
 :root[data-theme='dark'][data-theme-variant='pink-glass']
   .chat-model-picker-dropdown
+  .thread-menu-item:hover:enabled,
+:root[data-theme='dark'][data-theme-variant='pink-glass']
+  .chat-model-picker-sheet-body
   .thread-menu-item:hover:enabled {
   background: rgba(244, 114, 182, 0.12);
   color: #f9fafb;
+}
+
+/* Mobiles Sheet (statt Popover-Dropdown): großzügigere Zeilen für Touch, Zeichen etwas größer. */
+.chat-model-picker-sheet-body .thread-menu-item {
+  padding: 0.65rem 0.6rem;
+  font-size: var(--fs-base);
+}
+
+.chat-model-picker-sheet-body .thread-menu-item-mask-icon {
+  --ui-icon-size: 19px;
 }
 
 .chat-left-actions {
@@ -7009,10 +7036,6 @@
   overflow: visible;
 }
 
-.chat-input-row.chat-input-row--stacked.chat-input-row--mobile-compact.tap-spring-surface {
-  opacity: 1;
-}
-
 .chat-input-row--mobile-compact.chat-input-row--thinking-mode:not(.is-sending),
 .chat-input-row--mobile-compact.chat-input-row--thinking-mode:focus-within:not(.is-sending) {
   animation: none;
@@ -7277,6 +7300,17 @@
         var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.45rem)) +
         var(--chat-mobile-floating-pill-height, 2.75rem) + 0.35rem
     );
+  }
+
+  /*
+   * Innerhalb eines Chats gibt es keine Bottom-Nav mehr (siehe ChatPage.tsx, `mainMobileBottomDock`
+   * wird dann nicht gerendert) — der Composer reservierte bisher trotzdem deren Höhe darüber, was
+   * eine leere Lücke unter der Eingabe-Pille hinterlässt. Pill-Höhe/Abstand hier auf 0, Composer
+   * rutscht bis auf die Safe-Area an den unteren Rand.
+   */
+  .chat-app-shell.is-mobile-chat-topbar-active {
+    --chat-mobile-nav-pill-height: 0px;
+    --chat-mobile-composer-gap-above-nav: 0px;
   }
 
   .chat-panel {
@@ -9510,8 +9544,8 @@ button.chat-onboarding-tour-block {
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
   }
 
-  /* Modus (C/S) und Menü (⋯): gleiche runde Glas-Pille */
-  .chat-mobile-top-bar-pill--mode,
+  /* Sidebar öffnen und Menü (⋯): gleiche runde Glas-Pille */
+  .chat-mobile-top-bar-pill--sidebar,
   .chat-mobile-top-bar-pill--menu {
     padding: 0;
     flex-shrink: 0;
@@ -9522,37 +9556,8 @@ button.chat-onboarding-tour-block {
     transform-origin: center;
   }
 
-  .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select-wrap {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-  }
-
-  .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select-label {
-    padding: 0;
-    font-size: var(--fs-sm);
-    font-weight: 700;
-    line-height: 1;
-    color: var(--color-text-app);
-    white-space: nowrap;
-    pointer-events: none;
-    text-align: center;
-    min-width: 0;
-  }
-
-  .chat-mobile-top-bar-pill--mode .chat-toolbar-reply-mode-select {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    padding: 0;
-    opacity: 0;
+  .chat-mobile-top-bar-sidebar-icon {
+    --ui-icon-size: 18px;
   }
 
   .chat-mobile-top-bar-pill--title {
@@ -10585,31 +10590,6 @@ button.chat-onboarding-tour-block {
 
   .chat-input-row {
     transition: border-color 220ms ease;
-  }
-
-  /* Message Box (mobil): dezente Tap-Feder + dauerhaft leichte Transparenz. */
-  .chat-input-row.tap-spring-surface {
-    backface-visibility: hidden;
-    opacity: 0.9;
-  }
-
-  .chat-input-row.tap-spring-surface.is-sending {
-    opacity: 0.9;
-  }
-
-  .chat-input-row.tap-spring-surface.is-tap-spring,
-  .chat-input-row.tap-spring-surface.is-tap-held,
-  .chat-input-row.tap-spring-surface.is-tap-held-release {
-    --tap-feedback-spring-scale-peak: 1.008;
-    transition: none;
-  }
-
-  @media (pointer: coarse) {
-    .chat-input-row.tap-spring-surface.is-tap-spring,
-    .chat-input-row.tap-spring-surface.is-tap-held,
-    .chat-input-row.tap-spring-surface.is-tap-held-release {
-      --tap-feedback-spring-scale-peak: 1.015;
-    }
   }
 
   .chat-mobile-bottom-dock {

@@ -25,6 +25,7 @@ import { ChatPageMobileBottomDock } from '../features/chat/components/chat-page/
 import { ChatPageMobileTopBar } from '../features/chat/components/chat-page/ChatPageMobileTopBar'
 import { ChatPageOverlays } from '../features/chat/components/chat-page/ChatPageOverlays'
 import { ChatPageSidebar } from '../features/chat/components/chat-page/ChatPageSidebar'
+import { ChatSidebarCreateSheet } from '../features/chat/components/chat-page/ChatSidebarCreateSheet'
 import { CHAT_PAGE_MODAL_ANIMATION_MS } from '../features/chat/components/chat-page/chatPageConstants'
 import { ChatFoldersMobilePanel } from '../features/chat/components/ChatFoldersMobilePanel'
 import { ChatFolderOverview } from '../features/chat/components/ChatFolderOverview'
@@ -382,6 +383,7 @@ export function ChatPage() {
   }, [activeThread?.title])
 
   const [isNewChatPending, setIsNewChatPending] = useState(false)
+  const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const endSharingSheetRef = useRef<ContentBottomSheetHandle | null>(null)
 
   const mobileShell = useChatPageMobileShell({
@@ -450,7 +452,6 @@ export function ChatPage() {
     mobileBottomNavSpring,
     mobileNewChatTouch,
     sidebarNewChatTouch,
-    mobileTopBarModeTouch,
     mobileTopBarTitleTouch,
     mobileTopBarMenuTouch,
     startPillAccentPulse,
@@ -459,6 +460,14 @@ export function ChatPage() {
   } = mobileShell
 
   const sidebarThreadList = threads
+
+  // Mobile "+"-Pill (ChatPageSidebar): Sheet schließt mit, sobald die Sidebar selbst zugeht —
+  // sonst stünde es beim nächsten Öffnen der Sidebar noch (unsichtbar) offen.
+  useEffect(() => {
+    if (!isMobileSidebarOpen) {
+      setIsCreateSheetOpen(false)
+    }
+  }, [isMobileSidebarOpen])
 
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
 
@@ -1236,13 +1245,21 @@ export function ChatPage() {
       : `${base}assets/logo/Straton.png`
   }, [themeVariant])
 
+  /** Mobile mit aktivem Chat: eigene Topbar oben, dafür keine Bottom-Nav (wie beim Home-Dashboard). */
+  const showMobileChatTopBar =
+    collaboration.showFloatingChatToolbar &&
+    isChatToolbarMobile &&
+    !isMobileFoldersOpen &&
+    !isFolderOverviewOpen &&
+    !isFriendsOverviewOpen &&
+    !isNewsOverviewOpen &&
+    !isLearnWorkspaceOpen &&
+    !isDueFlashcardsOpen &&
+    !isSettingsWorkspaceOpen
+
   const mobileTopBar = (
     <ChatPageMobileTopBar
       isGuest={!user}
-      guestChatReplyMode={guestPrefs.guestChatReplyMode}
-      chatReplyMode={chatReplyMode}
-      isSending={isSending}
-      mobileTopBarModeTouch={mobileTopBarModeTouch}
       mobileTopBarTitleTouch={mobileTopBarTitleTouch}
       mobileTopBarMenuTouch={mobileTopBarMenuTouch}
       showMobileTitleMenu={collaboration.showMobileTitleMenu}
@@ -1256,8 +1273,7 @@ export function ChatPage() {
       shareActionBusy={collaboration.shareActionBusy}
       threadMembersLoading={collaboration.threadMembersLoading}
       toolbarAvatarCount={collaboration.toolbarAvatars.list.length}
-      onGuestReplyModeChange={guestPrefs.handleGuestChatReplyMode}
-      onReplyModeChange={setChatReplyMode}
+      onOpenSidebar={toggleMobileSidebarFromBottomNav}
       onRenameThread={pageMenus.openRenameModal}
       onArchiveThread={archiveChat}
       onDeleteThread={deleteChat}
@@ -1332,13 +1348,12 @@ export function ChatPage() {
     <main
       className={`chat-app-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${
         isMobileSidebarOpen ? 'is-mobile-sidebar-open' : ''
-      }${pageEnterShellClass}`}
+      }${showMobileChatTopBar ? ' is-mobile-chat-topbar-active' : ''}${pageEnterShellClass}`}
     >
       <ChatPageSidebar
         profile={profile}
         isSidebarCollapsed={isSidebarCollapsed}
         isCompactMobileSidebarLayout={isCompactMobileSidebarLayout}
-        isMobileSidebarOpen={isMobileSidebarOpen}
         logoSrc={logoSrc}
         displayName={displayName}
         greetingName={greetingName}
@@ -1388,6 +1403,7 @@ export function ChatPage() {
         isFriendsOverviewOpen={isFriendsOverviewOpen}
         onOpenAdmin={pageModals.openAdminModal}
         onToggleCompactProfileSheet={pageModals.toggleCompactProfileSheet}
+        onOpenCreateSheet={() => setIsCreateSheetOpen(true)}
         onSelectLearningPath={(pathId) => openLearnWorkspace(pathId)}
         onCreateLearningPath={(mode) => openLearnWorkspace(undefined, { create: true, createMode: mode })}
         openLearningPathMenuId={learningPathMenus.openMenuPathId}
@@ -1395,6 +1411,23 @@ export function ChatPage() {
         onThreadSkeletonTransitionEnd={handleThreadSkeletonTransitionEnd}
         onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
       />
+
+      {isCompactMobileSidebarLayout ? (
+        <ChatSidebarCreateSheet
+          open={isCreateSheetOpen}
+          onClose={() => setIsCreateSheetOpen(false)}
+          showLearningPathsInSidebar={!isLearnPathsButtonDisabled}
+          isLearnPathCreateDisabled={
+            isLearnPathCreateButtonDisabled ||
+            pendingCreateLearningPath ||
+            learningPathsSidebar.learningPaths.some((path) => path.isPending || path.isRemoving)
+          }
+          canChooseCreatePathMode={profile?.is_superadmin === true}
+          onCreateLearningPath={(mode) => openLearnWorkspace(undefined, { create: true, createMode: mode })}
+          onCreateNewChat={() => void handleCreateNewChat()}
+          onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
+        />
+      ) : null}
 
       <section
         className={`chat-main${collaboration.showFloatingChatToolbar ? ' chat-main--share-toolbar' : ''}${
@@ -1431,6 +1464,8 @@ export function ChatPage() {
             onOpenPath={(pathId) => openLearnWorkspace(pathId)}
             dueFlashcardsCount={learningPathsSidebar.dueFlashcardsTotalCount}
             onOpenDueFlashcards={openDueFlashcardsScreen}
+            isMobile={isChatToolbarMobile}
+            onOpenSidebar={toggleMobileSidebarFromBottomNav}
           />
         ) : null}
         {isDueFlashcardsOpen ? (
@@ -1539,9 +1574,7 @@ export function ChatPage() {
         {isNewsOverviewOpen ? (
           <ChatNewsOverview isAdmin={profile?.is_superadmin === true} isCompactMobile={isCompactMobileSidebarLayout} />
         ) : null}
-        {collaboration.showFloatingChatToolbar && isChatToolbarMobile && !isMobileFoldersOpen && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen
-          ? mobileTopBar
-          : null}
+        {showMobileChatTopBar ? mobileTopBar : null}
         {collaboration.showFloatingChatToolbar && !isChatToolbarMobile && !isFolderOverviewOpen && !isFriendsOverviewOpen && !isNewsOverviewOpen && !isLearnWorkspaceOpen && !isDueFlashcardsOpen && !isSettingsWorkspaceOpen ? (
           <ChatMainCollaborationToolbar
             isNarrowViewport={isNarrowViewport}
@@ -1659,7 +1692,7 @@ export function ChatPage() {
         onEndSharingSheetExitComplete={collaboration.handleEndSharingSheetExitComplete}
         onParticipantsSheetExitComplete={collaboration.handleParticipantsSheetExitComplete}
       />
-      {mainMobileBottomDock}
+      {isHomeDashboardOpen || showMobileChatTopBar ? null : mainMobileBottomDock}
       <div
         className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'is-visible' : ''}`}
         onClick={() => {
@@ -1692,8 +1725,6 @@ export function ChatPage() {
         threads={threads}
         chatFolders={chatFolders}
         chatFoldersFeatureEnabled={chatFoldersFeatureEnabled}
-        chatTourEligible={chatTourEligible}
-        isLearnPathsButtonDisabled={isLearnPathsButtonDisabled}
         profileFullSheetRef={pageModals.profileFullSheetRef}
         betaNoticeSheetRef={pageModals.betaNoticeSheetRef}
         mobileSheetMode={pageModals.mobileSheetMode}
@@ -1741,11 +1772,7 @@ export function ChatPage() {
         onOpenAdmin={pageModals.openAdminModal}
         onCloseBetaNotice={pageModals.closeBetaNoticeModal}
         onBetaNoticeSheetExitComplete={pageModals.handleBetaNoticeSheetExitComplete}
-        onNavigateLearn={() => {
-          openLearnWorkspace()
-        }}
         onLogout={handleLogout}
-        onShowLearnUnavailable={learnDraft.showLearnFeatureUnavailableInfo}
         onCloseThreadMenu={pageMenus.closeThreadActionMenu}
         onCloseFolderMenu={pageMenus.closeFolderActionMenu}
         onOpenFolderMove={pageMenus.openFolderMoveDialog}

@@ -1,18 +1,14 @@
+import sidebarIcon from '../../../../assets/icons/sidebar.svg'
+import { MaskIcon } from '../../../../components/ui/MaskIcon'
 import type { ChatThread } from '../../types'
 import { ChatToolbarMobileMenuSelect } from '../ChatToolbarMobileMenuSelect'
-import { ChatToolbarReplyModeSelect } from '../ChatToolbarReplyModeSelect'
 import { ChatToolbarTitleMenuSelect } from '../ChatToolbarTitleMenuSelect'
 import { glassPillTouchClass, type useGlassPillTouchFeedback } from '../../../../hooks/useGlassPillTouchFeedback'
-import type { ChatReplyMode } from '../../constants/chatReplyMode'
 
 type GlassPillTouch = ReturnType<typeof useGlassPillTouchFeedback>
 
 type ChatPageMobileTopBarProps = {
   isGuest: boolean
-  guestChatReplyMode: ChatReplyMode
-  chatReplyMode: ChatReplyMode
-  isSending: boolean
-  mobileTopBarModeTouch: GlassPillTouch
   mobileTopBarTitleTouch: GlassPillTouch
   mobileTopBarMenuTouch: GlassPillTouch
   showMobileTitleMenu: boolean
@@ -26,8 +22,7 @@ type ChatPageMobileTopBarProps = {
   shareActionBusy: boolean
   threadMembersLoading: boolean
   toolbarAvatarCount: number
-  onGuestReplyModeChange: (mode: ChatReplyMode) => void
-  onReplyModeChange: (mode: ChatReplyMode) => void
+  onOpenSidebar: () => void
   onRenameThread: (thread: ChatThread) => void
   onArchiveThread: (threadId: string) => void
   onDeleteThread: (threadId: string) => void
@@ -38,10 +33,6 @@ type ChatPageMobileTopBarProps = {
 
 export function ChatPageMobileTopBar({
   isGuest,
-  guestChatReplyMode,
-  chatReplyMode,
-  isSending,
-  mobileTopBarModeTouch,
   mobileTopBarTitleTouch,
   mobileTopBarMenuTouch,
   showMobileTitleMenu,
@@ -55,8 +46,7 @@ export function ChatPageMobileTopBar({
   shareActionBusy,
   threadMembersLoading,
   toolbarAvatarCount,
-  onGuestReplyModeChange,
-  onReplyModeChange,
+  onOpenSidebar,
   onRenameThread,
   onArchiveThread,
   onDeleteThread,
@@ -68,19 +58,14 @@ export function ChatPageMobileTopBar({
     <div className="chat-main-toolbar chat-main-toolbar--mobile">
       <div className="chat-mobile-top-bar">
         <div className="chat-mobile-top-bar__start">
-          <div
-            className={glassPillTouchClass(
-              mobileTopBarModeTouch,
-              'chat-mobile-top-bar-pill chat-mobile-top-bar-pill--mode',
-            )}
-            {...mobileTopBarModeTouch.touchHandlers}
+          <button
+            type="button"
+            className="chat-mobile-top-bar-pill chat-mobile-top-bar-pill--sidebar"
+            aria-label="Sidebar öffnen"
+            onClick={onOpenSidebar}
           >
-            <ChatToolbarReplyModeSelect
-              value={isGuest ? guestChatReplyMode : chatReplyMode}
-              onChange={isGuest ? onGuestReplyModeChange : onReplyModeChange}
-              disabled={!isGuest && isSending}
-            />
-          </div>
+            <MaskIcon src={sidebarIcon} className="chat-mobile-top-bar-sidebar-icon" />
+          </button>
         </div>
         <div className="chat-mobile-top-bar__center">
           <div

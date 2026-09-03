@@ -28,6 +28,9 @@ type ChatHomeDashboardProps = {
   /** Anzahl über alle Lernpfade fälliger Lernkarten (Spaced Repetition). */
   dueFlashcardsCount: number
   onOpenDueFlashcards: () => void
+  /** Mobile Ansicht (≤860px): reduzierte Begrüßung + eigener Button zum Sidebar-Öffnen statt Bottom-Nav. */
+  isMobile: boolean
+  onOpenSidebar: () => void
 }
 
 export function ChatHomeDashboard({
@@ -38,6 +41,8 @@ export function ChatHomeDashboard({
   onOpenPath,
   dueFlashcardsCount,
   onOpenDueFlashcards,
+  isMobile,
+  onOpenSidebar,
 }: ChatHomeDashboardProps) {
   const greeting = useMemo(() => getChatEmptyGreeting(greetingName), [greetingName])
   const subtitle = `${learningPathsCount} ${learningPathsCount === 1 ? 'Lernpfad' : 'Lernpfade'}`
@@ -47,12 +52,26 @@ export function ChatHomeDashboard({
 
   return (
     <div className="chat-home-dashboard">
-      <ChatEmptyGreetingTitle greet={greeting.greet} ask={greeting.ask} animationKey="home-dashboard" />
+      {isMobile ? (
+        <button
+          type="button"
+          className="chat-home-dashboard-mobile-menu-btn"
+          aria-label="Sidebar öffnen"
+          onClick={onOpenSidebar}
+        >
+          <span className="chat-home-dashboard-mobile-menu-btn-icon" aria-hidden="true" />
+        </button>
+      ) : null}
+      {isMobile ? (
+        <h2 className="chat-home-dashboard-mobile-title">Willkommen</h2>
+      ) : (
+        <ChatEmptyGreetingTitle greet={greeting.greet} ask={greeting.ask} animationKey="home-dashboard" />
+      )}
       <p className="chat-home-dashboard-subtitle">{subtitle}</p>
       {continuePath ? (
         <button
           type="button"
-          className="chat-home-continue-card"
+          className={`chat-home-continue-card${isMobile ? ' squircle' : ''}`}
           onClick={() => onOpenPath(continuePath.id)}
         >
           <span className="chat-home-continue-card-body">
