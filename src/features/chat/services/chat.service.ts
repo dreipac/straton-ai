@@ -1151,13 +1151,6 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
     ...(thinkingStaticCacheSplit ? [] : [getSecretSafetyInstruction(), getSwissGermanOrthographyInstruction()]),
     ...(thinkingOpenAiFinalCache ? [] : [options?.systemPrompt?.trim() ?? '']),
     ...(thinkingOpenAiFinalCache ? [] : [learnChapterJsonRules]),
-    ...(thinkingOpenAiFinalCache ? [] : [excelChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [wordChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [pdfChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [chartChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [diagramChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [pptxChatHint]),
-    ...(thinkingOpenAiFinalCache ? [] : [pptxEditChatHint]),
     ...(thinkingOpenAiFinalCache ? [] : [mainChatWorkStyle]),
     ...(thinkingOpenAiFinalCache ? [] : [truthBlock]),
     ...(thinkingOpenAiFinalCache ? [] : [toneBlock]),
@@ -1174,6 +1167,23 @@ function buildGatewayMessages(messages: ChatMessage[], options?: SendMessageOpti
         ? getAssistantEmojiStyleInstruction({ replyTone })
         : '',
     thinkingClarifyUiReminder,
+    /*
+     * Export-Hints ganz am Ende statt zwischen Block 4 und 12 (vormals hier): sie sind pro
+     * Anfrage bedingt (nur bei Word-/PDF-/Excel-/Chart-/Diagramm-/PPTX-Export nicht-leer), lagen
+     * aber VOR dem stabilen Rumpf (Arbeitsweise/Wahrheit/Ton/Thinking/Format). Sobald einer davon
+     * gefüllt war, war alles danach nicht mehr Teil des längsten identischen Präfix — für OpenAI
+     * (impliziter Präfix-Cache) und Anthropic hiess das: kompletter Cache-Bruch für den ganzen
+     * Rest des Prompts bei jedem Export-Turn. Jetzt bleibt der stabile Rumpf immer der Präfix;
+     * nur der (seltene) Export-Hinweis hängt als Suffix dran. Reine Reihenfolge, kein Wortlaut
+     * geändert — deshalb hier auch keine neue Bedeutung, nur ein anderer Platz im Array.
+     */
+    ...(thinkingOpenAiFinalCache ? [] : [excelChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [wordChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pdfChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [chartChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [diagramChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pptxChatHint]),
+    ...(thinkingOpenAiFinalCache ? [] : [pptxEditChatHint]),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -1504,7 +1514,10 @@ const EXCEL_SPEC_MAX_INPUT_CHARS = 14000
  * @see https://platform.openai.com/docs/guides/prompt-caching
  */
 const OPENAI_PROMPT_CACHE_KEY_EXCEL_SPEC = 'straton-excel-spec-v1'
-const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v8'
+/* v8 -> v9: Export-Hints (Excel/Word/PDF/Chart/Diagramm/PPTX) ans Ende des Systemprompts verschoben
+ * (siehe combinedSystemPrompt oben) — reine Reihenfolge, kein Wortlaut, aber ein anderer Präfix,
+ * deshalb neue Epoche noetig (sonst mischen sich alte und neue Cache-Eintraege unter demselben Key). */
+const OPENAI_PROMPT_CACHE_KEY_MAIN = 'straton-main-v9'
 /** Thinking: eigener Key + stabiler Systemprompt (Material-Hinweis in Nutzernachricht). */
 const OPENAI_PROMPT_CACHE_KEY_THINKING = 'straton-main-thinking-v8'
 const OPENAI_PROMPT_CACHE_KEY_THINKING_ANALYZE = 'straton-thinking-analyze-v2'

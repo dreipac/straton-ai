@@ -218,7 +218,10 @@ export async function fetchActiveThinkingTaskTypeRoutingEdge(
   }
 }
 
-export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v6'
+/* v6 -> v7: 4 redundante Beispiele aus INSTANT_ANALYZE_SYSTEM_PROMPT entfernt (index.ts) — jede
+ * verändert den gehashten Prompt-Inhalt, deshalb neue Epoche (siehe OPENAI_PROMPT_CACHE_KEY_MAIN
+ * in index.ts fuer denselben Grund auf der OpenAI-Seite). */
+export const GEMINI_CONTEXT_CACHE_INTENT = 'straton-intent-v7'
 export const GEMINI_CONTEXT_CACHE_INSTANT_REPLY = 'straton-instant-reply-v4'
 export const GEMINI_CONTEXT_CACHE_THINKING_ANALYZE = 'straton-thinking-analyze-gemini-v1'
 export {

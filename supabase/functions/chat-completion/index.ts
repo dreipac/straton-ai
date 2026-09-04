@@ -213,7 +213,9 @@ function resolveOpenAiPromptCacheForRequest(
   const defaults: Partial<Record<string, OpenAiPromptCacheOptions>> = {
     evaluate_quiz: { key: 'straton-eval-quiz-v1', retention: '24h' },
     generate_title: { key: 'straton-gen-title-v1', retention: '24h' },
-    instant_analyze: { key: 'straton-instant-analyze-v9', retention: '24h' },
+    // v9 -> v10: 4 redundante Beispiele aus INSTANT_ANALYZE_SYSTEM_PROMPT entfernt (siehe dort) —
+    // veränderter Prompt-Inhalt braucht eine neue Epoche (sonst mischen sich alte/neue Cache-Treffer).
+    instant_analyze: { key: 'straton-instant-analyze-v10', retention: '24h' },
     thinking_analyze: { key: 'straton-thinking-analyze-v2', retention: '24h' },
     thinking_draft: { key: 'straton-thinking-draft-v1', retention: '24h' },
     thinking_review: { key: 'straton-thinking-review-v2', retention: '24h' },
@@ -2560,21 +2562,17 @@ const INSTANT_ANALYZE_SYSTEM_PROMPT = [
   '- false bei Lehrbuchwissen, Mathe, Coding-Konzepten, Definitionen, subjektiven/persönlichen Fragen — und immer bei category document/chart/diagram/image sowie chat.clarify.',
   '',
   'Beispiele (Nachricht → Einordnung):',
-  '- «Wie berechne ich den Deckungsbeitrag?» → chat.answer, task_type explanation, needs_live_web false.',
   '- «A) TCP B) UDP C) ICMP D) ARP — welches Protokoll ist verbindungslos?» → chat.short_answer, task_type mc_solve, needs_live_web false.',
   '- «Erstelle mir ein Word-Dokument mit einer Zusammenfassung des Kapitels» → document.word_generate, needs_live_web false.',
   '- Nutzer hängt ein PDF an und schreibt nur «schau dir das an» → chat.answer (Anhang lesen), nicht document — kein expliziter Exportwunsch.',
   '- «Zeig mir als Diagramm, wie eine Bestellung durch die Abteilungen läuft» → diagram.diagram_generate, needs_live_web false.',
   '- «Mach mir ein Balkendiagramm mit den Umsätzen der letzten vier Quartale» → chart.chart_generate, needs_live_web false.',
-  '- «Zeichne mir ein Bild von einem Server-Rack» → image.generate.',
   '- «Zeig mir ein Foto von Bill Gates» → image.search, intent = Bill Gates (konkreter Name, kein Pronomen).',
   '- Nutzer hängt ein Foto einer Rechnung an und fragt «was steht da drin?» → image.describe.',
   '- Frage zu einem drei Nachrichten zuvor gesendeten Bild, kein neuer Anhang → image.reference.',
   '- «Wie viel kostet die PS6 aktuell?» → chat.answer, needs_live_web true (veränderlicher Preis).',
-  '- «Löse: 3x + 5 = 20» → chat.answer, task_type explanation, needs_live_web false (Lehrbuchwissen).',
   '- «Fasse das hochgeladene Dokument zusammen» → chat.answer, task_type summary, needs_live_web false.',
   '- «Worum geht es in dem Dokument?» → chat.answer, task_type explanation, NICHT summary.',
-  '- Straton hat im Chat gerade ein Bild erzeugt, Nutzer fragt «wer hat das gemacht?» → chat.short_answer, nicht image.',
   '- Im Verlauf steht bereits ein erzeugtes Chart, Nutzer fragt nur «und im März?» ohne neuen Diagrammwunsch → chat.answer, nicht chart.',
 ].join('\n')
 
