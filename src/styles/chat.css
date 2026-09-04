@@ -7326,10 +7326,12 @@
   /*
    * Ohne Bottom-Nav (siehe oben) muss `.chat-panel` selbst die Home-Indicator-Safe-Area
    * reservieren, sonst sitzt die letzte (im normalen Grid-Fluss liegende) Composer-Zeile über der
-   * Safe-Area statt darunter — sichtbarer Rest-Abstand zum echten unteren Bildschirmrand.
+   * Safe-Area statt darunter. Nur ein minimaler Zusatzabstand (`0.2rem`) neben `env()` selbst —
+   * volle `0.75rem` obendrauf liessen das Feld spürbar über der Safe-Area schweben statt direkt
+   * darüber zu sitzen (im Browser ohne Safe-Area fiel das nicht auf, auf echten Geräten schon).
    */
   .chat-app-shell.is-mobile-chat-topbar-active .chat-panel:not(.is-empty) {
-    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
+    padding-bottom: calc(0.2rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
   /*

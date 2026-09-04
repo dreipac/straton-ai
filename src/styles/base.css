@@ -68,12 +68,23 @@
   box-sizing: border-box;
 }
 
-/* Volle Safe Area: gleicher Hintergrund wie die App bis ganz oben (verhindert weisse/flackernde Notch-Zone) */
+/*
+ * Volle Safe Area: gleicher Hintergrund wie die App bis ganz oben (verhindert weisse/flackernde
+ * Notch-Zone). `overflow: hidden` + `overscroll-behavior: none` sperren zusätzlich das Dokument
+ * selbst gegen Scroll/Rubber-Band — `#root` (base.css weiter unten) ist die einzige vorgesehene
+ * Scroll-Fläche, alles andere blättert/zieht nur INNERHALB seiner eigenen Bereiche (Chat-Nachrichten,
+ * Lernbereich-Panels, Sheets, …). Ohne das konnte man z. B. im Lernbereich die ganze Seite vertikal
+ * ziehen, sobald irgendein innerer Bereich seinen Scroll-Anschlag erreichte und die Geste an
+ * `body`/`html` weiterreichte (Scroll-Chaining) — `#root` allein bremst das nicht, wenn `html`/
+ * `body` selbst noch scroll-/zug-faehig sind.
+ */
 html {
   margin: 0;
   min-height: var(--straton-app-height);
   background: var(--app-background);
   background-attachment: fixed;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -82,6 +93,8 @@ body {
   min-height: var(--straton-app-height);
   background: var(--app-background);
   background-attachment: fixed;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 * {

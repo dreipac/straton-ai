@@ -326,7 +326,12 @@ button.chat-home-path-row:hover:enabled {
     /* Schutz gegen rechtsseitigen Overflow, unabhängig von der Ursache im Karten-Inhalt. */
     max-width: 100%;
     overflow-x: hidden;
-    padding-top: calc(clamp(1.5rem, 2vw + 1rem, 3rem) + 2.9rem);
+    /*
+     * `--chat-floating-ui-top` (layout.css, bereits Safe-Area/Notch-bewusst mit 44px-Floor) statt
+     * eines eigenen `clamp()` ohne `env()` — der Button unten sass sonst wie die Chat-Topbar-Pillen
+     * vor deren Fix sichtbar in der Statusleiste.
+     */
+    padding-top: calc(var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 44px) + 0.45rem)) + 2.9rem);
   }
 
   .chat-home-dashboard-mobile-menu-btn {
@@ -334,7 +339,7 @@ button.chat-home-path-row:hover:enabled {
     align-items: center;
     justify-content: center;
     position: absolute;
-    top: clamp(1.5rem, 2vw + 1rem, 3rem);
+    top: var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 44px) + 0.45rem));
     left: clamp(1.25rem, 2vw + 0.75rem, 2.5rem);
     width: 2.75rem;
     height: 2.75rem;
