@@ -7297,16 +7297,18 @@
      */
     --chat-mobile-keyboard-top-reserve: calc(
       var(--chat-visual-viewport-offset-top, 0px) +
-        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 8px) + 0.45rem)) +
+        var(--chat-floating-ui-top, calc(max(env(safe-area-inset-top, 0px), 44px) + 0.45rem)) +
         var(--chat-mobile-floating-pill-height, 2.75rem) + 0.35rem
     );
   }
 
   /*
    * Innerhalb eines Chats gibt es keine Bottom-Nav mehr (siehe ChatPage.tsx, `mainMobileBottomDock`
-   * wird dann nicht gerendert) — der Composer reservierte bisher trotzdem deren Höhe darüber, was
-   * eine leere Lücke unter der Eingabe-Pille hinterlässt. Pill-Höhe/Abstand hier auf 0, Composer
-   * rutscht bis auf die Safe-Area an den unteren Rand.
+   * wird dann nicht gerendert). `--chat-mobile-messages-scroll-padding-bottom` (unten in
+   * `.chat-messages`) hängt noch an dieser Variable — Pill-Höhe/Abstand hier auf 0, damit dieser
+   * Lesekomfort-Puffer nicht weiter die (nicht mehr vorhandene) Nav-Höhe mit einrechnet. Die
+   * eigentliche Composer-Position kommt jetzt vom normalen Grid-Fluss (siehe `.chat-composer-stack`
+   * unten) + dem Safe-Area-Padding von `.chat-panel` direkt darunter.
    */
   .chat-app-shell.is-mobile-chat-topbar-active {
     --chat-mobile-nav-pill-height: 0px;
@@ -7316,13 +7318,18 @@
   .chat-panel {
     grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 0.7rem;
-    /*
-     * Unten: kein zusätzliches env(safe-area) — liegt bereits in `--chat-mobile-composer-bottom-offset`.
-     * Optional Tastatur-Inset (visualViewport).
-     */
     padding:
       env(safe-area-inset-top, 0px) 0.65rem
       calc(0.75rem + var(--chat-visual-keyboard-inset, 0px));
+  }
+
+  /*
+   * Ohne Bottom-Nav (siehe oben) muss `.chat-panel` selbst die Home-Indicator-Safe-Area
+   * reservieren, sonst sitzt die letzte (im normalen Grid-Fluss liegende) Composer-Zeile über der
+   * Safe-Area statt darunter — sichtbarer Rest-Abstand zum echten unteren Bildschirmrand.
+   */
+  .chat-app-shell.is-mobile-chat-topbar-active .chat-panel:not(.is-empty) {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px) + var(--chat-visual-keyboard-inset, 0px));
   }
 
   /*
@@ -7808,17 +7815,18 @@
     box-sizing: border-box;
   }
 
-  .chat-panel:not(.is-empty) .chat-composer-stack {
-    position: sticky;
-    bottom: var(--chat-mobile-composer-bottom-offset);
-    z-index: 7;
-  }
-
-  .chat-panel:not(.is-empty) .chat-input-row {
-    position: static;
-    bottom: auto;
-    z-index: auto;
-  }
+  /*
+   * Composer bleibt bewusst im normalen Grid-Fluss (kein sticky/absolute/fixed): `.chat-panel` hat
+   * `grid-template-rows: minmax(0, 1fr) auto auto` — die Composer-Zeile ist `auto`-hoch und
+   * reserviert dadurch IMMER exakt ihre eigene (variable, je nach Zeilenzahl im Eingabefeld
+   * wachsende) Höhe; die `1fr`-Zeile der Nachrichten schrumpft automatisch entsprechend. Jeder
+   * Versuch, die Zeile stattdessen unabhängig zu positionieren (sticky griff mangels scrollendem
+   * Vorfahren nie, absolute kannte die tatsächliche Composer-Höhe nicht und liess Nachrichten
+   * dahinter weiterscrollen), hat diese automatische Reservierung nur kaputtgemacht.
+   * Sitzt die Zeile trotzdem nicht am unteren Rand, liegt es an `.chat-panel`s eigenem
+   * `padding-bottom` (siehe `.chat-app-shell.is-mobile-chat-topbar-active .chat-panel` weiter
+   * oben), nicht an dieser Regel.
+   */
 
   .chat-panel:not(.is-empty) .chat-messages {
     padding-bottom: var(--chat-mobile-messages-scroll-padding-bottom);
@@ -10578,10 +10586,6 @@ button.chat-onboarding-tour-block {
 @media (max-width: 860px) {
   .chat-input-hint {
     display: none !important;
-  }
-
-  .chat-panel:not(.is-empty) .chat-input-row {
-    bottom: var(--chat-mobile-composer-bottom-offset) !important;
   }
 
   .chat-panel.is-empty .chat-input-row.is-centered {

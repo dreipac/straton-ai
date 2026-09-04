@@ -558,8 +558,15 @@
  * Knopf — deshalb ohne `title`/`showCloseButton` am Sheet selbst, nur der Ziehgriff bleibt.
  */
 .rename-bottom-sheet-panel.brain-session-sheet-panel {
-  min-height: calc(var(--straton-app-height) - 1.75rem);
-  max-height: calc(var(--straton-app-height) - 1.75rem);
+  /*
+   * `1.75rem` allein reichte nur, solange man den Abstand am Gerät ohne Notch/Dynamic Island
+   * abgeschätzt hat — `--straton-app-height` deckt (wegen `viewport-fit=cover`) den Bildschirm
+   * randlos ab, `1.75rem` sind auf einem Gerät mit Notch also deutlich weniger als die
+   * Statusleiste selbst hoch ist, das Sheet reichte sichtbar in sie hinein. Floor 44px (übliche
+   * iOS-Statusleistenhöhe) für Geräte ohne nennenswerten Safe-Area-Wert, sonst gewinnt `env()`.
+   */
+  min-height: calc(var(--straton-app-height) - 1.75rem - max(env(safe-area-inset-top, 0px), 44px));
+  max-height: calc(var(--straton-app-height) - 1.75rem - max(env(safe-area-inset-top, 0px), 44px));
 }
 
 .brain-session-sheet-body {
