@@ -49,6 +49,13 @@ export type ChatComposerModelOption = {
   /** Kurzlabel in der Pill */
   label: string
   provider: 'openai' | 'anthropic'
+  /**
+   * Nimmt das Modell Bilder entgegen? Pflichtfeld — ein neues Modell muss sich hier entscheiden,
+   * statt stillschweigend als vision-fähig durchzurutschen. Steht das Feld auf `false`, weicht ein
+   * Chat mit Bild auf die 4o-Kette aus (siehe `chat.service.ts`, Vision-Fallback am Ende von
+   * `buildChatCompletionRequestBody`).
+   */
+  supportsVision: boolean
   /** Priorisierte OpenAI-Fallback-Kette */
   openAiModels?: readonly string[]
   anthropicModel?: string
@@ -63,18 +70,21 @@ export const CHAT_COMPOSER_MODELS: readonly ChatComposerModelOption[] = [
     id: 'gpt-5.6-sol',
     label: 'GPT-5.6 Sol',
     provider: 'openai',
+    supportsVision: true,
     openAiModels: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.4', 'gpt-5-mini'],
   },
   {
     id: 'gpt-5.6-terra',
     label: 'GPT-5.6 Terra',
     provider: 'openai',
+    supportsVision: true,
     openAiModels: ['gpt-5.6-terra', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini'],
   },
   {
     id: 'gpt-5.6-luna',
     label: 'GPT-5.6 Luna',
     provider: 'openai',
+    supportsVision: true,
     /* Luna ist das günstigste Modell der Liste. Die Kette bleibt deshalb bewusst im Billigsegment:
        ein Ausweichen auf Terra würde die Anfrage verzehnfachen, obwohl bewusst das Budget-Modell
        gewählt wurde. */
@@ -84,39 +94,54 @@ export const CHAT_COMPOSER_MODELS: readonly ChatComposerModelOption[] = [
     id: 'gpt-5.4',
     label: 'GPT-5.4',
     provider: 'openai',
+    supportsVision: true,
     openAiModels: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5-mini'],
   },
   {
     id: 'gpt-5.4-mini',
     label: 'GPT-5.4 mini',
     provider: 'openai',
+    supportsVision: true,
     openAiModels: ['gpt-5.4-mini', 'gpt-5-mini'],
   },
   {
     id: 'gpt-5-mini',
     label: 'GPT-5 mini',
     provider: 'openai',
+    supportsVision: true,
     openAiModels: ['gpt-5-mini', 'gpt-5.4-mini'],
   },
   {
     id: 'claude-opus-5',
     label: 'Claude Opus 5',
     provider: 'anthropic',
+    supportsVision: true,
     anthropicModel: 'claude-opus-5',
   },
   {
     id: 'claude-opus-4-8',
     label: 'Claude Opus 4.8',
     provider: 'anthropic',
+    supportsVision: true,
     anthropicModel: 'claude-opus-4-8',
   },
   {
     id: 'claude-sonnet-5',
     label: 'Claude Sonnet 5',
     provider: 'anthropic',
+    supportsVision: true,
     anthropicModel: 'claude-sonnet-5',
   },
 ]
+
+/**
+ * IDs aller Composer-Modelle, die Bilder annehmen — Quelle der Wahrheit für die gespiegelte Liste
+ * `CHAT_COMPOSER_VISION_MODEL_IDS` in `supabase/functions/chat-completion/index.ts` (die Edge
+ * Function kann aus `src/` nicht importieren). Beide Listen zusammen ändern.
+ */
+export const CHAT_COMPOSER_VISION_MODEL_IDS: readonly ChatComposerModelId[] = CHAT_COMPOSER_MODELS
+  .filter((m) => m.supportsVision)
+  .map((m) => m.id)
 
 export function getChatComposerModelMeta(id: ChatComposerModelId): ChatComposerModelOption {
   const found = CHAT_COMPOSER_MODELS.find((m) => m.id === id)

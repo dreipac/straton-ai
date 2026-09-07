@@ -892,6 +892,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+/**
+ * Composer-Modelle, die Bilder annehmen. Spiegelung von `CHAT_COMPOSER_VISION_MODEL_IDS`
+ * (`src/features/chat/constants/chatComposerModels.ts`) — die Edge Function kann aus `src/` nicht
+ * importieren, deshalb zwei Listen; beide zusammen ändern. Eine unbekannte ID zählt bewusst als
+ * nicht vision-fähig und fällt damit auf die 4o-Kette zurück.
+ */
+const CHAT_COMPOSER_VISION_MODEL_IDS: ReadonlySet<string> = new Set([
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5-mini',
+  'claude-opus-5',
+  'claude-opus-4-8',
+  'claude-sonnet-5',
+])
+
 /** Primärmodell für Chat; Fallbacks bei 404 oder „unknown model“. */
 const DEFAULT_OPENAI_CHAT_MODELS: string[] = ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini']
 
@@ -4700,7 +4718,18 @@ serve(async (req) => {
         admin,
       )
       const useGeminiForVision = isGeminiInstantEnabled() || provider === 'gemini'
-      if (provider === 'openai' && !useGeminiForVision) {
+      /*
+       * Wie im Client: die 4o-Umleitung gilt nur, solange das Routing das Modell selbst wählt. Eine
+       * gültige Composer-Wahl (nicht vom Abo gesperrt, vision-fähig) behält ihre Modellkette — sonst
+       * beantwortete jeder Folgeturn eines Threads mit Bild-Marker still gpt-4o statt des gewählten
+       * Modells. Das Bild selbst ist zu diesem Zeitpunkt bereits für jeden Provider aufgelöst
+       * (`resolveChatMessagesVisionForOpenAi` oben), Claude bekommt es als echten Bild-Block.
+       */
+      const chosenModelHandlesVision =
+        chatModelChosen &&
+        requestedChatModelId !== null &&
+        CHAT_COMPOSER_VISION_MODEL_IDS.has(requestedChatModelId)
+      if (provider === 'openai' && !useGeminiForVision && !chosenModelHandlesVision) {
         /** Nur ohne Smart Instant Gemini — sonst Vision über Gemini 3.1 Flash Lite. */
         openAiModels = ['gpt-4o', 'gpt-4o-mini']
       }

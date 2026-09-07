@@ -1919,14 +1919,27 @@ function buildChatCompletionRequestBody(
     })
   }
 
-  /** Ohne Smart Instant: Vision-Fallback OpenAI 4o — sonst bleibt Gemini (3.1 Flash Lite). */
+  /*
+   * Vision-Fallback auf OpenAI 4o — aber nur, solange das Routing das Modell selbst wählt. Eine
+   * bewusste Composer-Wahl schlägt auch hier durch (derselbe Vorbehalt wie bei allen anderen
+   * Sonderwegen oben): sonst kippte ein Chat, in dem irgendwann einmal ein Bild lag, für den Rest
+   * des Threads still auf gpt-4o — der `[BildData:`/`@chat-media:`-Marker bleibt im Verlauf
+   * stehen, auch nachdem das Base64 herausgestrippt wurde. Kann das gewählte Modell keine Bilder
+   * (`supportsVision: false`), greift der 4o-Weg weiterhin.
+   */
   const gatewayHasVision =
     gatewayMessages.some(
       (m) => m.role === 'user' && typeof m.content === 'string' && messageHasVisionPayload(m.content),
     ) ||
     (typeof options?.visionInlineDataUrl === 'string' &&
       options.visionInlineDataUrl.trim().startsWith('data:image/'))
-  if (!options?.useLearnPathModel && gatewayHasVision && !isGeminiInstantEnabled()) {
+  const pickedModelHandlesVision = pickedModelMeta?.supportsVision === true
+  if (
+    !options?.useLearnPathModel &&
+    gatewayHasVision &&
+    !pickedModelHandlesVision &&
+    !isGeminiInstantEnabled()
+  ) {
     body.provider = 'openai'
     body.openAiModels = ['gpt-4o', 'gpt-4o-mini']
     delete body.geminiModel
