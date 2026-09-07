@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
+/* `?raw` statt `node:fs`: `tsconfig.app.json` typt `src/` ohne Node-Typen (`types: ["vite/client"]`),
+   ein `node:fs`-Import liess damit `tsc -b` und den Build scheitern. Die `*?raw`-Deklaration kommt
+   aus `vite/client` und ist hier bereits vorhanden. */
+import edgeIndexSource from '../../../../supabase/functions/chat-completion/index.ts?raw'
 import { CHAT_COMPOSER_MODELS, CHAT_COMPOSER_VISION_MODEL_IDS } from './chatComposerModels'
 
 /**
@@ -9,13 +11,8 @@ import { CHAT_COMPOSER_MODELS, CHAT_COMPOSER_VISION_MODEL_IDS } from './chatComp
  * schickt die Kette des gewählten Modells, Edge überschreibt sie trotzdem) — genau der Fehler, den
  * die Whitelist verhindern soll. Deshalb hier ein Abgleich statt blossem Vertrauen auf den Kommentar.
  */
-const EDGE_INDEX_PATH = fileURLToPath(
-  new URL('../../../../supabase/functions/chat-completion/index.ts', import.meta.url),
-)
-
 function readEdgeVisionModelIds(): string[] {
-  const source = readFileSync(EDGE_INDEX_PATH, 'utf8')
-  const block = source.match(
+  const block = edgeIndexSource.match(
     /const CHAT_COMPOSER_VISION_MODEL_IDS: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)/,
   )
   if (!block?.[1]) {
